@@ -108,6 +108,61 @@
       display: flex; align-items: center; gap: 8px;
     }
 
+    /* --- Task History --- */
+    .task-history-toggle {
+      font-size: 0.78rem; color: #555; cursor: pointer;
+      background: none; border: none; padding: 4px 0;
+      font-family: inherit;
+    }
+    .task-history-toggle:hover { color: #888; }
+    .task-history {
+      display: none;
+      background: #0d1020;
+      border-top: 1px solid #1e2233;
+      padding: 12px 20px;
+      grid-column: 1 / -1;
+    }
+    .task-history.visible { display: block; }
+    .history-entry {
+      font-size: 0.8rem; color: #999; margin-bottom: 10px;
+    }
+    .history-entry:last-child { margin-bottom: 0; }
+    .history-timestamp { color: #555; margin-right: 8px; }
+    .history-comm {
+      margin-left: 20px; margin-top: 4px;
+      font-size: 0.75rem; color: #777;
+      border-left: 2px solid #2a2f45;
+      padding-left: 10px;
+    }
+    .history-comm a { color: #60a5fa; text-decoration: none; }
+    .history-comm a:hover { text-decoration: underline; }
+
+    /* --- Log Work Inline --- */
+    .log-work-form {
+      display: none;
+      grid-column: 1 / -1;
+      padding: 8px 0 4px;
+      gap: 8px;
+    }
+    .log-work-form.visible { display: flex; align-items: center; }
+    .log-work-form input {
+      flex: 1;
+      background: #161929; color: #e0e0e0; border: 1px solid #2a2f45;
+      border-radius: 6px; padding: 6px 10px; font-size: 0.82rem;
+      font-family: inherit;
+    }
+    .log-work-form input:focus { outline: none; border-color: #3b82f6; }
+    .log-work-form button { white-space: nowrap; }
+
+    /* --- Per-Task Spinner --- */
+    .task-spinner {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid #1e2233; border-top-color: #6366f1;
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+      margin-left: 8px; vertical-align: middle;
+    }
+
     /* --- Empty State --- */
     .empty-state {
       text-align: center; padding: 60px 20px; color: #444;
@@ -259,6 +314,8 @@
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     .loading-text { font-size: 0.9rem; color: #aaa; }
+    .loading-text.warning { color: #fbbf24; }
+    .loading-timer { font-size: 0.8rem; color: #555; margin-top: 8px; }
 
     /* --- Notification Toast --- */
     .notification {
@@ -335,6 +392,7 @@
   <div class="loading-overlay" id="loadingOverlay">
     <div class="spinner"></div>
     <div class="loading-text" id="loadingText">Scanning...</div>
+    <div class="loading-timer" id="loadingTimer"></div>
   </div>
 
 <script>
@@ -485,18 +543,49 @@
     const btn = document.getElementById('btnScan');
     const overlay = document.getElementById('loadingOverlay');
     const loadingText = document.getElementById('loadingText');
+    const loadingTimer = document.getElementById('loadingTimer');
 
     btn.disabled = true;
     btn.textContent = 'Scanning...';
     overlay.classList.add('visible');
+    loadingText.className = 'loading-text';
 
-    const steps = ['Scanning emails...', 'Scanning Teams...', 'Analyzing action items...'];
-    let step = 0;
-    loadingText.textContent = steps[0];
-    const interval = setInterval(() => {
-      step++;
-      if (step < steps.length) loadingText.textContent = steps[step];
-    }, 2000);
+    const steps = [
+      { text: 'Connecting to AI engine...', at: 0 },
+      { text: 'Starting Work IQ service...', at: 5 },
+      { text: 'Authenticating with Microsoft 365...', at: 10 },
+      { text: 'Scanning emails (last 4 days)...', at: 15 },
+      { text: 'Scanning Teams messages...', at: 25 },
+      { text: 'Analyzing messages for action items...', at: 35 },
+      { text: 'Almost done — processing results...', at: 50 },
+      { text: 'Still working — large mailbox takes longer...', at: 65 },
+      { text: 'Hang tight — finalizing...', at: 80 }
+    ];
+
+    let elapsed = 0;
+    loadingText.textContent = steps[0].text;
+    loadingTimer.textContent = '⏱ 00:00';
+
+    const timerInterval = setInterval(() => {
+      elapsed++;
+      const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+      const ss = String(elapsed % 60).padStart(2, '0');
+      loadingTimer.textContent = `⏱ ${mm}:${ss}`;
+
+      // Advance step based on elapsed time
+      for (let i = steps.length - 1; i >= 0; i--) {
+        if (elapsed >= steps[i].at) {
+          loadingText.textContent = steps[i].text;
+          break;
+        }
+      }
+
+      // Timeout warning at 90s
+      if (elapsed === 90) {
+        loadingText.textContent = '⚠️ Der Scan dauert ungewöhnlich lange. Deine Mailbox ist möglicherweise sehr gross. Bitte warte noch einen Moment...';
+        loadingText.className = 'loading-text warning';
+      }
+    }, 1000);
 
     try {
       const res = await fetch('/api/scan', { method: 'POST' });
@@ -505,8 +594,10 @@
         showNotification(friendlyError(data), 'error');
       } else {
         await fetchTasks();
-        const msg = data.added > 0
-          ? `Scan complete: ${data.added} new task${data.added !== 1 ? 's' : ''} added${data.skipped ? `, ${data.skipped} duplicate${data.skipped !== 1 ? 's' : ''} skipped` : ''}.`
+        const msg = data.added > 0 || data.updated > 0
+          ? `Scan complete: ${data.added} new task${data.added !== 1 ? 's' : ''} added` +
+            (data.updated ? `, ${data.updated} updated` : '') +
+            (data.skipped ? `, ${data.skipped} duplicate${data.skipped !== 1 ? 's' : ''} skipped` : '') + '.'
           : 'Scan complete: no new action items found.';
         showNotification(msg, 'success');
       }
@@ -517,8 +608,9 @@
         showNotification('Scan failed: ' + err.message, 'error');
       }
     } finally {
-      clearInterval(interval);
+      clearInterval(timerInterval);
       overlay.classList.remove('visible');
+      loadingText.className = 'loading-text';
       btn.disabled = !serverOnline;
       btn.textContent = 'Scan Emails & Teams';
     }
@@ -560,9 +652,15 @@
     const list = document.getElementById('taskList');
     const countEl = document.getElementById('taskCount');
 
-    // Update filter badge counts
-    const counts = { all: tasks.length, active: 0, 'in-progress': 0, done: 0, paused: 0 };
-    tasks.forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
+    // Auto-cleanup: hide done tasks older than 3 days
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    const visibleTasks = tasks.filter(t =>
+      !(t.status === 'done' && t.doneAt && t.doneAt < threeDaysAgo)
+    );
+
+    // Update filter badge counts (only visible tasks)
+    const counts = { all: visibleTasks.length, active: 0, 'in-progress': 0, done: 0, paused: 0 };
+    visibleTasks.forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
     document.querySelectorAll('.filter-bar .btn-ghost').forEach(btn => {
       const f = btn.dataset.filter;
       const labels = { all: 'All', active: '🔵 Active', 'in-progress': '🟡 In Progress', done: '✅ Done', paused: '⏸️ Paused' };
@@ -571,20 +669,20 @@
 
     // Sort: active first, then by date (newest first)
     const statusOrder = { 'active': 0, 'in-progress': 1, 'paused': 2, 'done': 3 };
-    const sorted = [...tasks].sort((a, b) => {
+    const sorted = [...visibleTasks].sort((a, b) => {
       const so = (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9);
       if (so !== 0) return so;
       return new Date(b.createdAt) - new Date(a.createdAt);
     });
 
     const filtered = currentFilter === 'all' ? sorted : sorted.filter(t => t.status === currentFilter);
-    countEl.textContent = `${filtered.length} of ${tasks.length} tasks`;
+    countEl.textContent = `${filtered.length} of ${visibleTasks.length} tasks`;
 
     if (filtered.length === 0) {
       list.innerHTML = `
         <div class="empty-state">
           <p>No tasks found</p>
-          <div class="hint">${tasks.length === 0 ? 'Add a task below or scan your emails to get started.' : 'Try a different filter.'}</div>
+          <div class="hint">${visibleTasks.length === 0 ? 'Add a task below or scan your emails to get started.' : 'Try a different filter.'}</div>
         </div>`;
       return;
     }
@@ -605,8 +703,12 @@
         : '';
       const notesHtml = task.notes ? `<div class="task-notes">${escHtml(task.notes)}</div>` : '';
 
+      const history = task.history || [];
+      const historyCount = history.length > 0 ? ` (${history.length})` : '';
+      const historyHtml = renderHistory(history);
+
       return `
-        <div class="task-card${doneClass}">
+        <div class="task-card${doneClass}" id="card-${task.id}">
           <div class="task-main">
             <div class="task-title">${escHtml(task.title)}</div>
             <div class="task-meta">
@@ -615,8 +717,10 @@
               ${linkHtml}
             </div>
             ${notesHtml}
+            <button class="task-history-toggle" onclick="toggleHistory('${task.id}')">📜 History${historyCount}</button>
           </div>
           <div class="task-actions">
+            <button class="btn btn-ghost btn-sm" onclick="toggleLogForm('${task.id}')">✏️ Log</button>
             <select class="status-select ${statusClass}" onchange="updateTask('${task.id}', { status: this.value })">
               <option value="active" ${task.status === 'active' ? 'selected' : ''}>🔵 Active</option>
               <option value="in-progress" ${task.status === 'in-progress' ? 'selected' : ''}>🟡 In Progress</option>
@@ -625,8 +729,87 @@
             </select>
             <button class="btn btn-danger" onclick="deleteTask('${task.id}')">✕</button>
           </div>
+          <div class="log-work-form" id="log-${task.id}">
+            <input type="text" placeholder="What did you do? e.g. 'Emailed Sarah the revised numbers'" onkeydown="if(event.key==='Enter')submitLog('${task.id}',this)">
+            <button class="btn btn-primary btn-sm" onclick="submitLog('${task.id}',this.previousElementSibling)">Save</button>
+          </div>
+          <div class="task-history" id="history-${task.id}">${historyHtml}</div>
         </div>`;
     }).join('');
+  }
+
+  function renderHistory(history) {
+    if (!history || history.length === 0) return '<div class="history-entry" style="color:#555">No history yet.</div>';
+
+    const typeIcons = {
+      'created': '➕', 'status-change': '✅', 'update': '📝',
+      'scan-update': '🔄', 'note': '📝', 'communication': '📧'
+    };
+
+    return [...history].reverse().map(entry => {
+      const icon = typeIcons[entry.type] || '📌';
+      const ts = formatDate(entry.timestamp);
+      let html = `<div class="history-entry"><span class="history-timestamp">${ts}</span> ${icon} ${escHtml(entry.text)}</div>`;
+
+      if (entry.communications && entry.communications.length > 0) {
+        for (const comm of entry.communications) {
+          const commIcon = comm.type === 'teams' ? '💬' : '📧';
+          const commLink = comm.link
+            ? ` <a href="${escHtml(comm.link)}" target="_blank" rel="noopener">Open ↗</a>`
+            : '';
+          const commDate = comm.date ? formatDate(comm.date) : '';
+          html += `<div class="history-comm">${commIcon} ${escHtml(comm.from || '')} → ${escHtml(comm.to || '')} (${commDate})${commLink}`;
+          if (comm.summary) html += `<br>"${escHtml(comm.summary)}"`;
+          html += `</div>`;
+        }
+      }
+      return html;
+    }).join('');
+  }
+
+  function toggleHistory(id) {
+    const el = document.getElementById('history-' + id);
+    if (el) el.classList.toggle('visible');
+  }
+
+  function toggleLogForm(id) {
+    const el = document.getElementById('log-' + id);
+    if (el) {
+      el.classList.toggle('visible');
+      if (el.classList.contains('visible')) el.querySelector('input').focus();
+    }
+  }
+
+  async function submitLog(taskId, input) {
+    const text = input.value.trim();
+    if (!text) return;
+
+    const card = document.getElementById('card-' + taskId);
+    const spinner = document.createElement('span');
+    spinner.className = 'task-spinner';
+    card.querySelector('.task-title').appendChild(spinner);
+    input.disabled = true;
+
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/log`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showNotification(friendlyError(data), 'error');
+      } else {
+        input.value = '';
+        showNotification('✅ Work logged', 'success');
+        await fetchTasks();
+      }
+    } catch (err) {
+      showNotification('Failed to log work: ' + err.message, 'error');
+    } finally {
+      if (spinner.parentElement) spinner.remove();
+      input.disabled = false;
+    }
   }
 
   // --- Filter ---

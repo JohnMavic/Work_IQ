@@ -30,6 +30,37 @@ function writeTasks(data) {
   fs.writeFileSync(TASKS_FILE, JSON.stringify(data, null, 2) + '\n', 'utf-8');
 }
 
+// --- Write Queue (sequential writes for concurrency safety) ---
+
+let writePromise = Promise.resolve();
+
+function safeWriteTasks(mutationFn) {
+  writePromise = writePromise.then(() => {
+    const data = readTasks();
+    const result = mutationFn(data);
+    writeTasks(data);
+    return result;
+  });
+  return writePromise;
+}
+
+// --- Schema Migration ---
+
+function migrateTasks() {
+  const data = readTasks();
+  if (data.version >= 2) return;
+
+  for (const task of data.tasks) {
+    if (!task.history) task.history = [];
+    if (task.doneAt === undefined) {
+      task.doneAt = task.status === 'done' ? task.updatedAt : null;
+    }
+  }
+  data.version = 2;
+  writeTasks(data);
+  console.log(`Migrated tasks.json from v1 to v2 (${data.tasks.length} tasks)`);
+}
+
 // --- API Endpoints ---
 
 // GET /api/tasks — return all tasks
@@ -43,30 +74,32 @@ app.get('/api/tasks', (req, res) => {
 });
 
 // POST /api/tasks — add a manual task
-app.post('/api/tasks', (req, res) => {
+app.post('/api/tasks', async (req, res) => {
   try {
     const { title, notes } = req.body;
     if (!title || !title.trim()) {
       return res.status(400).json({ error: 'Title is required' });
     }
 
-    const now = new Date().toISOString();
-    const task = {
-      id: uuidv4(),
-      title: title.trim(),
-      source: 'manual',
-      from: null,
-      date: null,
-      link: null,
-      status: 'active',
-      notes: notes ? notes.trim() : '',
-      createdAt: now,
-      updatedAt: now
-    };
-
-    const data = readTasks();
-    data.tasks.push(task);
-    writeTasks(data);
+    const task = await safeWriteTasks((data) => {
+      const now = new Date().toISOString();
+      const t = {
+        id: uuidv4(),
+        title: title.trim(),
+        source: 'manual',
+        from: null,
+        date: null,
+        link: null,
+        status: 'active',
+        notes: notes ? notes.trim() : '',
+        history: [{ timestamp: now, type: 'created', text: 'Task created manually' }],
+        doneAt: null,
+        createdAt: now,
+        updatedAt: now
+      };
+      data.tasks.push(t);
+      return t;
+    });
 
     res.status(201).json(task);
   } catch (err) {
@@ -75,31 +108,52 @@ app.post('/api/tasks', (req, res) => {
 });
 
 // PATCH /api/tasks/:id — update task status or notes
-app.patch('/api/tasks/:id', (req, res) => {
+app.patch('/api/tasks/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
-    const data = readTasks();
-    const task = data.tasks.find(t => t.id === id);
-
-    if (!task) {
-      return res.status(404).json({ error: 'Task not found' });
-    }
 
     const validStatuses = ['active', 'in-progress', 'done', 'paused'];
     if (updates.status !== undefined && !validStatuses.includes(updates.status)) {
       return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
     }
 
-    const allowedFields = ['status', 'notes', 'title'];
-    for (const field of allowedFields) {
-      if (updates[field] !== undefined) {
-        task[field] = typeof updates[field] === 'string' ? updates[field].trim() : updates[field];
-      }
-    }
-    task.updatedAt = new Date().toISOString();
+    const task = await safeWriteTasks((data) => {
+      const t = data.tasks.find(t => t.id === id);
+      if (!t) return null;
 
-    writeTasks(data);
+      const now = new Date().toISOString();
+      if (!t.history) t.history = [];
+
+      // Track status change in history
+      if (updates.status !== undefined && updates.status !== t.status) {
+        t.history.push({
+          timestamp: now,
+          type: 'status-change',
+          text: `Status changed: ${t.status} → ${updates.status}`
+        });
+
+        // Manage doneAt
+        if (updates.status === 'done') {
+          t.doneAt = now;
+        } else if (t.status === 'done') {
+          t.doneAt = null;
+        }
+      }
+
+      const allowedFields = ['status', 'notes', 'title'];
+      for (const field of allowedFields) {
+        if (updates[field] !== undefined) {
+          t[field] = typeof updates[field] === 'string' ? updates[field].trim() : updates[field];
+        }
+      }
+      t.updatedAt = now;
+      return t;
+    });
+
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
     res.json(task);
   } catch (err) {
     res.status(500).json({ error: 'Failed to update task', detail: err.message });
@@ -107,18 +161,20 @@ app.patch('/api/tasks/:id', (req, res) => {
 });
 
 // DELETE /api/tasks/:id — delete a task
-app.delete('/api/tasks/:id', (req, res) => {
+app.delete('/api/tasks/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const data = readTasks();
-    const index = data.tasks.findIndex(t => t.id === id);
 
-    if (index === -1) {
+    const found = await safeWriteTasks((data) => {
+      const index = data.tasks.findIndex(t => t.id === id);
+      if (index === -1) return false;
+      data.tasks.splice(index, 1);
+      return true;
+    });
+
+    if (!found) {
       return res.status(404).json({ error: 'Task not found' });
     }
-
-    data.tasks.splice(index, 1);
-    writeTasks(data);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete task', detail: err.message });
@@ -165,67 +221,78 @@ app.post('/api/scan', async (req, res) => {
       });
     }
 
-    // Deduplicate and add new tasks
-    const data = readTasks();
-    const existingLinks = new Set(
-      data.tasks.filter(t => t.link).map(t => t.link)
-    );
+    // Deduplicate, update, and add new tasks
+    const result = await safeWriteTasks((data) => {
+      const existingLinks = new Set(
+        data.tasks.filter(t => t.link).map(t => t.link)
+      );
 
-    const now = new Date().toISOString();
-    let added = 0;
-    let skipped = 0;
+      const now = new Date().toISOString();
+      let added = 0;
+      let skipped = 0;
+      let updated = 0;
 
-    for (const item of items) {
-      if (!item.title) continue;
+      for (const item of items) {
+        if (!item.title) continue;
 
-      // Duplicate detection by link
-      if (item.link && existingLinks.has(item.link)) {
-        skipped++;
-        continue;
-      }
-
-      // Fallback duplicate detection for items without a link
-      if (!item.link) {
         const titleNorm = String(item.title).trim();
         const fromNorm = item.from ? String(item.from).trim() : null;
         const sourceNorm = item.source === 'teams' ? 'teams' : 'email';
-        const isDup = data.tasks.some(t =>
-          t.title === titleNorm && t.from === fromNorm && t.source === sourceNorm
-        );
-        if (isDup) {
-          skipped++;
+
+        // Find existing task (by link or by title+from+source)
+        let existing = null;
+        if (item.link) {
+          existing = data.tasks.find(t => t.link === item.link);
+        }
+        if (!existing) {
+          existing = data.tasks.find(t =>
+            t.title === titleNorm && t.from === fromNorm && t.source === sourceNorm
+          );
+        }
+
+        if (existing) {
+          // Check if title changed
+          if (titleNorm !== existing.title) {
+            if (!existing.history) existing.history = [];
+            existing.history.push({
+              timestamp: now,
+              type: 'scan-update',
+              text: `Updated by scan: title changed from "${existing.title}" to "${titleNorm}"`
+            });
+            existing.title = titleNorm;
+            existing.updatedAt = now;
+            updated++;
+          } else {
+            skipped++;
+          }
           continue;
         }
+
+        const task = {
+          id: uuidv4(),
+          title: titleNorm,
+          source: sourceNorm,
+          from: fromNorm,
+          date: item.date || null,
+          link: item.link ? String(item.link).trim() : null,
+          status: 'active',
+          notes: '',
+          history: [{ timestamp: now, type: 'created', text: `Task created from ${sourceNorm} scan` }],
+          doneAt: null,
+          createdAt: now,
+          updatedAt: now
+        };
+
+        data.tasks.push(task);
+        if (task.link) existingLinks.add(task.link);
+        added++;
       }
 
-      const task = {
-        id: uuidv4(),
-        title: String(item.title).trim(),
-        source: item.source === 'teams' ? 'teams' : 'email',
-        from: item.from ? String(item.from).trim() : null,
-        date: item.date || null,
-        link: item.link ? String(item.link).trim() : null,
-        status: 'active',
-        notes: '',
-        createdAt: now,
-        updatedAt: now
-      };
-
-      data.tasks.push(task);
-      if (task.link) existingLinks.add(task.link);
-      added++;
-    }
-
-    data.lastScan = now;
-    writeTasks(data);
-
-    res.json({
-      success: true,
-      added,
-      skipped,
-      total: data.tasks.length,
-      lastScan: now
+      data.lastScan = now;
+      return { added, skipped, updated, total: data.tasks.length, lastScan: now };
     });
+
+    res.json({ success: true, ...result });
   } catch (err) {
     console.error('Scan failed:', err);
     res.status(500).json({ error: 'Scan failed', detail: err.message });
@@ -233,6 +300,97 @@ app.post('/api/scan', async (req, res) => {
     if (client) {
       try { await client.dispose(); } catch {}
     }
+  }
+});
+
+// POST /api/tasks/:id/log — log work with AI communication search
+app.post('/api/tasks/:id/log', async (req, res) => {
+  const { id } = req.params;
+  const { text } = req.body;
+
+  if (!text || !text.trim()) {
+    return res.status(400).json({ error: 'Log text is required' });
+  }
+
+  // Read task context for the prompt (outside write queue)
+  let taskContext;
+  try {
+    const data = readTasks();
+    taskContext = data.tasks.find(t => t.id === id);
+    if (!taskContext) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to read tasks', detail: err.message });
+  }
+
+  // AI communication search
+  let communications = [];
+  let client;
+  try {
+    client = new CopilotClient();
+    const session = await client.createSession({
+      mcpServers: {
+        workiq: {
+          type: 'stdio',
+          command: 'workiq',
+          args: ['mcp'],
+          tools: '*'
+        }
+      }
+    });
+
+    const logPrompt = `The user logged this work on a task:\n` +
+      `Task: "${taskContext.title}" (from: ${taskContext.from || 'unknown'}, source: ${taskContext.source})\n` +
+      `User says: "${text.trim()}"\n` +
+      `Search my recent emails and Teams messages for communications matching this description. ` +
+      `Return ONLY a JSON array of found communications with: ` +
+      `type ("email" or "teams"), from (string), to (string), date (ISO 8601), ` +
+      `summary (1-2 sentences), link (URL string or null). ` +
+      `If nothing found, return [].`;
+
+    const response = await session.sendAndWait({ prompt: logPrompt }, 90000);
+    await session.destroy();
+
+    if (response) {
+      const parsed = parseJsonFromResponse(response.data.content);
+      if (Array.isArray(parsed)) {
+        communications = parsed;
+      }
+    }
+  } catch (err) {
+    console.error('AI communication search failed:', err);
+    // Continue without communications — still log the work
+  } finally {
+    if (client) {
+      try { await client.dispose(); } catch {}
+    }
+  }
+
+  // Write the history entry via queue
+  try {
+    const task = await safeWriteTasks((data) => {
+      const t = data.tasks.find(t => t.id === id);
+      if (!t) return null;
+      if (!t.history) t.history = [];
+
+      const now = new Date().toISOString();
+      t.history.push({
+        timestamp: now,
+        type: 'update',
+        text: text.trim(),
+        communications
+      });
+      t.updatedAt = now;
+      return t;
+    });
+
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    res.json(task);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to log work', detail: err.message });
   }
 });
 
@@ -255,6 +413,8 @@ function parseJsonFromResponse(text) {
 }
 
 // --- Start Server ---
+
+migrateTasks();
 
 app.listen(PORT, () => {
   console.log(`Daily Briefing App running at http://localhost:${PORT}`);

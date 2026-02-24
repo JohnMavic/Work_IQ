@@ -49,6 +49,10 @@ Then open [http://localhost:3000](http://localhost:3000) in your browser.
 - **Status Management** — change task status (Active, In Progress, Done, Paused) via the dropdown on each card
 - **Filter** — filter tasks by status using the buttons at the top
 - **Deep Links** — click "Open source" on any scanned task to jump to the original email or Teams message
+- **Task History** — every task tracks its changes (creation, status changes, work logs) in a collapsible history view
+- **Work Logging** — click "✏️ Log" on a task to describe what you did; the AI automatically finds and links related emails/Teams messages
+- **Auto-Cleanup** — done tasks automatically hide from the UI after 3 days (data preserved in tasks.json)
+- **Smart Re-Scan** — re-scanning detects updated tasks and logs changes to history instead of creating duplicates
 
 ### Data Storage
 
