@@ -29,9 +29,14 @@ npm install
 
 ## Usage
 
-Start the server:
+**Quick Start (recommended):**
+
+Double-click `START-DAILY-BRIEFING.bat` — this starts the server and opens the browser automatically.
+
+**Manual Start:**
 
 ```powershell
+cd E:\Work_IQ\Daily_Tasks
 node server.js
 ```
 
@@ -64,11 +69,14 @@ All tasks are stored locally in `tasks.json`. No data is sent to external servic
 
 ```
 Daily_Tasks/
-├── server.js          — Node.js Express backend (API + Copilot SDK + Work IQ MCP)
-├── index.html         — Frontend (single HTML file, dark theme)
-├── tasks.json         — Persistent task data (auto-created)
-├── package.json       — Dependencies and scripts
-├── README.md          — This file
-└── Specifactions/
-    └── DAILY_BRIEFING_APP_SPEC.md  — Product specification
+├── Documents/
+│   └── ARCHITECTURE.md            — Technical architecture reference
+├── Specifactions/
+│   └── DAILY_BRIEFING_APP_SPEC.md — Product specification
+├── server.js                      — Node.js Express backend (API + Copilot SDK + Work IQ MCP)
+├── index.html                     — Frontend (single HTML file, dark theme)
+├── tasks.json                     — Persistent task data (auto-created)
+├── package.json                   — Dependencies and scripts
+├── START-DAILY-BRIEFING.bat       — One-click launcher (starts server + opens browser)
+└── README.md                      — This file
 ```

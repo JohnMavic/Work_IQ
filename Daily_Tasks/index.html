@@ -161,17 +161,88 @@
       opacity: 0.8;
     }
 
-    /* --- Server Status Dot --- */
+    /* --- Server Status Dot + Tooltip --- */
+    .server-dot-wrapper {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      cursor: pointer;
+    }
     .server-dot {
       display: inline-block;
-      width: 8px;
-      height: 8px;
+      width: 12px;
+      height: 12px;
       border-radius: 50%;
       background: #ef4444;
       margin-right: 6px;
       vertical-align: middle;
+      transition: box-shadow 0.2s;
     }
     .server-dot.online { background: #34d399; }
+    .server-dot-wrapper:hover .server-dot {
+      box-shadow: 0 0 6px 2px currentColor;
+    }
+    .server-dot-wrapper:hover .server-dot.online { color: #34d399; }
+    .server-dot-wrapper:hover .server-dot:not(.online) { color: #ef4444; }
+
+    .server-tooltip {
+      display: none;
+      position: absolute;
+      top: calc(100% + 10px);
+      right: 0;
+      background: #1a1d2e;
+      border: 1px solid #2a2f45;
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 0.78rem;
+      color: #ccc;
+      max-width: 300px;
+      min-width: 240px;
+      white-space: nowrap;
+      z-index: 50;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .server-dot-wrapper:hover .server-tooltip {
+      display: block;
+      opacity: 1;
+    }
+    .server-tooltip::before {
+      content: '';
+      position: absolute;
+      top: -6px;
+      right: 16px;
+      width: 10px;
+      height: 10px;
+      background: #1a1d2e;
+      border-left: 1px solid #2a2f45;
+      border-top: 1px solid #2a2f45;
+      transform: rotate(45deg);
+    }
+    .server-tooltip .tooltip-title {
+      font-weight: 600;
+      margin-bottom: 8px;
+      font-size: 0.82rem;
+    }
+    .server-tooltip .tooltip-title.online { color: #34d399; }
+    .server-tooltip .tooltip-title.offline { color: #ef4444; }
+    .server-tooltip table { border-collapse: collapse; width: 100%; }
+    .server-tooltip td {
+      padding: 2px 0;
+      vertical-align: top;
+    }
+    .server-tooltip td:first-child {
+      color: #888;
+      padding-right: 12px;
+    }
+    .server-tooltip td:last-child {
+      font-family: Consolas, "Courier New", monospace;
+      color: #e0e0e0;
+    }
+    .server-tooltip .offline-hint {
+      color: #fbbf24;
+      line-height: 1.6;
+    }
 
     /* --- Loading Overlay --- */
     .loading-overlay {
@@ -213,7 +284,10 @@
   <header>
     <h1>📋 Daily Briefing</h1>
     <div class="header-right">
-      <span class="server-dot" id="serverDot" title="Server offline"></span>
+      <span class="server-dot-wrapper">
+        <span class="server-dot" id="serverDot"></span>
+        <div class="server-tooltip" id="serverTooltip"></div>
+      </span>
       <span class="last-scan" id="lastScan"></span>
       <button class="btn btn-scan" id="btnScan" onclick="triggerScan()">Scan Emails &amp; Teams</button>
     </div>
@@ -301,12 +375,30 @@
 
     const banner = document.getElementById('offlineBanner');
     const dot = document.getElementById('serverDot');
+    const tooltip = document.getElementById('serverTooltip');
     const btnScan = document.getElementById('btnScan');
     const btnAddTask = document.querySelector('#addTaskForm button[type="submit"]');
 
     banner.style.display = online ? 'none' : 'block';
     dot.className = online ? 'server-dot online' : 'server-dot';
-    dot.title = online ? 'Server online' : 'Server offline';
+
+    if (online) {
+      tooltip.innerHTML =
+        '<div class="tooltip-title online">✅ Server verbunden</div>' +
+        '<table>' +
+        '<tr><td>Express</td><td>localhost:3000</td></tr>' +
+        '<tr><td>AI Engine</td><td>GitHub Copilot SDK</td></tr>' +
+        '<tr><td>M365 Daten</td><td>Work IQ → Graph API</td></tr>' +
+        '<tr><td>Speicher</td><td>tasks.json (lokal)</td></tr>' +
+        '</table>';
+    } else {
+      tooltip.innerHTML =
+        '<div class="tooltip-title offline">❌ Server nicht erreichbar</div>' +
+        '<div class="offline-hint">' +
+        '→ START-DAILY-BRIEFING.bat doppelklicken<br>' +
+        '→ Oder: <code>node server.js</code> im Terminal' +
+        '</div>';
+    }
 
     btnScan.disabled = !online;
     btnScan.title = online ? '' : 'Server nicht erreichbar';
@@ -427,7 +519,7 @@
     } finally {
       clearInterval(interval);
       overlay.classList.remove('visible');
-      btn.disabled = false;
+      btn.disabled = !serverOnline;
       btn.textContent = 'Scan Emails & Teams';
     }
   }

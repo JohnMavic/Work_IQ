@@ -1,7 +1,7 @@
 # Daily Briefing App — Technical Architecture
 
-**Version:** 1.0
-**Date:** February 23, 2026
+**Version:** 1.1
+**Date:** February 24, 2026
 **Author:** Martin Hämmerli
 
 ---
@@ -64,6 +64,30 @@
 | **Work IQ MCP Server** | MCP-compatible tool server. Bridges between the Copilot SDK and Microsoft Graph API. Handles M365 authentication and data retrieval. |
 | **Microsoft Graph API** | Microsoft's REST API for M365 data. Provides access to emails (Outlook) and chat messages (Teams). |
 | **tasks.json** | Local JSON file for persistent storage. Stores all tasks, scan metadata, and version info. |
+
+### Startup Flow (START-DAILY-BRIEFING.bat)
+
+```
+User doppelklickt BAT
+        │
+        ▼
+BAT prüft Port 3000 ──► bereits belegt? ──► Browser öffnen
+        │ nein
+        ▼
+node server.js (separates minimiertes Fenster)
+        │
+        ▼
+Warte auf Server-Ready (max 15s)
+        │
+        ▼
+Browser öffnet http://localhost:3000
+        │
+        ▼
+index.html: checkServerHealth()
+        │
+        ├── ✅ Online → fetchTasks() → App bereit
+        └── ❌ Offline → Banner + Auto-Retry (5s)
+```
 
 ---
 
@@ -456,8 +480,8 @@ Triggers an AI-powered scan of M365 emails and Teams messages.
 
 The entire frontend is contained in `index.html`:
 - **HTML** structure (header, main, form, loading overlay)
-- **CSS** styles (~170 lines, all in a `<style>` tag)
-- **JavaScript** application logic (~200 lines, all in a `<script>` tag)
+- **CSS** styles (~200 lines, all in a `<style>` tag)
+- **JavaScript** application logic (~305 lines, all in a `<script>` tag)
 
 No build step, no bundler, no framework. This matches the project convention (AI Café Presenter uses the same pattern).
 
@@ -469,6 +493,8 @@ No build step, no bundler, no framework. This matches the project convention (AI
 │                                              │
 │  let tasks = [];        // All tasks         │
 │  let currentFilter = 'all'; // Active filter │
+│  let serverOnline = false;  // Server reachable?     │
+│  let reconnectTimer = null; // Auto-retry interval   │
 └──────────────────┬──────────────────────────┘
                    │
         Updated by fetchTasks()
@@ -501,6 +527,24 @@ showNotification(message, type)
 ```
 
 Types: `success` (green border/text) and `error` (red border/text). Slides in from the right with CSS animation.
+
+### Server Health Check
+
+```
+checkServerHealth()
+  │
+  ├── fetch('/api/tasks') with AbortController (3s timeout)
+  ├── Success → setServerStatus(true) → load tasks
+  └── Failure → setServerStatus(false) → show banner + start polling
+
+setServerStatus(online)
+  │
+  ├── Toggle offline banner visibility
+  ├── Toggle status dot (green/red)
+  ├── Enable/disable scan + add buttons
+  ├── If reconnected: clear timer + show notification
+  └── If offline: start 5s polling timer
+```
 
 ### Filter System
 

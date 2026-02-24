@@ -1,7 +1,7 @@
 # Daily Briefing App — Product Specification
 
-**Version:** 1.0
-**Date:** February 23, 2026
+**Version:** 1.1
+**Date:** February 24, 2026
 **Author:** Martin Hämmerli
 **Status:** Implemented — all 3 phases complete
 
@@ -53,6 +53,20 @@ Build a local, single-page HTML application that helps the user stay on top of a
 | **M365 Access** | Work IQ MCP (`@microsoft/workiq`) | Already installed (v0.2.8), EULA accepted, token active |
 | **Data Storage** | Local JSON file (`tasks.json`) | Simplest possible persistence, easy to inspect and debug |
 | **Deep Links** | Outlook `outlook://` protocol links | Opens referenced emails directly in Outlook desktop app |
+
+### 3.1 Prerequisites
+
+| Requirement | Version | Installation |
+|---|---|---|
+| Node.js | v18+ | https://nodejs.org/ |
+| Work IQ CLI | v0.2.8+ | `npm install -g @microsoft/workiq` |
+| GitHub Copilot access | — | GitHub account with Copilot license |
+| M365 account | — | Corporate account with email + Teams access |
+
+First-time setup:
+1. `npm install` (install project dependencies)
+2. `workiq accept-eula` (accept Work IQ terms, one-time)
+3. Verify M365 access: `workiq ask -q "Show my latest emails"`
 
 ---
 
@@ -194,6 +208,16 @@ Each status filter button dynamically displays the number of tasks in that statu
 - Counts update automatically after every task mutation (add, update, delete, scan)
 - If a status has zero tasks, the count is hidden (e.g., just "⏸️ Paused")
 
+### 4.11 Server Status Detection
+
+The frontend detects whether the backend server is running and provides clear feedback:
+
+- **Health Check on Load:** `checkServerHealth()` performs a `fetch('/api/tasks')` with a 3-second `AbortController` timeout
+- **Offline Banner:** A prominent amber banner appears in the main area when the server is unreachable, with instructions to start the server (BAT file or manual command)
+- **Auto-Reconnect:** When offline, a polling timer (every 5 seconds) retries the health check automatically. On reconnection, the banner disappears, tasks are loaded, and a "✅ Server verbunden" notification is shown
+- **Status Dot:** A small colored dot in the header indicates server status (🟢 green = online, 🔴 red = offline)
+- **Button Protection:** The "Scan Emails & Teams" and "Add Task" submit buttons are disabled with tooltip "Server nicht erreichbar" when the server is offline
+
 ---
 
 ## 5. UI Design Requirements
@@ -254,6 +278,12 @@ The Node.js server exposes these REST endpoints for the frontend:
 
 ## 8. How to Start the App (Target)
 
+**Primary (one-click):**
+
+Double-click `START-DAILY-BRIEFING.bat` — this starts the server (if not already running), waits for it to be ready, and opens the browser automatically.
+
+**Alternative (manual):**
+
 ```powershell
 cd E:\Work_IQ\Daily_Tasks
 node server.js
@@ -275,6 +305,7 @@ E:\Work_IQ\Daily_Tasks\
 ├── index.html                          ← Frontend (single file)
 ├── tasks.json                          ← Persistent task data
 ├── package.json                        ← Node.js dependencies ("type": "module")
+├── START-DAILY-BRIEFING.bat            ← One-click launcher (starts server + opens browser)
 └── README.md                           ← How to install and run
 ```
 
