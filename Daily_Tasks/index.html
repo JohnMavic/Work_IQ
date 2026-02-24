@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Daily Briefing</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0b0d17;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* --- Header --- */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 32px;
+      border-bottom: 1px solid #1e2233;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    header h1 { font-size: 1.4rem; font-weight: 600; color: #fff; }
+    .header-right { display: flex; align-items: center; gap: 16px; }
+    .last-scan { font-size: 0.8rem; color: #666; }
+
+    /* --- Buttons --- */
+    .btn {
+      border: none; border-radius: 6px; cursor: pointer;
+      font-size: 0.85rem; font-weight: 500; padding: 8px 16px;
+      transition: background 0.2s, opacity 0.2s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-primary { background: #3b82f6; color: #fff; }
+    .btn-scan { background: #6366f1; color: #fff; font-size: 0.9rem; padding: 10px 20px; }
+    .btn-danger { background: #ef4444; color: #fff; padding: 4px 10px; font-size: 0.75rem; }
+    .btn-sm { padding: 4px 10px; font-size: 0.75rem; }
+    .btn-ghost { background: transparent; border: 1px solid #333; color: #aaa; }
+    .btn-ghost.active { border-color: #3b82f6; color: #3b82f6; }
+
+    /* --- Status Badges --- */
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 10px;
+      font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
+    }
+    .badge-email { background: #1e3a5f; color: #60a5fa; }
+    .badge-teams { background: #3b1f5e; color: #a78bfa; }
+    .badge-manual { background: #1f2e1f; color: #86efac; }
+
+    .status-select {
+      background: #161929; color: #e0e0e0; border: 1px solid #2a2f45;
+      border-radius: 4px; padding: 4px 8px; font-size: 0.8rem; cursor: pointer;
+    }
+    .status-select:focus { outline: none; border-color: #3b82f6; }
+
+    /* Status colors */
+    .status-active { color: #60a5fa; }
+    .status-in-progress { color: #fbbf24; }
+    .status-done { color: #34d399; }
+    .status-paused { color: #9ca3af; }
+
+    /* --- Main Content --- */
+    main { flex: 1; padding: 24px 32px; overflow-y: auto; }
+
+    /* --- Filter Bar --- */
+    .filter-bar {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 20px; flex-wrap: wrap;
+    }
+    .task-count {
+      margin-left: auto; font-size: 0.8rem; color: #666;
+    }
+
+    /* --- Task List --- */
+    .task-list { display: flex; flex-direction: column; gap: 8px; }
+
+    .task-card {
+      background: #131627;
+      border: 1px solid #1e2233;
+      border-radius: 8px;
+      padding: 16px 20px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px 16px;
+      align-items: start;
+      transition: border-color 0.2s;
+    }
+    .task-card:hover { border-color: #2a3555; }
+    .task-card.done { opacity: 0.5; }
+
+    .task-main { display: flex; flex-direction: column; gap: 6px; }
+    .task-title { font-size: 0.95rem; font-weight: 500; color: #fff; }
+    .task-meta {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 0.78rem; color: #666;
+    }
+    .task-meta a { color: #60a5fa; text-decoration: none; }
+    .task-meta a:hover { text-decoration: underline; }
+    .task-notes { font-size: 0.8rem; color: #888; font-style: italic; margin-top: 2px; }
+
+    .task-actions {
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    /* --- Empty State --- */
+    .empty-state {
+      text-align: center; padding: 60px 20px; color: #444;
+    }
+    .empty-state p { font-size: 1rem; margin-bottom: 8px; }
+    .empty-state .hint { font-size: 0.8rem; }
+
+    /* --- Add Task Form --- */
+    .add-task-section {
+      padding: 20px 32px;
+      border-top: 1px solid #1e2233;
+      background: #0e1020;
+    }
+    .add-task-form {
+      display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;
+    }
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .form-group label { font-size: 0.75rem; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
+    .form-group input, .form-group textarea {
+      background: #161929; color: #e0e0e0; border: 1px solid #2a2f45;
+      border-radius: 6px; padding: 8px 12px; font-size: 0.85rem;
+      font-family: inherit;
+    }
+    .form-group input:focus, .form-group textarea:focus {
+      outline: none; border-color: #3b82f6;
+    }
+    .form-group.title-group { flex: 2; min-width: 200px; }
+    .form-group.notes-group { flex: 1; min-width: 150px; }
+
+    /* --- Server Offline Banner --- */
+    .server-offline-banner {
+      background: #2a1a0a;
+      color: #fbbf24;
+      border: 1px solid #92400e;
+      border-radius: 8px;
+      padding: 20px 32px;
+      margin-bottom: 20px;
+      line-height: 1.7;
+    }
+    .server-offline-banner h3 { margin-bottom: 8px; font-size: 1rem; }
+    .server-offline-banner code {
+      background: #1a1206;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.85rem;
+    }
+    .server-offline-banner .retry-hint {
+      margin-top: 12px;
+      font-size: 0.8rem;
+      opacity: 0.8;
+    }
+
+    /* --- Server Status Dot --- */
+    .server-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ef4444;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+    .server-dot.online { background: #34d399; }
+
+    /* --- Loading Overlay --- */
+    .loading-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(11, 13, 23, 0.85);
+      justify-content: center; align-items: center;
+      flex-direction: column; gap: 16px; z-index: 100;
+    }
+    .loading-overlay.visible { display: flex; }
+    .spinner {
+      width: 36px; height: 36px;
+      border: 3px solid #1e2233; border-top-color: #6366f1;
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { font-size: 0.9rem; color: #aaa; }
+
+    /* --- Notification Toast --- */
+    .notification {
+      position: fixed; top: 20px; right: 20px; z-index: 200;
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 16px; border-radius: 8px;
+      font-size: 0.85rem; max-width: 420px;
+      animation: slideIn 0.3s ease;
+    }
+    .notification button {
+      background: none; border: none; color: inherit; cursor: pointer;
+      font-size: 1rem; opacity: 0.7; padding: 0 0 0 8px;
+    }
+    .notification button:hover { opacity: 1; }
+    .notification-success { background: #0f2a1f; color: #34d399; border: 1px solid #166534; }
+    .notification-error { background: #2a0f0f; color: #f87171; border: 1px solid #7f1d1d; }
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <h1>📋 Daily Briefing</h1>
+    <div class="header-right">
+      <span class="server-dot" id="serverDot" title="Server offline"></span>
+      <span class="last-scan" id="lastScan"></span>
+      <button class="btn btn-scan" id="btnScan" onclick="triggerScan()">Scan Emails &amp; Teams</button>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main>
+    <!-- Server Offline Banner -->
+    <div class="server-offline-banner" id="offlineBanner" style="display: none;">
+      <h3>⚠️ Server nicht erreichbar</h3>
+      <p>Der Backend-Server läuft nicht. Bitte starte ihn:</p>
+      <p><strong>Option 1:</strong> Doppelklick auf <code>START-DAILY-BRIEFING.bat</code></p>
+      <p><strong>Option 2:</strong> Terminal öffnen und ausführen:<br>
+        <code>cd E:\Work_IQ\Daily_Tasks &amp;&amp; node server.js</code></p>
+      <div class="retry-hint">🔄 Verbindung wird automatisch geprüft...</div>
+    </div>
+
+    <div class="filter-bar">
+      <button class="btn btn-ghost btn-sm active" data-filter="all" onclick="setFilter('all', this)">All</button>
+      <button class="btn btn-ghost btn-sm" data-filter="active" onclick="setFilter('active', this)">🔵 Active</button>
+      <button class="btn btn-ghost btn-sm" data-filter="in-progress" onclick="setFilter('in-progress', this)">🟡 In Progress</button>
+      <button class="btn btn-ghost btn-sm" data-filter="done" onclick="setFilter('done', this)">✅ Done</button>
+      <button class="btn btn-ghost btn-sm" data-filter="paused" onclick="setFilter('paused', this)">⏸️ Paused</button>
+      <span class="task-count" id="taskCount"></span>
+    </div>
+    <div class="task-list" id="taskList"></div>
+  </main>
+
+  <!-- Add Task Form -->
+  <section class="add-task-section">
+    <form class="add-task-form" id="addTaskForm" onsubmit="addTask(event)">
+      <div class="form-group title-group">
+        <label for="taskTitle">New Task</label>
+        <input type="text" id="taskTitle" placeholder="What needs to be done?" required>
+      </div>
+      <div class="form-group notes-group">
+        <label for="taskNotes">Notes (optional)</label>
+        <input type="text" id="taskNotes" placeholder="Additional details...">
+      </div>
+      <button type="submit" class="btn btn-primary">Add Task</button>
+    </form>
+  </section>
+
+  <!-- Loading Overlay -->
+  <div class="loading-overlay" id="loadingOverlay">
+    <div class="spinner"></div>
+    <div class="loading-text" id="loadingText">Scanning...</div>
+  </div>
+
+<script>
+  // --- State ---
+  let tasks = [];
+  let currentFilter = 'all';
+  let serverOnline = false;
+  let reconnectTimer = null;
+
+  // --- Server Health Check ---
+
+  async function checkServerHealth() {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    try {
+      const res = await fetch('/api/tasks', { signal: controller.signal });
+      if (res.ok) {
+        setServerStatus(true);
+        const data = await res.json();
+        tasks = data.tasks || [];
+        updateLastScan(data.lastScan);
+        renderTasks();
+        return true;
+      }
+      setServerStatus(false);
+      return false;
+    } catch {
+      setServerStatus(false);
+      return false;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  function setServerStatus(online) {
+    const wasOffline = !serverOnline;
+    serverOnline = online;
+
+    const banner = document.getElementById('offlineBanner');
+    const dot = document.getElementById('serverDot');
+    const btnScan = document.getElementById('btnScan');
+    const btnAddTask = document.querySelector('#addTaskForm button[type="submit"]');
+
+    banner.style.display = online ? 'none' : 'block';
+    dot.className = online ? 'server-dot online' : 'server-dot';
+    dot.title = online ? 'Server online' : 'Server offline';
+
+    btnScan.disabled = !online;
+    btnScan.title = online ? '' : 'Server nicht erreichbar';
+    if (btnAddTask) {
+      btnAddTask.disabled = !online;
+      btnAddTask.title = online ? '' : 'Server nicht erreichbar';
+    }
+
+    if (online && reconnectTimer) {
+      clearInterval(reconnectTimer);
+      reconnectTimer = null;
+      if (wasOffline) {
+        showNotification('✅ Server verbunden', 'success');
+      }
+    }
+
+    if (!online && !reconnectTimer) {
+      reconnectTimer = setInterval(checkServerHealth, 5000);
+    }
+  }
+
+  // --- API Calls ---
+
+  async function fetchTasks() {
+    try {
+      const res = await fetch('/api/tasks');
+      const data = await res.json();
+      tasks = data.tasks || [];
+      updateLastScan(data.lastScan);
+      setServerStatus(true);
+      renderTasks();
+    } catch (err) {
+      console.error('Failed to fetch tasks:', err);
+      setServerStatus(false);
+    }
+  }
+
+  async function addTask(e) {
+    e.preventDefault();
+    const title = document.getElementById('taskTitle').value.trim();
+    const notes = document.getElementById('taskNotes').value.trim();
+    if (!title) return;
+
+    try {
+      const res = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, notes })
+      });
+      if (res.ok) {
+        document.getElementById('taskTitle').value = '';
+        document.getElementById('taskNotes').value = '';
+        await fetchTasks();
+      }
+    } catch (err) {
+      console.error('Failed to add task:', err);
+    }
+  }
+
+  async function updateTask(id, updates) {
+    try {
+      await fetch(`/api/tasks/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      });
+      await fetchTasks();
+    } catch (err) {
+      console.error('Failed to update task:', err);
+    }
+  }
+
+  async function deleteTask(id) {
+    if (!confirm('Delete this task?')) return;
+    try {
+      await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
+      await fetchTasks();
+    } catch (err) {
+      console.error('Failed to delete task:', err);
+    }
+  }
+
+  async function triggerScan() {
+    const btn = document.getElementById('btnScan');
+    const overlay = document.getElementById('loadingOverlay');
+    const loadingText = document.getElementById('loadingText');
+
+    btn.disabled = true;
+    btn.textContent = 'Scanning...';
+    overlay.classList.add('visible');
+
+    const steps = ['Scanning emails...', 'Scanning Teams...', 'Analyzing action items...'];
+    let step = 0;
+    loadingText.textContent = steps[0];
+    const interval = setInterval(() => {
+      step++;
+      if (step < steps.length) loadingText.textContent = steps[step];
+    }, 2000);
+
+    try {
+      const res = await fetch('/api/scan', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        showNotification(friendlyError(data), 'error');
+      } else {
+        await fetchTasks();
+        const msg = data.added > 0
+          ? `Scan complete: ${data.added} new task${data.added !== 1 ? 's' : ''} added${data.skipped ? `, ${data.skipped} duplicate${data.skipped !== 1 ? 's' : ''} skipped` : ''}.`
+          : 'Scan complete: no new action items found.';
+        showNotification(msg, 'success');
+      }
+    } catch (err) {
+      if (err.name === 'TypeError' && err.message.includes('fetch')) {
+        showNotification('Cannot reach the server. Is it still running?', 'error');
+      } else {
+        showNotification('Scan failed: ' + err.message, 'error');
+      }
+    } finally {
+      clearInterval(interval);
+      overlay.classList.remove('visible');
+      btn.disabled = false;
+      btn.textContent = 'Scan Emails & Teams';
+    }
+  }
+
+  function showNotification(message, type = 'success') {
+    const existing = document.querySelector('.notification');
+    if (existing) existing.remove();
+
+    const el = document.createElement('div');
+    el.className = `notification notification-${type}`;
+    el.innerHTML = `<span>${message}</span><button onclick="this.parentElement.remove()">✕</button>`;
+    document.body.appendChild(el);
+
+    setTimeout(() => { if (el.parentElement) el.remove(); }, 5000);
+  }
+
+  function friendlyError(data) {
+    const detail = (data.detail || '').toLowerCase();
+    const error = data.error || '';
+
+    if (detail.includes('auth') || detail.includes('token') || detail.includes('401') || detail.includes('unauthorized'))
+      return 'Authentication expired — please run "workiq accept-eula" in your terminal and try again.';
+    if (detail.includes('econnrefused') || detail.includes('spawn') || detail.includes('not found') || detail.includes('not recognized'))
+      return 'Could not start Work IQ. Make sure it is installed globally (npm i -g @microsoft/workiq).';
+    if (detail.includes('timeout') || detail.includes('timed out'))
+      return 'Scan timed out — your mailbox may be very large. Please try again.';
+    if (error === 'No response from AI engine')
+      return 'No response from AI engine. Check your GitHub Copilot authentication.';
+    if (error === 'AI returned unexpected format')
+      return 'The AI returned an unexpected response. Please try scanning again.';
+
+    return data.message || error || 'An unexpected error occurred during the scan.';
+  }
+
+  // --- Rendering ---
+
+  function renderTasks() {
+    const list = document.getElementById('taskList');
+    const countEl = document.getElementById('taskCount');
+
+    // Update filter badge counts
+    const counts = { all: tasks.length, active: 0, 'in-progress': 0, done: 0, paused: 0 };
+    tasks.forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
+    document.querySelectorAll('.filter-bar .btn-ghost').forEach(btn => {
+      const f = btn.dataset.filter;
+      const labels = { all: 'All', active: '🔵 Active', 'in-progress': '🟡 In Progress', done: '✅ Done', paused: '⏸️ Paused' };
+      btn.textContent = counts[f] ? `${labels[f]} (${counts[f]})` : labels[f];
+    });
+
+    // Sort: active first, then by date (newest first)
+    const statusOrder = { 'active': 0, 'in-progress': 1, 'paused': 2, 'done': 3 };
+    const sorted = [...tasks].sort((a, b) => {
+      const so = (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9);
+      if (so !== 0) return so;
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+
+    const filtered = currentFilter === 'all' ? sorted : sorted.filter(t => t.status === currentFilter);
+    countEl.textContent = `${filtered.length} of ${tasks.length} tasks`;
+
+    if (filtered.length === 0) {
+      list.innerHTML = `
+        <div class="empty-state">
+          <p>No tasks found</p>
+          <div class="hint">${tasks.length === 0 ? 'Add a task below or scan your emails to get started.' : 'Try a different filter.'}</div>
+        </div>`;
+      return;
+    }
+
+    list.innerHTML = filtered.map(task => {
+      const sourceBadge = task.source === 'email' ? '<span class="badge badge-email">Email</span>'
+        : task.source === 'teams' ? '<span class="badge badge-teams">Teams</span>'
+        : '<span class="badge badge-manual">Manual</span>';
+
+      const statusClass = `status-${task.status}`;
+      const doneClass = task.status === 'done' ? ' done' : '';
+
+      const fromText = task.from ? `from ${escHtml(task.from)}` : '';
+      const dateText = task.date ? formatDate(task.date) : '';
+      const separator = fromText && dateText ? ' · ' : '';
+      const linkHtml = task.link
+        ? `<a href="${escHtml(task.link)}" target="_blank" rel="noopener">Open source ↗</a>`
+        : '';
+      const notesHtml = task.notes ? `<div class="task-notes">${escHtml(task.notes)}</div>` : '';
+
+      return `
+        <div class="task-card${doneClass}">
+          <div class="task-main">
+            <div class="task-title">${escHtml(task.title)}</div>
+            <div class="task-meta">
+              ${sourceBadge}
+              <span>${fromText}${separator}${dateText}</span>
+              ${linkHtml}
+            </div>
+            ${notesHtml}
+          </div>
+          <div class="task-actions">
+            <select class="status-select ${statusClass}" onchange="updateTask('${task.id}', { status: this.value })">
+              <option value="active" ${task.status === 'active' ? 'selected' : ''}>🔵 Active</option>
+              <option value="in-progress" ${task.status === 'in-progress' ? 'selected' : ''}>🟡 In Progress</option>
+              <option value="done" ${task.status === 'done' ? 'selected' : ''}>✅ Done</option>
+              <option value="paused" ${task.status === 'paused' ? 'selected' : ''}>⏸️ Paused</option>
+            </select>
+            <button class="btn btn-danger" onclick="deleteTask('${task.id}')">✕</button>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  // --- Filter ---
+
+  function setFilter(filter, btn) {
+    currentFilter = filter;
+    document.querySelectorAll('.filter-bar .btn-ghost').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderTasks();
+  }
+
+  // --- Helpers ---
+
+  function updateLastScan(ts) {
+    const el = document.getElementById('lastScan');
+    el.textContent = ts ? `Last scan: ${formatDate(ts)}` : 'Never scanned';
+  }
+
+  function formatDate(iso) {
+    const d = new Date(iso);
+    return d.toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
+      ' ' + d.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function escHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  // --- Init ---
+  checkServerHealth();
+</script>
+
+</body>
+</html>

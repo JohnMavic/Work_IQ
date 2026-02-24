@@ -1,0 +1,20 @@
+{
+  "name": "daily_tasks",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Martin Hämmerli",
+  "license": "ISC",
+  "description": "Daily Briefing App — action items from M365 emails and Teams",
+  "dependencies": {
+    "@github/copilot-sdk": "^0.1.25",
+    "@microsoft/workiq": "^0.2.8",
+    "express": "^5.2.1",
+    "uuid": "^13.0.0"
+  }
+}
