@@ -1183,8 +1183,18 @@
       if (logInput) logInput.value = '';
       showNotification('✅ Work logged', 'success');
 
+      // Clear pending plan BEFORE re-render so showPlanUI() won't restore it
+      delete pendingPlans[taskId];
+
       // Re-render but keep panels open
       await fetchTasks();
+
+      // Hide plan div after re-render (conversation is now shown in renderConversations)
+      const freshPlanEl = document.getElementById('plan-' + taskId);
+      if (freshPlanEl) {
+        freshPlanEl.classList.remove('visible');
+        freshPlanEl.innerHTML = '';
+      }
 
     } catch (err) {
       clearTimeout(waitTimer);
@@ -1192,7 +1202,7 @@
       if (freshPlanEl) freshPlanEl.innerHTML = `<div class="log-plan-understanding">❌ Search failed: ${escHtml(err.message)}</div>`;
       showNotification('Failed to log work: ' + err.message, 'error');
     } finally {
-      delete pendingPlans[taskId];
+      delete pendingPlans[taskId]; // safe to call even if already deleted above
       busyTaskIds.delete(taskId);
       document.getElementById('card-' + taskId)?.classList.remove('agent-busy');
     }
