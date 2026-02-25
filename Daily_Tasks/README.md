@@ -75,7 +75,9 @@ All tasks are stored locally in `tasks.json`. No data is sent to external servic
 ```
 Daily_Tasks/
 ├── Documents/
-│   └── ARCHITECTURE.md            — Technical architecture reference
+│   ├── ARCHITECTURE.md            — Technical architecture reference
+│   ├── SCAN_SKILL.md              — AI instructions for scan & dedup
+│   └── LOG_WORK_SKILL.md          — AI instructions for log work search
 ├── Specifactions/
 │   └── DAILY_BRIEFING_APP_SPEC.md — Product specification
 ├── server.js                      — Node.js Express backend (API + Copilot SDK + Work IQ MCP)

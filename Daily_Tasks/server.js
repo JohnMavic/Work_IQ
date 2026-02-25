@@ -12,6 +12,28 @@ const app = express();
 const PORT = 3000;
 const TASKS_FILE = path.join(__dirname, 'tasks.json');
 
+// --- Load Skill Files (v1.3) ---
+
+const SCAN_SKILL_PATH = path.join(__dirname, 'Documents', 'SCAN_SKILL.md');
+const LOG_WORK_SKILL_PATH = path.join(__dirname, 'Documents', 'LOG_WORK_SKILL.md');
+
+let SCAN_SKILL = '';
+let LOG_WORK_SKILL = '';
+
+try {
+  SCAN_SKILL = fs.readFileSync(SCAN_SKILL_PATH, 'utf-8');
+  console.log(`Loaded SCAN_SKILL.md (${SCAN_SKILL.length} chars)`);
+} catch (err) {
+  console.warn('Warning: SCAN_SKILL.md not found, using minimal scan prompt');
+}
+
+try {
+  LOG_WORK_SKILL = fs.readFileSync(LOG_WORK_SKILL_PATH, 'utf-8');
+  console.log(`Loaded LOG_WORK_SKILL.md (${LOG_WORK_SKILL.length} chars)`);
+} catch (err) {
+  console.warn('Warning: LOG_WORK_SKILL.md not found, using minimal log prompt');
+}
+
 app.use(express.json());
 
 // Serve index.html at root
@@ -225,7 +247,19 @@ app.post('/api/scan', async (req, res) => {
       .map(t => ({ id: t.id, title: t.title, source: t.source, from: t.from }));
 
     let scanPrompt;
-    if (activeTasks.length > 0) {
+    if (SCAN_SKILL && activeTasks.length > 0) {
+      scanPrompt = SCAN_SKILL + `\n\n` +
+        `EXISTING TASKS:\n` +
+        JSON.stringify(activeTasks) + `\n\n` +
+        `Scan my emails and Teams messages from the last 4 days.\n` +
+        `For each action item found, decide: action "update" (with existingId) or "new".`;
+    } else if (SCAN_SKILL) {
+      scanPrompt = SCAN_SKILL + `\n\n` +
+        `There are no existing tasks yet.\n\n` +
+        `Scan my emails and Teams messages from the last 4 days.\n` +
+        `For each action item found, return with action "new".`;
+    } else if (activeTasks.length > 0) {
+      // Fallback: no skill file, use inline prompt (backward-compat)
       scanPrompt = `I have these EXISTING action items (do NOT re-create them):\n` +
         JSON.stringify(activeTasks) + `\n\n` +
         `Scan my emails and Teams messages from the last 4 days. ` +
@@ -417,14 +451,34 @@ app.post('/api/tasks/:id/log', async (req, res) => {
       }
     });
 
-    const logPrompt = `The user logged this work on a task:\n` +
-      `Task: "${taskContext.title}" (from: ${taskContext.from || 'unknown'}, source: ${taskContext.source})\n` +
-      `User says: "${text.trim()}"\n` +
-      `Search my recent emails and Teams messages for communications matching this description. ` +
-      `Return ONLY a JSON array of found communications with: ` +
-      `type ("email" or "teams"), from (string), to (string), date (ISO 8601), ` +
-      `summary (1-2 sentences), link (URL string or null). ` +
-      `If nothing found, return [].`;
+    const taskDate = taskContext.date || taskContext.createdAt || '';
+
+    let logPrompt;
+    if (LOG_WORK_SKILL) {
+      logPrompt = LOG_WORK_SKILL + `\n\n` +
+        `TASK CONTEXT:\n` +
+        `Task: "${taskContext.title}"\n` +
+        `Original sender: ${taskContext.from || 'unknown'}, Source: ${taskContext.source}, Date: ${taskDate}\n\n` +
+        `USER LOG:\n` +
+        `"${text.trim()}"\n\n` +
+        `Search from ${taskDate} onward.`;
+    } else {
+      // Fallback: no skill file, use inline prompt
+      logPrompt = `The user logged work on this task:\n` +
+        `Task: "${taskContext.title}"\n` +
+        `Original sender: ${taskContext.from || 'unknown'}, Source: ${taskContext.source}, Date: ${taskDate}\n\n` +
+        `User says: "${text.trim()}"\n\n` +
+        `Search my emails and Teams messages for the FULL conversation thread ` +
+        `related to this task. Use the task title keywords as search terms. ` +
+        `Search from ${taskDate} onward. Include ALL replies, forwards, and ` +
+        `CC responses in the thread — not just the original message.\n\n` +
+        `For each message found, return a JSON object with:\n` +
+        `type ("email" or "teams"), from (sender name), to (recipient names), ` +
+        `date (ISO 8601), summary (1-2 sentence summary), ` +
+        `link (URL or null).\n\n` +
+        `Return ONLY a JSON array ordered by date (oldest first). No markdown.\n` +
+        `If nothing found, return [].`;
+    }
 
     const response = await session.sendAndWait({ prompt: logPrompt }, 90000);
     await session.destroy();
