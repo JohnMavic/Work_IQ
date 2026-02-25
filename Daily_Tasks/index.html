@@ -937,34 +937,59 @@
       const ts = formatDate(conv.timestamp);
       detailsHtml += `<div class="detail-entry" style="color:#94a3b8;margin-top:8px"><strong>📝 ${ts}</strong></div>`;
 
-      // 1. Agent understanding (from agentPlan)
+      // Step 1: AUFTRAG (from agentPlan)
       if (conv.agentPlan) {
         const p = conv.agentPlan;
         detailsHtml += `<div class="detail-meta">`;
-        detailsHtml += `<span>🤖 <strong>Agent understood:</strong> ${escHtml(p.understanding)}</span>`;
-        if (p.keywords && p.keywords.length > 0) detailsHtml += `<span>🔑 <strong>Keywords:</strong> ${escHtml(p.keywords.join(', '))}</span>`;
-        if (p.timeWindow) detailsHtml += `<span>📅 <strong>Time window:</strong> ${escHtml(p.timeWindow.from || '?')} → ${escHtml(p.timeWindow.to || 'now')}</span>`;
-        if (p.searchTargets) detailsHtml += `<span>🎯 <strong>Target:</strong> ${escHtml(p.searchTargets)}</span>`;
+        detailsHtml += `<span style="color:#93c5fd"><strong>1️⃣ Auftrag</strong></span>`;
+        detailsHtml += `<span>${escHtml(p.understanding)}</span>`;
+        const meta = [];
+        if (p.keywords?.length) meta.push(`🔑 ${escHtml(p.keywords.join(', '))}`);
+        if (p.timeWindow) meta.push(`📅 ${escHtml(p.timeWindow.from || '?')} → ${escHtml(p.timeWindow.to || 'now')}`);
+        if (p.searchTargets) meta.push(`🎯 ${escHtml(p.searchTargets)}`);
+        if (meta.length) detailsHtml += `<span>${meta.join(' · ')}</span>`;
         detailsHtml += `</div>`;
       }
 
-      // 2. Execution trace (from agentExecution)
       if (conv.agentExecution) {
         const ex = conv.agentExecution;
         detailsHtml += `<div class="detail-meta" style="border-left:2px solid #f59e0b;margin-top:4px">`;
+
+        // Step 2: GESENDET (promptSent = search parameters sent to Work IQ)
+        detailsHtml += `<span style="color:#fbbf24"><strong>2️⃣ Gesendet an Work IQ</strong></span>`;
         if (ex.promptSent) {
-          detailsHtml += `<span>📤 <strong>Sent to Work IQ:</strong> ${escHtml(ex.promptSent)}</span>`;
+          detailsHtml += `<span>${escHtml(ex.promptSent)}</span>`;
         }
-        if (ex.rawResponse) {
+
+        // Step 3: ANTWORT (rawResponse or error, with duration)
+        const duration = ex.durationMs ? ` (${(ex.durationMs / 1000).toFixed(1)}s)` : '';
+        if (ex.error) {
+          detailsHtml += `<span style="color:#f87171"><strong>3️⃣ Antwort von Work IQ${duration}</strong></span>`;
+          detailsHtml += `<span style="color:#f87171">❌ ${escHtml(ex.error)}</span>`;
+        } else if (ex.rawResponse) {
+          detailsHtml += `<span style="color:#4ade80"><strong>3️⃣ Antwort von Work IQ${duration}</strong></span>`;
           const truncated = ex.rawResponse.length > 500 ? ex.rawResponse.substring(0, 500) + '...' : ex.rawResponse;
-          detailsHtml += `<span>📥 <strong>System response:</strong></span>`;
-          detailsHtml += `<span style="white-space:pre-wrap;font-size:0.7rem;color:#64748b;margin-left:8px">${escHtml(truncated)}</span>`;
-        } else if (ex.error) {
-          detailsHtml += `<span>❌ <strong>Error:</strong> ${escHtml(ex.error)}</span>`;
+          detailsHtml += `<span style="white-space:pre-wrap;font-size:0.7rem;color:#64748b">${escHtml(truncated)}</span>`;
         } else {
-          detailsHtml += `<span>📥 <strong>System response:</strong> (no response received)</span>`;
+          detailsHtml += `<span style="color:#9ca3af"><strong>3️⃣ Antwort von Work IQ${duration}</strong></span>`;
+          detailsHtml += `<span style="color:#9ca3af">Keine Antwort erhalten</span>`;
         }
-        detailsHtml += `<span>📊 <strong>Result:</strong> ${ex.parsedCount} communication(s) extracted</span>`;
+
+        // Step 4: ERGEBNIS (parsed communications summary)
+        detailsHtml += `<span style="color:#93c5fd"><strong>4️⃣ Ergebnis für Benutzer</strong></span>`;
+        if (ex.error) {
+          detailsHtml += `<span>⚠️ Suche fehlgeschlagen — Eintrag ohne Kommunikationen gespeichert</span>`;
+        } else if (conv.communications?.length > 0) {
+          detailsHtml += `<span>✅ ${ex.parsedCount} Kommunikation(en) extrahiert:</span>`;
+          for (const c of conv.communications) {
+            const icon = c.type === 'teams' ? '💬' : '📧';
+            const cDate = c.date ? formatDate(c.date) : '';
+            detailsHtml += `<span style="margin-left:8px">${icon} ${escHtml(c.from || '?')} → ${escHtml(c.to || '?')} (${cDate})</span>`;
+          }
+        } else {
+          detailsHtml += `<span>🔍 Keine Kommunikationen gefunden</span>`;
+        }
+
         detailsHtml += `</div>`;
       }
     }

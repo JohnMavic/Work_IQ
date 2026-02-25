@@ -360,7 +360,8 @@ The `agentExecution` field (v1.4, optional) records the execution phase — what
     "promptSent": "The dynamic context part of the prompt sent to Work IQ (without skill file boilerplate)",
     "rawResponse": "The raw text response from the AI system (truncated to 2000 chars if longer)",
     "parsedCount": 3,
-    "error": null
+    "error": null,
+    "durationMs": 45230
   }
 }
 ```
@@ -425,13 +426,13 @@ Clicking on a task card opens an **interaction panel** directly below the card h
    - Or "🔍 No communications found" if empty
 4. Agent conversations are shown in **chronological order** (oldest first) — this reads like a chat
 5. The **Log input** (✏️ Log) is always visible at the bottom of the panel (no separate toggle needed)
-6. **"▶ Details" toggle** at the very bottom — expands to show:
-   - Technical metadata: keywords, time window, search targets (per agent interaction)
-   - **Execution trace** (from `agentExecution`):
-     - 📤 **Prompt sent:** The dynamic context sent to Work IQ (task + plan + user text, not the skill file boilerplate)
-     - 📥 **System response:** Raw AI response (truncated >500 chars with full text preserved in data). Shows `(no response)` if null, or error message if failed.
-     - 📊 **Result:** "X communication(s) extracted" or error description
+6. **"▶ Details" toggle** at the very bottom — expands to show a **4-step pipeline story** per agent interaction:
+   - 1️⃣ **Auftrag** — What the agent understood: plan understanding + keywords + time window + target
+   - 2️⃣ **Gesendet an Work IQ** — The search parameters actually sent to the AI system
+   - 3️⃣ **Antwort von Work IQ** — Raw system response (truncated >500 chars) or error message, with duration in seconds
+   - 4️⃣ **Ergebnis für Benutzer** — Count of extracted communications + from→to summary per message, or "Keine Kommunikationen gefunden"
    - System events: created, status-change, scan-update (the old history entries)
+   - This pipeline view tells the complete story: who sent what to whom, how the system responded, and what the user sees as a result
    - These are useful for debugging but NOT the primary view
 7. The interaction panel should be **generously sized** — no cramped layout
 8. Multiple entries stack vertically (chat-like, chronological)
@@ -513,14 +514,21 @@ Phase 1: ANALYZE (~5-15s, no Work IQ)       Phase 2: EXECUTE (after confirm, ~30
 **Phase 2 — Execute (after user confirmation):**
 1. User clicks "✅ Search" to confirm the plan
 2. Frontend sends `POST /api/tasks/:id/log { text, plan }` — the enhanced log endpoint
-3. Server builds a **targeted** Work IQ prompt using the confirmed plan:
-   - Skill file (LOG_WORK_SKILL.md) as base instructions
-   - Plan keywords as explicit search terms
-   - Plan time window as explicit date range
-   - Plan search targets as scope directive
+3. Server builds a **lean execution prompt** directly from the confirmed plan (NO skill file):
+   - Concrete assignment: task title, sender, search targets
+   - Precise search parameters: keywords, time window
+   - Output format rules: JSON schema, summary guidelines, ordering
+   - This is ~600 chars vs ~2400 chars when using the full skill file — more focused, less noise
 4. Work IQ searches M365 data with the precise parameters
-5. Server saves history entry with communications array
+5. Server saves history entry with communications array + execution trace (`agentExecution`)
 6. Frontend shows results
+
+**Skill File Usage (v1.4):**
+```
+Phase 1 (Analyze): Hardcoded analysis prompt (stable meta-prompt, no skill file)
+Phase 2 (Execute): Lean execution prompt built from plan (no skill file needed)
+Fallback:          LOG_WORK_SKILL.md used ONLY when no plan exists (v1.3 backward-compat)
+```
 
 **Clarification Rules (embedded in analysis prompt):**
 - If user's log text is too vague to determine search intent → ask what they want to find

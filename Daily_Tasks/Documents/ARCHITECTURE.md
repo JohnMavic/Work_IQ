@@ -677,8 +677,10 @@ Task Card Layout (v1.4):
 │                                                                            │
 │  [▶ Details]                                                               │
 │  ┌─ Details (collapsed, expandable) ────────────────────────────────────┐  │
-│  │ Agent trace: 📤 Prompt sent, 📥 Raw response, 📊 Parse result       │  │
-│  │ Plan meta: Keywords, Time Window, Search Targets (per interaction)   │  │
+│  │ 1️⃣ Auftrag: Understanding + Keywords · Zeitraum · Ziel               │  │
+│  │ 2️⃣ Gesendet an Work IQ: Search parameters                           │  │
+│  │ 3️⃣ Antwort von Work IQ (45.2s): Raw response or error               │  │
+│  │ 4️⃣ Ergebnis: 📧 From→To (date) per communication                   │  │
 │  │ System Events: ➕ Created, ✅ Status changed, 🔄 Scan updated       │  │
 │  └──────────────────────────────────────────────────────────────────────┘  │
 └────────────────────────────────────────────────────────────────────────────┘
@@ -789,15 +791,15 @@ Progress State Machine (displayed in plan area):
 | `rawResponse` | string \| null | Raw AI response text (truncated to 2000 chars). `null` if no response. |
 | `parsedCount` | number | Number of communications successfully parsed from response |
 | `error` | string \| null | Error message if execution failed, otherwise `null` |
+| `durationMs` | number | Total search duration in milliseconds (from session creation to response) |
 
 ```
-Full Agent Pipeline (visible in Details):
-─────────────────────────────────────────
-agentPlan.understanding  → 1. What the agent UNDERSTOOD
-agentExecution.promptSent → 2. What the agent SENT to Work IQ
-agentExecution.rawResponse → 3. What the system RETURNED
-communications[]          → 4. What the agent EXTRACTED (final result)
-agentExecution.error      → 5. What went WRONG (if anything)
+Full Agent Pipeline (visible in Details as 4-step story):
+─────────────────────────────────────────────────────────
+1️⃣ Auftrag              → agentPlan.understanding + keywords + timeWindow + targets
+2️⃣ Gesendet an Work IQ  → agentExecution.promptSent (search parameters)
+3️⃣ Antwort von Work IQ  → agentExecution.rawResponse + durationMs (or error)
+4️⃣ Ergebnis für Benutzer → communications[] (from→to per message) + parsedCount
 ```
 
 ### Communication Object (v1.2)
@@ -1046,8 +1048,9 @@ User input too vague ──→ Agent returns needsClarification: true
 ```
 Documents/
 ├── SCAN_SKILL.md       → POST /api/scan                (detect + dedup action items)
-└── LOG_WORK_SKILL.md   → POST /api/tasks/:id/log       (Phase 2: search communications)
+└── LOG_WORK_SKILL.md   → POST /api/tasks/:id/log       (ONLY used as fallback when no plan exists)
                           POST /api/tasks/:id/log/analyze uses hardcoded analysis prompt
+                          When plan IS available: lean execution prompt built directly (no skill file)
 ```
 
 ### AI-Powered Deduplication Strategy (v1.3)

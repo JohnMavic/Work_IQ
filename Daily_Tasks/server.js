@@ -636,19 +636,25 @@ app.post('/api/tasks/:id/log', async (req, res) => {
     const taskDate = taskContext.date || taskContext.createdAt || '';
 
     let logPrompt;
-    if (plan && LOG_WORK_SKILL) {
-      // v1.4: Targeted prompt using confirmed plan + skill file
-      logPrompt = LOG_WORK_SKILL + `\n\n` +
-        `TASK CONTEXT:\n` +
-        `Task: "${taskContext.title}"\n` +
-        `Original sender: ${taskContext.from || 'unknown'}, Source: ${taskContext.source}, Date: ${taskDate}\n\n` +
-        `CONFIRMED SEARCH PLAN:\n` +
-        `Keywords: ${plan.keywords.join(', ')}\n` +
-        `Time window: ${plan.timeWindow.from} to ${plan.timeWindow.to}\n` +
-        `Search targets: ${plan.searchTargets}\n\n` +
-        `USER LOG:\n` +
-        `"${text.trim()}"\n\n` +
-        `Execute the search using the keywords and time window above.`;
+    if (plan) {
+      // v1.4: Lean execution prompt — concrete assignment + output format only
+      // The plan already contains the full search strategy; no need for skill file tutorial
+      logPrompt = `SEARCH ASSIGNMENT:\n` +
+        `Search my ${plan.searchTargets || 'inbox and teams'} for communications about:\n` +
+        `"${taskContext.title}"\n` +
+        `Related to: ${taskContext.from || 'unknown'} (${taskContext.source})\n\n` +
+        `SEARCH PARAMETERS:\n` +
+        `- Keywords: ${plan.keywords.join(', ')}\n` +
+        `- Time: ${plan.timeWindow.from} to ${plan.timeWindow.to}\n` +
+        `- User says: "${text.trim()}"\n\n` +
+        `RULES:\n` +
+        `- Find the FULL thread: replies (RE:), forwards (FW:), CC responses\n` +
+        `- Include messages sent BY the user, not just received\n` +
+        `- Summarize each message in 1-2 sentences — actions & decisions, don't copy text\n` +
+        `- Order by date, oldest first\n\n` +
+        `RETURN FORMAT (JSON array only, no markdown):\n` +
+        `[{"type":"email"|"teams","from":"sender","to":"recipients","date":"ISO 8601","summary":"1-2 sentences","link":"URL or null"}]\n` +
+        `If nothing found, return [].`;
     } else if (LOG_WORK_SKILL) {
       // v1.3 fallback: skill file without plan
       logPrompt = LOG_WORK_SKILL + `\n\n` +
@@ -717,6 +723,8 @@ app.post('/api/tasks/:id/log', async (req, res) => {
     }
   }
 
+  const searchDurationMs = Date.now() - searchStartTime;
+
   // Write the history entry via queue
   try {
     const task = await safeWriteTasks((data) => {
@@ -742,7 +750,8 @@ app.post('/api/tasks/:id/log', async (req, res) => {
           promptSent: promptContext,
           rawResponse: rawResponseText,
           parsedCount: communications.length,
-          error: searchError
+          error: searchError,
+          durationMs: searchDurationMs
         }
       });
       t.updatedAt = now;
