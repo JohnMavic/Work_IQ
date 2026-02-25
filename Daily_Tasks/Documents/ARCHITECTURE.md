@@ -564,6 +564,56 @@ Primary sort:   Status priority (Active=0, In Progress=1, Paused=2, Done=3)
 Secondary sort: createdAt descending (newest first within each status group)
 ```
 
+### Task Interaction Panel (v1.4)
+
+Each task card now has an **interaction panel** that replaces the old "📜 History" toggle.
+
+```
+Task Card Layout (v1.4):
+════════════════════════
+
+┌─ Card Header (always visible, clickable) ──────────────────────────────────┐
+│ Title + Meta + Status + Actions                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+                │ click toggles ▼
+┌─ Interaction Panel (hidden by default) ────────────────────────────────────┐
+│                                                                            │
+│  ┌─ Agent Conversations (chat-style, chronological) ────────────────────┐  │
+│  │ 📝 User: "Ich habe Eors nach einer Antwort gefragt..."              │  │
+│  │ 🤖 Agent: "Suche in deiner Inbox nach Antworten von Eörs..."        │  │
+│  │ ✅ User confirmed                                                    │  │
+│  │ 📧 Eörs → Martin — "Eörs bestätigt..." [Open ↗]                    │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+│                                                                            │
+│  ┌─ Log Input (always visible in panel) ────────────────────────────────┐  │
+│  │ [What did you do? ___________________________] [🔍 Analyze]          │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+│  ┌─ Plan Display (appears after analyze) ───────────────────────────────┐  │
+│  │ 💡 Understanding + [✅ Search] [❌ Cancel]                            │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+│                                                                            │
+│  [▶ Details]                                                               │
+│  ┌─ Details (collapsed, expandable) ────────────────────────────────────┐  │
+│  │ Technical: Keywords, Time Window, Search Targets (per interaction)   │  │
+│  │ System Events: ➕ Created, ✅ Status changed, 🔄 Scan updated       │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+**State management additions (v1.4):**
+```
+let pendingPlans = {};   // taskId → { plan, originalText }
+let openTaskId = null;   // Which task's panel is currently open
+```
+
+**Rendering logic:**
+- `renderTasks()` splits history entries into two groups:
+  1. **Agent conversations** — entries with `type === "update"` (shown chat-style)
+  2. **System events** — entries with `type !== "update"` (shown in Details toggle)
+- Agent conversations render in chronological order (oldest first = read like a chat)
+- System events render in reverse chronological order (newest first)
+- Clicking card header calls `toggleTaskPanel(taskId)` which replaces old `toggleHistory()`
+
 ---
 
 ## 8. Data Schema
@@ -601,7 +651,7 @@ Secondary sort: createdAt descending (newest first within each status group)
 | `createdAt` | string | When the task was created in the app (ISO 8601) | Auto-generated |
 | `updatedAt` | string | Last modification timestamp (ISO 8601) | Auto-updated |
 
-### HistoryEntry Object (v1.2)
+### HistoryEntry Object (v1.2, extended v1.4)
 
 | Field | Type | Description |
 |---|---|---|
@@ -609,6 +659,17 @@ Secondary sort: createdAt descending (newest first within each status group)
 | `type` | string | `"created"`, `"status-change"`, `"update"`, `"scan-update"`, `"note"`, `"communication"` |
 | `text` | string | Human-readable description of the event |
 | `communications` | array \| undefined | Array of linked communications (only for type "update" and "communication") |
+| `agentPlan` | object \| undefined | (v1.4) The confirmed search plan — records what the agent understood, what keywords/time window it used, and whether the user confirmed. Only present for log work entries created via the two-phase agent. |
+
+**agentPlan Object (v1.4):**
+| Field | Type | Description |
+|---|---|---|
+| `understanding` | string | What the agent understood from the user's request |
+| `keywords` | string[] | Search keywords extracted from task title + user text |
+| `timeWindow` | object | `{ from, to, reasoning }` — the search date range |
+| `searchTargets` | string | What was searched: "inbox", "sent", "teams", or "all" |
+| `userConfirmed` | boolean | `true` if user explicitly confirmed, `false` if auto-executed |
+| `fallback` | boolean | `true` if AI analysis failed and deterministic fallback was used |
 
 ### Communication Object (v1.2)
 

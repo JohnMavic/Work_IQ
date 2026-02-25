@@ -331,7 +331,23 @@ Every task has a `history` array that tracks all changes and activities over tim
   "timestamp": "ISO 8601",
   "type": "created | status-change | update | scan-update | note | communication",
   "text": "Human-readable summary of what happened",
-  "communications": []
+  "communications": [],
+  "agentPlan": null
+}
+```
+
+The `agentPlan` field (v1.4, optional) is saved when the user logs work via the two-phase agent. It records the complete agent interaction:
+
+```json
+{
+  "agentPlan": {
+    "understanding": "What the agent understood from the user's request",
+    "keywords": ["search", "terms"],
+    "timeWindow": { "from": "...", "to": "...", "reasoning": "..." },
+    "searchTargets": "inbox",
+    "userConfirmed": true,
+    "fallback": false
+  }
 }
 ```
 
@@ -345,12 +361,53 @@ Every task has a `history` array that tracks all changes and activities over tim
 | `note` | User adds a note manually | "Need to follow up by Friday" |
 | `communication` | AI found linked communication (see 4.14) | "Found email to Sarah Johnson" |
 
-**UI Display:**
-- Each task card has a **collapsible history section** (collapsed by default)
-- Toggle via a small "📜 History (3)" link/button on the task card (number = entry count)
-- When expanded, entries are shown in reverse chronological order (newest first)
-- Each entry shows: timestamp (formatted), type icon, text
-- Communication entries additionally show: linked email/Teams badge + "Open ↗" link + AI-generated summary
+**UI Display (v1.4 — Chat-Style Task Interaction Panel):**
+
+Clicking on a task card opens an **interaction panel** directly below the card header. This panel is the primary workspace for the task — NOT the old "History" button.
+
+```
+┌─ Task Card (always visible) ───────────────────────────────────────────────┐
+│ Modern Invoice – SAP Invoice 5735236948...        🟡 In Progress    ✕     │
+│ Email · from MSApprovalNotifications · 20.02.2026  Open source ↗         │
+├─ Interaction Panel (opens on click) ───────────────────────────────────────┤
+│                                                                            │
+│  📝 User: "Ich habe Eors nach einer Antwort gefragt. Suche in meiner     │
+│      Inbox nach seiner Antwort."                                          │
+│  🤖 Agent: "Suche in deiner Inbox nach Antworten von Eörs zum            │
+│      SAP Invoice 5735236948, von 20.02.2026 bis heute."                   │
+│  ✅ User confirmed                                                        │
+│  📧 Eörs → Martin (22.02.) — "Eörs bestätigt, dass GR ausgelöst         │
+│      werden kann" [Open ↗]                                                │
+│                                                                            │
+│  [What did you do? ___________________________] [🔍 Analyze]              │
+│                                                                            │
+│  [▶ Details]                                                               │
+│    🔑 SAP Invoice 5735236948, PO 0101439547, Eörs                         │
+│    📅 2026-02-20 → now                                                     │
+│    🎯 inbox                                                                │
+│    ─────────────────────────────────────────                               │
+│    24.02. ➕ Task created from email scan                                  │
+│    25.02. ✅ Status changed: active → in-progress                          │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Layout rules:**
+1. **Clicking the task card header** toggles the interaction panel (replaces old History toggle)
+2. The old "📜 History" button is REMOVED — the interaction panel replaces it
+3. **Agent conversations** (type "update" entries with agentPlan) are displayed chat-style:
+   - 📝 User's message (what they typed)
+   - 🤖 Agent's understanding (from agentPlan.understanding)
+   - ✅ "User confirmed" or ⚠️ "(auto-generated)" if fallback
+   - 📧/💬 Each communication found (summary + link)
+   - Or "🔍 No communications found" if empty
+4. Agent conversations are shown in **chronological order** (oldest first) — this reads like a chat
+5. The **Log input** (✏️ Log) is always visible at the bottom of the panel (no separate toggle needed)
+6. **"▶ Details" toggle** at the very bottom — expands to show:
+   - Technical metadata: keywords, time window, search targets (per agent interaction)
+   - System events: created, status-change, scan-update (the old history entries)
+   - These are useful for debugging but NOT the primary view
+7. The interaction panel should be **generously sized** — no cramped layout
+8. Multiple entries stack vertically (chat-like, chronological)
 
 ### 4.13 Auto-Cleanup of Done Tasks (v1.2)
 
@@ -559,16 +616,19 @@ The Node.js server exposes these REST endpoints for the frontend:
 32. ✅ Load skill files at server start, inject into prompts, graceful fallback
 33. ✅ Update Spec, Architecture, and README to v1.3
 
-### Phase 6: Two-Phase Log Agent (v1.4)
+### Phase 6: Two-Phase Log Agent + Chat-Style Interaction Panel (v1.4)
 34. Add `POST /api/tasks/:id/log/analyze` endpoint (Copilot SDK without Work IQ, ~5-15s)
 35. Add `extractKeywords()` helper for deterministic fallback analysis
-36. Enhance `POST /api/tasks/:id/log` to accept optional `plan` parameter
+36. Enhance `POST /api/tasks/:id/log` to accept optional `plan` parameter + save `agentPlan` in history
 37. Build targeted execution prompt from confirmed plan (keywords + time window + targets)
-38. Add plan display UI on task card (understanding, keywords, time window, confirm/cancel buttons)
-39. Add clarification loop UI (question display + answer input + re-analyze)
-40. Add visual states: "Analyzing..." spinner (Phase 1), "Searching..." spinner (Phase 2)
-41. Handle fallback: if SDK analysis fails, use deterministic keyword extraction
-42. Update Spec, Architecture, README, and LOG_WORK_SKILL.md to v1.4
+38. Replace "📜 History" toggle with **click-to-open interaction panel** on task card
+39. Render agent conversations chat-style: User message → Agent understanding → Confirmation → Communications
+40. Add "▶ Details" toggle inside panel for technical metadata + system events
+41. Move Log input into the interaction panel (always visible when panel is open)
+42. Add clarification loop UI (question display + answer input + re-analyze)
+43. Add visual states: "Analyzing..." spinner (Phase 1), "Searching..." spinner (Phase 2)
+44. Handle fallback: if SDK analysis fails, use deterministic keyword extraction
+45. Update Spec, Architecture, README, and LOG_WORK_SKILL.md to v1.4
 
 ---
 

@@ -108,53 +108,78 @@
       display: flex; align-items: center; gap: 8px;
     }
 
-    /* --- Task History --- */
-    .task-history-toggle {
-      font-size: 0.78rem; color: #555; cursor: pointer;
-      background: none; border: none; padding: 4px 0;
-      font-family: inherit;
-    }
-    .task-history-toggle:hover { color: #888; }
-    .task-history {
+    /* --- Task Interaction Panel (v1.4) --- */
+    .task-card { cursor: pointer; }
+    .task-card .task-main { cursor: pointer; }
+    .task-actions { cursor: default; }
+
+    .task-panel {
       display: none;
       background: #0d1020;
       border-top: 1px solid #1e2233;
-      padding: 12px 20px;
+      padding: 16px 20px;
       grid-column: 1 / -1;
     }
-    .task-history.visible { display: block; }
-    .history-entry {
-      font-size: 0.8rem; color: #999; margin-bottom: 10px;
+    .task-panel.visible { display: block; }
+
+    /* Agent conversations (chat-style) */
+    .agent-conversation {
+      margin-bottom: 12px;
+      padding: 10px 14px;
+      background: #111827;
+      border-radius: 8px;
+      border-left: 3px solid #3b82f6;
     }
-    .history-entry:last-child { margin-bottom: 0; }
-    .history-timestamp { color: #555; margin-right: 8px; }
-    .history-comm {
-      margin-left: 20px; margin-top: 4px;
-      font-size: 0.75rem; color: #777;
+    .agent-msg-user {
+      color: #e2e8f0;
+      font-size: 0.85rem;
+      margin-bottom: 6px;
+    }
+    .agent-msg-bot {
+      color: #93c5fd;
+      font-size: 0.85rem;
+      margin-bottom: 4px;
+    }
+    .agent-msg-status {
+      font-size: 0.78rem;
+      margin-bottom: 6px;
+    }
+    .agent-comm {
+      margin-left: 16px;
+      margin-top: 4px;
+      font-size: 0.8rem;
+      color: #94a3b8;
       border-left: 2px solid #2a2f45;
       padding-left: 10px;
     }
-    .history-comm a { color: #60a5fa; text-decoration: none; }
-    .history-comm a:hover { text-decoration: underline; }
-
-    /* --- Log Work Inline --- */
-    .log-work-form {
-      display: none;
-      grid-column: 1 / -1;
-      padding: 8px 0 4px;
-      gap: 8px;
+    .agent-comm a { color: #60a5fa; text-decoration: none; }
+    .agent-comm a:hover { text-decoration: underline; }
+    .agent-no-results {
+      color: #64748b;
+      font-size: 0.8rem;
+      font-style: italic;
+      margin-left: 16px;
+      margin-top: 4px;
     }
-    .log-work-form.visible { display: flex; align-items: center; }
-    .log-work-form input {
+
+    /* Log input inside panel */
+    .panel-log-form {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #1e2233;
+    }
+    .panel-log-form input {
       flex: 1;
       background: #161929; color: #e0e0e0; border: 1px solid #2a2f45;
-      border-radius: 6px; padding: 6px 10px; font-size: 0.82rem;
+      border-radius: 6px; padding: 8px 12px; font-size: 0.85rem;
       font-family: inherit;
     }
-    .log-work-form input:focus { outline: none; border-color: #3b82f6; }
-    .log-work-form button { white-space: nowrap; }
+    .panel-log-form input:focus { outline: none; border-color: #3b82f6; }
 
-    /* --- Log Analysis Plan (v1.4) --- */
+    /* Plan display */
     .log-plan {
       display: none;
       background: #1e293b;
@@ -183,6 +208,8 @@
       display: flex;
       gap: 8px;
     }
+
+    /* Clarification */
     .log-clarification {
       display: none;
       margin-top: 8px;
@@ -197,6 +224,38 @@
       color: #e2e8f0;
       font-size: 0.9rem;
     }
+
+    /* Details toggle */
+    .panel-details-toggle {
+      font-size: 0.78rem;
+      color: #555;
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 8px 0 0;
+      font-family: inherit;
+    }
+    .panel-details-toggle:hover { color: #888; }
+    .panel-details {
+      display: none;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid #1a1f33;
+    }
+    .panel-details.visible { display: block; }
+    .detail-entry {
+      font-size: 0.75rem;
+      color: #555;
+      margin-bottom: 4px;
+    }
+    .detail-meta {
+      font-size: 0.72rem;
+      color: #475569;
+      margin-left: 16px;
+      margin-top: 2px;
+      margin-bottom: 6px;
+    }
+    .detail-meta span { display: block; }
 
     /* --- Per-Task Spinner --- */
     .task-spinner {
@@ -747,13 +806,14 @@
         : '';
       const notesHtml = task.notes ? `<div class="task-notes">${escHtml(task.notes)}</div>` : '';
 
+      // Split history into conversations vs system events
       const history = task.history || [];
-      const historyCount = history.length > 0 ? ` (${history.length})` : '';
-      const historyHtml = renderHistory(history);
+      const conversations = history.filter(e => e.type === 'update');
+      const systemEvents = history.filter(e => e.type !== 'update');
 
       return `
         <div class="task-card${doneClass}" id="card-${task.id}">
-          <div class="task-main">
+          <div class="task-main" onclick="toggleTaskPanel('${task.id}')">
             <div class="task-title">${escHtml(task.title)}</div>
             <div class="task-meta">
               ${sourceBadge}
@@ -761,10 +821,8 @@
               ${linkHtml}
             </div>
             ${notesHtml}
-            <button class="task-history-toggle" onclick="toggleHistory('${task.id}')">📜 History${historyCount}</button>
           </div>
-          <div class="task-actions">
-            <button class="btn btn-ghost btn-sm" onclick="toggleLogForm('${task.id}')">✏️ Log</button>
+          <div class="task-actions" onclick="event.stopPropagation()">
             <select class="status-select ${statusClass}" onchange="updateTask('${task.id}', { status: this.value })">
               <option value="active" ${task.status === 'active' ? 'selected' : ''}>🔵 Active</option>
               <option value="in-progress" ${task.status === 'in-progress' ? 'selected' : ''}>🟡 In Progress</option>
@@ -773,32 +831,37 @@
             </select>
             <button class="btn btn-danger" onclick="deleteTask('${task.id}')">✕</button>
           </div>
-          <div class="log-work-form" id="log-${task.id}">
-            <input type="text" placeholder="What did you do? e.g. 'Emailed Sarah the revised numbers'" onkeydown="if(event.key==='Enter')analyzeLog('${task.id}',this)">
-            <button class="btn btn-primary btn-sm" onclick="analyzeLog('${task.id}',this.previousElementSibling)">🔍 Analyze</button>
+          <div class="task-panel" id="panel-${task.id}">
+            ${renderConversations(conversations)}
+            <div class="panel-log-form">
+              <input type="text" placeholder="What did you do? e.g. 'Asked Eors for an update'" onkeydown="if(event.key==='Enter')analyzeLog('${task.id}',this)">
+              <button class="btn btn-primary btn-sm" onclick="analyzeLog('${task.id}',this.previousElementSibling)">🔍 Analyze</button>
+            </div>
+            <div class="log-plan" id="plan-${task.id}"></div>
+            <div class="log-clarification" id="clarify-${task.id}">
+              <input type="text" placeholder="Your answer..." onkeydown="if(event.key==='Enter')submitClarification('${task.id}',this)">
+              <button class="btn btn-primary btn-sm" onclick="submitClarification('${task.id}',this.previousElementSibling)">Send</button>
+            </div>
+            ${renderDetails(conversations, systemEvents, task.id)}
           </div>
-          <div class="log-plan" id="plan-${task.id}"></div>
-          <div class="log-clarification" id="clarify-${task.id}">
-            <input type="text" placeholder="Your answer..." onkeydown="if(event.key==='Enter')submitClarification('${task.id}',this)">
-            <button class="btn btn-primary btn-sm" onclick="submitClarification('${task.id}',this.previousElementSibling)">Send</button>
-          </div>
-          <div class="task-history" id="history-${task.id}">${historyHtml}</div>
         </div>`;
     }).join('');
   }
 
-  function renderHistory(history) {
-    if (!history || history.length === 0) return '<div class="history-entry" style="color:#555">No history yet.</div>';
-
-    const typeIcons = {
-      'created': '➕', 'status-change': '✅', 'update': '📝',
-      'scan-update': '🔄', 'note': '📝', 'communication': '📧'
-    };
-
-    return [...history].reverse().map(entry => {
-      const icon = typeIcons[entry.type] || '📌';
+  function renderConversations(conversations) {
+    if (conversations.length === 0) return '';
+    // Chronological order (oldest first = read like a chat)
+    return conversations.map(entry => {
       const ts = formatDate(entry.timestamp);
-      let html = `<div class="history-entry"><span class="history-timestamp">${ts}</span> ${icon} ${escHtml(entry.text)}</div>`;
+      let html = `<div class="agent-conversation">`;
+      html += `<div class="agent-msg-user">📝 <strong>${ts}</strong> — ${escHtml(entry.text)}</div>`;
+
+      if (entry.agentPlan) {
+        html += `<div class="agent-msg-bot">🤖 ${escHtml(entry.agentPlan.understanding)}</div>`;
+        html += entry.agentPlan.fallback
+          ? `<div class="agent-msg-status" style="color:#f59e0b">⚠️ Auto-generated</div>`
+          : `<div class="agent-msg-status" style="color:#4ade80">✅ User confirmed</div>`;
+      }
 
       if (entry.communications && entry.communications.length > 0) {
         for (const comm of entry.communications) {
@@ -807,25 +870,71 @@
             ? ` <a href="${escHtml(comm.link)}" target="_blank" rel="noopener">Open ↗</a>`
             : '';
           const commDate = comm.date ? formatDate(comm.date) : '';
-          html += `<div class="history-comm">${commIcon} ${escHtml(comm.from || '')} → ${escHtml(comm.to || '')} (${commDate})${commLink}`;
-          if (comm.summary) html += `<br>"${escHtml(comm.summary)}"`;
+          html += `<div class="agent-comm">${commIcon} ${escHtml(comm.from || '')} → ${escHtml(comm.to || '')} (${commDate})${commLink}`;
+          if (comm.summary) html += `<br>${escHtml(comm.summary)}`;
           html += `</div>`;
         }
+      } else if (entry.agentPlan) {
+        html += `<div class="agent-no-results">🔍 No communications found</div>`;
       }
+
+      html += `</div>`;
       return html;
     }).join('');
   }
 
-  function toggleHistory(id) {
-    const el = document.getElementById('history-' + id);
-    if (el) el.classList.toggle('visible');
+  function renderDetails(conversations, systemEvents, taskId) {
+    let detailsHtml = '';
+
+    // Agent plan details (keywords, time window, targets)
+    for (const conv of conversations) {
+      if (conv.agentPlan) {
+        const p = conv.agentPlan;
+        const ts = formatDate(conv.timestamp);
+        detailsHtml += `<div class="detail-entry">📝 ${ts}</div>`;
+        detailsHtml += `<div class="detail-meta">`;
+        if (p.keywords && p.keywords.length > 0) detailsHtml += `<span>🔑 ${escHtml(p.keywords.join(', '))}</span>`;
+        if (p.timeWindow) detailsHtml += `<span>📅 ${escHtml(p.timeWindow.from || '?')} → ${escHtml(p.timeWindow.to || 'now')}</span>`;
+        if (p.searchTargets) detailsHtml += `<span>🎯 ${escHtml(p.searchTargets)}</span>`;
+        detailsHtml += `</div>`;
+      }
+    }
+
+    // System events (reverse chronological)
+    for (const entry of [...systemEvents].reverse()) {
+      const icon = entry.type === 'created' ? '➕' : entry.type === 'status-change' ? '✅' : entry.type === 'scan-update' ? '🔄' : '📌';
+      detailsHtml += `<div class="detail-entry"><span style="color:#444">${formatDate(entry.timestamp)}</span> ${icon} ${escHtml(entry.text)}</div>`;
+    }
+
+    if (!detailsHtml) return '';
+
+    return `
+      <button class="panel-details-toggle" onclick="event.stopPropagation();toggleDetails('${taskId}')">▶ Details</button>
+      <div class="panel-details" id="details-${taskId}">${detailsHtml}</div>`;
   }
 
-  function toggleLogForm(id) {
-    const el = document.getElementById('log-' + id);
+  function toggleTaskPanel(taskId) {
+    const panel = document.getElementById('panel-' + taskId);
+    if (!panel) return;
+    const isVisible = panel.classList.contains('visible');
+
+    // Close all other panels
+    document.querySelectorAll('.task-panel.visible').forEach(p => p.classList.remove('visible'));
+
+    // Toggle this one
+    if (!isVisible) {
+      panel.classList.add('visible');
+      const input = panel.querySelector('.panel-log-form input');
+      if (input) setTimeout(() => input.focus(), 100);
+    }
+  }
+
+  function toggleDetails(taskId) {
+    const el = document.getElementById('details-' + taskId);
+    const btn = el?.previousElementSibling;
     if (el) {
       el.classList.toggle('visible');
-      if (el.classList.contains('visible')) el.querySelector('input').focus();
+      if (btn) btn.textContent = el.classList.contains('visible') ? '▼ Details' : '▶ Details';
     }
   }
 
@@ -837,12 +946,12 @@
     const text = input.value.trim();
     if (!text) return;
 
-    const card = document.getElementById('card-' + taskId);
+    const panel = document.getElementById('panel-' + taskId);
     const planEl = document.getElementById('plan-' + taskId);
     const clarifyEl = document.getElementById('clarify-' + taskId);
     const spinner = document.createElement('span');
     spinner.className = 'task-spinner';
-    card.querySelector('.task-title').appendChild(spinner);
+    panel.querySelector('.panel-log-form').appendChild(spinner);
     input.disabled = true;
 
     // Reset previous plan/clarification
@@ -905,7 +1014,7 @@
     if (!pending) return;
 
     // Re-analyze with additional context
-    const logInput = document.querySelector(`#log-${taskId} input`);
+    const logInput = document.querySelector(`#panel-${taskId} .panel-log-form input`);
     logInput.value = pending.originalText + '. Additional context: ' + answer;
     input.value = '';
     document.getElementById('clarify-' + taskId).classList.remove('visible');
@@ -916,11 +1025,10 @@
     const pending = pendingPlans[taskId];
     if (!pending) return;
 
-    const card = document.getElementById('card-' + taskId);
     const planEl = document.getElementById('plan-' + taskId);
     const spinner = document.createElement('span');
     spinner.className = 'task-spinner';
-    card.querySelector('.task-title').appendChild(spinner);
+    planEl.parentElement.appendChild(spinner);
 
     // Update plan UI to show searching state
     planEl.innerHTML = '<div class="log-plan-understanding">🔍 Searching your communications...</div>';
@@ -935,7 +1043,7 @@
       if (!res.ok) {
         showNotification(friendlyError(data), 'error');
       } else {
-        document.querySelector(`#log-${taskId} input`).value = '';
+        document.querySelector(`#panel-${taskId} .panel-log-form input`).value = '';
         showNotification('✅ Work logged', 'success');
         await fetchTasks();
       }

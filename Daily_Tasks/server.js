@@ -649,7 +649,15 @@ app.post('/api/tasks/:id/log', async (req, res) => {
         timestamp: now,
         type: 'update',
         text: text.trim(),
-        communications
+        communications,
+        agentPlan: plan ? {
+          understanding: plan.understanding || '',
+          keywords: plan.keywords || [],
+          timeWindow: plan.timeWindow || {},
+          searchTargets: plan.searchTargets || 'all',
+          userConfirmed: true,
+          fallback: !!plan.fallback
+        } : undefined
       });
       t.updatedAt = now;
       return t;

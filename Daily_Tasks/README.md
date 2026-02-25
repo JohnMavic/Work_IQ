@@ -50,7 +50,7 @@ Then open [http://localhost:3000](http://localhost:3000) in your browser.
 - **Filter** — filter tasks by status using the buttons at the top
 - **Deep Links** — click "Open source" on any scanned task to jump to the original email or Teams message
 - **Task History** — every task tracks its changes (creation, status changes, work logs) in a collapsible history view
-- **Work Logging (v1.4)** — click "✏️ Log" on a task, describe what you did, and the AI first analyzes your request (showing keywords, time window, and search strategy) before searching. Confirm the plan to execute, or let the AI ask clarifying questions if your input was ambiguous.
+- **Work Logging (v1.4)** — click any task to open an interaction panel. Describe what you did, the AI analyzes your request (showing what it understood), you confirm, and it searches your M365 data. The full conversation (your input, agent's understanding, found communications) is displayed chat-style. Technical details (keywords, time window, system events) are hidden behind a "Details" toggle.
 - **Auto-Cleanup** — done tasks automatically hide from the UI after 3 days (data preserved in tasks.json)
 - **Smart Re-Scan** — re-scanning detects updated tasks and logs changes to history instead of creating duplicates
 - **AI-Powered Deduplication (v1.3)** — the AI receives existing tasks as context during scan, preventing duplicates through semantic matching instead of exact string comparison
