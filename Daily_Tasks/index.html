@@ -985,8 +985,19 @@
           for (const c of conv.communications) {
             const icon = c.type === 'teams' ? '💬' : '📧';
             const cDate = c.date ? formatDate(c.date) : '';
-            detailsHtml += `<span style="margin-left:8px">${icon} ${escHtml(c.from || '?')} → ${escHtml(c.to || '?')} (${cDate})</span>`;
+            detailsHtml += `<span style="margin-left:8px"><strong>${icon} ${escHtml(c.from || '?')} → ${escHtml(c.to || '?')}</strong> (${cDate})</span>`;
+            if (c.summary) {
+              detailsHtml += `<span style="margin-left:16px;color:#94a3b8;font-size:0.8rem">${escHtml(c.summary)}</span>`;
+            }
+            if (c.link) {
+              detailsHtml += `<span style="margin-left:16px"><a href="${escHtml(c.link)}" target="_blank" style="color:#60a5fa;font-size:0.75rem">🔗 Öffnen</a></span>`;
+            }
           }
+        } else if (ex.rawResponse && !ex.error) {
+          // Work IQ responded but no JSON parsed — show natural language answer
+          detailsHtml += `<span>📝 Work IQ Antwort (kein strukturiertes Ergebnis):</span>`;
+          const answer = ex.rawResponse.length > 1000 ? ex.rawResponse.substring(0, 1000) + '...' : ex.rawResponse;
+          detailsHtml += `<span style="white-space:pre-wrap;font-size:0.8rem;color:#cbd5e1">${escHtml(answer)}</span>`;
         } else {
           detailsHtml += `<span>🔍 Keine Kommunikationen gefunden</span>`;
         }

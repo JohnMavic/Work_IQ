@@ -135,14 +135,16 @@ function buildSearchQuestion(plan, taskContext, userText) {
   const from = plan.timeWindow?.from || '';
   const to = plan.timeWindow?.to === 'now' ? 'today' : (plan.timeWindow?.to || 'today');
 
-  return `Search my ${targets} for messages related to "${taskContext.title}" ` +
-    `with keywords: ${keywords}. ` +
-    `Time range: ${from} to ${to}. ` +
-    `Context: ${userText}\n\n` +
-    `For each message found, return a JSON object with:\n` +
-    `type ("email" or "teams"), from (sender name), to (recipient names), ` +
-    `date (ISO 8601), summary (1-2 sentence summary), link (URL or null).\n\n` +
-    `Return ONLY a JSON array ordered by date (oldest first). No markdown, no explanation.\n` +
+  // Natural question first, then structured output request
+  return `Find all ${targets} related to "${taskContext.title}" ` +
+    `involving keywords: ${keywords}. ` +
+    `Look from ${from} to ${to}. ` +
+    `${userText}\n\n` +
+    `For each message you find, tell me: who sent it, to whom, when (date), ` +
+    `and summarize what was said in 1-2 sentences. Include any links.\n\n` +
+    `Please return the results as a JSON array with these fields:\n` +
+    `type ("email" or "teams"), from (sender), to (recipients), ` +
+    `date (ISO 8601), summary (1-2 sentences), link (URL or null).\n` +
     `If nothing found, return [].`;
 }
 
@@ -675,17 +677,18 @@ app.post('/api/tasks/:id/log', async (req, res) => {
 
       const result = await runWorkIQAsk(question);
       const elapsed = Date.now() - searchStartTime;
-      rawResponseText = result.substring(0, 2000);
+      rawResponseText = result.substring(0, 4000);
 
       console.log(`[LOG] Response received in ${elapsed}ms (${result.length} chars)`);
-      console.log(`[LOG] Preview: ${rawResponseText.substring(0, 300)}...`);
+      console.log(`[LOG] Preview: ${result.substring(0, 300)}...`);
 
       const parsed = parseJsonFromResponse(result);
       if (Array.isArray(parsed)) {
         communications = parsed;
         console.log(`[LOG] Parsed ${communications.length} communications`);
       } else {
-        console.warn(`[LOG] Could not parse JSON from response`);
+        // Work IQ responded with natural text, not JSON — still valuable
+        console.warn(`[LOG] No JSON parsed — storing natural language response`);
       }
     } catch (err) {
       const elapsed = Date.now() - searchStartTime;
