@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import { CopilotClient } from '@github/copilot-sdk';
-import { exec } from 'child_process';
+import { spawn } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -106,16 +106,35 @@ function extractKeywords(title) {
 
 function runWorkIQAsk(question, timeoutMs = 90000) {
   return new Promise((resolve, reject) => {
-    // Collapse newlines, replace double quotes with single quotes for cmd.exe safety
-    const sanitized = question.replace(/[\r\n]+/g, ' ').replace(/"/g, "'");
-    exec(`workiq ask -q "${sanitized}"`, { timeout: timeoutMs, maxBuffer: 5 * 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error) {
-        if (error.killed) reject(new Error(`Timeout after ${timeoutMs / 1000}s waiting for workiq ask`));
-        else reject(new Error(stderr.trim() || error.message));
-      } else {
-        resolve(stdout.trim());
-      }
+    let stdout = '';
+    let stderr = '';
+    // Interactive mode via stdin — workiq ask without -q writes to stdout properly
+    // (workiq ask -q writes to console/TTY directly, bypassing stdout capture)
+    const proc = spawn('workiq', ['ask'], { stdio: ['pipe', 'pipe', 'pipe'], shell: true });
+
+    const timer = setTimeout(() => {
+      proc.kill();
+      reject(new Error(`Timeout after ${timeoutMs / 1000}s waiting for workiq ask`));
+    }, timeoutMs);
+
+    proc.stdout.on('data', d => { stdout += d.toString(); });
+    proc.stderr.on('data', d => { stderr += d.toString(); });
+
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve(stdout.trim());
+      else reject(new Error(stderr.trim() || `workiq ask exited with code ${code}`));
     });
+    proc.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+
+    // Send question via stdin after brief init delay
+    setTimeout(() => {
+      proc.stdin.write(question + '\n');
+      proc.stdin.end();
+    }, 500);
   });
 }
 
@@ -125,17 +144,13 @@ function buildSearchQuestion(plan, taskContext, userText) {
   const from = plan.timeWindow?.from || '';
   const to = plan.timeWindow?.to === 'now' ? 'today' : (plan.timeWindow?.to || 'today');
 
-  // Natural question first, then structured output request
-  return `Find all ${targets} related to "${taskContext.title}" ` +
-    `involving keywords: ${keywords}. ` +
-    `Look from ${from} to ${to}. ` +
-    `${userText}\n\n` +
-    `For each message you find, tell me: who sent it, to whom, when (date), ` +
-    `and summarize what was said in 1-2 sentences. Include any links.\n\n` +
-    `Please return the results as a JSON array with these fields:\n` +
-    `type ("email" or "teams"), from (sender), to (recipients), ` +
-    `date (ISO 8601), summary (1-2 sentences), link (URL or null).\n` +
-    `If nothing found, return [].`;
+  // Simple, direct question — like a human would ask Copilot CLI
+  // Avoid overloading with format instructions; Work IQ's AI handles formatting
+  return `Search my ${targets} from ${from} to ${to} for messages about ${keywords} ` +
+    `related to "${taskContext.title}". ${userText} ` +
+    `For each message found, tell me who sent it, to whom, when, and summarize in 1-2 sentences. ` +
+    `Return as JSON array: [{"type":"email"|"teams","from":"sender","to":"recipients","date":"ISO date","summary":"...","link":"URL or null"}]. ` +
+    `Return [] if nothing found.`;
 }
 
 // --- Schema Migration ---
