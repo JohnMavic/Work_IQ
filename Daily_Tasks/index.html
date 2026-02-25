@@ -591,6 +591,12 @@
       updateLastScan(data.lastScan);
       setServerStatus(true);
       renderTasks();
+
+      // Re-open the panel that was open before re-render
+      if (openPanelTaskId) {
+        const panel = document.getElementById('panel-' + openPanelTaskId);
+        if (panel) panel.classList.add('visible');
+      }
     } catch (err) {
       console.error('Failed to fetch tasks:', err);
       setServerStatus(false);
@@ -886,24 +892,50 @@
   function renderDetails(conversations, systemEvents, taskId) {
     let detailsHtml = '';
 
-    // Agent plan details (keywords, time window, targets)
     for (const conv of conversations) {
+      const ts = formatDate(conv.timestamp);
+      detailsHtml += `<div class="detail-entry" style="color:#94a3b8;margin-top:8px"><strong>📝 ${ts}</strong></div>`;
+
+      // 1. Agent understanding (from agentPlan)
       if (conv.agentPlan) {
         const p = conv.agentPlan;
-        const ts = formatDate(conv.timestamp);
-        detailsHtml += `<div class="detail-entry">📝 ${ts}</div>`;
         detailsHtml += `<div class="detail-meta">`;
-        if (p.keywords && p.keywords.length > 0) detailsHtml += `<span>🔑 ${escHtml(p.keywords.join(', '))}</span>`;
-        if (p.timeWindow) detailsHtml += `<span>📅 ${escHtml(p.timeWindow.from || '?')} → ${escHtml(p.timeWindow.to || 'now')}</span>`;
-        if (p.searchTargets) detailsHtml += `<span>🎯 ${escHtml(p.searchTargets)}</span>`;
+        detailsHtml += `<span>🤖 <strong>Agent understood:</strong> ${escHtml(p.understanding)}</span>`;
+        if (p.keywords && p.keywords.length > 0) detailsHtml += `<span>🔑 <strong>Keywords:</strong> ${escHtml(p.keywords.join(', '))}</span>`;
+        if (p.timeWindow) detailsHtml += `<span>📅 <strong>Time window:</strong> ${escHtml(p.timeWindow.from || '?')} → ${escHtml(p.timeWindow.to || 'now')}</span>`;
+        if (p.searchTargets) detailsHtml += `<span>🎯 <strong>Target:</strong> ${escHtml(p.searchTargets)}</span>`;
+        detailsHtml += `</div>`;
+      }
+
+      // 2. Execution trace (from agentExecution)
+      if (conv.agentExecution) {
+        const ex = conv.agentExecution;
+        detailsHtml += `<div class="detail-meta" style="border-left:2px solid #f59e0b;margin-top:4px">`;
+        if (ex.promptSent) {
+          detailsHtml += `<span>📤 <strong>Sent to Work IQ:</strong> ${escHtml(ex.promptSent)}</span>`;
+        }
+        if (ex.rawResponse) {
+          const truncated = ex.rawResponse.length > 500 ? ex.rawResponse.substring(0, 500) + '...' : ex.rawResponse;
+          detailsHtml += `<span>📥 <strong>System response:</strong></span>`;
+          detailsHtml += `<span style="white-space:pre-wrap;font-size:0.7rem;color:#64748b;margin-left:8px">${escHtml(truncated)}</span>`;
+        } else if (ex.error) {
+          detailsHtml += `<span>❌ <strong>Error:</strong> ${escHtml(ex.error)}</span>`;
+        } else {
+          detailsHtml += `<span>📥 <strong>System response:</strong> (no response received)</span>`;
+        }
+        detailsHtml += `<span>📊 <strong>Result:</strong> ${ex.parsedCount} communication(s) extracted</span>`;
         detailsHtml += `</div>`;
       }
     }
 
     // System events (reverse chronological)
-    for (const entry of [...systemEvents].reverse()) {
-      const icon = entry.type === 'created' ? '➕' : entry.type === 'status-change' ? '✅' : entry.type === 'scan-update' ? '🔄' : '📌';
-      detailsHtml += `<div class="detail-entry"><span style="color:#444">${formatDate(entry.timestamp)}</span> ${icon} ${escHtml(entry.text)}</div>`;
+    if (systemEvents.length > 0) {
+      detailsHtml += `<div style="margin-top:8px;padding-top:8px;border-top:1px solid #1a1f33">`;
+      for (const entry of [...systemEvents].reverse()) {
+        const icon = entry.type === 'created' ? '➕' : entry.type === 'status-change' ? '✅' : entry.type === 'scan-update' ? '🔄' : '📌';
+        detailsHtml += `<div class="detail-entry"><span style="color:#444">${formatDate(entry.timestamp)}</span> ${icon} ${escHtml(entry.text)}</div>`;
+      }
+      detailsHtml += `</div>`;
     }
 
     if (!detailsHtml) return '';
@@ -918,14 +950,15 @@
     if (!panel) return;
     const isVisible = panel.classList.contains('visible');
 
-    // Close all other panels
     document.querySelectorAll('.task-panel.visible').forEach(p => p.classList.remove('visible'));
 
-    // Toggle this one
     if (!isVisible) {
       panel.classList.add('visible');
+      openPanelTaskId = taskId;
       const input = panel.querySelector('.panel-log-form input');
       if (input) setTimeout(() => input.focus(), 100);
+    } else {
+      openPanelTaskId = null;
     }
   }
 
@@ -941,6 +974,7 @@
   // --- Log Work: Two-Phase Agent (v1.4) ---
 
   let pendingPlans = {}; // taskId → { plan, originalText }
+  let openPanelTaskId = null; // Survives fetchTasks re-renders
 
   async function analyzeLog(taskId, input) {
     const text = input.value.trim();
@@ -949,13 +983,11 @@
     const panel = document.getElementById('panel-' + taskId);
     const planEl = document.getElementById('plan-' + taskId);
     const clarifyEl = document.getElementById('clarify-' + taskId);
-    const spinner = document.createElement('span');
-    spinner.className = 'task-spinner';
-    panel.querySelector('.panel-log-form').appendChild(spinner);
     input.disabled = true;
 
-    // Reset previous plan/clarification
-    planEl.classList.remove('visible');
+    // Show progress in plan area instead of generic spinner
+    planEl.innerHTML = '<div class="log-plan-understanding">🤔 Agent is analyzing your request...</div>';
+    planEl.classList.add('visible');
     clarifyEl.classList.remove('visible');
 
     try {
@@ -1001,7 +1033,6 @@
     } catch (err) {
       showNotification('Analysis failed: ' + err.message, 'error');
     } finally {
-      if (spinner.parentElement) spinner.remove();
       input.disabled = false;
     }
   }
@@ -1026,12 +1057,14 @@
     if (!pending) return;
 
     const planEl = document.getElementById('plan-' + taskId);
-    const spinner = document.createElement('span');
-    spinner.className = 'task-spinner';
-    planEl.parentElement.appendChild(spinner);
 
-    // Update plan UI to show searching state
-    planEl.innerHTML = '<div class="log-plan-understanding">🔍 Searching your communications...</div>';
+    // Step 1: Show sending status
+    planEl.innerHTML = '<div class="log-plan-understanding">📤 Sending search to Work IQ...</div>';
+
+    // Step 2: After 10s, upgrade to "waiting" if still running
+    const waitTimer = setTimeout(() => {
+      planEl.innerHTML = '<div class="log-plan-understanding">⏳ Waiting for system response... this may take up to 90 seconds</div>';
+    }, 10000);
 
     try {
       const res = await fetch(`/api/tasks/${taskId}/log`, {
@@ -1039,19 +1072,33 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: pending.originalText, plan: pending.plan })
       });
+
+      clearTimeout(waitTimer);
+
       const data = await res.json();
       if (!res.ok) {
+        planEl.innerHTML = `<div class="log-plan-understanding">❌ ${friendlyError(data)}</div>`;
         showNotification(friendlyError(data), 'error');
-      } else {
-        document.querySelector(`#panel-${taskId} .panel-log-form input`).value = '';
-        showNotification('✅ Work logged', 'success');
-        await fetchTasks();
+        return;
       }
+
+      // Step 3: Response received
+      const commCount = data.history?.[data.history.length - 1]?.communications?.length || 0;
+      planEl.innerHTML = commCount > 0
+        ? `<div class="log-plan-understanding">✅ Done — ${commCount} communication(s) found</div>`
+        : '<div class="log-plan-understanding">🔍 No communications found</div>';
+
+      document.querySelector(`#panel-${taskId} .panel-log-form input`).value = '';
+      showNotification('✅ Work logged', 'success');
+
+      // Re-render but keep panel open
+      await fetchTasks();
+
     } catch (err) {
+      clearTimeout(waitTimer);
+      planEl.innerHTML = `<div class="log-plan-understanding">❌ Search failed: ${escHtml(err.message)}</div>`;
       showNotification('Failed to log work: ' + err.message, 'error');
     } finally {
-      if (spinner.parentElement) spinner.remove();
-      planEl.classList.remove('visible');
       delete pendingPlans[taskId];
     }
   }

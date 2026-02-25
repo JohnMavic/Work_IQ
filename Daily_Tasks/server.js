@@ -562,6 +562,9 @@ app.post('/api/tasks/:id/log', async (req, res) => {
 
   // AI communication search
   let communications = [];
+  let rawResponseText = null;
+  let promptContext = null;
+  let searchError = null;
   let client;
   try {
     client = new CopilotClient();
@@ -619,17 +622,27 @@ app.post('/api/tasks/:id/log', async (req, res) => {
         `If nothing found, return [].`;
     }
 
+    // Capture dynamic context for tracing (without skill file boilerplate)
+    if (plan) {
+      promptContext = `Task: "${taskContext.title}" | Keywords: ${plan.keywords.join(', ')} | Time: ${plan.timeWindow.from} to ${plan.timeWindow.to} | Targets: ${plan.searchTargets} | User: "${text.trim()}"`;
+    } else {
+      promptContext = `Task: "${taskContext.title}" | From: ${taskContext.from || 'unknown'} | Date: ${taskDate} | User: "${text.trim()}"`;
+    }
+
     const response = await session.sendAndWait({ prompt: logPrompt }, 90000);
     await session.destroy();
 
     if (response) {
-      const parsed = parseJsonFromResponse(response.data.content);
+      const rawContent = response.data.content;
+      rawResponseText = typeof rawContent === 'string' ? rawContent.substring(0, 2000) : JSON.stringify(rawContent).substring(0, 2000);
+      const parsed = parseJsonFromResponse(rawContent);
       if (Array.isArray(parsed)) {
         communications = parsed;
       }
     }
   } catch (err) {
     console.error('AI communication search failed:', err);
+    searchError = err.message;
     // Continue without communications — still log the work
   } finally {
     if (client) {
@@ -657,7 +670,13 @@ app.post('/api/tasks/:id/log', async (req, res) => {
           searchTargets: plan.searchTargets || 'all',
           userConfirmed: true,
           fallback: !!plan.fallback
-        } : undefined
+        } : undefined,
+        agentExecution: {
+          promptSent: promptContext,
+          rawResponse: rawResponseText,
+          parsedCount: communications.length,
+          error: searchError
+        }
       });
       t.updatedAt = now;
       return t;
