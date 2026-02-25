@@ -53,6 +53,7 @@ Then open [http://localhost:3000](http://localhost:3000) in your browser.
 - **Work Logging** — click "✏️ Log" on a task to describe what you did; the AI automatically finds and links related emails/Teams messages
 - **Auto-Cleanup** — done tasks automatically hide from the UI after 3 days (data preserved in tasks.json)
 - **Smart Re-Scan** — re-scanning detects updated tasks and logs changes to history instead of creating duplicates
+- **AI-Powered Deduplication (v1.3)** — the AI receives existing tasks as context during scan, preventing duplicates through semantic matching instead of exact string comparison
 
 ### Data Storage
 

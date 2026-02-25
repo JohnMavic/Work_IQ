@@ -44,6 +44,25 @@ function safeWriteTasks(mutationFn) {
   return writePromise;
 }
 
+// --- Dedup Helpers (v1.3) ---
+
+function normalizeForCompare(title) {
+  return String(title)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isSimilarTitle(a, b) {
+  const wordsA = new Set(normalizeForCompare(a).split(' ').filter(Boolean));
+  const wordsB = new Set(normalizeForCompare(b).split(' ').filter(Boolean));
+  if (wordsA.size === 0 || wordsB.size === 0) return false;
+  const intersection = [...wordsA].filter(w => wordsB.has(w)).length;
+  const union = new Set([...wordsA, ...wordsB]).size;
+  return (intersection / union) > 0.7;
+}
+
 // --- Schema Migration ---
 
 function migrateTasks() {
@@ -197,12 +216,34 @@ app.post('/api/scan', async (req, res) => {
       }
     });
 
-    const scanPrompt = `Scan my emails and Teams messages from the last 4 days. ` +
-      `For each message that contains an action item assigned to me or expected from me, ` +
-      `return ONLY a JSON array (no markdown, no explanation) with objects containing: ` +
-      `title (string), source ("email" or "teams"), from (sender name string), ` +
-      `date (ISO 8601 string), and link (message URL or deep link string, or null if unavailable). ` +
-      `If there are no action items, return an empty array [].`;
+    // Build context-aware prompt with existing tasks (v1.3)
+    const data = readTasks();
+    const activeTasks = data.tasks
+      .filter(t => t.status === 'active' || t.status === 'in-progress')
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
+      .slice(0, 50)
+      .map(t => ({ id: t.id, title: t.title, source: t.source, from: t.from }));
+
+    let scanPrompt;
+    if (activeTasks.length > 0) {
+      scanPrompt = `I have these EXISTING action items (do NOT re-create them):\n` +
+        JSON.stringify(activeTasks) + `\n\n` +
+        `Scan my emails and Teams messages from the last 4 days. ` +
+        `For each message that contains an action item assigned to me or expected from me:\n\n` +
+        `1. Check if it matches an existing task above (same topic/request, even if worded differently or from a different channel/sender).\n` +
+        `   - If YES: return {"action":"update","existingId":"<id>","changes":{...},"reason":"<why>"}\n` +
+        `     Only include fields in "changes" that actually changed (title, date, link). Do NOT include "from" or "source" in changes.\n` +
+        `   - If NO match: return {"action":"new","title":"...","source":"email" or "teams","from":"...","date":"...","link":"..."}\n\n` +
+        `Return ONLY a JSON array. No markdown, no explanation.\n` +
+        `If no action items found, return [].`;
+    } else {
+      scanPrompt = `Scan my emails and Teams messages from the last 4 days. ` +
+        `For each message that contains an action item assigned to me or expected from me, ` +
+        `return ONLY a JSON array (no markdown, no explanation) with objects containing: ` +
+        `action (always "new"), title (string), source ("email" or "teams"), from (sender name string), ` +
+        `date (ISO 8601 string), and link (message URL or deep link string, or null if unavailable). ` +
+        `If there are no action items, return an empty array [].`;
+    }
 
     const response = await session.sendAndWait({ prompt: scanPrompt }, 120000);
     await session.destroy();
@@ -221,45 +262,49 @@ app.post('/api/scan', async (req, res) => {
       });
     }
 
-    // Deduplicate, update, and add new tasks
+    // Process AI results: context-aware dedup (v1.3)
     const result = await safeWriteTasks((data) => {
-      const existingLinks = new Set(
-        data.tasks.filter(t => t.link).map(t => t.link)
-      );
-
       const now = new Date().toISOString();
       let added = 0;
       let skipped = 0;
       let updated = 0;
 
       for (const item of items) {
-        if (!item.title) continue;
+        if (!item.title && !item.existingId) continue;
 
-        const titleNorm = String(item.title).trim();
-        const fromNorm = item.from ? String(item.from).trim() : null;
-        const sourceNorm = item.source === 'teams' ? 'teams' : 'email';
+        // --- ACTION: UPDATE (AI matched to existing task) ---
+        if (item.action === 'update' && item.existingId) {
+          const existing = data.tasks.find(t => t.id === item.existingId);
+          if (!existing) {
+            console.warn(`Scan update: existingId "${item.existingId}" not found, skipping`);
+            skipped++;
+            continue;
+          }
 
-        // Find existing task (by link or by title+from+source)
-        let existing = null;
-        if (item.link) {
-          existing = data.tasks.find(t => t.link === item.link);
-        }
-        if (!existing) {
-          existing = data.tasks.find(t =>
-            t.title === titleNorm && t.from === fromNorm && t.source === sourceNorm
-          );
-        }
+          const changes = item.changes || {};
+          const changedFields = [];
 
-        if (existing) {
-          // Check if title changed
-          if (titleNorm !== existing.title) {
+          if (changes.title && changes.title !== existing.title) {
+            changedFields.push(`title: "${existing.title}" → "${changes.title}"`);
+            existing.title = String(changes.title).trim();
+          }
+          if (changes.date && changes.date !== existing.date) {
+            changedFields.push(`date: ${existing.date || 'none'} → ${changes.date}`);
+            existing.date = changes.date;
+          }
+          if (changes.link && changes.link !== existing.link) {
+            changedFields.push(`link updated`);
+            existing.link = String(changes.link).trim();
+          }
+
+          if (changedFields.length > 0) {
             if (!existing.history) existing.history = [];
+            const reason = item.reason || 'Updated by re-scan';
             existing.history.push({
               timestamp: now,
               type: 'scan-update',
-              text: `Updated by scan: title changed from "${existing.title}" to "${titleNorm}"`
+              text: `Updated by scan: ${reason} (${changedFields.join(', ')})`
             });
-            existing.title = titleNorm;
             existing.updatedAt = now;
             updated++;
           } else {
@@ -268,6 +313,39 @@ app.post('/api/scan', async (req, res) => {
           continue;
         }
 
+        // --- ACTION: NEW (or no action field = backward-compat) ---
+        const titleNorm = String(item.title).trim();
+        if (!titleNorm) continue;
+
+        const fromNorm = item.from ? String(item.from).trim() : null;
+        const sourceNorm = item.source === 'teams' ? 'teams' : 'email';
+
+        // Backward-compatibility: items without action field use old dedup logic
+        if (!item.action) {
+          let existing = null;
+          if (item.link) {
+            existing = data.tasks.find(t => t.link === item.link);
+          }
+          if (!existing) {
+            existing = data.tasks.find(t =>
+              t.title === titleNorm && t.from === fromNorm && t.source === sourceNorm
+            );
+          }
+          if (existing) {
+            skipped++;
+            continue;
+          }
+        }
+
+        // Safety-Net: Jaccard word similarity check against ALL existing tasks
+        const similarTask = data.tasks.find(t => isSimilarTitle(t.title, titleNorm));
+        if (similarTask) {
+          console.warn(`Safety-Net dedup: "${titleNorm}" is similar to existing "${similarTask.title}", skipping`);
+          skipped++;
+          continue;
+        }
+
+        // Create new task
         const task = {
           id: uuidv4(),
           title: titleNorm,
@@ -284,7 +362,6 @@ app.post('/api/scan', async (req, res) => {
         };
 
         data.tasks.push(task);
-        if (task.link) existingLinks.add(task.link);
         added++;
       }
 
