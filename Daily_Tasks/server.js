@@ -499,7 +499,7 @@ app.post('/api/tasks/:id/log/analyze', async (req, res) => {
     client = new CopilotClient();
     const session = await client.createSession({});  // No MCP servers → AI reasoning only
 
-    const analyzePrompt = `You are analyzing a user's work log request. Do NOT search for anything — just analyze what the user wants and return a structured search plan.
+    const analyzePrompt = `You are an assistant that plans communication searches for a task management app. Do NOT search for anything — just analyze and return a structured plan.
 
 TASK:
 Title: "${task.title}"
@@ -512,8 +512,8 @@ USER'S LOG TEXT:
 
 Return a JSON object with this exact structure:
 {
-  "understanding": "1-2 sentence summary of what the user wants you to find",
-  "keywords": ["specific", "search", "keywords", "from", "the", "task", "title"],
+  "understanding": "A clear action statement describing WHAT you will do, WHERE you will search, and WHAT you expect to find. Write it as a direct message to the user using 'I will...' or 'Ich werde...'. Example: 'This is about a pending approval for SAP Invoice 5735236948. You asked Eörs how to proceed. I will search your inbox for recent emails from Eörs that mention this invoice number or PO, to find his reply. If I find something, I will summarize it for you.'",
+  "keywords": ["specific", "search", "keywords"],
   "timeWindow": {
     "from": "ISO date string to start searching",
     "to": "ISO date string or 'now'",
@@ -523,6 +523,13 @@ Return a JSON object with this exact structure:
   "needsClarification": false,
   "clarificationQuestion": null
 }
+
+RULES FOR UNDERSTANDING (most important!):
+- The "understanding" field is your ACTION PLAN shown to the user before execution
+- It must describe: (1) the context/subject of the task, (2) what the user did, (3) exactly what you will search and where, (4) what you will do with the results
+- Do NOT just rephrase what the user said — describe your concrete plan of action
+- Write in the same language as the user's log text (German → German, English → English)
+- End with an implicit confirmation: the user will see this and click "Search" to approve
 
 RULES FOR TIME WINDOW:
 - If user says they REACTED to something or sent a reply → search AFTER the task date
@@ -562,7 +569,7 @@ Return ONLY the JSON object. No markdown, no explanation.`;
     // Deterministic fallback: extract keywords from title, default time window
     const keywords = extractKeywords(task.title);
     const plan = {
-      understanding: `Search for communications related to "${task.title}"`,
+      understanding: `I will search your inbox and Teams for messages related to "${task.title}" from ${task.from || 'the sender'}, starting from the task date. If I find relevant communications, I will summarize them for you.`,
       keywords,
       timeWindow: {
         from: taskDate || new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
@@ -608,7 +615,10 @@ app.post('/api/tasks/:id/log', async (req, res) => {
   let promptContext = null;
   let searchError = null;
   let client;
+  const searchStartTime = Date.now();
   try {
+    console.log(`[LOG] Starting Work IQ search for task "${taskContext.title}" at ${new Date().toISOString()}`);
+
     client = new CopilotClient();
     const session = await client.createSession({
       mcpServers: {
@@ -620,6 +630,8 @@ app.post('/api/tasks/:id/log', async (req, res) => {
         }
       }
     });
+
+    console.log(`[LOG] Session created in ${Date.now() - searchStartTime}ms`);
 
     const taskDate = taskContext.date || taskContext.createdAt || '';
 
@@ -671,19 +683,32 @@ app.post('/api/tasks/:id/log', async (req, res) => {
       promptContext = `Task: "${taskContext.title}" | From: ${taskContext.from || 'unknown'} | Date: ${taskDate} | User: "${text.trim()}"`;
     }
 
-    const response = await session.sendAndWait({ prompt: logPrompt }, 90000);
+    console.log(`[LOG] Sending prompt (${logPrompt.length} chars) to Work IQ...`);
+    console.log(`[LOG] Dynamic context: ${promptContext}`);
+
+    const response = await session.sendAndWait({ prompt: logPrompt }, 120000);
+    const searchDuration = Date.now() - searchStartTime;
+    console.log(`[LOG] Response received in ${searchDuration}ms`);
     await session.destroy();
 
     if (response) {
       const rawContent = response.data.content;
       rawResponseText = typeof rawContent === 'string' ? rawContent.substring(0, 2000) : JSON.stringify(rawContent).substring(0, 2000);
+      console.log(`[LOG] Raw response (${typeof rawContent === 'string' ? rawContent.length : 'non-string'} chars): ${rawResponseText.substring(0, 300)}...`);
       const parsed = parseJsonFromResponse(rawContent);
       if (Array.isArray(parsed)) {
         communications = parsed;
+        console.log(`[LOG] Parsed ${communications.length} communications`);
+      } else {
+        console.warn(`[LOG] Response could not be parsed as JSON array`);
       }
+    } else {
+      console.warn(`[LOG] No response from Work IQ session`);
     }
   } catch (err) {
-    console.error('AI communication search failed:', err);
+    const elapsed = Date.now() - searchStartTime;
+    console.error(`[LOG] AI communication search failed after ${elapsed}ms:`, err.message);
+    console.error(`[LOG] Prompt context was: ${promptContext}`);
     searchError = err.message;
     // Continue without communications — still log the work
   } finally {

@@ -3,7 +3,7 @@
 **Version:** 1.4
 **Date:** February 25, 2026
 **Author:** Martin Hämmerli
-**Status:** v1.3 implemented (AI-Powered Deduplication + Skill Files), v1.4 in progress (Two-Phase Log Agent)
+**Status:** v1.4 implemented (Two-Phase Log Agent + Interaction Panel + Execution Tracing)
 
 ---
 
@@ -332,11 +332,12 @@ Every task has a `history` array that tracks all changes and activities over tim
   "type": "created | status-change | update | scan-update | note | communication",
   "text": "Human-readable summary of what happened",
   "communications": [],
-  "agentPlan": null
+  "agentPlan": null,
+  "agentExecution": null
 }
 ```
 
-The `agentPlan` field (v1.4, optional) is saved when the user logs work via the two-phase agent. It records the complete agent interaction:
+The `agentPlan` field (v1.4, optional) records the analysis phase — what the agent understood:
 
 ```json
 {
@@ -349,6 +350,26 @@ The `agentPlan` field (v1.4, optional) is saved when the user logs work via the 
     "fallback": false
   }
 }
+```
+
+The `agentExecution` field (v1.4, optional) records the execution phase — what was sent, what came back, and the result:
+
+```json
+{
+  "agentExecution": {
+    "promptSent": "The dynamic context part of the prompt sent to Work IQ (without skill file boilerplate)",
+    "rawResponse": "The raw text response from the AI system (truncated to 2000 chars if longer)",
+    "parsedCount": 3,
+    "error": null
+  }
+}
+```
+
+Together, these two fields provide **full transparency** of the agent pipeline:
+```
+agentPlan        → What the agent UNDERSTOOD (analysis phase)
+agentExecution   → What the agent SENT and what came BACK (execution phase)
+communications   → What the agent EXTRACTED from the response (final result)
 ```
 
 **Entry types:**
@@ -373,8 +394,10 @@ Clicking on a task card opens an **interaction panel** directly below the card h
 │                                                                            │
 │  📝 User: "Ich habe Eors nach einer Antwort gefragt. Suche in meiner     │
 │      Inbox nach seiner Antwort."                                          │
-│  🤖 Agent: "Suche in deiner Inbox nach Antworten von Eörs zum            │
-│      SAP Invoice 5735236948, von 20.02.2026 bis heute."                   │
+│  🤖 Agent: "Es geht um ein Pending Approval für SAP Invoice 5735236948.  │
+│      Du hast Eörs gefragt, wie du vorgehen sollst. Ich werde in deiner   │
+│      Inbox nach Antworten von Eörs suchen, die diese Invoice-Nummer      │
+│      erwähnen. Falls ich etwas finde, fasse ich es zusammen."            │
 │  ✅ User confirmed                                                        │
 │  📧 Eörs → Martin (22.02.) — "Eörs bestätigt, dass GR ausgelöst         │
 │      werden kann" [Open ↗]                                                │
@@ -404,10 +427,33 @@ Clicking on a task card opens an **interaction panel** directly below the card h
 5. The **Log input** (✏️ Log) is always visible at the bottom of the panel (no separate toggle needed)
 6. **"▶ Details" toggle** at the very bottom — expands to show:
    - Technical metadata: keywords, time window, search targets (per agent interaction)
+   - **Execution trace** (from `agentExecution`):
+     - 📤 **Prompt sent:** The dynamic context sent to Work IQ (task + plan + user text, not the skill file boilerplate)
+     - 📥 **System response:** Raw AI response (truncated >500 chars with full text preserved in data). Shows `(no response)` if null, or error message if failed.
+     - 📊 **Result:** "X communication(s) extracted" or error description
    - System events: created, status-change, scan-update (the old history entries)
    - These are useful for debugging but NOT the primary view
 7. The interaction panel should be **generously sized** — no cramped layout
 8. Multiple entries stack vertically (chat-like, chronological)
+9. **Panel persistence:** When a log entry is submitted and `fetchTasks()` re-renders, the currently open panel MUST re-open automatically. Store the open panel's `taskId` before re-rendering, then re-open it after DOM update.
+10. **Real-time progress feedback:** During the entire two-phase agent flow, the user MUST see step-by-step status updates in the panel. No silent spinners. The flow is:
+    ```
+    Phase 1: "🤔 Agent is analyzing your request..."
+             → Plan displayed (user confirms/cancels)
+    Phase 2: "📤 Sending search to Work IQ..."
+             → "⏳ Waiting for system response..." (after 10s)
+             → "✅ Done — X communication(s) found" or "🔍 No communications found"
+             → New history entry appears in panel (panel stays open)
+    Error:   "❌ Search timed out after 90s" or "❌ Connection failed: ..."
+    ```
+    These status messages appear IN the plan area of the panel (replacing the spinner). The user stays informed at every stage.
+11. **History entry deletion:** Each agent conversation (type "update") in the interaction panel has a **🗑️ delete button** (top-right corner of the conversation block). Clicking it:
+    - Shows a confirmation: `"Delete this entry and all associated data?"` with `[Yes, delete]` and `[Cancel]`
+    - On confirm: `DELETE /api/tasks/:taskId/history/:index`
+    - The server removes the ENTIRE history entry at that index — including `agentPlan`, `agentExecution`, `communications`, and `text`
+    - Other history entries are NOT affected (the array is spliced, not rewritten)
+    - After deletion, `fetchTasks()` re-renders with the panel still open (same persistence as rule 9)
+    - **System events** (type "created", "status-change", "scan-update") do NOT have delete buttons — these are immutable audit entries
 
 ### 4.13 Auto-Cleanup of Done Tasks (v1.2)
 
@@ -447,7 +493,7 @@ Phase 1: ANALYZE (~5-15s, no Work IQ)       Phase 2: EXECUTE (after confirm, ~30
 5. AI returns a structured plan:
    ```json
    {
-     "understanding": "You asked several people for updates on the SAP Invoice. You want me to check your inbox for replies.",
+     "understanding": "This is about a pending approval for SAP Invoice 5735236710, PO 0101439547. You asked several people for updates. I will search your inbox for recent replies that mention this invoice number or PO, starting from the task date (Feb 20). If I find replies, I will summarize them for you.",
      "keywords": ["SAP Invoice 5735236710", "PO 0101439547"],
      "timeWindow": {
        "from": "2026-02-20",
@@ -459,6 +505,7 @@ Phase 1: ANALYZE (~5-15s, no Work IQ)       Phase 2: EXECUTE (after confirm, ~30
      "clarificationQuestion": null
    }
    ```
+   The `understanding` field is an **action plan**, not a rephrasing. It must describe: (1) the task context, (2) what the user did, (3) what the agent will do concretely, (4) what happens with results. Written in the user's language (German input → German response).
 6. If `needsClarification` is true: Frontend shows the question + input field for the user's answer. User answers → re-submit to `/analyze` with extended context (original text + answer appended).
 7. Frontend displays the plan visually: understanding, keywords, time window, search target.
 8. User has three options: **✅ Confirm** | **❌ Cancel**
@@ -485,11 +532,15 @@ Phase 1: ANALYZE (~5-15s, no Work IQ)       Phase 2: EXECUTE (after confirm, ~30
 
 **Frontend UI for the plan display:**
 ```
-┌─ Agent's Analysis ──────────────────────────────────────┐
-│ 💡 I'll search your inbox for email threads about       │
-│    "SAP Invoice 5735236710" from Feb 20 onwards.        │
+┌─ Agent's Plan ──────────────────────────────────────────┐
+│ 💡 Es geht um ein Pending Approval für SAP Invoice      │
+│    5735236710. Du hast Eörs nach einer Antwort gefragt. │
+│    Ich werde in deiner Inbox nach Emails von Eörs       │
+│    suchen, die diese Invoice-Nummer oder PO erwähnen.   │
+│    Falls ich etwas finde, fasse ich es für dich         │
+│    zusammen.                                             │
 │                                                         │
-│ Keywords: SAP Invoice, 5735236710, PO 0101439547        │
+│ Keywords: 5735236710, 0101439547, Eörs                  │
 │ Time: Feb 20 → today                                    │
 │ Target: Inbox emails                                    │
 │                                                         │
@@ -514,6 +565,7 @@ If the agent needs clarification:
 |---|---|---|
 | `POST` | `/api/tasks/:id/log/analyze` | Phase 1: AI analyzes the log request, returns search plan |
 | `POST` | `/api/tasks/:id/log` | Phase 2: Execute search with confirmed plan, save history (enhanced, accepts optional `plan` field) |
+| `DELETE` | `/api/tasks/:id/history/:index` | Delete a single history entry by array index (removes entry + all metadata) |
 
 **Request/Response — Analyze:**
 - Request: `{ "text": "Ich habe verschiedene Personen nach Updates angefragt" }`
@@ -524,6 +576,13 @@ If the agent needs clarification:
 - Request: `{ "text": "...", "plan": { "keywords": [...], "timeWindow": {...}, "searchTargets": "..." } }`
 - Response: Updated task object with new history entry containing communications
 - If `plan` is omitted: falls back to v1.3 behavior (direct search without analysis step)
+
+**Request/Response — Delete History Entry:**
+- Request: no body
+- Response (200): Updated task object with the entry removed from history array
+- Response (400): `{ "error": "Invalid history index" }` — if index is out of bounds or not a number
+- Response (404): `{ "error": "Task not found" }`
+- **Safety:** Only entries with `type === "update"` may be deleted via this endpoint. Attempts to delete system entries (`created`, `status-change`, `scan-update`) return `{ "error": "System entries cannot be deleted" }` (403)
 
 ### 4.15 Parallel Task Operations (v1.2)
 
@@ -566,6 +625,7 @@ The Node.js server exposes these REST endpoints for the frontend:
 | `DELETE` | `/api/tasks/:id` | Delete a task |
 | `POST` | `/api/tasks/:id/log/analyze` | Phase 1: AI analyzes log request, returns search plan (v1.4) |
 | `POST` | `/api/tasks/:id/log` | Phase 2: Execute search with confirmed plan + save history (v1.2, enhanced v1.4) |
+| `DELETE` | `/api/tasks/:id/history/:index` | Delete a single history entry (type "update" only, v1.4) |
 
 ---
 
@@ -616,19 +676,23 @@ The Node.js server exposes these REST endpoints for the frontend:
 32. ✅ Load skill files at server start, inject into prompts, graceful fallback
 33. ✅ Update Spec, Architecture, and README to v1.3
 
-### Phase 6: Two-Phase Log Agent + Chat-Style Interaction Panel (v1.4)
-34. Add `POST /api/tasks/:id/log/analyze` endpoint (Copilot SDK without Work IQ, ~5-15s)
-35. Add `extractKeywords()` helper for deterministic fallback analysis
-36. Enhance `POST /api/tasks/:id/log` to accept optional `plan` parameter + save `agentPlan` in history
-37. Build targeted execution prompt from confirmed plan (keywords + time window + targets)
-38. Replace "📜 History" toggle with **click-to-open interaction panel** on task card
-39. Render agent conversations chat-style: User message → Agent understanding → Confirmation → Communications
-40. Add "▶ Details" toggle inside panel for technical metadata + system events
-41. Move Log input into the interaction panel (always visible when panel is open)
-42. Add clarification loop UI (question display + answer input + re-analyze)
-43. Add visual states: "Analyzing..." spinner (Phase 1), "Searching..." spinner (Phase 2)
-44. Handle fallback: if SDK analysis fails, use deterministic keyword extraction
-45. Update Spec, Architecture, README, and LOG_WORK_SKILL.md to v1.4
+### Phase 6: Two-Phase Log Agent + Chat-Style Interaction Panel (v1.4) ✅
+34. ✅ Add `POST /api/tasks/:id/log/analyze` endpoint (Copilot SDK without Work IQ, ~5-15s)
+35. ✅ Add `extractKeywords()` helper for deterministic fallback analysis
+36. ✅ Enhance `POST /api/tasks/:id/log` to accept optional `plan` parameter + save `agentPlan` and `agentExecution` in history
+37. ✅ Build targeted execution prompt from confirmed plan (keywords + time window + targets)
+38. ✅ Replace "📜 History" toggle with **click-to-open interaction panel** on task card
+39. ✅ Render agent conversations chat-style: User message → Agent understanding → Confirmation → Communications
+40. ✅ Add "▶ Details" toggle inside panel for technical metadata + execution trace + system events
+41. ✅ Move Log input into the interaction panel (always visible when panel is open)
+42. ✅ Add clarification loop UI (question display + answer input + re-analyze)
+43. ✅ Add real-time progress feedback: step-by-step status in plan area (no silent spinners)
+44. ✅ Handle fallback: if SDK analysis fails, use deterministic keyword extraction
+45. ✅ Add `DELETE /api/tasks/:id/history/:index` with type protection (only "update" deletable)
+46. ✅ Add panel persistence (`openPanelTaskId` survives `fetchTasks()` re-renders)
+47. ✅ Add execution tracing (`agentExecution` with promptSent, rawResponse, parsedCount, error)
+48. ✅ Add 🗑️ delete button on agent conversations (type "update" entries only)
+49. ✅ Update Spec, Architecture, README, and LOG_WORK_SKILL.md to v1.4
 
 ---
 
@@ -681,7 +745,7 @@ E:\Work_IQ\Daily_Tasks\
 
 ---
 
-## 11. Future Enhancements (Out of Scope for v1.3)
+## 11. Future Enhancements (Out of Scope for v1.4)
 
 - Automated daily scheduler (Windows Task Scheduler or cron)
 - Email/Teams notification when new action items are found

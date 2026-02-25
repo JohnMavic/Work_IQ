@@ -377,7 +377,7 @@ Returns all tasks and metadata.
 **Response (200):**
 ```json
 {
-  "version": 1,
+  "version": 2,
   "lastScan": "2026-02-23T07:00:00.000Z",
   "tasks": [ ... ]
 }
@@ -410,6 +410,8 @@ Creates a new manual task.
   "link": null,
   "status": "active",
   "notes": "Optional notes",
+  "history": [{ "timestamp": "...", "type": "created", "text": "Task created manually" }],
+  "doneAt": null,
   "createdAt": "2026-02-23T08:00:00.000Z",
   "updatedAt": "2026-02-23T08:00:00.000Z"
 }
@@ -453,6 +455,24 @@ Deletes a task permanently.
 
 ---
 
+### DELETE /api/tasks/:id/history/:index
+
+Deletes a single history entry by its array index. Removes the complete entry including all nested data (`agentPlan`, `agentExecution`, `communications`). Other entries remain untouched.
+
+**Safety rules:**
+- Only entries with `type === "update"` can be deleted
+- System entries (`created`, `status-change`, `scan-update`) are protected and cannot be deleted
+
+**Response (200):** Updated task object (with entry removed from history array)
+
+**Errors:**
+- `400` — Invalid index (not a number, negative, or out of bounds)
+- `403` — System entries cannot be deleted (type is not "update")
+- `404` — Task not found
+- `500` — Write failure
+
+---
+
 ### POST /api/scan
 
 Triggers an AI-powered scan of M365 emails and Teams messages.
@@ -464,6 +484,7 @@ Triggers an AI-powered scan of M365 emails and Teams messages.
 {
   "success": true,
   "added": 3,
+  "updated": 1,
   "skipped": 2,
   "total": 10,
   "lastScan": "2026-02-23T09:00:00.000Z"
@@ -476,14 +497,67 @@ Triggers an AI-powered scan of M365 emails and Teams messages.
 
 ---
 
+### POST /api/tasks/:id/log/analyze
+
+Phase 1 of the two-phase log agent: AI analyzes the user's log request and returns a structured search plan. Uses Copilot SDK WITHOUT Work IQ (fast, ~5-15s).
+
+**Request Body:**
+```json
+{
+  "text": "Ich habe Eors nach einer Antwort gefragt"
+}
+```
+
+**Response (200):**
+```json
+{
+  "plan": {
+    "understanding": "...",
+    "keywords": ["SAP Invoice", "5735236948"],
+    "timeWindow": { "from": "2026-02-20", "to": "now", "reasoning": "..." },
+    "searchTargets": "inbox",
+    "needsClarification": false,
+    "clarificationQuestion": null
+  }
+}
+```
+
+If AI analysis fails, returns a deterministic fallback with `"fallback": true`.
+
+**Errors:** `400` — Log text required | `404` — Task not found | `500` — Read failure
+
+---
+
+### POST /api/tasks/:id/log
+
+Phase 2: Execute communication search with confirmed plan and save history entry. Uses Copilot SDK + Work IQ MCP (~30-90s). If `plan` is omitted, falls back to v1.3 behavior (direct search).
+
+**Request Body:**
+```json
+{
+  "text": "Ich habe Eors nach einer Antwort gefragt",
+  "plan": {
+    "keywords": ["SAP Invoice", "5735236948"],
+    "timeWindow": { "from": "2026-02-20", "to": "now" },
+    "searchTargets": "inbox"
+  }
+}
+```
+
+**Response (200):** Updated task object with new history entry containing `communications`, `agentPlan`, and `agentExecution`.
+
+**Errors:** `400` — Log text required | `404` — Task not found | `500` — Write or search failure
+
+---
+
 ## 7. Frontend Architecture
 
 ### Single-File Design
 
 The entire frontend is contained in `index.html`:
 - **HTML** structure (header, main, form, loading overlay)
-- **CSS** styles (~200 lines, all in a `<style>` tag)
-- **JavaScript** application logic (~305 lines, all in a `<script>` tag)
+- **CSS** styles (~450 lines, all in a `<style>` tag)
+- **JavaScript** application logic (~660 lines, all in a `<script>` tag)
 
 No build step, no bundler, no framework. This matches the project convention (AI Café Presenter uses the same pattern).
 
@@ -493,10 +567,12 @@ No build step, no bundler, no framework. This matches the project convention (AI
 ┌─────────────────────────────────────────────┐
 │  In-Memory State                             │
 │                                              │
-│  let tasks = [];        // All tasks         │
+│  let tasks = [];            // All tasks     │
 │  let currentFilter = 'all'; // Active filter │
 │  let serverOnline = false;  // Server reachable?     │
 │  let reconnectTimer = null; // Auto-retry interval   │
+│  let pendingPlans = {};     // taskId → { plan, originalText } (v1.4) │
+│  let openPanelTaskId = null; // Panel persistence across re-renders   │
 └──────────────────┬──────────────────────────┘
                    │
         Updated by fetchTasks()
@@ -579,8 +655,10 @@ Task Card Layout (v1.4):
 ┌─ Interaction Panel (hidden by default) ────────────────────────────────────┐
 │                                                                            │
 │  ┌─ Agent Conversations (chat-style, chronological) ────────────────────┐  │
-│  │ 📝 User: "Ich habe Eors nach einer Antwort gefragt..."              │  │
-│  │ 🤖 Agent: "Suche in deiner Inbox nach Antworten von Eörs..."        │  │
+│  │ 📝 User: "Ich habe Eors nach einer Antwort gefragt..."        [🗑️] │  │
+│  │ 🤖 Agent: "Es geht um ein Pending Approval. Du hast Eörs gefragt, │  │
+│  │    wie du vorgehen sollst. Ich suche in deiner Inbox nach seiner   │  │
+│  │    Antwort. Falls ich etwas finde, fasse ich es zusammen."        │  │
 │  │ ✅ User confirmed                                                    │  │
 │  │ 📧 Eörs → Martin — "Eörs bestätigt..." [Open ↗]                    │  │
 │  └──────────────────────────────────────────────────────────────────────┘  │
@@ -588,13 +666,19 @@ Task Card Layout (v1.4):
 │  ┌─ Log Input (always visible in panel) ────────────────────────────────┐  │
 │  │ [What did you do? ___________________________] [🔍 Analyze]          │  │
 │  └──────────────────────────────────────────────────────────────────────┘  │
-│  ┌─ Plan Display (appears after analyze) ───────────────────────────────┐  │
+│  ┌─ Plan Display / Progress Status (appears during agent flow) ─────────┐  │
+│  │ 🤔 Agent is analyzing your request...                                │  │
 │  │ 💡 Understanding + [✅ Search] [❌ Cancel]                            │  │
+│  │ 📤 Sending search to Work IQ...                                      │  │
+│  │ ⏳ Waiting for system response...   (after 10s timeout)              │  │
+│  │ 📥 Response received, processing...                                  │  │
+│  │ ✅ Done — 3 communications found                                     │  │
 │  └──────────────────────────────────────────────────────────────────────┘  │
 │                                                                            │
 │  [▶ Details]                                                               │
 │  ┌─ Details (collapsed, expandable) ────────────────────────────────────┐  │
-│  │ Technical: Keywords, Time Window, Search Targets (per interaction)   │  │
+│  │ Agent trace: 📤 Prompt sent, 📥 Raw response, 📊 Parse result       │  │
+│  │ Plan meta: Keywords, Time Window, Search Targets (per interaction)   │  │
 │  │ System Events: ➕ Created, ✅ Status changed, 🔄 Scan updated       │  │
 │  └──────────────────────────────────────────────────────────────────────┘  │
 └────────────────────────────────────────────────────────────────────────────┘
@@ -602,9 +686,35 @@ Task Card Layout (v1.4):
 
 **State management additions (v1.4):**
 ```
-let pendingPlans = {};   // taskId → { plan, originalText }
-let openTaskId = null;   // Which task's panel is currently open
+let pendingPlans = {};       // taskId → { plan, originalText }
+let openPanelTaskId = null;  // Which task's panel is currently open (survives re-renders)
 ```
+
+**Panel persistence across re-renders:**
+- `toggleTaskPanel(taskId)` sets `openPanelTaskId = taskId` when opening, `null` when closing
+- After `fetchTasks()` calls `renderTasks()` and the DOM is rebuilt, it checks `if (openPanelTaskId)` and directly adds `.visible` class to the panel element via `document.getElementById('panel-' + openPanelTaskId)`
+- This prevents the panel from closing when a log entry is submitted
+
+**Real-time progress feedback:**
+```
+Progress State Machine (displayed in plan area):
+═════════════════════════════════════════════════
+
+  analyzeLog()
+  ├─ "🤔 Agent is analyzing your request..."     ← immediate
+  ├─ Plan displayed with ✅/❌ buttons             ← on response
+  │
+  executeLog()
+  ├─ "📤 Sending search to Work IQ..."            ← immediate
+  ├─ "⏳ Waiting for system response..."          ← after 10s timer
+  ├─ "✅ Done — X communication(s) found"         ← on response
+  │   or "🔍 No communications found"             ← if empty array
+  │   or "❌ Search failed: <error>"               ← on error
+  └─ Panel stays open, new conversation visible   ← after fetchTasks
+```
+- Progress messages replace the spinner in the `plan-<taskId>` element
+- Each step update is a simple `innerHTML` change — no complex state needed
+- Use `setTimeout(fn, 10000)` for the "⏳ Waiting" upgrade (cancel on response)
 
 **Rendering logic:**
 - `renderTasks()` splits history entries into two groups:
@@ -659,9 +769,10 @@ let openTaskId = null;   // Which task's panel is currently open
 | `type` | string | `"created"`, `"status-change"`, `"update"`, `"scan-update"`, `"note"`, `"communication"` |
 | `text` | string | Human-readable description of the event |
 | `communications` | array \| undefined | Array of linked communications (only for type "update" and "communication") |
-| `agentPlan` | object \| undefined | (v1.4) The confirmed search plan — records what the agent understood, what keywords/time window it used, and whether the user confirmed. Only present for log work entries created via the two-phase agent. |
+| `agentPlan` | object \| undefined | (v1.4) Analysis phase: what the agent understood |
+| `agentExecution` | object \| undefined | (v1.4) Execution phase: what was sent, what came back |
 
-**agentPlan Object (v1.4):**
+**agentPlan Object (v1.4) — Analysis Phase:**
 | Field | Type | Description |
 |---|---|---|
 | `understanding` | string | What the agent understood from the user's request |
@@ -670,6 +781,24 @@ let openTaskId = null;   // Which task's panel is currently open
 | `searchTargets` | string | What was searched: "inbox", "sent", "teams", or "all" |
 | `userConfirmed` | boolean | `true` if user explicitly confirmed, `false` if auto-executed |
 | `fallback` | boolean | `true` if AI analysis failed and deterministic fallback was used |
+
+**agentExecution Object (v1.4) — Execution Phase:**
+| Field | Type | Description |
+|---|---|---|
+| `promptSent` | string | The dynamic context sent to Work IQ (task + plan + user text, without skill file) |
+| `rawResponse` | string \| null | Raw AI response text (truncated to 2000 chars). `null` if no response. |
+| `parsedCount` | number | Number of communications successfully parsed from response |
+| `error` | string \| null | Error message if execution failed, otherwise `null` |
+
+```
+Full Agent Pipeline (visible in Details):
+─────────────────────────────────────────
+agentPlan.understanding  → 1. What the agent UNDERSTOOD
+agentExecution.promptSent → 2. What the agent SENT to Work IQ
+agentExecution.rawResponse → 3. What the system RETURNED
+communications[]          → 4. What the agent EXTRACTED (final result)
+agentExecution.error      → 5. What went WRONG (if anything)
+```
 
 ### Communication Object (v1.2)
 
@@ -686,7 +815,7 @@ let openTaskId = null;   // Which task's panel is currently open
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "lastScan": "2026-02-23T09:00:00.000Z",
   "tasks": [
     {
@@ -698,6 +827,8 @@ let openTaskId = null;   // Which task's panel is currently open
       "link": "https://outlook.office365.com/owa/?ItemID=AAMk...",
       "status": "active",
       "notes": "",
+      "history": [{ "timestamp": "2026-02-23T09:01:00.000Z", "type": "created", "text": "Task created from email scan" }],
+      "doneAt": null,
       "createdAt": "2026-02-23T09:01:00.000Z",
       "updatedAt": "2026-02-23T09:01:00.000Z"
     },
@@ -710,6 +841,11 @@ let openTaskId = null;   // Which task's panel is currently open
       "link": "https://teams.microsoft.com/l/message/...",
       "status": "in-progress",
       "notes": "Need to check with PM first",
+      "history": [
+        { "timestamp": "2026-02-23T09:01:00.000Z", "type": "created", "text": "Task created from teams scan" },
+        { "timestamp": "2026-02-23T10:30:00.000Z", "type": "status-change", "text": "Status changed: active → in-progress" }
+      ],
+      "doneAt": null,
       "createdAt": "2026-02-23T09:01:00.000Z",
       "updatedAt": "2026-02-23T10:30:00.000Z"
     },
@@ -722,6 +858,11 @@ let openTaskId = null;   // Which task's panel is currently open
       "link": null,
       "status": "done",
       "notes": "Focus on Q4 results",
+      "history": [
+        { "timestamp": "2026-02-23T08:00:00.000Z", "type": "created", "text": "Task created manually" },
+        { "timestamp": "2026-02-23T11:00:00.000Z", "type": "status-change", "text": "Status changed: active → done" }
+      ],
+      "doneAt": "2026-02-23T11:00:00.000Z",
       "createdAt": "2026-02-23T08:00:00.000Z",
       "updatedAt": "2026-02-23T11:00:00.000Z"
     },
@@ -734,6 +875,8 @@ let openTaskId = null;   // Which task's panel is currently open
       "link": "https://outlook.office365.com/owa/?ItemID=BBNk...",
       "status": "paused",
       "notes": "Waiting for legal review to complete",
+      "history": [{ "timestamp": "2026-02-23T09:01:00.000Z", "type": "created", "text": "Task created from email scan" }],
+      "doneAt": null,
       "createdAt": "2026-02-23T09:01:00.000Z",
       "updatedAt": "2026-02-23T09:45:00.000Z"
     }
