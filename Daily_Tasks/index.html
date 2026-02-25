@@ -956,7 +956,8 @@
         detailsHtml += `<div class="detail-meta" style="border-left:2px solid #f59e0b;margin-top:4px">`;
 
         // Step 2: GESENDET (promptSent = search parameters sent to Work IQ)
-        detailsHtml += `<span style="color:#fbbf24"><strong>2️⃣ Gesendet an Work IQ</strong></span>`;
+        const methodLabel = ex.method === 'workiq-ask' ? 'workiq ask (direkt)' : 'Copilot SDK + MCP';
+        detailsHtml += `<span style="color:#fbbf24"><strong>2️⃣ Gesendet an Work IQ</strong> <span style="font-size:0.7rem;color:#888">(${methodLabel})</span></span>`;
         if (ex.promptSent) {
           detailsHtml += `<span>${escHtml(ex.promptSent)}</span>`;
         }

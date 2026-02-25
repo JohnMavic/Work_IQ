@@ -357,14 +357,19 @@ The `agentExecution` field (v1.4, optional) records the execution phase — what
 ```json
 {
   "agentExecution": {
-    "promptSent": "The dynamic context part of the prompt sent to Work IQ (without skill file boilerplate)",
-    "rawResponse": "The raw text response from the AI system (truncated to 2000 chars if longer)",
+    "promptSent": "The question/prompt sent to Work IQ (natural language question or dynamic context)",
+    "rawResponse": "The raw text response from Work IQ (truncated to 2000 chars if longer)",
     "parsedCount": 3,
     "error": null,
-    "durationMs": 45230
+    "durationMs": 45230,
+    "method": "workiq-ask"
   }
 }
 ```
+
+The `method` field indicates which search approach was used:
+- `"workiq-ask"` — Direct `workiq ask` CLI call (v1.4, when plan exists)
+- `"copilot-sdk-mcp"` — Copilot SDK + Work IQ MCP (v1.3 fallback, when no plan exists)
 
 Together, these two fields provide **full transparency** of the agent pipeline:
 ```
@@ -475,12 +480,12 @@ When the user wants to log work on a task, the AI assists by finding and linking
 **Solution (v1.4): Two-Phase Flow — Analyze, then Execute**
 
 ```
-Phase 1: ANALYZE (~5-15s, no Work IQ)       Phase 2: EXECUTE (after confirm, ~30-90s)
+Phase 1: ANALYZE (~5-15s, no Work IQ)       Phase 2: EXECUTE (after confirm, ~15-60s)
 ┌────────────────────────────────────┐      ┌──────────────────────────────────────┐
 │ User types log text                │      │ User confirms/adjusts the plan       │
 │ → POST /api/tasks/:id/log/analyze  │      │ → POST /api/tasks/:id/log            │
-│ → Copilot SDK (NO Work IQ)        │      │ → Copilot SDK + Work IQ              │
-│ → AI analyzes intent, not data     │      │ → Targeted search with plan params   │
+│ → Copilot SDK (NO Work IQ)        │      │ → workiq ask (direct CLI call)       │
+│ → AI analyzes intent, not data     │      │ → Natural language question from plan│
 │ → Returns structured search plan   │      │ → Saves history entry with results   │
 │ → Frontend shows plan to user      │      │                                      │
 └────────────────────────────────────┘      └──────────────────────────────────────┘
@@ -514,20 +519,35 @@ Phase 1: ANALYZE (~5-15s, no Work IQ)       Phase 2: EXECUTE (after confirm, ~30
 **Phase 2 — Execute (after user confirmation):**
 1. User clicks "✅ Search" to confirm the plan
 2. Frontend sends `POST /api/tasks/:id/log { text, plan }` — the enhanced log endpoint
-3. Server builds a **lean execution prompt** directly from the confirmed plan (NO skill file):
-   - Concrete assignment: task title, sender, search targets
-   - Precise search parameters: keywords, time window
-   - Output format rules: JSON schema, summary guidelines, ordering
-   - This is ~600 chars vs ~2400 chars when using the full skill file — more focused, less noise
-4. Work IQ searches M365 data with the precise parameters
-5. Server saves history entry with communications array + execution trace (`agentExecution`)
-6. Frontend shows results
+3. Server builds a **natural language question** from the confirmed plan using `buildSearchQuestion()`:
+   - Includes: search targets, task title, keywords, time range, user context
+   - Asks for JSON array output with fields: type, from, to, date, summary, link
+   - This is a clear, human-readable question — not a robotic prompt template
+4. Server calls `workiq ask -q "..."` directly via `child_process.spawn`:
+   - Work IQ IS an AI agent — it handles Search API calls, reasoning, and formatting
+   - No Copilot SDK wrapping needed — eliminates double-AI overhead
+   - Typical latency: 15-60s (vs 30-120s with SDK + MCP)
+5. Server parses JSON from Work IQ's response using `parseJsonFromResponse()`
+6. Server saves history entry with communications array + execution trace (`agentExecution`)
+7. Frontend shows results
+
+**Why workiq ask instead of Copilot SDK + MCP (v1.4 decision):**
+```
+OLD (v1.3):  Copilot SDK → AI Model → Work IQ MCP → Search API → AI → parse
+NEW (v1.4):  workiq ask → Work IQ AI → Search API → response → parse
+
+Benefits:
+- Simpler: 1 process instead of 3 (SDK + AI model + MCP server)
+- Faster: ~15-60s instead of ~30-120s
+- More reliable: Work IQ knows its own tools best
+- Proven: Same approach works perfectly in Copilot CLI sessions
+```
 
 **Skill File Usage (v1.4):**
 ```
-Phase 1 (Analyze): Hardcoded analysis prompt (stable meta-prompt, no skill file)
-Phase 2 (Execute): Lean execution prompt built from plan (no skill file needed)
-Fallback:          LOG_WORK_SKILL.md used ONLY when no plan exists (v1.3 backward-compat)
+Phase 1 (Analyze):  Hardcoded analysis prompt (stable meta-prompt, no skill file)
+Phase 2 (Execute):  workiq ask with natural language question (no skill file needed)
+Fallback (no plan): Copilot SDK + MCP + LOG_WORK_SKILL.md (v1.3 backward-compat)
 ```
 
 **Clarification Rules (embedded in analysis prompt):**

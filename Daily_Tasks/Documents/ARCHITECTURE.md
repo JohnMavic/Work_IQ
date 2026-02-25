@@ -530,7 +530,7 @@ If AI analysis fails, returns a deterministic fallback with `"fallback": true`.
 
 ### POST /api/tasks/:id/log
 
-Phase 2: Execute communication search with confirmed plan and save history entry. Uses Copilot SDK + Work IQ MCP (~30-90s). If `plan` is omitted, falls back to v1.3 behavior (direct search).
+Phase 2: Execute communication search with confirmed plan and save history entry. When `plan` is provided, uses `workiq ask` CLI directly (~15-60s). If `plan` is omitted, falls back to Copilot SDK + MCP (v1.3 behavior).
 
 **Request Body:**
 ```json
@@ -544,7 +544,7 @@ Phase 2: Execute communication search with confirmed plan and save history entry
 }
 ```
 
-**Response (200):** Updated task object with new history entry containing `communications`, `agentPlan`, and `agentExecution`.
+**Response (200):** Updated task object with new history entry containing `communications`, `agentPlan`, and `agentExecution` (includes `method: "workiq-ask"` or `"copilot-sdk-mcp"`).
 
 **Errors:** `400` — Log text required | `404` — Task not found | `500` — Write or search failure
 
@@ -787,17 +787,18 @@ Progress State Machine (displayed in plan area):
 **agentExecution Object (v1.4) — Execution Phase:**
 | Field | Type | Description |
 |---|---|---|
-| `promptSent` | string | The dynamic context sent to Work IQ (task + plan + user text, without skill file) |
-| `rawResponse` | string \| null | Raw AI response text (truncated to 2000 chars). `null` if no response. |
+| `promptSent` | string | The question/prompt sent to Work IQ (natural language or dynamic context) |
+| `rawResponse` | string \| null | Raw Work IQ response text (truncated to 2000 chars). `null` if no response. |
 | `parsedCount` | number | Number of communications successfully parsed from response |
 | `error` | string \| null | Error message if execution failed, otherwise `null` |
-| `durationMs` | number | Total search duration in milliseconds (from session creation to response) |
+| `durationMs` | number | Total search duration in milliseconds |
+| `method` | string | Search approach used: `"workiq-ask"` (direct CLI) or `"copilot-sdk-mcp"` (fallback) |
 
 ```
 Full Agent Pipeline (visible in Details as 4-step story):
 ─────────────────────────────────────────────────────────
 1️⃣ Auftrag              → agentPlan.understanding + keywords + timeWindow + targets
-2️⃣ Gesendet an Work IQ  → agentExecution.promptSent (search parameters)
+2️⃣ Gesendet an Work IQ  → agentExecution.promptSent + method (workiq-ask or SDK+MCP)
 3️⃣ Antwort von Work IQ  → agentExecution.rawResponse + durationMs (or error)
 4️⃣ Ergebnis für Benutzer → communications[] (from→to per message) + parsedCount
 ```
@@ -930,7 +931,7 @@ The frontend `friendlyError()` function maps server error responses to user-frie
 
 ### JSON Response Parser
 
-The `parseJsonFromResponse()` function handles multiple AI response formats:
+The `parseJsonFromResponse()` function handles multiple AI response formats (used for both `workiq ask` and Copilot SDK responses):
 
 ```
 AI Response Text
@@ -943,6 +944,21 @@ AI Response Text
   │
   └── Return null (triggers 502 error)
 ```
+
+### Work IQ Direct CLI (v1.4)
+
+Two helper functions enable direct Work IQ calls without Copilot SDK:
+
+**`runWorkIQAsk(question, timeoutMs)`** — Spawns `workiq ask -q "..."` via `child_process.spawn`:
+- Uses `shell: true` for Windows `.cmd` compatibility
+- Returns the full stdout text on success
+- Throws on timeout (default 90s) or non-zero exit code
+- Single process vs. Copilot SDK's 3 processes (SDK + AI model + MCP server)
+
+**`buildSearchQuestion(plan, taskContext, userText)`** — Builds a natural language question from the confirmed plan:
+- Includes search targets, task title, keywords, time range, and user context
+- Requests JSON array output format (type, from, to, date, summary, link)
+- Reads like a human question — not a robotic prompt template
 
 ### Concurrency & Write Safety (v1.2)
 
@@ -993,24 +1009,25 @@ User text ──→ POST /api/tasks/:id/log/analyze
          │ Frontend: show plan  │──→ User confirms or adjusts
          └──────────┬───────────┘
                     │
-Phase 2: EXECUTE (after confirm, ~30-90 seconds)
+Phase 2: EXECUTE (after confirm, ~15-60 seconds)
 ────────────────────────────────────────────────
 Confirmed plan ──→ POST /api/tasks/:id/log
                     │
                     ▼
          ┌──────────────────────┐
-         │ LOG_WORK_SKILL.md    │  ← Static search instructions
-         ├──────────────────────┤
-         │ Confirmed plan:      │  ← Keywords, time window, targets
-         │ + Task context       │
-         │ + User log text      │
+         │ buildSearchQuestion()│  ← Natural language question
+         │ • Task title         │    from confirmed plan
+         │ • Keywords           │
+         │ • Time range         │
+         │ • User context       │
+         │ • JSON output format │
          └──────────┬───────────┘
                     │
                     ▼
          ┌──────────────────────┐
-         │ Copilot SDK          │
-         │ + Work IQ MCP        │  ← NOW searches M365
-         └──────────┬───────────┘
+         │ workiq ask -q "..."  │  ← Direct CLI call via spawn
+         │ (Work IQ's own AI)   │  ← Searches M365 directly
+         └──────────┬───────────┘  ← No Copilot SDK wrapper
                     │
                     ▼
          JSON array of communications
@@ -1019,13 +1036,24 @@ Confirmed plan ──→ POST /api/tasks/:id/log
          History entry saved
 ```
 
+**Why `workiq ask` instead of Copilot SDK + MCP (v1.4 decision):**
+```
+OLD (v1.3):  App → Copilot SDK → AI Model → Work IQ MCP → Search API → AI → parse
+             (3 processes: SDK, AI model, MCP server — 30-120s, fragile)
+
+NEW (v1.4):  App → workiq ask CLI → Work IQ AI → Search API → response → parse
+             (1 process: workiq — 15-60s, proven in Copilot CLI sessions)
+```
+Work IQ IS an AI agent. Wrapping it in another AI (Copilot SDK) adds overhead without benefit.
+
 **Key design decisions:**
 - Phase 1 creates a CopilotClient session WITHOUT `mcpServers` → AI can only reason, not search
-- Phase 2 creates a session WITH Work IQ → targeted search using confirmed parameters
+- Phase 2 calls `workiq ask` directly via `child_process.spawn` → no SDK, no MCP overhead
 - The analysis prompt is hardcoded (not a skill file) — it's a stable meta-prompt for understanding intent
-- The execution prompt uses `LOG_WORK_SKILL.md` (tunable by Architect)
+- `buildSearchQuestion()` creates a natural language question from the plan (like a human would ask)
 - Fallback: If Phase 1 SDK fails, server uses `extractKeywords()` for deterministic analysis
-- Backward-compatible: If `plan` is omitted in the `/log` request, falls back to v1.3 behavior
+- Fallback: If no `plan` in the `/log` request, falls back to Copilot SDK + MCP (v1.3 behavior)
+- `agentExecution.method` tracks which approach was used: `"workiq-ask"` or `"copilot-sdk-mcp"`
 
 **Clarification Loop:**
 ```
@@ -1048,9 +1076,9 @@ User input too vague ──→ Agent returns needsClarification: true
 ```
 Documents/
 ├── SCAN_SKILL.md       → POST /api/scan                (detect + dedup action items)
-└── LOG_WORK_SKILL.md   → POST /api/tasks/:id/log       (ONLY used as fallback when no plan exists)
+└── LOG_WORK_SKILL.md   → POST /api/tasks/:id/log       (ONLY used in Copilot SDK fallback)
                           POST /api/tasks/:id/log/analyze uses hardcoded analysis prompt
-                          When plan IS available: lean execution prompt built directly (no skill file)
+                          When plan IS available: workiq ask with natural language question
 ```
 
 ### AI-Powered Deduplication Strategy (v1.3)
