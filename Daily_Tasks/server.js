@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import { CopilotClient } from '@github/copilot-sdk';
-import { spawn } from 'child_process';
+import { exec } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -106,25 +106,15 @@ function extractKeywords(title) {
 
 function runWorkIQAsk(question, timeoutMs = 90000) {
   return new Promise((resolve, reject) => {
-    let stdout = '';
-    let stderr = '';
-    const proc = spawn('workiq', ['ask', '-q', question], { shell: true });
-
-    const timer = setTimeout(() => {
-      proc.kill();
-      reject(new Error(`Timeout after ${timeoutMs / 1000}s waiting for workiq ask`));
-    }, timeoutMs);
-
-    proc.stdout.on('data', d => { stdout += d.toString(); });
-    proc.stderr.on('data', d => { stderr += d.toString(); });
-    proc.on('close', (code) => {
-      clearTimeout(timer);
-      if (code === 0) resolve(stdout.trim());
-      else reject(new Error(stderr.trim() || `workiq ask exited with code ${code}`));
-    });
-    proc.on('error', (err) => {
-      clearTimeout(timer);
-      reject(err);
+    // Collapse newlines, replace double quotes with single quotes for cmd.exe safety
+    const sanitized = question.replace(/[\r\n]+/g, ' ').replace(/"/g, "'");
+    exec(`workiq ask -q "${sanitized}"`, { timeout: timeoutMs, maxBuffer: 5 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        if (error.killed) reject(new Error(`Timeout after ${timeoutMs / 1000}s waiting for workiq ask`));
+        else reject(new Error(stderr.trim() || error.message));
+      } else {
+        resolve(stdout.trim());
+      }
     });
   });
 }
