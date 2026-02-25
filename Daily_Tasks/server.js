@@ -85,6 +85,22 @@ function isSimilarTitle(a, b) {
   return (intersection / union) > 0.7;
 }
 
+// --- Keyword Extraction for Log Analysis Fallback (v1.4) ---
+
+function extractKeywords(title) {
+  const stopWords = new Set([
+    'the','a','an','is','are','was','were','be','been','have','has','had',
+    'do','does','did','will','would','could','should','may','might','must',
+    'to','of','in','for','on','with','at','by','from','as','into','through',
+    'and','but','or','nor','if','not','no','your','my','me','i','you','we',
+    'they','he','she','it','this','that','these','those','pending','approval'
+  ]);
+  return title
+    .split(/[\s|,;:–—]+/)
+    .map(w => w.replace(/[^a-zA-Z0-9#]/g, ''))
+    .filter(w => w.length > 1 && !stopWords.has(w.toLowerCase()));
+}
+
 // --- Schema Migration ---
 
 function migrateTasks() {
@@ -414,10 +430,119 @@ app.post('/api/scan', async (req, res) => {
   }
 });
 
+// POST /api/tasks/:id/log/analyze — Phase 1: AI analyzes log request (v1.4)
+app.post('/api/tasks/:id/log/analyze', async (req, res) => {
+  const { id } = req.params;
+  const { text } = req.body;
+
+  if (!text || !text.trim()) {
+    return res.status(400).json({ error: 'Log text is required' });
+  }
+
+  // Read task context
+  let task;
+  try {
+    const data = readTasks();
+    task = data.tasks.find(t => t.id === id);
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to read tasks', detail: err.message });
+  }
+
+  const taskDate = task.date || task.createdAt || '';
+
+  // Try AI analysis (Copilot SDK without Work IQ — fast, just reasoning)
+  let client;
+  try {
+    client = new CopilotClient();
+    const session = await client.createSession({});  // No MCP servers → AI reasoning only
+
+    const analyzePrompt = `You are analyzing a user's work log request. Do NOT search for anything — just analyze what the user wants and return a structured search plan.
+
+TASK:
+Title: "${task.title}"
+From: ${task.from || 'unknown'}
+Source: ${task.source}
+Date: ${taskDate}
+
+USER'S LOG TEXT:
+"${text.trim()}"
+
+Return a JSON object with this exact structure:
+{
+  "understanding": "1-2 sentence summary of what the user wants you to find",
+  "keywords": ["specific", "search", "keywords", "from", "the", "task", "title"],
+  "timeWindow": {
+    "from": "ISO date string to start searching",
+    "to": "ISO date string or 'now'",
+    "reasoning": "1 sentence explaining why this time window"
+  },
+  "searchTargets": "inbox, sent, teams, or all",
+  "needsClarification": false,
+  "clarificationQuestion": null
+}
+
+RULES FOR TIME WINDOW:
+- If user says they REACTED to something or sent a reply → search AFTER the task date
+- If user asks for background info or additional context → search BEFORE the task date
+- If the direction is unclear → set needsClarification to true, ask about time window
+- If task date is >30 days old → set needsClarification to true, ask for a narrower range
+- "now" means today's date
+
+RULES FOR CLARIFICATION:
+- If the log text is too vague to determine search intent → set needsClarification to true
+- Ask ONE specific, focused question in clarificationQuestion
+- Examples of vague: "worked on this", "stuff", "checked something"
+- Examples of clear: "emailed Dave about the invoice", "asked for updates on the PO"
+
+RULES FOR KEYWORDS:
+- Extract the most specific terms from the TASK TITLE (invoice numbers, PO numbers, project names, person names)
+- Do NOT include generic words like "pending", "approval", "action"
+- Include names mentioned in the user's log text
+
+Return ONLY the JSON object. No markdown, no explanation.`;
+
+    const response = await session.sendAndWait({ prompt: analyzePrompt }, 30000);
+    await session.destroy();
+
+    if (response) {
+      const plan = parseJsonFromResponse(response.data.content);
+      if (plan && typeof plan === 'object') {
+        return res.json({ plan });
+      }
+    }
+
+    // AI returned nothing useful → fall through to deterministic fallback
+    throw new Error('AI returned no valid plan');
+  } catch (err) {
+    console.warn('AI analysis failed, using deterministic fallback:', err.message);
+
+    // Deterministic fallback: extract keywords from title, default time window
+    const keywords = extractKeywords(task.title);
+    const plan = {
+      understanding: `Search for communications related to "${task.title}"`,
+      keywords,
+      timeWindow: {
+        from: taskDate || new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
+        to: 'now',
+        reasoning: 'Default: from task date to today'
+      },
+      searchTargets: 'inbox and teams',
+      needsClarification: false,
+      clarificationQuestion: null
+    };
+    return res.json({ plan, fallback: true });
+  } finally {
+    if (client) {
+      try { await client.dispose(); } catch {}
+    }
+  }
+});
+
 // POST /api/tasks/:id/log — log work with AI communication search
 app.post('/api/tasks/:id/log', async (req, res) => {
   const { id } = req.params;
-  const { text } = req.body;
+  const { text, plan } = req.body;
 
   if (!text || !text.trim()) {
     return res.status(400).json({ error: 'Log text is required' });
@@ -454,7 +579,21 @@ app.post('/api/tasks/:id/log', async (req, res) => {
     const taskDate = taskContext.date || taskContext.createdAt || '';
 
     let logPrompt;
-    if (LOG_WORK_SKILL) {
+    if (plan && LOG_WORK_SKILL) {
+      // v1.4: Targeted prompt using confirmed plan + skill file
+      logPrompt = LOG_WORK_SKILL + `\n\n` +
+        `TASK CONTEXT:\n` +
+        `Task: "${taskContext.title}"\n` +
+        `Original sender: ${taskContext.from || 'unknown'}, Source: ${taskContext.source}, Date: ${taskDate}\n\n` +
+        `CONFIRMED SEARCH PLAN:\n` +
+        `Keywords: ${plan.keywords.join(', ')}\n` +
+        `Time window: ${plan.timeWindow.from} to ${plan.timeWindow.to}\n` +
+        `Search targets: ${plan.searchTargets}\n\n` +
+        `USER LOG:\n` +
+        `"${text.trim()}"\n\n` +
+        `Execute the search using the keywords and time window above.`;
+    } else if (LOG_WORK_SKILL) {
+      // v1.3 fallback: skill file without plan
       logPrompt = LOG_WORK_SKILL + `\n\n` +
         `TASK CONTEXT:\n` +
         `Task: "${taskContext.title}"\n` +
@@ -463,7 +602,7 @@ app.post('/api/tasks/:id/log', async (req, res) => {
         `"${text.trim()}"\n\n` +
         `Search from ${taskDate} onward.`;
     } else {
-      // Fallback: no skill file, use inline prompt
+      // Fallback: no skill file, inline prompt
       logPrompt = `The user logged work on this task:\n` +
         `Task: "${taskContext.title}"\n` +
         `Original sender: ${taskContext.from || 'unknown'}, Source: ${taskContext.source}, Date: ${taskDate}\n\n` +

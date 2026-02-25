@@ -1,9 +1,9 @@
 # Daily Briefing App — Product Specification
 
-**Version:** 1.2
-**Date:** February 24, 2026
+**Version:** 1.4
+**Date:** February 25, 2026
 **Author:** Martin Hämmerli
-**Status:** Implemented — all 4 phases complete (v1.2)
+**Status:** v1.3 implemented (AI-Powered Deduplication + Skill Files), v1.4 in progress (Two-Phase Log Agent)
 
 ---
 
@@ -76,12 +76,13 @@ First-time setup:
 
 - A prominent button on the page labeled **"Scan Emails & Teams"**
 - When clicked, the backend:
-  1. Calls Work IQ via Copilot SDK to scan the last 4 days of emails and Teams chats
-  2. AI identifies action items assigned to or expected from the user
-  3. Compares new items against the existing `tasks.json` list
+  1. Reads existing active tasks from `tasks.json` (for context-aware matching — see 4.7)
+  2. Calls Work IQ via Copilot SDK to scan the last 4 days of emails and Teams chats
+  3. AI identifies action items AND matches them against existing tasks (semantic dedup)
   4. **New items** → added to the list
-  5. **Duplicate items** (same source email/chat, same action) → skipped
-  6. Returns the updated list to the frontend
+  5. **Matched items with changes** → existing task updated + history entry
+  6. **Matched items without changes** → skipped
+  7. Returns the updated list to the frontend
 - While scanning, the UI shows a loading indicator with status text (e.g., "Scanning emails..." → "Scanning Teams..." → "Analyzing action items...")
 - The scan button is disabled during scanning (text changes to "Scanning...") to prevent concurrent scans
 - After a scan completes, a notification toast shows the result (e.g., "Scan complete: 3 new tasks added, 2 duplicates skipped")
@@ -189,14 +190,98 @@ Each task has one of four statuses:
 - `doneAt`: ISO timestamp when task was set to "done" (null otherwise, used for auto-cleanup — see 4.13)
 - **Migration:** On first load, if `version === 1`, the server auto-migrates: adds empty `history: []` and `doneAt: null` to each task, sets `version: 2`
 
-### 4.7 Duplicate Detection & Task Update on Re-Scan
+### 4.7 Duplicate Detection & Smart Task Updates on Re-Scan (v1.3)
 
-When scanning, the AI must compare new findings against existing tasks:
-- **Primary match:** Same source message link — if a task with the same `link` already exists, it's a match
-- **Fallback match (for items without links):** Same `title` (trimmed) + same `from` + same `source` type — prevents duplicates when Work IQ cannot provide a link
-- **If duplicate found with no changes:** Skip — do not create a second entry
-- **If duplicate found with changes** (e.g., updated title, new deadline mentioned in follow-up): Update the existing task's title. Add a history entry: `{ type: "scan-update", text: "Updated by scan: <what changed>" }`. **Keep the user's status unchanged.**
-- **New items:** Create as usual with `history: [{ type: "created", text: "Task created from <source> scan" }]`
+When scanning, the system uses **AI-powered context-aware matching** to prevent duplicates and intelligently update existing tasks.
+
+#### Core Principle: Context-Aware Scan
+
+The AI receives the list of existing active tasks as context in the scan prompt, combined with instructions from `Documents/SCAN_SKILL.md`. This allows the AI to semantically match new findings against known tasks — not just by exact string comparison, but by understanding that e.g. "SAP Invoice 5735236948 pending approval" and "Please approve invoice #5735236948" refer to the same action item.
+
+#### Skill File
+
+The scan prompt is built from two parts:
+1. **`Documents/SCAN_SKILL.md`** — static instructions defining matching rules, response format, and quality guidelines. Loaded once at server start.
+2. **Dynamic context** — existing active tasks (JSON) + scan instruction with time range.
+
+This separation allows the Architect to refine AI behavior by editing the skill file, without requiring code changes.
+
+#### Scan Prompt Structure
+
+```
+<contents of SCAN_SKILL.md>
+
+EXISTING TASKS:
+[
+  {"id":"abc-123","title":"Approve SAP Invoice 5735236948","source":"email","from":"John"},
+  {"id":"def-456","title":"Review Q1 budget proposal","source":"teams","from":"Sarah"}
+]
+
+Scan my emails and Teams messages from the last 4 days.
+For each action item found, decide: action "update" (with existingId) or "new".
+```
+
+#### Context Limits
+
+- Only `active` and `in-progress` tasks are included (not done/paused)
+- Maximum 50 tasks in the context (newest first by `createdAt`)
+- Only `id`, `title`, `source`, `from` per task (minimal token usage)
+
+#### AI Response Format
+
+```json
+[
+  { "action": "new", "title": "...", "source": "email", "from": "...", "date": "...", "link": "..." },
+  { "action": "update", "existingId": "abc-123", "changes": { "date": "2026-03-01" }, "reason": "Follow-up email with updated deadline" }
+]
+```
+
+#### Server-Side Processing
+
+For each item in the AI response:
+
+| `action` | Server behavior |
+|---|---|
+| `"new"` | Safety-Net check (see below), then create task if no match |
+| `"update"` | Find task by `existingId`, merge changed fields, add history entry with `reason` |
+| *(no action field)* | **Backward-compatibility fallback:** Use old logic (link-match, then title+from+source exact match) |
+
+#### Updatable Fields
+
+| Field | Updatebar | Notes |
+|---|---|---|
+| `title` | ✅ | AI provides improved/current title |
+| `date` | ✅ | New deadline from follow-up message |
+| `link` | ✅ | More recent link (e.g., latest reply in thread) |
+| `from` | ❌ | Original sender preserved; new sender logged in history reason |
+| `source` | ❌ | Original source type preserved |
+| `status` | ❌ | Only manually changeable by user |
+
+#### History Entry for Updates
+
+When an existing task is updated via scan:
+```json
+{
+  "timestamp": "2026-02-25T08:00:00.000Z",
+  "type": "scan-update",
+  "text": "Updated by scan: Follow-up email with updated deadline (date: 2026-02-20 → 2026-03-01)"
+}
+```
+
+#### Safety-Net Dedup (Server-Side Fallback)
+
+After AI matching, the server applies an additional **word-level similarity check** as a last defense against duplicates:
+
+1. Normalize both titles: lowercase, remove punctuation, collapse whitespace
+2. Calculate **Jaccard similarity** on word sets: `|intersection| / |union|`
+3. If similarity > **0.7** (70% word overlap): treat as duplicate, skip with warning log
+4. This catches edge cases where the AI misses a match
+
+#### Response to Frontend
+
+```json
+{ "success": true, "added": 2, "updated": 1, "skipped": 3, "total": 15, "lastScan": "..." }
+```
 
 ### 4.8 Notification Toast System
 
@@ -277,46 +362,111 @@ Tasks with status "done" remain visible for **3 days** after being marked done, 
 - **Filter behavior:** The "✅ Done" filter only shows done tasks that are still within the 3-day window
 - **Optional server-side purge:** A future enhancement could periodically remove old done tasks from `tasks.json`. For v1.2, keep them in the file (they just don't render).
 
-### 4.14 AI-Powered Work Logging with Communication Search (v1.2)
+### 4.14 AI-Powered Work Logging with Communication Search (v1.2, prompt improved v1.3, two-phase agent v1.4)
 
 When the user wants to log work on a task, the AI assists by finding and linking related communications.
 
-**Flow:**
+**Problem (v1.3):** The agent immediately executes a Work IQ search (~30–90 seconds) without explaining what it understood or what it will search for. If the prompt is imprecise or the search times out, the user gets no result and no explanation. The agent must be transparent.
+
+**Solution (v1.4): Two-Phase Flow — Analyze, then Execute**
+
 ```
-1. User clicks "Log work" button on a task card
-2. A text input appears (inline on the card or a small modal)
-3. User types what they did, e.g. "I emailed Sarah the revised numbers"
-   or "Discussed with Peter via Teams"
-4. Frontend sends: POST /api/tasks/:id/log { text: "..." }
-5. Backend receives the log text + the task context (title, from, source)
-6. Backend sends a prompt to Copilot SDK + Work IQ:
-   "The user says they did: '<log text>'. 
-    This is for task: '<task title>' (from: <from>).
-    Search recent emails and Teams messages for communications matching
-    this description. Return a JSON array of found communications with:
-    type (email/teams), from, to, date, summary (1-2 sentences), link."
-7. AI searches M365 and returns matching communications
-8. Backend creates a history entry:
-   - type: "update"
-   - text: the user's original log text
-   - communications: array of found communications (each with type, from, to, date, summary, link)
-9. If no communications found: still create the history entry, just with empty communications array
-10. Response returns the updated task to the frontend
+Phase 1: ANALYZE (~5-15s, no Work IQ)       Phase 2: EXECUTE (after confirm, ~30-90s)
+┌────────────────────────────────────┐      ┌──────────────────────────────────────┐
+│ User types log text                │      │ User confirms/adjusts the plan       │
+│ → POST /api/tasks/:id/log/analyze  │      │ → POST /api/tasks/:id/log            │
+│ → Copilot SDK (NO Work IQ)        │      │ → Copilot SDK + Work IQ              │
+│ → AI analyzes intent, not data     │      │ → Targeted search with plan params   │
+│ → Returns structured search plan   │      │ → Saves history entry with results   │
+│ → Frontend shows plan to user      │      │                                      │
+└────────────────────────────────────┘      └──────────────────────────────────────┘
 ```
 
-**API Endpoint:**
+**Phase 1 — Analyze (fast, no M365 data access):**
+1. User clicks "✏️ Log" and types what they did
+2. Frontend sends `POST /api/tasks/:id/log/analyze { text }`
+3. Server creates a Copilot SDK session WITHOUT Work IQ MCP (just AI reasoning)
+4. AI receives task context + user's log text + analysis instructions
+5. AI returns a structured plan:
+   ```json
+   {
+     "understanding": "You asked several people for updates on the SAP Invoice. You want me to check your inbox for replies.",
+     "keywords": ["SAP Invoice 5735236710", "PO 0101439547"],
+     "timeWindow": {
+       "from": "2026-02-20",
+       "to": "now",
+       "reasoning": "You acted AFTER the task was created, so I search forward from the task date."
+     },
+     "searchTargets": "inbox",
+     "needsClarification": false,
+     "clarificationQuestion": null
+   }
+   ```
+6. If `needsClarification` is true: Frontend shows the question + input field for the user's answer. User answers → re-submit to `/analyze` with extended context (original text + answer appended).
+7. Frontend displays the plan visually: understanding, keywords, time window, search target.
+8. User has three options: **✅ Confirm** | **❌ Cancel**
+
+**Phase 2 — Execute (after user confirmation):**
+1. User clicks "✅ Search" to confirm the plan
+2. Frontend sends `POST /api/tasks/:id/log { text, plan }` — the enhanced log endpoint
+3. Server builds a **targeted** Work IQ prompt using the confirmed plan:
+   - Skill file (LOG_WORK_SKILL.md) as base instructions
+   - Plan keywords as explicit search terms
+   - Plan time window as explicit date range
+   - Plan search targets as scope directive
+4. Work IQ searches M365 data with the precise parameters
+5. Server saves history entry with communications array
+6. Frontend shows results
+
+**Clarification Rules (embedded in analysis prompt):**
+- If user's log text is too vague to determine search intent → ask what they want to find
+- If task date is >30 days old → ask for a narrower time window
+- If user says they "reacted" to something → search AFTER task date (forward)
+- If user asks for "additional info/context" → search BEFORE task date (backward)
+- If direction is ambiguous → ask: "Should I search for communications before or after the task date?"
+- Always ask ONE specific question per clarification round
+
+**Frontend UI for the plan display:**
+```
+┌─ Agent's Analysis ──────────────────────────────────────┐
+│ 💡 I'll search your inbox for email threads about       │
+│    "SAP Invoice 5735236710" from Feb 20 onwards.        │
+│                                                         │
+│ Keywords: SAP Invoice, 5735236710, PO 0101439547        │
+│ Time: Feb 20 → today                                    │
+│ Target: Inbox emails                                    │
+│                                                         │
+│              [✅ Search]    [❌ Cancel]                   │
+└─────────────────────────────────────────────────────────┘
+```
+
+If the agent needs clarification:
+```
+┌─ Agent asks ────────────────────────────────────────────┐
+│ ❓ The task is from January 15, which is 40 days ago.    │
+│    In which timeframe should I search for replies?       │
+│                                                         │
+│    [________________________] [Send]                     │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Fallback:** If the Copilot SDK analysis fails (e.g., timeout, no response), the server falls back to **deterministic analysis**: extract keywords from task title, set time window from task date to now, and present a basic plan to the user. The plan card shows `(auto-generated)` to indicate no AI analysis was performed.
+
+**API Endpoints (v1.4):**
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/api/tasks/:id/log` | Log work on a task with AI communication search |
+| `POST` | `/api/tasks/:id/log/analyze` | Phase 1: AI analyzes the log request, returns search plan |
+| `POST` | `/api/tasks/:id/log` | Phase 2: Execute search with confirmed plan, save history (enhanced, accepts optional `plan` field) |
 
-**Request body:** `{ "text": "I emailed Sarah the revised numbers" }`
+**Request/Response — Analyze:**
+- Request: `{ "text": "Ich habe verschiedene Personen nach Updates angefragt" }`
+- Response: `{ "plan": { "understanding": "...", "keywords": [...], "timeWindow": {...}, "searchTargets": "...", "needsClarification": false, "clarificationQuestion": null } }`
+- Clarification re-submit: `{ "text": "Original text. Additional context: last 2 weeks" }`
 
-**Response:** The updated task object (including new history entry)
-
-**UI behavior:**
-- While AI is searching, show a small spinner on the task card (not the full-screen overlay — user should be able to work on other tasks)
-- When complete, the new history entry appears in the task's history
-- Communication links are clickable (same as deep links in 4.5)
+**Request/Response — Execute (enhanced):**
+- Request: `{ "text": "...", "plan": { "keywords": [...], "timeWindow": {...}, "searchTargets": "..." } }`
+- Response: Updated task object with new history entry containing communications
+- If `plan` is omitted: falls back to v1.3 behavior (direct search without analysis step)
 
 ### 4.15 Parallel Task Operations (v1.2)
 
@@ -357,7 +507,8 @@ The Node.js server exposes these REST endpoints for the frontend:
 | `POST` | `/api/tasks` | Add a manual task |
 | `PATCH` | `/api/tasks/:id` | Update task status or notes |
 | `DELETE` | `/api/tasks/:id` | Delete a task |
-| `POST` | `/api/tasks/:id/log` | Log work + AI communication search (v1.2) |
+| `POST` | `/api/tasks/:id/log/analyze` | Phase 1: AI analyzes log request, returns search plan (v1.4) |
+| `POST` | `/api/tasks/:id/log` | Phase 2: Execute search with confirmed plan + save history (v1.2, enhanced v1.4) |
 
 ---
 
@@ -386,16 +537,38 @@ The Node.js server exposes these REST endpoints for the frontend:
 14. ✅ Test edge cases: empty inbox, no Teams messages, token expired
 15. ✅ Document how to start the app (README.md with install, usage, troubleshooting)
 
-### Phase 4: Task History & Smart Updates (v1.2)
-16. Migrate tasks.json schema from v1 to v2 (add `history`, `doneAt` fields, auto-migrate on load)
-17. Add `POST /api/tasks/:id/log` endpoint with AI communication search via Copilot SDK + Work IQ
-18. Add collapsible task history UI to each task card (collapsed by default, expand on click)
-19. Implement auto-cleanup: hide done tasks older than 3 days from UI
-20. Update scan logic: detect changes in existing tasks and create scan-update history entries
-21. Add per-task loading spinners for log operations (no full-screen overlay)
-22. Implement file-level write mutex for concurrent task updates
-23. Add history entries for all task mutations (status changes, notes, log work)
-24. Update README, Spec, and Architecture docs to v1.2
+### Phase 4: Task History & Smart Updates (v1.2) ✅
+16. ✅ Migrate tasks.json schema from v1 to v2 (add `history`, `doneAt` fields, auto-migrate on load)
+17. ✅ Add `POST /api/tasks/:id/log` endpoint with AI communication search via Copilot SDK + Work IQ
+18. ✅ Add collapsible task history UI to each task card (collapsed by default, expand on click)
+19. ✅ Implement auto-cleanup: hide done tasks older than 3 days from UI
+20. ✅ Update scan logic: detect changes in existing tasks and create scan-update history entries
+21. ✅ Add per-task loading spinners for log operations (no full-screen overlay)
+22. ✅ Implement file-level write mutex for concurrent task updates
+23. ✅ Add history entries for all task mutations (status changes, notes, log work)
+24. ✅ Update README, Spec, and Architecture docs to v1.2
+
+### Phase 5: AI-Powered Deduplication (v1.3) ✅
+25. ✅ Refactor scan prompt to include existing active tasks as context (max 50, id+title+source+from)
+26. ✅ Update AI response format to support `action: "update"` (with existingId, changes, reason) and `action: "new"`
+27. ✅ Implement server-side processing for update/new actions with smart field merging
+28. ✅ Add Safety-Net dedup: normalized title similarity check (Jaccard >0.7 on word sets)
+29. ✅ Maintain backward-compatibility: items without `action` field use old dedup logic as fallback
+30. ✅ Improve history entries for scan-updates: include AI-provided reason + changed field details
+31. ✅ Create SCAN_SKILL.md and LOG_WORK_SKILL.md (skill file externalization)
+32. ✅ Load skill files at server start, inject into prompts, graceful fallback
+33. ✅ Update Spec, Architecture, and README to v1.3
+
+### Phase 6: Two-Phase Log Agent (v1.4)
+34. Add `POST /api/tasks/:id/log/analyze` endpoint (Copilot SDK without Work IQ, ~5-15s)
+35. Add `extractKeywords()` helper for deterministic fallback analysis
+36. Enhance `POST /api/tasks/:id/log` to accept optional `plan` parameter
+37. Build targeted execution prompt from confirmed plan (keywords + time window + targets)
+38. Add plan display UI on task card (understanding, keywords, time window, confirm/cancel buttons)
+39. Add clarification loop UI (question display + answer input + re-analyze)
+40. Add visual states: "Analyzing..." spinner (Phase 1), "Searching..." spinner (Phase 2)
+41. Handle fallback: if SDK analysis fails, use deterministic keyword extraction
+42. Update Spec, Architecture, README, and LOG_WORK_SKILL.md to v1.4
 
 ---
 
@@ -421,7 +594,9 @@ Then open `http://localhost:3000` in the browser.
 ```
 E:\Work_IQ\Daily_Tasks\
 ├── Documents\
-│   └── ARCHITECTURE.md                ← Technical architecture reference
+│   ├── ARCHITECTURE.md                ← Technical architecture reference
+│   ├── SCAN_SKILL.md                  ← AI instructions for scan & dedup (v1.3)
+│   └── LOG_WORK_SKILL.md             ← AI instructions for log work search (v1.3)
 ├── Specifactions\
 │   └── DAILY_BRIEFING_APP_SPEC.md     ← this file
 ├── server.js                           ← Node.js backend (ES Modules)
@@ -446,7 +621,7 @@ E:\Work_IQ\Daily_Tasks\
 
 ---
 
-## 11. Future Enhancements (Out of Scope for v1.2)
+## 11. Future Enhancements (Out of Scope for v1.3)
 
 - Automated daily scheduler (Windows Task Scheduler or cron)
 - Email/Teams notification when new action items are found

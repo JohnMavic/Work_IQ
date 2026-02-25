@@ -154,6 +154,50 @@
     .log-work-form input:focus { outline: none; border-color: #3b82f6; }
     .log-work-form button { white-space: nowrap; }
 
+    /* --- Log Analysis Plan (v1.4) --- */
+    .log-plan {
+      display: none;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-top: 8px;
+      font-size: 0.9rem;
+    }
+    .log-plan.visible { display: block; }
+    .log-plan-understanding {
+      color: #93c5fd;
+      margin-bottom: 8px;
+      line-height: 1.4;
+    }
+    .log-plan-details {
+      color: #94a3b8;
+      font-size: 0.85rem;
+      margin-bottom: 10px;
+    }
+    .log-plan-details span {
+      display: block;
+      margin: 2px 0;
+    }
+    .log-plan-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .log-clarification {
+      display: none;
+      margin-top: 8px;
+    }
+    .log-clarification.visible { display: flex; align-items: center; gap: 8px; }
+    .log-clarification input {
+      flex: 1;
+      padding: 6px 10px;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      background: #0f172a;
+      color: #e2e8f0;
+      font-size: 0.9rem;
+    }
+
     /* --- Per-Task Spinner --- */
     .task-spinner {
       display: inline-block;
@@ -730,8 +774,13 @@
             <button class="btn btn-danger" onclick="deleteTask('${task.id}')">✕</button>
           </div>
           <div class="log-work-form" id="log-${task.id}">
-            <input type="text" placeholder="What did you do? e.g. 'Emailed Sarah the revised numbers'" onkeydown="if(event.key==='Enter')submitLog('${task.id}',this)">
-            <button class="btn btn-primary btn-sm" onclick="submitLog('${task.id}',this.previousElementSibling)">Save</button>
+            <input type="text" placeholder="What did you do? e.g. 'Emailed Sarah the revised numbers'" onkeydown="if(event.key==='Enter')analyzeLog('${task.id}',this)">
+            <button class="btn btn-primary btn-sm" onclick="analyzeLog('${task.id}',this.previousElementSibling)">🔍 Analyze</button>
+          </div>
+          <div class="log-plan" id="plan-${task.id}"></div>
+          <div class="log-clarification" id="clarify-${task.id}">
+            <input type="text" placeholder="Your answer..." onkeydown="if(event.key==='Enter')submitClarification('${task.id}',this)">
+            <button class="btn btn-primary btn-sm" onclick="submitClarification('${task.id}',this.previousElementSibling)">Send</button>
           </div>
           <div class="task-history" id="history-${task.id}">${historyHtml}</div>
         </div>`;
@@ -780,18 +829,28 @@
     }
   }
 
-  async function submitLog(taskId, input) {
+  // --- Log Work: Two-Phase Agent (v1.4) ---
+
+  let pendingPlans = {}; // taskId → { plan, originalText }
+
+  async function analyzeLog(taskId, input) {
     const text = input.value.trim();
     if (!text) return;
 
     const card = document.getElementById('card-' + taskId);
+    const planEl = document.getElementById('plan-' + taskId);
+    const clarifyEl = document.getElementById('clarify-' + taskId);
     const spinner = document.createElement('span');
     spinner.className = 'task-spinner';
     card.querySelector('.task-title').appendChild(spinner);
     input.disabled = true;
 
+    // Reset previous plan/clarification
+    planEl.classList.remove('visible');
+    clarifyEl.classList.remove('visible');
+
     try {
-      const res = await fetch(`/api/tasks/${taskId}/log`, {
+      const res = await fetch(`/api/tasks/${taskId}/log/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text })
@@ -799,8 +858,84 @@
       const data = await res.json();
       if (!res.ok) {
         showNotification(friendlyError(data), 'error');
+        return;
+      }
+
+      const plan = data.plan;
+      pendingPlans[taskId] = { plan, originalText: text };
+
+      if (plan.needsClarification && plan.clarificationQuestion) {
+        // Show clarification question
+        planEl.innerHTML = `<div class="log-plan-understanding">❓ ${plan.clarificationQuestion}</div>`;
+        planEl.classList.add('visible');
+        clarifyEl.classList.add('visible');
+        clarifyEl.querySelector('input').focus();
       } else {
-        input.value = '';
+        // Show plan for confirmation
+        const kwText = plan.keywords.length > 0 ? plan.keywords.join(', ') : '(none)';
+        const twFrom = plan.timeWindow?.from || '?';
+        const twTo = plan.timeWindow?.to || 'now';
+        planEl.innerHTML = `
+          <div class="log-plan-understanding">💡 ${plan.understanding}</div>
+          <div class="log-plan-details">
+            <span><strong>Keywords:</strong> ${kwText}</span>
+            <span><strong>Time:</strong> ${twFrom} → ${twTo}</span>
+            <span><strong>Target:</strong> ${plan.searchTargets || 'all'}</span>
+            ${data.fallback ? '<span style="color:#f59e0b">(auto-generated — AI analysis unavailable)</span>' : ''}
+          </div>
+          <div class="log-plan-actions">
+            <button class="btn btn-primary btn-sm" onclick="executeLog('${taskId}')">✅ Search</button>
+            <button class="btn btn-ghost btn-sm" onclick="cancelPlan('${taskId}')">❌ Cancel</button>
+          </div>`;
+        planEl.classList.add('visible');
+      }
+    } catch (err) {
+      showNotification('Analysis failed: ' + err.message, 'error');
+    } finally {
+      if (spinner.parentElement) spinner.remove();
+      input.disabled = false;
+    }
+  }
+
+  async function submitClarification(taskId, input) {
+    const answer = input.value.trim();
+    if (!answer) return;
+
+    const pending = pendingPlans[taskId];
+    if (!pending) return;
+
+    // Re-analyze with additional context
+    const logInput = document.querySelector(`#log-${taskId} input`);
+    logInput.value = pending.originalText + '. Additional context: ' + answer;
+    input.value = '';
+    document.getElementById('clarify-' + taskId).classList.remove('visible');
+    analyzeLog(taskId, logInput);
+  }
+
+  async function executeLog(taskId) {
+    const pending = pendingPlans[taskId];
+    if (!pending) return;
+
+    const card = document.getElementById('card-' + taskId);
+    const planEl = document.getElementById('plan-' + taskId);
+    const spinner = document.createElement('span');
+    spinner.className = 'task-spinner';
+    card.querySelector('.task-title').appendChild(spinner);
+
+    // Update plan UI to show searching state
+    planEl.innerHTML = '<div class="log-plan-understanding">🔍 Searching your communications...</div>';
+
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/log`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: pending.originalText, plan: pending.plan })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showNotification(friendlyError(data), 'error');
+      } else {
+        document.querySelector(`#log-${taskId} input`).value = '';
         showNotification('✅ Work logged', 'success');
         await fetchTasks();
       }
@@ -808,8 +943,15 @@
       showNotification('Failed to log work: ' + err.message, 'error');
     } finally {
       if (spinner.parentElement) spinner.remove();
-      input.disabled = false;
+      planEl.classList.remove('visible');
+      delete pendingPlans[taskId];
     }
+  }
+
+  function cancelPlan(taskId) {
+    document.getElementById('plan-' + taskId).classList.remove('visible');
+    document.getElementById('clarify-' + taskId).classList.remove('visible');
+    delete pendingPlans[taskId];
   }
 
   // --- Filter ---

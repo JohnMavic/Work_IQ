@@ -1,7 +1,7 @@
 # Daily Briefing App — Technical Architecture
 
-**Version:** 1.1
-**Date:** February 24, 2026
+**Version:** 1.4
+**Date:** February 25, 2026
 **Author:** Martin Hämmerli
 
 ---
@@ -285,9 +285,11 @@ Browser                    Express Server               Copilot SDK          Wor
    │                            │ <──────────────────────    │                    │                   │
    │                            │                            │                    │                   │
    │                            │  9. Parse JSON response     │                    │                   │
-   │                            │     Deduplicate vs          │                    │                   │
-   │                            │     existing tasks          │                    │                   │
-   │                            │     Save to tasks.json      │                    │                   │
+   │                            │     Process "update" items   │                    │                   │
+   │                            │     (merge into existing)    │                    │                   │
+   │                            │     Process "new" items      │                    │                   │
+   │                            │     (Safety-Net dedup check) │                    │                   │
+   │                            │     Save to tasks.json       │                    │                   │
    │                            │     Update lastScan         │                    │                   │
    │                            │                            │                    │                   │
    │                            │  10. client.dispose()       │                    │                   │
@@ -310,13 +312,13 @@ Browser                    Express Server               Copilot SDK          Wor
 | 1 | Browser | User clicks "Scan Emails & Teams". Button is disabled, loading overlay shown. `POST /api/scan` sent via fetch(). |
 | 2 | Server | Creates a new `CopilotClient` instance (connects to Copilot AI engine). |
 | 3 | Server | Creates a session with Work IQ registered as an MCP tool server (spawns `workiq mcp` child process). |
-| 4 | Server | Sends the scan prompt via `session.sendAndWait()` with 120-second timeout. |
-| 5 | Copilot SDK | AI model reasons about the prompt and decides to call Work IQ tools (e.g., search emails, list Teams chats). |
+| 4 | Server | Builds context-aware prompt: reads existing active tasks (max 50, id+title+source+from) and includes them in the scan prompt. Sends via `session.sendAndWait()` with 120-second timeout. |
+| 5 | Copilot SDK | AI model reasons about the prompt, calls Work IQ tools (search emails, list Teams chats), and **matches findings against provided existing tasks**. |
 | 6-7 | Work IQ | Queries Microsoft Graph API using the user's OAuth token. Returns email/chat data to the AI. |
-| 8 | Copilot SDK | AI processes all retrieved data and returns a JSON array of action items in `response.data.content`. |
-| 9 | Server | Parses JSON from AI response (handles plain JSON, markdown code blocks, embedded arrays). Runs duplicate detection. Saves new tasks to tasks.json. |
+| 8 | Copilot SDK | AI processes all retrieved data and returns a JSON array. Each item has `action: "new"` (new task) or `action: "update"` (matches existing task, with `existingId`, `changes`, `reason`). |
+| 9 | Server | Parses JSON from AI response. Processes `"update"` items (merge changes into existing tasks, add history). Processes `"new"` items with Safety-Net dedup (Jaccard word-similarity >0.7). Falls back to old dedup logic for items without `action` field. Saves via write queue. |
 | 10 | Server | Disposes the CopilotClient (terminates Work IQ child process). |
-| 11 | Server | Returns `{ success, added, skipped, total, lastScan }` to the browser. |
+| 11 | Server | Returns `{ success, added, updated, skipped, total, lastScan }` to the browser. |
 | 12 | Browser | Fetches updated task list, renders it, shows notification toast with scan results. |
 
 ---
@@ -570,15 +572,15 @@ Secondary sort: createdAt descending (newest first within each status group)
 
 ```json
 {
-  "version": 1,
-  "lastScan": "2026-02-23T07:00:00.000Z | null",
+  "version": 2,
+  "lastScan": "2026-02-24T07:00:00.000Z | null",
   "tasks": [ Task, ... ]
 }
 ```
 
 | Field | Type | Description |
 |---|---|---|
-| `version` | number | Schema version (always 1) |
+| `version` | number | Schema version (2 since v1.2) |
 | `lastScan` | string \| null | ISO 8601 timestamp of last successful scan, or null if never scanned |
 | `tasks` | array | Array of Task objects |
 
@@ -594,8 +596,30 @@ Secondary sort: createdAt descending (newest first within each status group)
 | `link` | string \| null | Deep link to source message or null | Outlook/Teams URL |
 | `status` | string | Current task status | `"active"`, `"in-progress"`, `"done"`, `"paused"` |
 | `notes` | string | User-added notes | Free text (default: "") |
+| `history` | array | Chronological log of task events (v1.2) | Array of HistoryEntry |
+| `doneAt` | string \| null | Timestamp when set to "done" (v1.2), null otherwise | ISO 8601 |
 | `createdAt` | string | When the task was created in the app (ISO 8601) | Auto-generated |
 | `updatedAt` | string | Last modification timestamp (ISO 8601) | Auto-updated |
+
+### HistoryEntry Object (v1.2)
+
+| Field | Type | Description |
+|---|---|---|
+| `timestamp` | string | When this event occurred (ISO 8601) |
+| `type` | string | `"created"`, `"status-change"`, `"update"`, `"scan-update"`, `"note"`, `"communication"` |
+| `text` | string | Human-readable description of the event |
+| `communications` | array \| undefined | Array of linked communications (only for type "update" and "communication") |
+
+### Communication Object (v1.2)
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | `"email"` or `"teams"` |
+| `from` | string | Sender name |
+| `to` | string | Recipient name(s) |
+| `date` | string | Message date (ISO 8601) |
+| `summary` | string | AI-generated 1-2 sentence summary of the message |
+| `link` | string \| null | Deep link to the original message |
 
 ### Example with All Sources and Statuses
 
@@ -712,6 +736,191 @@ AI Response Text
   ├── Try regex for [...] anywhere ──> extract, parse ──> success? return array
   │
   └── Return null (triggers 502 error)
+```
+
+### Concurrency & Write Safety (v1.2)
+
+```
+POST /api/tasks/:id/log (Task A)  ──┐
+                                     ├── writeQueue (sequential)
+POST /api/tasks/:id/log (Task B)  ──┘
+                                     │
+                                     ▼
+                              readTasks() → modify → writeTasks()
+                              (one at a time, queued)
+```
+
+Multiple `/api/tasks/:id/log` calls can arrive concurrently (user working on multiple tasks). A simple Promise-based write queue ensures:
+- Only one `writeTasks()` call executes at a time
+- Later writes wait for earlier ones to complete
+- No data loss from concurrent file writes
+
+### Log Work — Two-Phase Agent (v1.4)
+
+The log work feature uses a two-phase approach for transparency and precision.
+
+```
+Two-Phase Architecture:
+═══════════════════════
+
+Phase 1: ANALYZE (fast, ~5-15 seconds)
+──────────────────────────────────────
+User text ──→ POST /api/tasks/:id/log/analyze
+                    │
+                    ▼
+         ┌──────────────────────┐
+         │ Copilot SDK          │   ← NO Work IQ MCP
+         │ (AI reasoning only)  │   ← No M365 data access
+         └──────────┬───────────┘   ← Fast: just text analysis
+                    │
+                    ▼
+         ┌──────────────────────┐
+         │ Structured Plan:     │
+         │ • understanding      │
+         │ • keywords           │
+         │ • timeWindow         │
+         │ • searchTargets      │
+         │ • needsClarification │
+         └──────────┬───────────┘
+                    │
+         ┌──────────▼───────────┐
+         │ Frontend: show plan  │──→ User confirms or adjusts
+         └──────────┬───────────┘
+                    │
+Phase 2: EXECUTE (after confirm, ~30-90 seconds)
+────────────────────────────────────────────────
+Confirmed plan ──→ POST /api/tasks/:id/log
+                    │
+                    ▼
+         ┌──────────────────────┐
+         │ LOG_WORK_SKILL.md    │  ← Static search instructions
+         ├──────────────────────┤
+         │ Confirmed plan:      │  ← Keywords, time window, targets
+         │ + Task context       │
+         │ + User log text      │
+         └──────────┬───────────┘
+                    │
+                    ▼
+         ┌──────────────────────┐
+         │ Copilot SDK          │
+         │ + Work IQ MCP        │  ← NOW searches M365
+         └──────────┬───────────┘
+                    │
+                    ▼
+         JSON array of communications
+                    │
+                    ▼
+         History entry saved
+```
+
+**Key design decisions:**
+- Phase 1 creates a CopilotClient session WITHOUT `mcpServers` → AI can only reason, not search
+- Phase 2 creates a session WITH Work IQ → targeted search using confirmed parameters
+- The analysis prompt is hardcoded (not a skill file) — it's a stable meta-prompt for understanding intent
+- The execution prompt uses `LOG_WORK_SKILL.md` (tunable by Architect)
+- Fallback: If Phase 1 SDK fails, server uses `extractKeywords()` for deterministic analysis
+- Backward-compatible: If `plan` is omitted in the `/log` request, falls back to v1.3 behavior
+
+**Clarification Loop:**
+```
+User input too vague ──→ Agent returns needsClarification: true
+                         + clarificationQuestion
+                              │
+                              ▼
+                    Frontend shows question
+                    + answer input field
+                              │
+                              ▼
+                    User answers ──→ Re-submit to /analyze
+                                    (original text + " Additional context: " + answer)
+                              │
+                              ▼
+                    Agent returns clear plan ──→ User confirms
+```
+
+**Skill File Architecture (v1.4):**
+```
+Documents/
+├── SCAN_SKILL.md       → POST /api/scan                (detect + dedup action items)
+└── LOG_WORK_SKILL.md   → POST /api/tasks/:id/log       (Phase 2: search communications)
+                          POST /api/tasks/:id/log/analyze uses hardcoded analysis prompt
+```
+
+### AI-Powered Deduplication Strategy (v1.3)
+
+#### Problem (v1.2)
+
+The v1.2 dedup logic uses exact-match comparisons that fail in common real-world scenarios:
+
+```
+v1.2 Matching Logic:
+  Stufe 1: t.link === item.link           → Fails: same task, different email links
+  Stufe 2: t.title === title              → Fails: AI rephrases title slightly
+           && t.from === from             → Fails: different sender, same topic
+           && t.source === source         → Fails: Teams + Email about same task
+```
+
+#### Solution: Context-Aware Scan Prompt
+
+Instead of blind scanning + weak server-side dedup, the AI receives existing tasks as context:
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                     SCAN FLOW v1.3 vs v1.2                           │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  v1.2:  Prompt: "Scan my emails..."                                  │
+│         AI returns: [ {title, source, from, date, link}, ... ]       │
+│         Server dedup: exact link match → exact title+from+source     │
+│         Result: ❌ Duplicates when AI rephrases or link differs      │
+│                                                                      │
+│  v1.3:  Prompt: "Here are EXISTING tasks: [...]. Scan my emails..."  │
+│         AI returns: [ {action:"new",...}, {action:"update",...}, ... ]│
+│         Server processes: update → merge changes, new → safety-net   │
+│         Result: ✅ AI matches semantically, server validates          │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+#### Processing Pipeline
+
+```
+AI Response Items
+      │
+      ▼
+┌─────────────┐     ┌──────────────────┐     ┌────────────────────┐
+│ action:     │     │ Find by          │     │ Merge changes:     │
+│ "update"    │────>│ existingId       │────>│ title, date, link  │
+│             │     │ in tasks.json    │     │ Add history entry  │
+└─────────────┘     └──────────────────┘     │ with AI reason     │
+                                              └────────────────────┘
+┌─────────────┐     ┌──────────────────┐     ┌────────────────────┐
+│ action:     │     │ Safety-Net:      │     │ If similar >70%:   │
+│ "new"       │────>│ Jaccard word     │────>│   SKIP (warn log)  │
+│             │     │ similarity check │     │ If not similar:    │
+└─────────────┘     │ vs all tasks     │     │   CREATE new task  │
+                    └──────────────────┘     └────────────────────┘
+┌─────────────┐     ┌──────────────────┐
+│ no action   │     │ Backward-compat: │
+│ field       │────>│ old v1.2 logic   │
+│             │     │ (link + title)   │
+└─────────────┘     └──────────────────┘
+```
+
+#### Safety-Net: Normalized Title Similarity
+
+```javascript
+// Server-side fallback after AI matching
+normalizeForCompare(title):
+  → lowercase → remove punctuation → collapse whitespace → trim
+
+isSimilarTitle(a, b):
+  → Jaccard similarity on word sets: |intersection| / |union|
+  → Threshold: 0.7 (70% word overlap)
+  → Example: "Approve SAP Invoice 5735236948" vs "SAP Invoice 5735236948 approval needed"
+    Words A: {approve, sap, invoice, 5735236948}
+    Words B: {sap, invoice, 5735236948, approval, needed}
+    Intersection: 3, Union: 6 → 0.5 (below threshold, but AI should catch this)
 ```
 
 ---
