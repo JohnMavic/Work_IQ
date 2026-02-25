@@ -129,6 +129,24 @@
       background: #111827;
       border-radius: 8px;
       border-left: 3px solid #3b82f6;
+      position: relative;
+    }
+    .conv-delete-btn {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 0.75rem;
+      opacity: 0.3;
+      padding: 2px 4px;
+      border-radius: 3px;
+      transition: opacity 0.2s;
+    }
+    .conv-delete-btn:hover {
+      opacity: 1;
+      background: rgba(239, 68, 68, 0.15);
     }
     .agent-msg-user {
       color: #e2e8f0;
@@ -814,7 +832,9 @@
 
       // Split history into conversations vs system events
       const history = task.history || [];
-      const conversations = history.filter(e => e.type === 'update');
+      const conversations = history
+        .map((entry, idx) => ({ ...entry, _historyIndex: idx }))
+        .filter(e => e.type === 'update');
       const systemEvents = history.filter(e => e.type !== 'update');
 
       return `
@@ -838,7 +858,7 @@
             <button class="btn btn-danger" onclick="deleteTask('${task.id}')">✕</button>
           </div>
           <div class="task-panel" id="panel-${task.id}">
-            ${renderConversations(conversations)}
+            ${renderConversations(conversations, task.id)}
             <div class="panel-log-form">
               <input type="text" placeholder="What did you do? e.g. 'Asked Eors for an update'" onkeydown="if(event.key==='Enter')analyzeLog('${task.id}',this)">
               <button class="btn btn-primary btn-sm" onclick="analyzeLog('${task.id}',this.previousElementSibling)">🔍 Analyze</button>
@@ -854,12 +874,13 @@
     }).join('');
   }
 
-  function renderConversations(conversations) {
+  function renderConversations(conversations, taskId) {
     if (conversations.length === 0) return '';
     // Chronological order (oldest first = read like a chat)
     return conversations.map(entry => {
       const ts = formatDate(entry.timestamp);
       let html = `<div class="agent-conversation">`;
+      html += `<button class="conv-delete-btn" onclick="event.stopPropagation();deleteHistoryEntry('${taskId}',${entry._historyIndex})" title="Delete this entry">🗑️</button>`;
       html += `<div class="agent-msg-user">📝 <strong>${ts}</strong> — ${escHtml(entry.text)}</div>`;
 
       if (entry.agentPlan) {
@@ -1107,6 +1128,25 @@
     document.getElementById('plan-' + taskId).classList.remove('visible');
     document.getElementById('clarify-' + taskId).classList.remove('visible');
     delete pendingPlans[taskId];
+  }
+
+  async function deleteHistoryEntry(taskId, historyIndex) {
+    if (!confirm('Delete this entry and all associated data?')) return;
+
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/history/${historyIndex}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showNotification(data.error || 'Failed to delete', 'error');
+        return;
+      }
+      showNotification('Entry deleted', 'success');
+      await fetchTasks();
+    } catch (err) {
+      showNotification('Delete failed: ' + err.message, 'error');
+    }
   }
 
   // --- Filter ---

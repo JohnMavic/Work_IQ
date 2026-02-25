@@ -238,6 +238,48 @@ app.delete('/api/tasks/:id', async (req, res) => {
   }
 });
 
+// DELETE /api/tasks/:id/history/:index — delete a single history entry
+app.delete('/api/tasks/:id/history/:index', async (req, res) => {
+  const { id } = req.params;
+  const index = parseInt(req.params.index, 10);
+
+  if (isNaN(index) || index < 0) {
+    return res.status(400).json({ error: 'Invalid history index' });
+  }
+
+  try {
+    const task = await safeWriteTasks((data) => {
+      const t = data.tasks.find(t => t.id === id);
+      if (!t) return null;
+      if (!t.history || index >= t.history.length) return 'out_of_bounds';
+
+      const entry = t.history[index];
+
+      // Protect system entries — only "update" type can be deleted
+      if (entry.type !== 'update') return 'protected';
+
+      // Remove the entry (splice preserves other entries)
+      t.history.splice(index, 1);
+      t.updatedAt = new Date().toISOString();
+      return t;
+    });
+
+    if (task === null) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    if (task === 'out_of_bounds') {
+      return res.status(400).json({ error: 'Invalid history index' });
+    }
+    if (task === 'protected') {
+      return res.status(403).json({ error: 'System entries cannot be deleted' });
+    }
+
+    res.json(task);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete history entry', detail: err.message });
+  }
+});
+
 // POST /api/scan — scan M365 emails and Teams via Copilot SDK + Work IQ
 app.post('/api/scan', async (req, res) => {
   let client;
