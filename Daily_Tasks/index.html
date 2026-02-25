@@ -93,6 +93,9 @@
     }
     .task-card:hover { border-color: #2a3555; }
     .task-card.done { opacity: 0.5; }
+    .task-card.active-panel { border-color: #22c55e; background: #0f1a14; }
+    .task-card.active-panel.done { opacity: 1; }
+    .task-card.agent-busy { border-color: #22c55e; animation: busyPulse 2s ease-in-out infinite; }
 
     .task-main { display: flex; flex-direction: column; gap: 6px; }
     .task-title { font-size: 0.95rem; font-weight: 500; color: #fff; }
@@ -434,6 +437,10 @@
       border-radius: 50%; animation: spin 0.8s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes busyPulse {
+      0%, 100% { box-shadow: 0 0 6px rgba(34, 197, 94, 0.25); }
+      50% { box-shadow: 0 0 16px rgba(34, 197, 94, 0.5); }
+    }
     .loading-text { font-size: 0.9rem; color: #aaa; }
     .loading-text.warning { color: #fbbf24; }
     .loading-timer { font-size: 0.8rem; color: #555; margin-top: 8px; }
@@ -610,10 +617,23 @@
       setServerStatus(true);
       renderTasks();
 
-      // Re-open the panel that was open before re-render
-      if (openPanelTaskId) {
-        const panel = document.getElementById('panel-' + openPanelTaskId);
+      // Re-open all panels that were open before re-render
+      for (const taskId of openPanelTaskIds) {
+        const panel = document.getElementById('panel-' + taskId);
         if (panel) panel.classList.add('visible');
+        const card = document.getElementById('card-' + taskId);
+        if (card) card.classList.add('active-panel');
+      }
+      // Re-apply busy state
+      for (const taskId of busyTaskIds) {
+        const card = document.getElementById('card-' + taskId);
+        if (card) card.classList.add('agent-busy');
+      }
+      // Restore pending plan displays
+      for (const [taskId, pending] of Object.entries(pendingPlans)) {
+        if (openPanelTaskIds.has(taskId)) {
+          showPlanUI(taskId, pending.plan, pending.fallback);
+        }
       }
     } catch (err) {
       console.error('Failed to fetch tasks:', err);
@@ -969,17 +989,19 @@
   function toggleTaskPanel(taskId) {
     const panel = document.getElementById('panel-' + taskId);
     if (!panel) return;
+    const card = document.getElementById('card-' + taskId);
     const isVisible = panel.classList.contains('visible');
-
-    document.querySelectorAll('.task-panel.visible').forEach(p => p.classList.remove('visible'));
 
     if (!isVisible) {
       panel.classList.add('visible');
-      openPanelTaskId = taskId;
+      openPanelTaskIds.add(taskId);
+      if (card) card.classList.add('active-panel');
       const input = panel.querySelector('.panel-log-form input');
       if (input) setTimeout(() => input.focus(), 100);
     } else {
-      openPanelTaskId = null;
+      panel.classList.remove('visible');
+      openPanelTaskIds.delete(taskId);
+      if (card) card.classList.remove('active-panel');
     }
   }
 
@@ -994,19 +1016,22 @@
 
   // --- Log Work: Two-Phase Agent (v1.4) ---
 
-  let pendingPlans = {}; // taskId → { plan, originalText }
-  let openPanelTaskId = null; // Survives fetchTasks re-renders
+  let pendingPlans = {}; // taskId → { plan, originalText, fallback }
+  let openPanelTaskIds = new Set(); // Multiple panels can be open simultaneously
+  let busyTaskIds = new Set(); // Tasks with active agent work (analyzing or executing)
 
   async function analyzeLog(taskId, input) {
     const text = input.value.trim();
     if (!text) return;
 
-    const panel = document.getElementById('panel-' + taskId);
-    const planEl = document.getElementById('plan-' + taskId);
-    const clarifyEl = document.getElementById('clarify-' + taskId);
+    let planEl = document.getElementById('plan-' + taskId);
+    let clarifyEl = document.getElementById('clarify-' + taskId);
     input.disabled = true;
 
-    // Show progress in plan area instead of generic spinner
+    // Mark task as busy (neon green highlight)
+    busyTaskIds.add(taskId);
+    document.getElementById('card-' + taskId)?.classList.add('agent-busy');
+
     planEl.innerHTML = '<div class="log-plan-understanding">🤔 Agent is analyzing your request...</div>';
     planEl.classList.add('visible');
     clarifyEl.classList.remove('visible');
@@ -1018,43 +1043,40 @@
         body: JSON.stringify({ text })
       });
       const data = await res.json();
+
+      // Re-acquire DOM refs (may have been rebuilt by another task's fetchTasks)
+      planEl = document.getElementById('plan-' + taskId);
+      clarifyEl = document.getElementById('clarify-' + taskId);
+      if (!planEl) return;
+
       if (!res.ok) {
         showNotification(friendlyError(data), 'error');
+        planEl.classList.remove('visible');
         return;
       }
 
       const plan = data.plan;
-      pendingPlans[taskId] = { plan, originalText: text };
+      pendingPlans[taskId] = { plan, originalText: text, fallback: !!data.fallback };
 
       if (plan.needsClarification && plan.clarificationQuestion) {
-        // Show clarification question
         planEl.innerHTML = `<div class="log-plan-understanding">❓ ${plan.clarificationQuestion}</div>`;
         planEl.classList.add('visible');
-        clarifyEl.classList.add('visible');
-        clarifyEl.querySelector('input').focus();
+        if (clarifyEl) {
+          clarifyEl.classList.add('visible');
+          clarifyEl.querySelector('input')?.focus();
+        }
       } else {
-        // Show plan for confirmation
-        const kwText = plan.keywords.length > 0 ? plan.keywords.join(', ') : '(none)';
-        const twFrom = plan.timeWindow?.from || '?';
-        const twTo = plan.timeWindow?.to || 'now';
-        planEl.innerHTML = `
-          <div class="log-plan-understanding">💡 ${plan.understanding}</div>
-          <div class="log-plan-details">
-            <span><strong>Keywords:</strong> ${kwText}</span>
-            <span><strong>Time:</strong> ${twFrom} → ${twTo}</span>
-            <span><strong>Target:</strong> ${plan.searchTargets || 'all'}</span>
-            ${data.fallback ? '<span style="color:#f59e0b">(auto-generated — AI analysis unavailable)</span>' : ''}
-          </div>
-          <div class="log-plan-actions">
-            <button class="btn btn-primary btn-sm" onclick="executeLog('${taskId}')">✅ Search</button>
-            <button class="btn btn-ghost btn-sm" onclick="cancelPlan('${taskId}')">❌ Cancel</button>
-          </div>`;
-        planEl.classList.add('visible');
+        showPlanUI(taskId, plan, !!data.fallback);
       }
     } catch (err) {
       showNotification('Analysis failed: ' + err.message, 'error');
+      const el = document.getElementById('plan-' + taskId);
+      if (el) el.classList.remove('visible');
     } finally {
-      input.disabled = false;
+      const freshInput = document.querySelector(`#panel-${taskId} .panel-log-form input`);
+      if (freshInput) freshInput.disabled = false;
+      busyTaskIds.delete(taskId);
+      document.getElementById('card-' + taskId)?.classList.remove('agent-busy');
     }
   }
 
@@ -1077,14 +1099,19 @@
     const pending = pendingPlans[taskId];
     if (!pending) return;
 
-    const planEl = document.getElementById('plan-' + taskId);
+    let planEl = document.getElementById('plan-' + taskId);
+
+    // Mark task as busy (neon green highlight)
+    busyTaskIds.add(taskId);
+    document.getElementById('card-' + taskId)?.classList.add('agent-busy');
 
     // Step 1: Show sending status
-    planEl.innerHTML = '<div class="log-plan-understanding">📤 Sending search to Work IQ...</div>';
+    if (planEl) planEl.innerHTML = '<div class="log-plan-understanding">📤 Sending search to Work IQ...</div>';
 
     // Step 2: After 10s, upgrade to "waiting" if still running
     const waitTimer = setTimeout(() => {
-      planEl.innerHTML = '<div class="log-plan-understanding">⏳ Waiting for system response... this may take up to 90 seconds</div>';
+      const el = document.getElementById('plan-' + taskId);
+      if (el) el.innerHTML = '<div class="log-plan-understanding">⏳ Waiting for system response... this may take up to 90 seconds</div>';
     }, 10000);
 
     try {
@@ -1097,30 +1124,40 @@
       clearTimeout(waitTimer);
 
       const data = await res.json();
+
+      // Re-acquire DOM ref (may have been rebuilt by another task's fetchTasks)
+      planEl = document.getElementById('plan-' + taskId);
+
       if (!res.ok) {
-        planEl.innerHTML = `<div class="log-plan-understanding">❌ ${friendlyError(data)}</div>`;
+        if (planEl) planEl.innerHTML = `<div class="log-plan-understanding">❌ ${friendlyError(data)}</div>`;
         showNotification(friendlyError(data), 'error');
         return;
       }
 
       // Step 3: Response received
       const commCount = data.history?.[data.history.length - 1]?.communications?.length || 0;
-      planEl.innerHTML = commCount > 0
-        ? `<div class="log-plan-understanding">✅ Done — ${commCount} communication(s) found</div>`
-        : '<div class="log-plan-understanding">🔍 No communications found</div>';
+      if (planEl) {
+        planEl.innerHTML = commCount > 0
+          ? `<div class="log-plan-understanding">✅ Done — ${commCount} communication(s) found</div>`
+          : '<div class="log-plan-understanding">🔍 No communications found</div>';
+      }
 
-      document.querySelector(`#panel-${taskId} .panel-log-form input`).value = '';
+      const logInput = document.querySelector(`#panel-${taskId} .panel-log-form input`);
+      if (logInput) logInput.value = '';
       showNotification('✅ Work logged', 'success');
 
-      // Re-render but keep panel open
+      // Re-render but keep panels open
       await fetchTasks();
 
     } catch (err) {
       clearTimeout(waitTimer);
-      planEl.innerHTML = `<div class="log-plan-understanding">❌ Search failed: ${escHtml(err.message)}</div>`;
+      const freshPlanEl = document.getElementById('plan-' + taskId);
+      if (freshPlanEl) freshPlanEl.innerHTML = `<div class="log-plan-understanding">❌ Search failed: ${escHtml(err.message)}</div>`;
       showNotification('Failed to log work: ' + err.message, 'error');
     } finally {
       delete pendingPlans[taskId];
+      busyTaskIds.delete(taskId);
+      document.getElementById('card-' + taskId)?.classList.remove('agent-busy');
     }
   }
 
@@ -1128,6 +1165,27 @@
     document.getElementById('plan-' + taskId).classList.remove('visible');
     document.getElementById('clarify-' + taskId).classList.remove('visible');
     delete pendingPlans[taskId];
+  }
+
+  function showPlanUI(taskId, plan, fallback) {
+    const planEl = document.getElementById('plan-' + taskId);
+    if (!planEl) return;
+    const kwText = plan.keywords.length > 0 ? plan.keywords.join(', ') : '(none)';
+    const twFrom = plan.timeWindow?.from || '?';
+    const twTo = plan.timeWindow?.to || 'now';
+    planEl.innerHTML = `
+      <div class="log-plan-understanding">💡 ${plan.understanding}</div>
+      <div class="log-plan-details">
+        <span><strong>Keywords:</strong> ${kwText}</span>
+        <span><strong>Time:</strong> ${twFrom} → ${twTo}</span>
+        <span><strong>Target:</strong> ${plan.searchTargets || 'all'}</span>
+        ${fallback ? '<span style="color:#f59e0b">(auto-generated — AI analysis unavailable)</span>' : ''}
+      </div>
+      <div class="log-plan-actions">
+        <button class="btn btn-primary btn-sm" onclick="executeLog('${taskId}')">✅ Search</button>
+        <button class="btn btn-ghost btn-sm" onclick="cancelPlan('${taskId}')">❌ Cancel</button>
+      </div>`;
+    planEl.classList.add('visible');
   }
 
   async function deleteHistoryEntry(taskId, historyIndex) {
