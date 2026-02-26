@@ -526,8 +526,8 @@ If a skill file is missing, a warning is logged and the server falls back to inl
 
 ```
 Agent_Zero/
-├── index.html                        (~1430 lines, frontend)
-├── server.js                         (~950 lines, backend)
+├── index.html                        (~1620 lines, frontend)
+├── server.js                         (~1090 lines, backend)
 ├── package.json                      (project metadata + dependencies)
 ├── package-lock.json                 (dependency lock file)
 ├── tasks.json                        (task data, in .gitignore)

@@ -11,7 +11,7 @@
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                          Browser (index.html)                               │
-│                          ~1585 lines, vanilla JS                            │
+│                          ~1620 lines, vanilla JS                            │
 │                                                                             │
 │  ┌────────────┐  ┌─────────────┐  ┌──────────┐  ┌───────────────────────┐  │
 │  │ Scan Button │  │ Task Cards  │  │ Filters  │  │ Interaction Panel     │  │
@@ -28,7 +28,7 @@
                                      │
 ┌────────────────────────────────────┼────────────────────────────────────────┐
 │                   Node.js Express Server (server.js)                        │
-│                   ~1089 lines, ES Modules                                   │
+│                   ~1090 lines, ES Modules                                   │
 │                                    │                                        │
 │        ┌───────────────────────────┼───────────────────────────┐            │
 │        │                           │                           │            │
@@ -109,7 +109,7 @@ Server ready → open http://localhost:3000 in default browser
 
 ### 2.1 Frontend (index.html)
 
-- **Lines:** ~1585 (HTML + CSS + JS in single file)
+- **Lines:** ~1620 (HTML + CSS + JS in single file)
 - **Framework:** None — vanilla JavaScript, no build step
 - **Theme:** Dark (`background: #0b0d17`, `color: #e0e0e0`)
 - **Font:** System font stack (`-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto`)
@@ -124,7 +124,7 @@ Server ready → open http://localhost:3000 in default browser
 
 ### 2.2 Backend (server.js)
 
-- **Lines:** ~1089
+- **Lines:** ~1090
 - **Module system:** ES Modules (`"type": "module"` in package.json)
 - **Port:** 3000 (hardcoded)
 - **Skill files loaded at startup:** `Documents/SCAN_SKILL.md`, `Documents/LOG_WORK_SKILL.md`
@@ -747,8 +747,8 @@ After search execution, a summary is built for the user:
 
 ```
 Agent_Zero/
-├── server.js                  # Express backend (~1089 lines)
-├── index.html                 # Frontend SPA (~1585 lines)
+├── server.js                  # Express backend (~1090 lines)
+├── index.html                 # Frontend SPA (~1620 lines)
 ├── package.json               # Dependencies and metadata
 ├── package-lock.json          # Locked dependency versions
 ├── tasks.json                 # Local data store (gitignored)
