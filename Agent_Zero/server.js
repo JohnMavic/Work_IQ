@@ -160,19 +160,21 @@ function buildSearchQuestion(plan, taskContext, userText) {
     return `from the last ${days} days (${fmtDate(fromDate)}-${fmtDate(now)})`;
   }
 
-  // Separate person names from topic keywords
+  // Separate person names and email domains from topic keywords
   const persons = keywords.filter(k => /^[A-Z][a-z]+ [A-Z]/.test(k));
-  const topics = keywords.filter(k => !persons.includes(k));
+  const domains = keywords.filter(k => /\.\w{2,}$/.test(k) && !persons.includes(k)); // e.g. zones.com, microsoft.com
+  const senders = [...persons, ...domains]; // Both can be used in "from" queries
+  const topics = keywords.filter(k => !persons.includes(k) && !domains.includes(k));
 
   const tw = timeWindow(plan.timeWindow);
 
   // PROVEN Copilot CLI pattern (tested & verified Feb 26, 2026):
-  // Person-focused, NO topic keywords (they degrade results!), pure English,
+  // Person/domain-focused, NO topic keywords (they degrade results!), pure English,
   // explicit date range, request full body content. NO JSON format request.
   let question;
-  if (persons.length > 0) {
-    const personList = persons.join(' or ');
-    question = `Find all emails from ${personList} in my ${targets} ${tw}.`;
+  if (senders.length > 0) {
+    const senderList = senders.join(' or ');
+    question = `Find all emails from ${senderList} in my ${targets} ${tw}.`;
   } else {
     // No person — topic-only search (less reliable, but best we can do)
     question = `Find all emails in my ${targets} ${tw} about ${keywords.join(' or ')}.`;
