@@ -739,6 +739,9 @@
       await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
       tasks = tasks.filter(t => t.id !== id);
       openPanelTaskIds.delete(id);
+      // Clean up collapsed entries for deleted task
+      collapsedEntries = new Set([...collapsedEntries].filter(e => !e.startsWith(id)));
+      saveUIState();
 
       if (busyTaskIds.size > 0 && !busyTaskIds.has(id)) {
         // Another task is busy — remove card from DOM without full re-render
@@ -984,8 +987,10 @@
 
       // Collapsible user message
       const isLongUser = entry.text && entry.text.length > 120;
+      const userCollapseId = `${taskId}-${entry._historyIndex}-user`;
+      const userCollapsed = collapsedEntries.has(userCollapseId);
       if (isLongUser) {
-        html += `<div class="conv-toggle" onclick="this.classList.toggle('collapsed')">
+        html += `<div class="conv-toggle${userCollapsed ? ' collapsed' : ''}" onclick="toggleCollapse('${userCollapseId}',this)">
           <span class="toggle-arrow">▼</span> ${userIcon} <strong>${ts}</strong> — ${escHtml(userPreview)}
         </div>`;
         html += `<div class="conv-body"><div class="agent-msg-user" style="margin-top:6px">${renderMarkdown(entry.text)}</div></div>`;
@@ -999,9 +1004,11 @@
         const agentText = entry.agentPlan.understanding || '';
         const agentPreview = previewText(agentText);
         const isLongAgent = agentText.length > 120;
+        const agentCollapseId = `${taskId}-${entry._historyIndex}-agent`;
+        const agentCollapsed = collapsedEntries.has(agentCollapseId);
 
         if (isLongAgent) {
-          html += `<div class="conv-toggle" onclick="this.classList.toggle('collapsed')">
+          html += `<div class="conv-toggle${agentCollapsed ? ' collapsed' : ''}" onclick="toggleCollapse('${agentCollapseId}',this)">
             <span class="toggle-arrow">▼</span> ${botIcon} ${escHtml(agentPreview)}
           </div>`;
           html += `<div class="conv-body"><div class="agent-msg-bot">${renderMarkdown(agentText)}</div></div>`;
@@ -1146,6 +1153,7 @@
       openPanelTaskIds.delete(taskId);
       if (card) card.classList.remove('active-panel');
     }
+    saveUIState();
   }
 
   function toggleDetails(taskId) {
@@ -1157,11 +1165,27 @@
     }
   }
 
+  function toggleCollapse(collapseId, el) {
+    el.classList.toggle('collapsed');
+    if (el.classList.contains('collapsed')) {
+      collapsedEntries.add(collapseId);
+    } else {
+      collapsedEntries.delete(collapseId);
+    }
+    saveUIState();
+  }
+
   // --- Log Work: Two-Phase Agent (v1.4) ---
 
   let pendingPlans = {}; // taskId → { plan, originalText, fallback }
-  let openPanelTaskIds = new Set(); // Multiple panels can be open simultaneously
+  let openPanelTaskIds = new Set(JSON.parse(localStorage.getItem('openPanels') || '[]'));
+  let collapsedEntries = new Set(JSON.parse(localStorage.getItem('collapsedEntries') || '[]'));
   let busyTaskIds = new Set(); // Tasks with active agent work (analyzing or executing)
+
+  function saveUIState() {
+    localStorage.setItem('openPanels', JSON.stringify([...openPanelTaskIds]));
+    localStorage.setItem('collapsedEntries', JSON.stringify([...collapsedEntries]));
+  }
 
   async function analyzeLog(taskId, input) {
     const text = input.value.trim();
