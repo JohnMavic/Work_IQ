@@ -93,6 +93,8 @@
     }
     .task-card:hover { border-color: #2a3555; }
     .task-card.done { opacity: 0.5; }
+    .task-card.has-content { border-color: #ec4899; }
+    .task-card.has-content:hover { border-color: #f472b6; }
     .task-card.active-panel { border-color: #22c55e; background: #0f1a14; }
     .task-card.active-panel.done { opacity: 1; }
     .task-card.agent-busy { border-color: #22c55e; animation: busyPulse 2s ease-in-out infinite; }
@@ -921,9 +923,10 @@
         .map((entry, idx) => ({ ...entry, _historyIndex: idx }))
         .filter(e => e.type === 'update' || e.type === 'note');
       const systemEvents = history.filter(e => e.type !== 'update' && e.type !== 'note');
+      const contentClass = conversations.length > 0 ? ' has-content' : '';
 
       return `
-        <div class="task-card${doneClass}" id="card-${task.id}">
+        <div class="task-card${doneClass}${contentClass}" id="card-${task.id}">
           <div class="task-main" onclick="toggleTaskPanel('${task.id}')">
             <div class="task-title">${escHtml(task.title)}</div>
             <div class="task-meta">
