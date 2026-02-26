@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Daily Briefing</title>
+  <title>Agent Zero</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -495,7 +495,7 @@
 
   <!-- Header -->
   <header>
-    <h1>📋 Daily Briefing</h1>
+    <h1>📋 Agent Zero</h1>
     <div class="header-right">
       <span class="server-dot-wrapper">
         <span class="server-dot" id="serverDot"></span>
@@ -503,6 +503,11 @@
       </span>
       <span class="last-scan" id="lastScan"></span>
       <button class="btn btn-scan" id="btnScan" onclick="triggerScan()">Scan Emails &amp; Teams</button>
+      <div style="display:flex;align-items:center;gap:6px;margin-left:8px">
+        <label for="scanDays" style="color:#94a3b8;font-size:0.75rem;white-space:nowrap">Scan:</label>
+        <input type="range" id="scanDays" min="1" max="14" value="4" style="width:80px;accent-color:#818cf8">
+        <span id="scanDaysLabel" style="color:#c7d2fe;font-size:0.75rem;min-width:38px">4 days</span>
+      </div>
     </div>
   </header>
 
@@ -519,7 +524,7 @@
     <div class="server-offline-banner" id="offlineBanner" style="display: none;">
       <h3>⚠️ Server nicht erreichbar</h3>
       <p>Der Backend-Server läuft nicht. Bitte starte ihn:</p>
-      <p><strong>Option 1:</strong> Doppelklick auf <code>START-DAILY-BRIEFING.bat</code></p>
+      <p><strong>Option 1:</strong> Doppelklick auf <code>START-AGENT-ZERO.bat</code></p>
       <p><strong>Option 2:</strong> Terminal öffnen und ausführen:<br>
         <code>cd E:\Work_IQ\Daily_Tasks &amp;&amp; node server.js</code></p>
       <div class="retry-hint">🔄 Verbindung wird automatisch geprüft...</div>
@@ -611,7 +616,7 @@
       tooltip.innerHTML =
         '<div class="tooltip-title offline">❌ Server nicht erreichbar</div>' +
         '<div class="offline-hint">' +
-        '→ START-DAILY-BRIEFING.bat doppelklicken<br>' +
+        '→ START-AGENT-ZERO.bat doppelklicken<br>' +
         '→ Oder: <code>node server.js</code> im Terminal' +
         '</div>';
     }
@@ -771,11 +776,12 @@
     overlay.classList.add('visible');
     loadingText.className = 'loading-text';
 
+    const days = document.getElementById('scanDays').value || '4';
     const steps = [
       { text: 'Connecting to AI engine...', at: 0 },
       { text: 'Starting Work IQ service...', at: 5 },
       { text: 'Authenticating with Microsoft 365...', at: 10 },
-      { text: 'Scanning emails (last 4 days)...', at: 15 },
+      { text: `Scanning emails (last ${days} day${days === '1' ? '' : 's'})...`, at: 15 },
       { text: 'Scanning Teams messages...', at: 25 },
       { text: 'Analyzing messages for action items...', at: 35 },
       { text: 'Almost done — processing results...', at: 50 },
@@ -809,7 +815,11 @@
     }, 1000);
 
     try {
-      const res = await fetch('/api/scan', { method: 'POST' });
+      const res = await fetch('/api/scan', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scanDays: parseInt(document.getElementById('scanDays').value) || 4 })
+      });
       const data = await res.json();
       if (!res.ok) {
         showNotification(friendlyError(data), 'error');
@@ -1152,8 +1162,7 @@
       panel.classList.add('visible');
       openPanelTaskIds.add(taskId);
       if (card) card.classList.add('active-panel');
-      const input = panel.querySelector('.panel-log-form input');
-      if (input) setTimeout(() => input.focus(), 100);
+      if (card) setTimeout(() => card.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
     } else {
       panel.classList.remove('visible');
       openPanelTaskIds.delete(taskId);
@@ -1509,6 +1518,16 @@
 
   // --- Init ---
   checkServerHealth();
+
+  // Scan days slider
+  const scanDaysSlider = document.getElementById('scanDays');
+  const scanDaysLabel = document.getElementById('scanDaysLabel');
+  scanDaysSlider.value = localStorage.getItem('scanDays') || '4';
+  scanDaysLabel.textContent = scanDaysSlider.value + (scanDaysSlider.value === '1' ? ' day' : ' days');
+  scanDaysSlider.addEventListener('input', () => {
+    scanDaysLabel.textContent = scanDaysSlider.value + (scanDaysSlider.value === '1' ? ' day' : ' days');
+    localStorage.setItem('scanDays', scanDaysSlider.value);
+  });
 </script>
 
 </body>

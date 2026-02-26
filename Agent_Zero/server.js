@@ -410,6 +410,7 @@ app.post('/api/tasks/:id/note', async (req, res) => {
 // POST /api/scan — scan M365 emails and Teams via Copilot SDK + Work IQ
 app.post('/api/scan', async (req, res) => {
   let client;
+  const scanDays = Math.min(14, Math.max(1, parseInt(req.body?.scanDays) || 4));
   try {
     client = new CopilotClient();
     const session = await client.createSession({
@@ -441,23 +442,24 @@ app.post('/api/scan', async (req, res) => {
     const allContextTasks = [...activeTasks, ...doneTasks];
 
     let scanPrompt;
+    const daysText = `last ${scanDays} day${scanDays === 1 ? '' : 's'}`;
     if (SCAN_SKILL && allContextTasks.length > 0) {
       scanPrompt = SCAN_SKILL + `\n\n` +
         `EXISTING TASKS (active and done — do NOT re-create done tasks):\n` +
         JSON.stringify(allContextTasks) + `\n\n` +
-        `Scan my emails and Teams messages from the last 4 days.\n` +
+        `Scan my emails and Teams messages from the ${daysText}.\n` +
         `For each action item found, decide: action "update" (with existingId) or "new".\n` +
         `If a found item matches a DONE task, use action "skip" — do NOT create it again.`;
     } else if (SCAN_SKILL) {
       scanPrompt = SCAN_SKILL + `\n\n` +
         `There are no existing tasks yet.\n\n` +
-        `Scan my emails and Teams messages from the last 4 days.\n` +
+        `Scan my emails and Teams messages from the ${daysText}.\n` +
         `For each action item found, return with action "new".`;
     } else if (allContextTasks.length > 0) {
       // Fallback: no skill file, use inline prompt (backward-compat)
       scanPrompt = `I have these EXISTING action items (do NOT re-create done ones):\n` +
         JSON.stringify(allContextTasks) + `\n\n` +
-        `Scan my emails and Teams messages from the last 4 days. ` +
+        `Scan my emails and Teams messages from the ${daysText}. ` +
         `For each message that contains an action item assigned to me or expected from me:\n\n` +
         `1. Check if it matches an existing task above (same topic/request, even if worded differently or from a different channel/sender).\n` +
         `   - If it matches a DONE task: skip it entirely — do NOT return it.\n` +
@@ -467,7 +469,7 @@ app.post('/api/scan', async (req, res) => {
         `Return ONLY a JSON array. No markdown, no explanation.\n` +
         `If no action items found, return [].`;
     } else {
-      scanPrompt = `Scan my emails and Teams messages from the last 4 days. ` +
+      scanPrompt = `Scan my emails and Teams messages from the ${daysText}. ` +
         `For each message that contains an action item assigned to me or expected from me, ` +
         `return ONLY a JSON array (no markdown, no explanation) with objects containing: ` +
         `action (always "new"), title (string), source ("email" or "teams"), from (sender name string), ` +
@@ -1064,5 +1066,5 @@ migrateTasks();
 migrateStatuses();
 
 app.listen(PORT, () => {
-  console.log(`Daily Briefing App running at http://localhost:${PORT}`);
+  console.log(`Agent Zero running at http://localhost:${PORT}`);
 });
