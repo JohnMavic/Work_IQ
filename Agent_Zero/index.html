@@ -513,11 +513,11 @@
           <span id="scanDaysLabel" style="color:#c7d2fe;font-size:0.75rem;min-width:38px">4 days</span>
         </div>
         <div style="display:flex;align-items:center;gap:6px">
-          <span style="color:#94a3b8;font-size:0.75rem;white-space:nowrap">Links öffnen in:</span>
-          <button class="link-mode-btn" data-mode="window" title="Neues Fenster — Link öffnet in einem separaten Browserfenster" onclick="setLinkMode('window')">🪟</button>
-          <button class="link-mode-btn" data-mode="tab" title="Neuer Tab — Link öffnet in einem neuen Tab" onclick="setLinkMode('tab')">📑</button>
-          <button class="link-mode-btn" data-mode="split" title="Split Screen — Agent Zero links, Link rechts (50/50)" onclick="setLinkMode('split')">◧</button>
-          <button class="link-mode-btn" data-mode="incognito" title="Privates Fenster — Versuch, den Link privat zu öffnen" onclick="setLinkMode('incognito')">🕶️</button>
+          <span style="color:#94a3b8;font-size:0.75rem;white-space:nowrap">Open links in:</span>
+          <button class="link-mode-btn" data-mode="window" title="New Window — Opens link in a separate browser window" onclick="setLinkMode('window')">🪟</button>
+          <button class="link-mode-btn" data-mode="tab" title="New Tab — Opens link in a new tab" onclick="setLinkMode('tab')">📑</button>
+          <button class="link-mode-btn" data-mode="split" title="Split Screen — Agent Zero left, link right (50/50)" onclick="setLinkMode('split')">◧</button>
+          <button class="link-mode-btn" data-mode="incognito" title="Private Window — Attempts to open link privately" onclick="setLinkMode('incognito')">🕶️</button>
         </div>
       </div>
     </div>
@@ -1569,7 +1569,7 @@
       window.open(url, '_blank', `left=${halfW},top=0,width=${halfW},height=${h}`);
     } else if (linkMode === 'incognito') {
       window.open(url, '_blank', `width=${screen.availWidth},height=${screen.availHeight}`);
-      showNotification('Incognito kann nicht programmatisch geöffnet werden — Link in neuem Fenster geöffnet', 'info');
+      showNotification('Incognito cannot be opened programmatically — link opened in new window', 'info');
     } else {
       // 'window' (default)
       window.open(url, '_blank', `width=${screen.availWidth},height=${screen.availHeight}`);
