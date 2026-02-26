@@ -625,12 +625,24 @@ app.post('/api/tasks/:id/log/analyze', async (req, res) => {
 
   const taskDate = task.date || task.createdAt || '';
 
-  // Build recent history context for the agent
+  // Build rich conversation history for the agent (full context)
   const recentHistory = (task.history || [])
     .filter(h => h.type === 'update' || h.type === 'note')
-    .slice(-5)
-    .map(h => `[${h.type}] ${h.text}${h.agentPlan ? ' → Agent: ' + h.agentPlan.understanding : ''}`)
-    .join('\n');
+    .slice(-8)
+    .map(h => {
+      let entry = `[${h.timestamp}] USER: ${h.text}`;
+      if (h.agentPlan) {
+        const intent = h.agentPlan.intent || 'search';
+        entry += `\nAGENT (${intent}): ${h.agentPlan.understanding}`;
+      }
+      if (h.communications && h.communications.length > 0) {
+        for (const c of h.communications) {
+          entry += `\n  📧 ${c.from || '?'} → ${c.to || '?'}: ${c.summary || '(no summary)'}`;
+        }
+      }
+      return entry;
+    })
+    .join('\n---\n');
 
   // Try AI analysis (Copilot SDK without Work IQ — fast, just reasoning)
   let client;
