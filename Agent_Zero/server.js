@@ -195,6 +195,23 @@ function migrateTasks() {
   console.log(`Migrated tasks.json from v1 to v2 (${data.tasks.length} tasks)`);
 }
 
+// --- Status Migration: active → new (v1.5) ---
+
+function migrateStatuses() {
+  const data = readTasks();
+  let migrated = 0;
+  for (const task of data.tasks) {
+    if (task.status === 'active') {
+      task.status = 'new';
+      migrated++;
+    }
+  }
+  if (migrated > 0) {
+    writeTasks(data);
+    console.log(`Migrated ${migrated} tasks from 'active' to 'new' status`);
+  }
+}
+
 // --- API Endpoints ---
 
 // GET /api/tasks — return all tasks
@@ -224,7 +241,7 @@ app.post('/api/tasks', async (req, res) => {
         from: null,
         date: null,
         link: null,
-        status: 'active',
+        status: 'new',
         notes: notes ? notes.trim() : '',
         history: [{ timestamp: now, type: 'created', text: 'Task created manually' }],
         doneAt: null,
@@ -247,7 +264,7 @@ app.patch('/api/tasks/:id', async (req, res) => {
     const { id } = req.params;
     const updates = req.body;
 
-    const validStatuses = ['active', 'in-progress', 'done', 'paused'];
+    const validStatuses = ['new', 'needs-attention', 'escalated', 'in-progress', 'done', 'paused'];
     if (updates.status !== undefined && !validStatuses.includes(updates.status)) {
       return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
     }
@@ -409,7 +426,7 @@ app.post('/api/scan', async (req, res) => {
     // Build context-aware prompt with existing tasks (v1.3, dedup fix v1.5)
     const data = readTasks();
     const activeTasks = data.tasks
-      .filter(t => t.status === 'active' || t.status === 'in-progress')
+      .filter(t => t.status === 'new' || t.status === 'needs-attention' || t.status === 'escalated' || t.status === 'in-progress')
       .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
       .slice(0, 50)
       .map(t => ({ id: t.id, title: t.title, source: t.source, from: t.from }));
@@ -572,7 +589,7 @@ app.post('/api/scan', async (req, res) => {
           from: fromNorm,
           date: item.date || null,
           link: item.link ? String(item.link).trim() : null,
-          status: 'active',
+          status: 'new',
           notes: '',
           history: [{ timestamp: now, type: 'created', text: `Task created from ${sourceNorm} scan` }],
           doneAt: null,
@@ -1044,6 +1061,7 @@ function parseMarkdownEmails(text) {
 // --- Start Server ---
 
 migrateTasks();
+migrateStatuses();
 
 app.listen(PORT, () => {
   console.log(`Daily Briefing App running at http://localhost:${PORT}`);

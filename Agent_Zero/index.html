@@ -60,7 +60,9 @@
     .status-select:focus { outline: none; border-color: #3b82f6; }
 
     /* Status colors */
-    .status-active { color: #60a5fa; }
+    .status-needs-attention { color: #ef4444; }
+    .status-new { color: #60a5fa; }
+    .status-escalated { color: #f97316; }
     .status-in-progress { color: #fbbf24; }
     .status-done { color: #34d399; }
     .status-paused { color: #9ca3af; }
@@ -525,10 +527,12 @@
 
     <div class="filter-bar">
       <button class="btn btn-ghost btn-sm active" data-filter="all" onclick="setFilter('all', this)">All</button>
-      <button class="btn btn-ghost btn-sm" data-filter="active" onclick="setFilter('active', this)">🔵 Active</button>
+      <button class="btn btn-ghost btn-sm" data-filter="needs-attention" onclick="setFilter('needs-attention', this)">🔴 Attention</button>
+      <button class="btn btn-ghost btn-sm" data-filter="new" onclick="setFilter('new', this)">🆕 New</button>
+      <button class="btn btn-ghost btn-sm" data-filter="escalated" onclick="setFilter('escalated', this)">🚨 Escalated</button>
       <button class="btn btn-ghost btn-sm" data-filter="in-progress" onclick="setFilter('in-progress', this)">🟡 In Progress</button>
-      <button class="btn btn-ghost btn-sm" data-filter="done" onclick="setFilter('done', this)">✅ Done</button>
       <button class="btn btn-ghost btn-sm" data-filter="paused" onclick="setFilter('paused', this)">⏸️ Paused</button>
+      <button class="btn btn-ghost btn-sm" data-filter="done" onclick="setFilter('done', this)">✅ Done</button>
       <span class="task-count" id="taskCount"></span>
     </div>
     <div class="task-list" id="taskList"></div>
@@ -876,16 +880,16 @@
     );
 
     // Update filter badge counts (only visible tasks)
-    const counts = { all: visibleTasks.length, active: 0, 'in-progress': 0, done: 0, paused: 0 };
+    const counts = { all: visibleTasks.length, 'needs-attention': 0, 'new': 0, escalated: 0, 'in-progress': 0, done: 0, paused: 0 };
     visibleTasks.forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
     document.querySelectorAll('.filter-bar .btn-ghost').forEach(btn => {
       const f = btn.dataset.filter;
-      const labels = { all: 'All', active: '🔵 Active', 'in-progress': '🟡 In Progress', done: '✅ Done', paused: '⏸️ Paused' };
+      const labels = { all: 'All', 'needs-attention': '🔴 Attention', 'new': '🆕 New', escalated: '🚨 Escalated', 'in-progress': '🟡 In Progress', done: '✅ Done', paused: '⏸️ Paused' };
       btn.textContent = counts[f] ? `${labels[f]} (${counts[f]})` : labels[f];
     });
 
-    // Sort: active first, then by date (newest first)
-    const statusOrder = { 'active': 0, 'in-progress': 1, 'paused': 2, 'done': 3 };
+    // Sort: priority order, then by date (newest first)
+    const statusOrder = { 'needs-attention': 0, 'new': 1, 'escalated': 2, 'in-progress': 3, 'paused': 4, 'done': 5 };
     const sorted = [...visibleTasks].sort((a, b) => {
       const so = (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9);
       if (so !== 0) return so;
@@ -941,10 +945,12 @@
           </div>
           <div class="task-actions" onclick="event.stopPropagation()">
             <select class="status-select ${statusClass}" onchange="updateTask('${task.id}', { status: this.value })">
-              <option value="active" ${task.status === 'active' ? 'selected' : ''}>🔵 Active</option>
+              <option value="needs-attention" ${task.status === 'needs-attention' ? 'selected' : ''}>🔴 Attention</option>
+              <option value="new" ${task.status === 'new' ? 'selected' : ''}>🆕 New</option>
+              <option value="escalated" ${task.status === 'escalated' ? 'selected' : ''}>🚨 Escalated</option>
               <option value="in-progress" ${task.status === 'in-progress' ? 'selected' : ''}>🟡 In Progress</option>
-              <option value="done" ${task.status === 'done' ? 'selected' : ''}>✅ Done</option>
               <option value="paused" ${task.status === 'paused' ? 'selected' : ''}>⏸️ Paused</option>
+              <option value="done" ${task.status === 'done' ? 'selected' : ''}>✅ Done</option>
             </select>
             <button class="btn btn-danger" onclick="deleteTask('${task.id}')">✕</button>
           </div>
