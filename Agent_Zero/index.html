@@ -1369,13 +1369,16 @@
   function showPlanUI(taskId, plan, fallback) {
     const planEl = document.getElementById('plan-' + taskId);
     if (!planEl) return;
-    const kwText = plan.keywords.length > 0 ? plan.keywords.join(', ') : '(none)';
+    const fromInfo = plan.searchFrom ? `<span><strong>From:</strong> ${escHtml(plan.searchFrom)}</span>` : '';
+    const kwText = plan.keywords && plan.keywords.length > 0 ? plan.keywords.join(', ') : '';
+    const kwInfo = kwText ? `<span><strong>Keywords:</strong> ${kwText}</span>` : '';
     const twFrom = plan.timeWindow?.from || '?';
     const twTo = plan.timeWindow?.to || 'now';
     planEl.innerHTML = `
-      <div class="log-plan-understanding">💡 ${plan.understanding}</div>
+      <div class="log-plan-understanding">💡 ${escHtml(plan.understanding)}</div>
       <div class="log-plan-details">
-        <span><strong>Keywords:</strong> ${kwText}</span>
+        ${fromInfo}
+        ${kwInfo}
         <span><strong>Time:</strong> ${twFrom} → ${twTo}</span>
         <span><strong>Target:</strong> ${plan.searchTargets || 'all'}</span>
         ${fallback ? '<span style="color:#f59e0b">(auto-generated — AI analysis unavailable)</span>' : ''}

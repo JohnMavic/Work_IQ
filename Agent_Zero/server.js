@@ -140,10 +140,8 @@ function runWorkIQAsk(question, timeoutMs = 90000) {
 
 function buildSearchQuestion(plan, taskContext, userText) {
   const targets = plan.searchTargets || 'inbox';
-  const keywords = plan.keywords || [];
 
   // Calculate time window as "last N days" with explicit date range in parentheses
-  // Proven pattern: "from the last 7 days (February 19-26, 2026)"
   function timeWindow(tw) {
     const now = new Date();
     const months = ['January','February','March','April','May','June',
@@ -155,29 +153,24 @@ function buildSearchQuestion(plan, taskContext, userText) {
       return `from the last 7 days (${fmtDate(from)}-${fmtDate(now)})`;
     }
     const fromDate = new Date(tw.from);
-    // +1 to include both start and end day (Feb 24-26 = 3 days, not 2)
     const days = Math.max(2, Math.ceil((now - fromDate) / (1000 * 60 * 60 * 24)) + 1);
     return `from the last ${days} days (${fmtDate(fromDate)}-${fmtDate(now)})`;
   }
 
-  // Separate person names and email domains from topic keywords
-  const persons = keywords.filter(k => /^[A-Z][a-z]+ [A-Z]/.test(k));
-  const domains = keywords.filter(k => /\.\w{2,}$/.test(k) && !persons.includes(k)); // e.g. zones.com, microsoft.com
-  const senders = [...persons, ...domains]; // Both can be used in "from" queries
-  const topics = keywords.filter(k => !persons.includes(k) && !domains.includes(k));
-
   const tw = timeWindow(plan.timeWindow);
+  const keywords = plan.keywords || [];
 
-  // PROVEN Copilot CLI pattern (tested & verified Feb 26, 2026):
-  // Person/domain-focused, NO topic keywords (they degrade results!), pure English,
-  // explicit date range, request full body content. NO JSON format request.
+  // AI-determined sender (person name or domain) takes priority
+  const sender = plan.searchFrom || null;
+
   let question;
-  if (senders.length > 0) {
-    const senderList = senders.join(' or ');
-    question = `Find all emails from ${senderList} in my ${targets} ${tw}.`;
-  } else {
-    // No person — topic-only search (less reliable, but best we can do)
+  if (sender) {
+    question = `Find all emails from ${sender} in my ${targets} ${tw}.`;
+  } else if (keywords.length > 0) {
     question = `Find all emails in my ${targets} ${tw} about ${keywords.join(' or ')}.`;
+  } else {
+    // Last resort: use task title context
+    question = `Find all emails in my ${targets} ${tw} related to "${taskContext.title}".`;
   }
 
   question += ` For each email show: subject line, date, and the full email body content. Order by date descending.`;
@@ -689,7 +682,8 @@ If intent is "search":
 {
   "intent": "search",
   "understanding": "A clear action plan: what you will search, where, and what you expect to find. Use 'I will...' or 'Ich werde...'",
-  "keywords": ["specific", "search", "terms"],
+  "searchFrom": "WHO to search for — a person name, email domain, or null if searching by topic only",
+  "keywords": ["specific", "search", "terms — only used if searchFrom is null"],
   "timeWindow": {
     "from": "ISO date string",
     "to": "ISO date string or 'now'",
@@ -704,10 +698,18 @@ RULES:
 - If the user pastes a long email/text and says "fasse zusammen", "summarize", "was steht da", "key points" → intent is "summarize"
 - If the user asks "was hat X geschrieben", "find emails from", "check my inbox" → intent is "search"
 - If the user asks "bis wann muss ich", "what's the deadline", "who is responsible" and the answer is in the task context → intent is "answer"
-- For "search" intent: ALWAYS include the task date as start date. Extract specific keywords (names, IDs, project names), NOT generic words.
+- For "search" intent: ALWAYS include the task date as start date.
 - For "summarize"/"answer": provide the result IMMEDIATELY — the user should not need to click Execute.
 - Write in the same language as the user's message (German → German, English → English)
 - If the search intent is unclear → set needsClarification to true
+
+CRITICAL RULES FOR searchFrom:
+- Think about WHO sends the relevant emails. The task "from" field and the user's message give you clues.
+- If the task is from a company (e.g. "zones.com", "Wipro", "Cyviz") → set searchFrom to the company domain (e.g. "zones.com", "wipro.com", "cyviz.com")
+- If the task mentions a specific person → set searchFrom to that person's name
+- If the user says "search for emails from zones" or "von zones.com" → set searchFrom to "zones.com"
+- If neither a person nor company is identifiable → set searchFrom to null and use keywords instead
+- NEVER put company names or domains in the keywords array — they belong in searchFrom
 
 Return ONLY the JSON object. No markdown, no explanation.`;
 
@@ -743,6 +745,7 @@ Return ONLY the JSON object. No markdown, no explanation.`;
         if (result.intent === 'search') {
           const plan = {
             understanding: result.understanding || '',
+            searchFrom: result.searchFrom || null,
             keywords: result.keywords || [],
             timeWindow: result.timeWindow || { from: taskDate, to: 'now' },
             searchTargets: result.searchTargets || 'all',
