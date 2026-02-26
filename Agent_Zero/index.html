@@ -1580,10 +1580,12 @@
       const panel = document.getElementById('splitPanel');
       const frame = document.getElementById('splitPanelFrame');
       const urlLabel = document.getElementById('splitPanelUrl');
-      frame.src = url;
       urlLabel.textContent = url;
       panel.style.display = 'flex';
       document.getElementById('splitMain').style.flex = '1';
+      // Try iframe — some sites (Outlook, Office365) block framing via CSP
+      frame.src = url;
+      frame._splitUrl = url;
     } else if (linkMode === 'incognito') {
       window.open(url, '_blank', `width=${screen.availWidth},height=${screen.availHeight}`);
       showNotification('Incognito cannot be opened programmatically — link opened in new window', 'info');
@@ -1598,7 +1600,17 @@
     const panel = document.getElementById('splitPanel');
     const frame = document.getElementById('splitPanelFrame');
     frame.src = 'about:blank';
+    frame._splitUrl = '';
     panel.style.display = 'none';
+  }
+
+  function openSplitInWindow() {
+    const frame = document.getElementById('splitPanelFrame');
+    const url = frame._splitUrl || frame.src;
+    if (url && url !== 'about:blank') {
+      window.open(url, '_blank', `popup,width=${Math.floor(screen.availWidth/2)},height=${screen.availHeight},left=${Math.floor(screen.availWidth/2)},top=0`);
+    }
+    closeSplitPanel();
   }
 
   // Init link mode buttons
@@ -1610,8 +1622,9 @@
   <div class="split-panel-header">
     <span id="splitPanelUrl"></span>
     <button onclick="closeSplitPanel()">✕ Close</button>
+    <button onclick="openSplitInWindow()" title="Open in separate window" style="background:#6366f1">🪟</button>
   </div>
-  <iframe id="splitPanelFrame" sandbox="allow-same-origin allow-scripts allow-popups allow-forms"></iframe>
+  <iframe id="splitPanelFrame"></iframe>
 </div>
 </div><!-- /split-wrapper -->
 
