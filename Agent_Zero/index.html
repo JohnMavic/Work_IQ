@@ -689,21 +689,63 @@
 
   async function updateTask(id, updates) {
     try {
-      await fetch(`/api/tasks/${id}`, {
+      const res = await fetch(`/api/tasks/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates)
       });
-      await fetchTasks();
+      if (!res.ok) return;
+      const updatedTask = await res.json();
+
+      // Update local state without full re-render (prevents disrupting active agent work)
+      const idx = tasks.findIndex(t => t.id === id);
+      if (idx !== -1) tasks[idx] = updatedTask;
+
+      // If any agent is busy on ANY task, do minimal DOM update instead of full re-render
+      if (busyTaskIds.size > 0) {
+        // Update status select inline
+        const select = document.querySelector(`#card-${id} .status-select`);
+        if (select && updates.status) {
+          select.value = updates.status;
+          select.className = 'status-select status-' + updates.status;
+        }
+        // Update task count
+        updateTaskCount();
+        // Update done styling
+        const card = document.getElementById('card-' + id);
+        if (card) {
+          card.classList.toggle('done', updates.status === 'done');
+        }
+        showNotification(`Status → ${updates.status}`, 'success');
+      } else {
+        // No busy agents — safe to do full re-render
+        await fetchTasks();
+      }
     } catch (err) {
       console.error('Failed to update task:', err);
     }
   }
 
+  function updateTaskCount() {
+    const filtered = currentFilter === 'all' ? tasks : tasks.filter(t => t.status === currentFilter);
+    const countEl = document.getElementById('taskCount');
+    if (countEl) countEl.textContent = `${filtered.length} of ${tasks.length} tasks`;
+  }
+
   async function deleteTask(id) {
     try {
       await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
-      await fetchTasks();
+      tasks = tasks.filter(t => t.id !== id);
+      openPanelTaskIds.delete(id);
+
+      if (busyTaskIds.size > 0 && !busyTaskIds.has(id)) {
+        // Another task is busy — remove card from DOM without full re-render
+        const card = document.getElementById('card-' + id);
+        if (card) card.remove();
+        updateTaskCount();
+      } else {
+        await fetchTasks();
+      }
     } catch (err) {
       console.error('Failed to delete task:', err);
     }
