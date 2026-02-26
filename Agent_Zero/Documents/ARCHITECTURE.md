@@ -1,7 +1,7 @@
 # Daily Briefing App — Technical Architecture
 
 **Version:** 1.4
-**Date:** February 25, 2026
+**Date:** February 26, 2026
 **Author:** Martin Hämmerli
 
 ---
@@ -530,7 +530,7 @@ If AI analysis fails, returns a deterministic fallback with `"fallback": true`.
 
 ### POST /api/tasks/:id/log
 
-Phase 2: Execute communication search with confirmed plan and save history entry. When `plan` is provided, uses `workiq ask` CLI directly (~15-60s). If `plan` is omitted, falls back to Copilot SDK + MCP (v1.3 behavior).
+Phase 2: Execute communication search with confirmed plan and save history entry. When `plan` is provided, uses `workiq ask` via interactive stdin mode (~30-60s). If `plan` is omitted, falls back to Copilot SDK + MCP (v1.3 behavior).
 
 **Request Body:**
 ```json
@@ -942,23 +942,53 @@ AI Response Text
   │
   ├── Try regex for [...] anywhere ──> extract, parse ──> success? return array
   │
-  └── Return null (triggers 502 error)
+  └── Return null (no JSON found)
 ```
+
+**`parseMarkdownEmails(text)`** — Fallback parser for Work IQ's Markdown responses (v1.4.1):
+
+```
+Work IQ Markdown Response
+  │
+  ├── Split by --- separators (horizontal rules between emails)
+  │
+  ├── For each block containing **From:**:
+  │     ├── Extract **Subject:** value
+  │     ├── Extract **From:** value
+  │     ├── Extract **Date:** value
+  │     ├── Extract **To:** value (if present)
+  │     ├── Extract Outlook deep link [N](https://outlook...)
+  │     └── Strip Markdown artifacts: **bold**, *italic*, [N](link) citations
+  │
+  └── Return array of { type, from, to, date, summary, link } or null
+```
+
+**Parse pipeline (in order):**
+1. Try JSON parsing → if success, use JSON communications
+2. Try Markdown email parsing → if success, use extracted emails
+3. Neither → store raw response text for display (natural language fallback)
 
 ### Work IQ Direct CLI (v1.4)
 
 Two helper functions enable direct Work IQ calls without Copilot SDK:
 
-**`runWorkIQAsk(question, timeoutMs)`** — Spawns `workiq ask -q "..."` via `child_process.spawn`:
-- Uses `shell: true` for Windows `.cmd` compatibility
+**`runWorkIQAsk(question, timeoutMs)`** — Spawns `workiq ask` via interactive stdin mode:
+- Spawns process with `stdio: ['pipe', 'pipe', 'pipe']`
+- Writes question to stdin after 500ms initialization delay, then closes stdin
+- Captures stdout (interactive mode writes to stdout, unlike `-q` which writes to TTY)
 - Returns the full stdout text on success
 - Throws on timeout (default 90s) or non-zero exit code
-- Single process vs. Copilot SDK's 3 processes (SDK + AI model + MCP server)
+- **Critical Windows discovery:** `workiq ask -q` writes to Console/TTY directly, NOT stdout. Node.js can never capture `-q` output. Interactive stdin mode is the only reliable approach.
 
-**`buildSearchQuestion(plan, taskContext, userText)`** — Builds a natural language question from the confirmed plan:
-- Includes search targets, task title, keywords, time range, and user context
-- Requests JSON array output format (type, from, to, date, summary, link)
-- Reads like a human question — not a robotic prompt template
+**`buildSearchQuestion(plan, taskContext, userText)`** — Builds person-focused, pure English questions:
+- **Person-focused pattern** (proven reliable): `"Find all emails from [person] in my [target] from the last N days (date-date)"`
+- Separates person names from topic keywords using regex: `/^[A-Z][a-z]+ [A-Z]/`
+- Person names → "from [person]" (primary filter)
+- Topic keywords → EXCLUDED from query (degrades results — tested & verified Feb 26, 2026)
+- Time window → "from the last N days" with explicit date range in parentheses
+- **Pure English only** — NO German userText (switches Work IQ to degraded mode)
+- **NO JSON format request** (triggers content filters)
+- Requests: "subject line, date, and the full email body content. Order by date descending."
 
 ### Concurrency & Write Safety (v1.2)
 
@@ -1009,28 +1039,33 @@ User text ──→ POST /api/tasks/:id/log/analyze
          │ Frontend: show plan  │──→ User confirms or adjusts
          └──────────┬───────────┘
                     │
-Phase 2: EXECUTE (after confirm, ~15-60 seconds)
+Phase 2: EXECUTE (after confirm, ~30-60 seconds)
 ────────────────────────────────────────────────
 Confirmed plan ──→ POST /api/tasks/:id/log
                     │
                     ▼
          ┌──────────────────────┐
-         │ buildSearchQuestion()│  ← Natural language question
-         │ • Task title         │    from confirmed plan
-         │ • Keywords           │
-         │ • Time range         │
-         │ • User context       │
-         │ • JSON output format │
+         │ buildSearchQuestion()│  ← Person-focused English question
+         │ • "Find all emails   │    from confirmed plan
+         │    from [person]     │
+         │    in my [target]    │  ← NO topic keywords
+         │    from the last     │  ← NO German userText
+         │    N days (dates)"   │  ← NO JSON format request
          └──────────┬───────────┘
                     │
                     ▼
          ┌──────────────────────┐
-         │ workiq ask -q "..."  │  ← Direct CLI call via spawn
-         │ (Work IQ's own AI)   │  ← Searches M365 directly
+         │ workiq ask (stdin)   │  ← Interactive mode via spawn
+         │ (Work IQ's own AI)   │  ← Writes question to stdin
+         │                      │  ← Captures stdout
          └──────────┬───────────┘  ← No Copilot SDK wrapper
                     │
                     ▼
-         JSON array of communications
+         ┌──────────────────────┐
+         │ Two-tier parser:     │
+         │ 1. parseJsonFromResp │  ← Try JSON extraction first
+         │ 2. parseMarkdownEmail│  ← Fallback: Markdown → struct
+         └──────────┬───────────┘
                     │
                     ▼
          History entry saved
@@ -1041,16 +1076,19 @@ Confirmed plan ──→ POST /api/tasks/:id/log
 OLD (v1.3):  App → Copilot SDK → AI Model → Work IQ MCP → Search API → AI → parse
              (3 processes: SDK, AI model, MCP server — 30-120s, fragile)
 
-NEW (v1.4):  App → workiq ask CLI → Work IQ AI → Search API → response → parse
-             (1 process: workiq — 15-60s, proven in Copilot CLI sessions)
+NEW (v1.4):  App → workiq ask (stdin) → Work IQ AI → Search API → response → parse
+             (1 process: workiq — 30-60s, proven in Copilot CLI sessions)
 ```
 Work IQ IS an AI agent. Wrapping it in another AI (Copilot SDK) adds overhead without benefit.
 
 **Key design decisions:**
 - Phase 1 creates a CopilotClient session WITHOUT `mcpServers` → AI can only reason, not search
-- Phase 2 calls `workiq ask` directly via `child_process.spawn` → no SDK, no MCP overhead
+- Phase 2 calls `workiq ask` via interactive stdin mode → no SDK, no MCP overhead
+- **stdin mode is required**: `workiq ask -q` writes to TTY/Console directly, bypassing stdout
 - The analysis prompt is hardcoded (not a skill file) — it's a stable meta-prompt for understanding intent
-- `buildSearchQuestion()` creates a natural language question from the plan (like a human would ask)
+- `buildSearchQuestion()` creates **person-focused, pure English** questions (proven most reliable)
+- **Topic keywords are excluded** from Work IQ queries — they degrade result quality
+- **German user text is excluded** — it causes Work IQ to switch to degraded mode
 - Fallback: If Phase 1 SDK fails, server uses `extractKeywords()` for deterministic analysis
 - Fallback: If no `plan` in the `/log` request, falls back to Copilot SDK + MCP (v1.3 behavior)
 - `agentExecution.method` tracks which approach was used: `"workiq-ask"` or `"copilot-sdk-mcp"`

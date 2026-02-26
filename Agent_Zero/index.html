@@ -969,7 +969,7 @@
           detailsHtml += `<span style="color:#f87171">❌ ${escHtml(ex.error)}</span>`;
         } else if (ex.rawResponse) {
           detailsHtml += `<span style="color:#4ade80"><strong>3️⃣ Antwort von Work IQ${duration}</strong></span>`;
-          const truncated = ex.rawResponse.length > 500 ? ex.rawResponse.substring(0, 500) + '...' : ex.rawResponse;
+          const truncated = ex.rawResponse.length > 800 ? ex.rawResponse.substring(0, 800) + '...' : ex.rawResponse;
           detailsHtml += `<span style="white-space:pre-wrap;font-size:0.7rem;color:#64748b">${escHtml(truncated)}</span>`;
         } else {
           detailsHtml += `<span style="color:#9ca3af"><strong>3️⃣ Antwort von Work IQ${duration}</strong></span>`;
@@ -984,8 +984,14 @@
           detailsHtml += `<span>✅ ${ex.parsedCount} Kommunikation(en) extrahiert:</span>`;
           for (const c of conv.communications) {
             const icon = c.type === 'teams' ? '💬' : '📧';
-            const cDate = c.date ? formatDate(c.date) : '';
-            detailsHtml += `<span style="margin-left:8px"><strong>${icon} ${escHtml(c.from || '?')} → ${escHtml(c.to || '?')}</strong> (${cDate})</span>`;
+            // Handle both ISO dates and natural language dates from Markdown parser
+            let cDate = '';
+            if (c.date) {
+              const d = new Date(c.date);
+              cDate = isNaN(d.getTime()) ? c.date : formatDate(c.date);
+            }
+            const recipient = c.to ? ` → ${escHtml(c.to)}` : '';
+            detailsHtml += `<span style="margin-left:8px"><strong>${icon} ${escHtml(c.from || '?')}${recipient}</strong> (${escHtml(cDate)})</span>`;
             if (c.summary) {
               detailsHtml += `<span style="margin-left:16px;color:#94a3b8;font-size:0.8rem">${escHtml(c.summary)}</span>`;
             }
@@ -994,9 +1000,9 @@
             }
           }
         } else if (ex.rawResponse && !ex.error) {
-          // Work IQ responded but no JSON parsed — show natural language answer
+          // Work IQ responded but no structured data parsed — show natural language answer
           detailsHtml += `<span>📝 Work IQ Antwort (kein strukturiertes Ergebnis):</span>`;
-          const answer = ex.rawResponse.length > 1000 ? ex.rawResponse.substring(0, 1000) + '...' : ex.rawResponse;
+          const answer = ex.rawResponse.length > 2000 ? ex.rawResponse.substring(0, 2000) + '...' : ex.rawResponse;
           detailsHtml += `<span style="white-space:pre-wrap;font-size:0.8rem;color:#cbd5e1">${escHtml(answer)}</span>`;
         } else {
           detailsHtml += `<span>🔍 Keine Kommunikationen gefunden</span>`;

@@ -1,7 +1,7 @@
 # Daily Briefing App — Product Specification
 
 **Version:** 1.4
-**Date:** February 25, 2026
+**Date:** February 26, 2026
 **Author:** Martin Hämmerli
 **Status:** v1.4 implemented (Two-Phase Log Agent + Interaction Panel + Execution Tracing)
 
@@ -520,27 +520,45 @@ Phase 1: ANALYZE (~5-15s, no Work IQ)       Phase 2: EXECUTE (after confirm, ~15
 1. User clicks "✅ Search" to confirm the plan
 2. Frontend sends `POST /api/tasks/:id/log { text, plan }` — the enhanced log endpoint
 3. Server builds a **natural language question** from the confirmed plan using `buildSearchQuestion()`:
-   - Includes: search targets, task title, keywords, time range, user context
-   - Asks for JSON array output with fields: type, from, to, date, summary, link
-   - This is a clear, human-readable question — not a robotic prompt template
-4. Server calls `workiq ask -q "..."` directly via `child_process.spawn`:
-   - Work IQ IS an AI agent — it handles Search API calls, reasoning, and formatting
-   - No Copilot SDK wrapping needed — eliminates double-AI overhead
-   - Typical latency: 15-60s (vs 30-120s with SDK + MCP)
-5. Server parses JSON from Work IQ's response using `parseJsonFromResponse()`
+   - **Person-focused queries** (proven most reliable): `"Find all emails from [person] in my [target] from the last N days (date-date)"`
+   - **Pure English only** — NO German user text mixed in (degrades Work IQ results)
+   - **NO topic keywords** — adding topic keywords like "NSSR or Cisco" causes Work IQ to return metadata-only responses without email content
+   - **NO JSON format request** — asking for JSON output triggers content filters
+   - **Explicit date range** in parentheses: `"from the last 7 days (February 19-26, 2026)"`
+   - Requests: `"subject line, date, and the full email body content. Order by date descending."`
+4. Server calls `workiq ask` via interactive stdin mode (`child_process.spawn`):
+   - Spawns `workiq ask` (without `-q`), writes question via stdin
+   - `-q` flag writes to TTY/Console directly, bypassing stdout — Node.js cannot capture it
+   - stdin mode writes to stdout → captured by Node.js
+   - Typical latency: 30-60s
+5. Server parses response using two-tier parser:
+   - First: `parseJsonFromResponse()` — tries JSON extraction
+   - Fallback: `parseMarkdownEmails()` — extracts structured data from Markdown `**Subject:**`, `**From:**`, `**Date:**` blocks separated by `---`
 6. Server saves history entry with communications array + execution trace (`agentExecution`)
 7. Frontend shows results
 
 **Why workiq ask instead of Copilot SDK + MCP (v1.4 decision):**
 ```
 OLD (v1.3):  Copilot SDK → AI Model → Work IQ MCP → Search API → AI → parse
-NEW (v1.4):  workiq ask → Work IQ AI → Search API → response → parse
+NEW (v1.4):  workiq ask (stdin) → Work IQ AI → Search API → response → parse
 
 Benefits:
 - Simpler: 1 process instead of 3 (SDK + AI model + MCP server)
-- Faster: ~15-60s instead of ~30-120s
+- Faster: ~30-60s instead of ~30-120s
 - More reliable: Work IQ knows its own tools best
 - Proven: Same approach works perfectly in Copilot CLI sessions
+```
+
+**Query Design Rules (tested & verified Feb 26, 2026):**
+```
+✅ DO: "Find all emails from Jeff Duffield in my inbox from the last 7 days"
+❌ DON'T: "Search for messages about Jeff Duffield or NSSR or Cisco or SSD"
+❌ DON'T: "...Ich habe Jeff Duffield um Rat gefragt..."  (German text degrades results)
+❌ DON'T: "...Return as JSON array [{...}]"  (triggers content filters)
+
+Person-focused > keyword-focused
+Soft time refs ("last N days") > ISO dates (2026-02-24T00:00:00Z)
+Full body request > summary request
 ```
 
 **Skill File Usage (v1.4):**

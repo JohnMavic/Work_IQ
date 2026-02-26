@@ -139,30 +139,48 @@ function runWorkIQAsk(question, timeoutMs = 90000) {
 }
 
 function buildSearchQuestion(plan, taskContext, userText) {
-  const keywords = plan.keywords.join(' or ');
   const targets = plan.searchTargets || 'inbox';
+  const keywords = plan.keywords || [];
 
-  // Use soft time references — Work IQ's Search API filters by thread date,
-  // not individual message date. Strict dates miss replies in older threads.
-  // "recently" is the most reliable term — specific date refs can cause timeouts.
-  function softTimeRef(tw) {
-    if (!tw?.from) return 'recently';
-    const fromDate = new Date(tw.from);
+  // Calculate time window as "last N days" with explicit date range in parentheses
+  // Proven pattern: "from the last 7 days (February 19-26, 2026)"
+  function timeWindow(tw) {
     const now = new Date();
-    const days = Math.round((now - fromDate) / (1000 * 60 * 60 * 24));
-    if (days <= 7) return 'recently';
-    if (days <= 14) return 'in the last two weeks';
-    if (days <= 30) return 'in the last month';
-    return 'recently';
+    const months = ['January','February','March','April','May','June',
+      'July','August','September','October','November','December'];
+    const fmtDate = d => `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+
+    if (!tw?.from) {
+      const from = new Date(now); from.setDate(from.getDate() - 7);
+      return `from the last 7 days (${fmtDate(from)}-${fmtDate(now)})`;
+    }
+    const fromDate = new Date(tw.from);
+    const days = Math.max(1, Math.round((now - fromDate) / (1000 * 60 * 60 * 24)));
+    const label = days <= 2 ? '2 days' : days <= 7 ? '7 days' : days <= 14 ? '14 days' : '30 days';
+    return `from the last ${label} (${fmtDate(fromDate)}-${fmtDate(now)})`;
   }
 
-  const timeRef = softTimeRef(plan.timeWindow);
+  // Separate person names from topic keywords
+  const persons = keywords.filter(k => /^[A-Z][a-z]+ [A-Z]/.test(k));
+  const topics = keywords.filter(k => !persons.includes(k));
 
-  // Short, natural question — proven reliable with Work IQ
-  // No strict dates (thread vs message date confusion), no JSON format (content filter risk)
-  return `Search my ${targets} for messages about ${keywords} ${timeRef}. ` +
-    `${userText} ` +
-    `Summarize each message found: who sent it, to whom, when, and what was said in 1-2 sentences. Include links.`;
+  const tw = timeWindow(plan.timeWindow);
+
+  // PROVEN Copilot CLI pattern (tested & verified Feb 26, 2026):
+  // Person-focused, NO topic keywords (they degrade results!), pure English,
+  // explicit date range, request full body content. NO JSON format request.
+  let question;
+  if (persons.length > 0) {
+    const personList = persons.join(' or ');
+    question = `Find all emails from ${personList} in my ${targets} ${tw}.`;
+  } else {
+    // No person — topic-only search (less reliable, but best we can do)
+    question = `Find all emails in my ${targets} ${tw} about ${keywords.join(' or ')}.`;
+  }
+
+  question += ` For each email show: subject line, date, and the full email body content. Order by date descending.`;
+
+  return question;
 }
 
 // --- Schema Migration ---
@@ -694,7 +712,7 @@ app.post('/api/tasks/:id/log', async (req, res) => {
 
       const result = await runWorkIQAsk(question);
       const elapsed = Date.now() - searchStartTime;
-      rawResponseText = result.substring(0, 4000);
+      rawResponseText = result.substring(0, 8000);
 
       console.log(`[LOG] Response received in ${elapsed}ms (${result.length} chars)`);
       console.log(`[LOG] Preview: ${result.substring(0, 300)}...`);
@@ -702,10 +720,16 @@ app.post('/api/tasks/:id/log', async (req, res) => {
       const parsed = parseJsonFromResponse(result);
       if (Array.isArray(parsed)) {
         communications = parsed;
-        console.log(`[LOG] Parsed ${communications.length} communications`);
+        console.log(`[LOG] Parsed ${communications.length} communications (JSON)`);
       } else {
-        // Work IQ responded with natural text, not JSON — still valuable
-        console.warn(`[LOG] No JSON parsed — storing natural language response`);
+        // Try Markdown email parser as fallback
+        const mdEmails = parseMarkdownEmails(result);
+        if (mdEmails) {
+          communications = mdEmails;
+          console.log(`[LOG] Parsed ${communications.length} communications (Markdown)`);
+        } else {
+          console.warn(`[LOG] No structured data parsed — storing natural language response`);
+        }
       }
     } catch (err) {
       const elapsed = Date.now() - searchStartTime;
@@ -844,6 +868,44 @@ function parseJsonFromResponse(text) {
     try { return JSON.parse(arrMatch[0]); } catch {}
   }
   return null;
+}
+
+// Parse Work IQ Markdown response into structured communications array
+// Anchors on **From:** (most reliable field), searches context window for other fields
+function parseMarkdownEmails(text) {
+  if (!text) return null;
+  const emails = [];
+  const clean = s => s.trim()
+    .replace(/\*+/g, '')
+    .replace(/\[.*?\]\(https?:[^\)]+\)/g, '')  // strip markdown citations
+    .replace(/\\$/g, '')
+    .replace(/\s{2,}$/g, '')
+    .trim();
+
+  // Strategy: split by --- separators (Work IQ uses these between emails)
+  const blocks = text.split(/\n---\n|\n---$/m);
+  for (const block of blocks) {
+    // Must contain **From:** to be an email block
+    if (!/\*\*From:\*\*/i.test(block)) continue;
+    const email = { type: 'email' };
+    const fromMatch = block.match(/\*\*From:\*\*\s*(.+)/i);
+    if (fromMatch) email.from = clean(fromMatch[1]);
+    const subjectMatch = block.match(/\*\*Subject:\*\*\s*(.+)/i);
+    if (subjectMatch) email.summary = clean(subjectMatch[1]);
+    const dateMatch = block.match(/\*\*Date:\*\*\s*(.+)/i);
+    if (dateMatch) email.date = clean(dateMatch[1]);
+    const toMatch = block.match(/\*\*To:\*\*\s*(.+)/i);
+    if (toMatch) email.to = clean(toMatch[1]);
+    const linkMatch = block.match(/\[.*?\]\((https:\/\/outlook[^\)]+)\)/);
+    if (linkMatch) email.link = linkMatch[1];
+    // Fallback: extract subject from numbered header (### 1) Subject text)
+    if (!email.summary) {
+      const hdr = block.match(/#{2,3}\s*\d*[\)\.]?\s*(.+)/);
+      if (hdr) email.summary = clean(hdr[1]);
+    }
+    if (email.summary || email.from) emails.push(email);
+  }
+  return emails.length > 0 ? emails : null;
 }
 
 // --- Start Server ---
