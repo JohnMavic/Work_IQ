@@ -604,7 +604,7 @@ app.post('/api/scan', async (req, res) => {
   }
 });
 
-// POST /api/tasks/:id/log/analyze — Phase 1: AI analyzes log request (v1.4)
+// POST /api/tasks/:id/log/analyze — Phase 1: AI analyzes log request (v1.4, intent-based v1.5)
 app.post('/api/tasks/:id/log/analyze', async (req, res) => {
   const { id } = req.params;
   const { text } = req.body;
@@ -625,13 +625,20 @@ app.post('/api/tasks/:id/log/analyze', async (req, res) => {
 
   const taskDate = task.date || task.createdAt || '';
 
+  // Build recent history context for the agent
+  const recentHistory = (task.history || [])
+    .filter(h => h.type === 'update' || h.type === 'note')
+    .slice(-5)
+    .map(h => `[${h.type}] ${h.text}${h.agentPlan ? ' → Agent: ' + h.agentPlan.understanding : ''}`)
+    .join('\n');
+
   // Try AI analysis (Copilot SDK without Work IQ — fast, just reasoning)
   let client;
   try {
     client = new CopilotClient();
     const session = await client.createSession({});  // No MCP servers → AI reasoning only
 
-    const analyzePrompt = `You are an assistant that plans communication searches for a task management app. Do NOT search for anything — just analyze and return a structured plan.
+    const analyzePrompt = `You are an intelligent assistant for a task management app. Analyze the user's message and determine the correct intent.
 
 TASK:
 Title: "${task.title}"
@@ -639,48 +646,54 @@ From: ${task.from || 'unknown'}
 Source: ${task.source}
 Date: ${taskDate}
 
-USER'S LOG TEXT:
+RECENT CONVERSATION:
+${recentHistory || '(no prior conversation)'}
+
+USER'S MESSAGE:
 "${text.trim()}"
 
-Return a JSON object with this exact structure:
+STEP 1: Determine the INTENT. Choose exactly one:
+- "summarize" — user provided text/content and wants you to summarize or extract key points. The content to summarize is IN the message itself.
+- "search" — user wants you to FIND emails, Teams messages, or communications. Requires Work IQ search.
+- "answer" — user asks a question that you can answer from the task context, the provided text, or general knowledge. No search needed.
+
+STEP 2: Return JSON based on intent.
+
+If intent is "summarize":
 {
-  "understanding": "A clear action statement describing WHAT you will do, WHERE you will search, and WHAT you expect to find. Write it as a direct message to the user using 'I will...' or 'Ich werde...'. Example: 'This is about a pending approval for SAP Invoice 5735236948. You asked Eörs how to proceed. I will search your inbox for recent emails from Eörs that mention this invoice number or PO, to find his reply. If I find something, I will summarize it for you.'",
-  "keywords": ["specific", "search", "keywords"],
+  "intent": "summarize",
+  "result": "Your clear, structured summary of the content the user provided. Use bullet points for action items. Write in the same language as the user's message."
+}
+
+If intent is "answer":
+{
+  "intent": "answer",
+  "result": "Your direct answer to the user's question, based on task context and conversation history. Write in the same language as the user's message."
+}
+
+If intent is "search":
+{
+  "intent": "search",
+  "understanding": "A clear action plan: what you will search, where, and what you expect to find. Use 'I will...' or 'Ich werde...'",
+  "keywords": ["specific", "search", "terms"],
   "timeWindow": {
-    "from": "ISO date string to start searching",
+    "from": "ISO date string",
     "to": "ISO date string or 'now'",
-    "reasoning": "1 sentence explaining why this time window"
+    "reasoning": "why this time window"
   },
   "searchTargets": "inbox, sent, teams, or all",
   "needsClarification": false,
   "clarificationQuestion": null
 }
 
-RULES FOR UNDERSTANDING (most important!):
-- The "understanding" field is your ACTION PLAN shown to the user before execution
-- It must describe: (1) the context/subject of the task, (2) what the user did, (3) exactly what you will search and where, (4) what you will do with the results
-- Do NOT just rephrase what the user said — describe your concrete plan of action
-- Write in the same language as the user's log text (German → German, English → English)
-- End with an implicit confirmation: the user will see this and click "Search" to approve
-
-RULES FOR TIME WINDOW:
-- ALWAYS include the task date itself as the start date (from). Replies can arrive on the same day.
-- If user asks for updates or replies → search FROM the task date TO now (inclusive)
-- If user asks for background info or additional context → search BEFORE the task date
-- If the direction is unclear → set needsClarification to true, ask about time window
-- If task date is >30 days old → set needsClarification to true, ask for a narrower range
-- "now" means today's date
-
-RULES FOR CLARIFICATION:
-- If the log text is too vague to determine search intent → set needsClarification to true
-- Ask ONE specific, focused question in clarificationQuestion
-- Examples of vague: "worked on this", "stuff", "checked something"
-- Examples of clear: "emailed Dave about the invoice", "asked for updates on the PO"
-
-RULES FOR KEYWORDS:
-- Extract the most specific terms from the TASK TITLE (invoice numbers, PO numbers, project names, person names)
-- Do NOT include generic words like "pending", "approval", "action"
-- Include names mentioned in the user's log text
+RULES:
+- If the user pastes a long email/text and says "fasse zusammen", "summarize", "was steht da", "key points" → intent is "summarize"
+- If the user asks "was hat X geschrieben", "find emails from", "check my inbox" → intent is "search"
+- If the user asks "bis wann muss ich", "what's the deadline", "who is responsible" and the answer is in the task context → intent is "answer"
+- For "search" intent: ALWAYS include the task date as start date. Extract specific keywords (names, IDs, project names), NOT generic words.
+- For "summarize"/"answer": provide the result IMMEDIATELY — the user should not need to click Execute.
+- Write in the same language as the user's message (German → German, English → English)
+- If the search intent is unclear → set needsClarification to true
 
 Return ONLY the JSON object. No markdown, no explanation.`;
 
@@ -688,14 +701,66 @@ Return ONLY the JSON object. No markdown, no explanation.`;
     await session.destroy();
 
     if (response) {
-      const plan = parseJsonFromResponse(response.data.content);
-      if (plan && typeof plan === 'object') {
-        return res.json({ plan });
+      const result = parseJsonFromResponse(response.data.content);
+      if (result && typeof result === 'object' && result.intent) {
+        // For summarize/answer: save immediately to history
+        if ((result.intent === 'summarize' || result.intent === 'answer') && result.result) {
+          const savedTask = await safeWriteTasks((data) => {
+            const t = data.tasks.find(t => t.id === id);
+            if (!t) return null;
+            const now = new Date().toISOString();
+            if (!t.history) t.history = [];
+            t.history.push({
+              timestamp: now,
+              type: 'update',
+              text: text.trim(),
+              agentPlan: {
+                intent: result.intent,
+                understanding: result.result
+              }
+            });
+            t.updatedAt = now;
+            return t;
+          });
+          return res.json({ intent: result.intent, result: result.result, task: savedTask });
+        }
+
+        // For search: return plan as before
+        if (result.intent === 'search') {
+          const plan = {
+            understanding: result.understanding || '',
+            keywords: result.keywords || [],
+            timeWindow: result.timeWindow || { from: taskDate, to: 'now' },
+            searchTargets: result.searchTargets || 'all',
+            needsClarification: result.needsClarification || false,
+            clarificationQuestion: result.clarificationQuestion || null
+          };
+          return res.json({ intent: 'search', plan });
+        }
+
+        // Unknown intent with result — treat as answer
+        if (result.result) {
+          const savedTask = await safeWriteTasks((data) => {
+            const t = data.tasks.find(t => t.id === id);
+            if (!t) return null;
+            const now = new Date().toISOString();
+            if (!t.history) t.history = [];
+            t.history.push({
+              timestamp: now,
+              type: 'update',
+              text: text.trim(),
+              agentPlan: { intent: 'answer', understanding: result.result }
+            });
+            t.updatedAt = now;
+            return t;
+          });
+          return res.json({ intent: 'answer', result: result.result, task: savedTask });
+        }
       }
     }
 
     // AI returned nothing useful → fall through to deterministic fallback
-    throw new Error('AI returned no valid plan');
+    throw new Error('AI returned no valid response');
   } catch (err) {
     console.warn('AI analysis failed, using deterministic fallback:', err.message);
 
@@ -713,7 +778,7 @@ Return ONLY the JSON object. No markdown, no explanation.`;
       needsClarification: false,
       clarificationQuestion: null
     };
-    return res.json({ plan, fallback: true });
+    return res.json({ intent: 'search', plan, fallback: true });
   } finally {
     if (client) {
       try { await client.dispose(); } catch {}

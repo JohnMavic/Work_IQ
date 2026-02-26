@@ -911,10 +911,13 @@
       }
 
       // Agent interaction (type === 'update')
-      html += `<div class="agent-msg-user">📤 <strong>${ts}</strong> — ${escHtml(entry.text)}</div>`;
+      const agentIntent = entry.agentPlan?.intent;
+      const userIcon = agentIntent === 'search' ? '🔍' : '📤';
+      html += `<div class="agent-msg-user">${userIcon} <strong>${ts}</strong> — ${escHtml(entry.text)}</div>`;
 
       if (entry.agentPlan) {
-        html += `<div class="agent-msg-bot">🤖 ${escHtml(entry.agentPlan.understanding)}</div>`;
+        const botIcon = agentIntent === 'summarize' ? '📋' : agentIntent === 'answer' ? '💬' : '🤖';
+        html += `<div class="agent-msg-bot">${botIcon} ${escHtml(entry.agentPlan.understanding)}</div>`;
       }
 
       if (entry.communications && entry.communications.length > 0) {
@@ -928,7 +931,7 @@
           if (comm.summary) html += `<br>${escHtml(comm.summary)}`;
           html += `</div>`;
         }
-      } else if (entry.agentPlan) {
+      } else if (entry.agentPlan && agentIntent === 'search') {
         html += `<div class="agent-no-results">🔍 No communications found</div>`;
       }
 
@@ -1105,7 +1108,30 @@
         return;
       }
 
+      const intent = data.intent || 'search';
+
+      // --- Intent: summarize or answer → result is immediate, already saved ---
+      if ((intent === 'summarize' || intent === 'answer') && data.result) {
+        const icon = intent === 'summarize' ? '📋' : '💬';
+        planEl.innerHTML = `<div class="log-plan-understanding">${icon} ${escHtml(data.result)}</div>`;
+        planEl.classList.add('visible');
+        input.value = '';
+        showNotification(intent === 'summarize' ? '📋 Summary saved' : '💬 Answer saved', 'success');
+        // Re-render to show in conversation history
+        await fetchTasks();
+        // Hide plan after re-render (it's now in conversation)
+        const freshPlanEl = document.getElementById('plan-' + taskId);
+        if (freshPlanEl) { freshPlanEl.classList.remove('visible'); freshPlanEl.innerHTML = ''; }
+        return;
+      }
+
+      // --- Intent: search → show plan with Execute ---
       const plan = data.plan;
+      if (!plan) {
+        planEl.classList.remove('visible');
+        showNotification('Agent returned no actionable plan', 'error');
+        return;
+      }
       pendingPlans[taskId] = { plan, originalText: text, fallback: !!data.fallback };
 
       if (plan.needsClarification && plan.clarificationQuestion) {
