@@ -151,6 +151,18 @@
       opacity: 1;
       background: rgba(239, 68, 68, 0.15);
     }
+    .conv-toggle {
+      cursor: pointer;
+      user-select: none;
+    }
+    .conv-toggle .toggle-arrow {
+      display: inline-block;
+      transition: transform 0.2s;
+      font-size: 0.7rem;
+      margin-right: 4px;
+    }
+    .conv-toggle.collapsed .toggle-arrow { transform: rotate(-90deg); }
+    .conv-toggle.collapsed + .conv-body { display: none; }
     .agent-msg-user {
       color: #e2e8f0;
       font-size: 0.85rem;
@@ -160,7 +172,18 @@
       color: #93c5fd;
       font-size: 0.85rem;
       margin-bottom: 4px;
+      line-height: 1.5;
     }
+    .agent-msg-bot h2 { font-size: 0.95rem; color: #e2e8f0; margin: 10px 0 6px 0; border-bottom: 1px solid #1e2233; padding-bottom: 4px; }
+    .agent-msg-bot h3 { font-size: 0.88rem; color: #c7d2fe; margin: 8px 0 4px 0; }
+    .agent-msg-bot ul, .agent-msg-bot ol { margin: 4px 0 4px 20px; }
+    .agent-msg-bot li { margin: 2px 0; }
+    .agent-msg-bot p { margin: 4px 0; }
+    .agent-msg-bot table { border-collapse: collapse; margin: 6px 0; font-size: 0.8rem; }
+    .agent-msg-bot th { background: #1e293b; padding: 4px 10px; border: 1px solid #334155; text-align: left; color: #e2e8f0; }
+    .agent-msg-bot td { padding: 4px 10px; border: 1px solid #334155; }
+    .agent-msg-bot strong { color: #e2e8f0; }
+    .agent-msg-bot code { background: #1e293b; padding: 1px 4px; border-radius: 3px; font-size: 0.82rem; }
     .agent-msg-status {
       font-size: 0.78rem;
       margin-bottom: 6px;
@@ -904,7 +927,6 @@
       html += `<button class="conv-delete-btn" onclick="event.stopPropagation();deleteHistoryEntry('${taskId}',${entry._historyIndex})" title="Delete this entry">🗑️</button>`;
 
       if (entry.type === 'note') {
-        // Quick note — no agent interaction
         html += `<div class="agent-msg-user">📝 <strong>${ts}</strong> — ${escHtml(entry.text)}</div>`;
         html += `</div>`;
         return html;
@@ -913,11 +935,34 @@
       // Agent interaction (type === 'update')
       const agentIntent = entry.agentPlan?.intent;
       const userIcon = agentIntent === 'search' ? '🔍' : '📤';
-      html += `<div class="agent-msg-user">${userIcon} <strong>${ts}</strong> — ${escHtml(entry.text)}</div>`;
+      const userPreview = previewText(entry.text);
 
+      // Collapsible user message
+      const isLongUser = entry.text && entry.text.length > 120;
+      if (isLongUser) {
+        html += `<div class="conv-toggle" onclick="this.classList.toggle('collapsed')">
+          <span class="toggle-arrow">▼</span> ${userIcon} <strong>${ts}</strong> — ${escHtml(userPreview)}
+        </div>`;
+        html += `<div class="conv-body"><div class="agent-msg-user" style="margin-top:6px">${renderMarkdown(entry.text)}</div></div>`;
+      } else {
+        html += `<div class="agent-msg-user">${userIcon} <strong>${ts}</strong> — ${escHtml(entry.text)}</div>`;
+      }
+
+      // Agent response — collapsible, Markdown formatted
       if (entry.agentPlan) {
         const botIcon = agentIntent === 'summarize' ? '📋' : agentIntent === 'answer' ? '💬' : '🤖';
-        html += `<div class="agent-msg-bot">${botIcon} ${escHtml(entry.agentPlan.understanding)}</div>`;
+        const agentText = entry.agentPlan.understanding || '';
+        const agentPreview = previewText(agentText);
+        const isLongAgent = agentText.length > 120;
+
+        if (isLongAgent) {
+          html += `<div class="conv-toggle" onclick="this.classList.toggle('collapsed')">
+            <span class="toggle-arrow">▼</span> ${botIcon} ${escHtml(agentPreview)}
+          </div>`;
+          html += `<div class="conv-body"><div class="agent-msg-bot">${renderMarkdown(agentText)}</div></div>`;
+        } else {
+          html += `<div class="agent-msg-bot">${botIcon} ${renderMarkdown(agentText)}</div>`;
+        }
       }
 
       if (entry.communications && entry.communications.length > 0) {
@@ -1113,7 +1158,7 @@
       // --- Intent: summarize or answer → result is immediate, already saved ---
       if ((intent === 'summarize' || intent === 'answer') && data.result) {
         const icon = intent === 'summarize' ? '📋' : '💬';
-        planEl.innerHTML = `<div class="log-plan-understanding">${icon} ${escHtml(data.result)}</div>`;
+        planEl.innerHTML = `<div class="agent-msg-bot">${icon} ${renderMarkdown(data.result)}</div>`;
         planEl.classList.add('visible');
         input.value = '';
         showNotification(intent === 'summarize' ? '📋 Summary saved' : '💬 Answer saved', 'success');
@@ -1345,6 +1390,43 @@
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
+  }
+
+  // Lightweight Markdown → HTML renderer for agent responses
+  function renderMarkdown(text) {
+    if (!text) return '';
+    let html = escHtml(text);
+    // Headers: ## and ###
+    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    // Bold: **text**
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // Italic: *text* (but not inside bold)
+    html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
+    // Inline code: `text`
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // Unordered lists: - item (with emoji support)
+    html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+    html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
+    // Paragraphs: double newline
+    html = html.replace(/\n\n/g, '</p><p>');
+    // Single newlines within paragraphs → <br>
+    html = html.replace(/\n/g, '<br>');
+    // Wrap in paragraph if not starting with block element
+    if (!html.startsWith('<h') && !html.startsWith('<ul') && !html.startsWith('<p>')) {
+      html = '<p>' + html + '</p>';
+    }
+    // Clean up empty paragraphs
+    html = html.replace(/<p>\s*<\/p>/g, '');
+    return html;
+  }
+
+  // Truncate text for collapsed preview (first meaningful line)
+  function previewText(text, maxLen = 80) {
+    if (!text) return '';
+    const firstLine = text.split('\n').find(l => l.trim()) || text;
+    const clean = firstLine.replace(/\*\*/g, '').replace(/^#+\s*/, '').trim();
+    return clean.length > maxLen ? clean.substring(0, maxLen) + '…' : clean;
   }
 
   // --- Init ---
