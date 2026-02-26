@@ -423,11 +423,11 @@
       line-height: 1.6;
     }
 
-    /* --- Scan Status Banner (non-blocking) --- */
+    /* --- Scan Status Banner (non-blocking, inline below header) --- */
     .scan-banner {
-      display: none; position: fixed; top: 0; left: 0; right: 0;
+      display: none;
       background: linear-gradient(135deg, #1e1b4b, #312e81);
-      padding: 10px 20px; z-index: 100;
+      padding: 8px 20px;
       justify-content: center; align-items: center; gap: 12px;
       border-bottom: 1px solid #4338ca;
     }
@@ -479,6 +479,13 @@
     </div>
   </header>
 
+  <!-- Scan Status Banner (non-blocking, below header) -->
+  <div class="scan-banner" id="loadingOverlay">
+    <div class="spinner"></div>
+    <span class="loading-text" id="loadingText" style="color:#c7d2fe;font-size:0.85rem">Scanning...</span>
+    <span class="loading-timer" id="loadingTimer" style="color:#818cf8;font-size:0.75rem"></span>
+  </div>
+
   <!-- Main Content -->
   <main>
     <!-- Server Offline Banner -->
@@ -516,13 +523,6 @@
       <button type="submit" class="btn btn-primary">Add Task</button>
     </form>
   </section>
-
-  <!-- Scan Status Banner (non-blocking) -->
-  <div class="scan-banner" id="loadingOverlay">
-    <div class="spinner"></div>
-    <span class="loading-text" id="loadingText" style="color:#c7d2fe;font-size:0.85rem">Scanning...</span>
-    <span class="loading-timer" id="loadingTimer" style="color:#818cf8;font-size:0.75rem"></span>
-  </div>
 
 <script>
   // --- State ---
