@@ -155,9 +155,9 @@ function buildSearchQuestion(plan, taskContext, userText) {
       return `from the last 7 days (${fmtDate(from)}-${fmtDate(now)})`;
     }
     const fromDate = new Date(tw.from);
-    const days = Math.max(1, Math.round((now - fromDate) / (1000 * 60 * 60 * 24)));
-    const label = days <= 2 ? '2 days' : days <= 7 ? '7 days' : days <= 14 ? '14 days' : '30 days';
-    return `from the last ${label} (${fmtDate(fromDate)}-${fmtDate(now)})`;
+    // +1 to include both start and end day (Feb 24-26 = 3 days, not 2)
+    const days = Math.max(2, Math.ceil((now - fromDate) / (1000 * 60 * 60 * 24)) + 1);
+    return `from the last ${days} days (${fmtDate(fromDate)}-${fmtDate(now)})`;
   }
 
   // Separate person names from topic keywords
