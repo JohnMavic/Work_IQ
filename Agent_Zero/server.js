@@ -337,8 +337,8 @@ app.delete('/api/tasks/:id/history/:index', async (req, res) => {
 
       const entry = t.history[index];
 
-      // Protect system entries — only "update" type can be deleted
-      if (entry.type !== 'update') return 'protected';
+      // Protect system entries — only "update" and "note" types can be deleted
+      if (entry.type !== 'update' && entry.type !== 'note') return 'protected';
 
       // Remove the entry (splice preserves other entries)
       t.history.splice(index, 1);
@@ -359,6 +359,39 @@ app.delete('/api/tasks/:id/history/:index', async (req, res) => {
     res.json(task);
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete history entry', detail: err.message });
+  }
+});
+
+// POST /api/tasks/:id/note — save a quick note (no agent interaction)
+app.post('/api/tasks/:id/note', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { text } = req.body;
+
+    if (!text || !text.trim()) {
+      return res.status(400).json({ error: 'Note text is required' });
+    }
+
+    const task = await safeWriteTasks((data) => {
+      const t = data.tasks.find(t => t.id === id);
+      if (!t) return null;
+      const now = new Date().toISOString();
+      if (!t.history) t.history = [];
+      t.history.push({
+        timestamp: now,
+        type: 'note',
+        text: text.trim()
+      });
+      t.updatedAt = now;
+      return t;
+    });
+
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    res.json(task);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to save note', detail: err.message });
   }
 });
 

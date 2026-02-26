@@ -854,8 +854,8 @@
       const history = task.history || [];
       const conversations = history
         .map((entry, idx) => ({ ...entry, _historyIndex: idx }))
-        .filter(e => e.type === 'update');
-      const systemEvents = history.filter(e => e.type !== 'update');
+        .filter(e => e.type === 'update' || e.type === 'note');
+      const systemEvents = history.filter(e => e.type !== 'update' && e.type !== 'note');
 
       return `
         <div class="task-card${doneClass}" id="card-${task.id}">
@@ -880,8 +880,9 @@
           <div class="task-panel" id="panel-${task.id}">
             ${renderConversations(conversations, task.id)}
             <div class="panel-log-form">
-              <input type="text" placeholder="What did you do? e.g. 'Asked Eors for an update'" onkeydown="if(event.key==='Enter')analyzeLog('${task.id}',this)">
-              <button class="btn btn-primary btn-sm" onclick="analyzeLog('${task.id}',this.previousElementSibling)">🔍 Analyze</button>
+              <input type="text" placeholder="Message or update..." onkeydown="if(event.key==='Enter')analyzeLog('${task.id}',this)">
+              <button class="btn btn-primary btn-sm" onclick="analyzeLog('${task.id}',this.previousElementSibling)" title="Send to agent">📤 Send</button>
+              <button class="btn btn-ghost btn-sm" onclick="addNote('${task.id}',this.parentElement.querySelector('input'))" title="Save as note (no agent)">📝 Note</button>
             </div>
             <div class="log-plan" id="plan-${task.id}"></div>
             <div class="log-clarification" id="clarify-${task.id}">
@@ -901,13 +902,19 @@
       const ts = formatDate(entry.timestamp);
       let html = `<div class="agent-conversation">`;
       html += `<button class="conv-delete-btn" onclick="event.stopPropagation();deleteHistoryEntry('${taskId}',${entry._historyIndex})" title="Delete this entry">🗑️</button>`;
-      html += `<div class="agent-msg-user">📝 <strong>${ts}</strong> — ${escHtml(entry.text)}</div>`;
+
+      if (entry.type === 'note') {
+        // Quick note — no agent interaction
+        html += `<div class="agent-msg-user">📝 <strong>${ts}</strong> — ${escHtml(entry.text)}</div>`;
+        html += `</div>`;
+        return html;
+      }
+
+      // Agent interaction (type === 'update')
+      html += `<div class="agent-msg-user">📤 <strong>${ts}</strong> — ${escHtml(entry.text)}</div>`;
 
       if (entry.agentPlan) {
         html += `<div class="agent-msg-bot">🤖 ${escHtml(entry.agentPlan.understanding)}</div>`;
-        html += entry.agentPlan.fallback
-          ? `<div class="agent-msg-status" style="color:#f59e0b">⚠️ Auto-generated</div>`
-          : `<div class="agent-msg-status" style="color:#4ade80">✅ User confirmed</div>`;
       }
 
       if (entry.communications && entry.communications.length > 0) {
@@ -1220,6 +1227,32 @@
     delete pendingPlans[taskId];
   }
 
+  async function addNote(taskId, input) {
+    const text = input.value.trim();
+    if (!text) return;
+    input.disabled = true;
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/note`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        showNotification(friendlyError(data), 'error');
+        return;
+      }
+      input.value = '';
+      showNotification('📝 Note saved', 'success');
+      await fetchTasks();
+    } catch (err) {
+      showNotification('Failed to save note: ' + err.message, 'error');
+    } finally {
+      const freshInput = document.querySelector(`#panel-${taskId} .panel-log-form input`);
+      if (freshInput) freshInput.disabled = false;
+    }
+  }
+
   function showPlanUI(taskId, plan, fallback) {
     const planEl = document.getElementById('plan-' + taskId);
     if (!planEl) return;
@@ -1235,8 +1268,8 @@
         ${fallback ? '<span style="color:#f59e0b">(auto-generated — AI analysis unavailable)</span>' : ''}
       </div>
       <div class="log-plan-actions">
-        <button class="btn btn-primary btn-sm" onclick="executeLog('${taskId}')">✅ Search</button>
-        <button class="btn btn-ghost btn-sm" onclick="cancelPlan('${taskId}')">❌ Cancel</button>
+        <button class="btn btn-primary btn-sm" onclick="executeLog('${taskId}')">▶ Execute</button>
+        <button class="btn btn-ghost btn-sm" onclick="cancelPlan('${taskId}')">✕ Cancel</button>
       </div>`;
     planEl.classList.add('visible');
   }
