@@ -1017,9 +1017,11 @@
       }
 
       // Agent response — collapsible, Markdown formatted
-      if (entry.agentPlan) {
+      // For search intents: show agentResponse (final result) if available, otherwise understanding (plan)
+      const agentText = (agentIntent === 'search' && entry.agentResponse) ? entry.agentResponse
+        : entry.agentPlan ? (entry.agentPlan.understanding || '') : '';
+      if (agentText) {
         const botIcon = agentIntent === 'summarize' ? '📋' : agentIntent === 'answer' ? '💬' : '🤖';
-        const agentText = entry.agentPlan.understanding || '';
         const agentPreview = previewText(agentText);
         const isLongAgent = agentText.length > 120;
         const agentCollapseId = `${taskId}-${entry._historyIndex}-agent`;

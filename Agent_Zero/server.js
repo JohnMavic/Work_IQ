@@ -961,6 +961,24 @@ app.post('/api/tasks/:id/log', async (req, res) => {
 
   const searchDurationMs = Date.now() - searchStartTime;
 
+  // Build a final agent response summary
+  let agentResponse = '';
+  if (searchError) {
+    agentResponse = `❌ Die Suche ist fehlgeschlagen: ${searchError}`;
+  } else if (communications.length > 0) {
+    const summaries = communications.map((c, i) => {
+      const icon = c.type === 'teams' ? '💬' : '📧';
+      const date = c.date ? new Date(c.date).toLocaleDateString('de-CH') : '';
+      return `${i + 1}. ${icon} **${c.from || 'Unknown'}** → ${c.to || ''} (${date})${c.summary ? ': ' + c.summary : ''}`;
+    }).join('\n');
+    agentResponse = `✅ ${communications.length} Kommunikation(en) gefunden:\n\n${summaries}`;
+  } else if (rawResponseText) {
+    // Work IQ returned text but no structured results — show the natural language answer
+    agentResponse = rawResponseText;
+  } else {
+    agentResponse = `🔍 Keine Ergebnisse gefunden. Die Suche hat keine passenden E-Mails oder Teams-Nachrichten ergeben. Möchtest du mit anderen Suchbegriffen oder einem grösseren Zeitfenster erneut suchen?`;
+  }
+
   // Write the history entry via queue
   try {
     const task = await safeWriteTasks((data) => {
@@ -974,6 +992,7 @@ app.post('/api/tasks/:id/log', async (req, res) => {
         type: 'update',
         text: text.trim(),
         communications,
+        agentResponse,
         agentPlan: plan ? {
           understanding: plan.understanding || '',
           keywords: plan.keywords || [],
