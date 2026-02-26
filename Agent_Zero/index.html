@@ -1576,16 +1576,40 @@
     if (linkMode === 'tab') {
       window.open(url, '_blank');
     } else if (linkMode === 'split') {
-      // In-app split view: show iframe on right half
+      // Try iframe split — auto-fallback to popup if site blocks framing (CSP)
       const panel = document.getElementById('splitPanel');
       const frame = document.getElementById('splitPanelFrame');
       const urlLabel = document.getElementById('splitPanelUrl');
       urlLabel.textContent = url;
+      frame._splitUrl = url;
+
+      // Listen for load: if iframe stays blank (CSP block), auto-fallback
+      const fallbackTimer = setTimeout(() => {
+        // If iframe is still about:blank or empty after 2s, site likely blocked framing
+        try {
+          const iframeDoc = frame.contentDocument || frame.contentWindow?.document;
+          if (!iframeDoc || !iframeDoc.body || iframeDoc.body.innerHTML === '' || iframeDoc.URL === 'about:blank') {
+            closeSplitPanel();
+            window.open(url, '_blank', `popup,width=${Math.floor(screen.availWidth/2)},height=${screen.availHeight},left=${Math.floor(screen.availWidth/2)},top=0`);
+            showNotification('Site blocks embedding — opened in separate window', 'info');
+          }
+        } catch(e) {
+          // Cross-origin: iframe loaded successfully (can't access doc = good sign)
+          clearTimeout(fallbackTimer);
+        }
+      }, 2000);
+
+      frame.onload = () => clearTimeout(fallbackTimer);
+      frame.onerror = () => {
+        clearTimeout(fallbackTimer);
+        closeSplitPanel();
+        window.open(url, '_blank', `popup,width=${Math.floor(screen.availWidth/2)},height=${screen.availHeight},left=${Math.floor(screen.availWidth/2)},top=0`);
+        showNotification('Site blocks embedding — opened in separate window', 'info');
+      };
+
       panel.style.display = 'flex';
       document.getElementById('splitMain').style.flex = '1';
-      // Try iframe — some sites (Outlook, Office365) block framing via CSP
       frame.src = url;
-      frame._splitUrl = url;
     } else if (linkMode === 'incognito') {
       window.open(url, '_blank', `width=${screen.availWidth},height=${screen.availHeight}`);
       showNotification('Incognito cannot be opened programmatically — link opened in new window', 'info');
