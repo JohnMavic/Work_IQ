@@ -1,6 +1,6 @@
-# Daily Briefing App — Technical Architecture
+# Agent Zero — Technical Architecture
 
-**Version:** 1.4
+**Version:** 2.0
 **Date:** February 26, 2026
 **Author:** Martin Hämmerli
 
@@ -9,1221 +9,789 @@
 ## 1. System Overview
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                         Browser (index.html)                             │
-│                                                                          │
-│  ┌────────────┐  ┌─────────────┐  ┌──────────┐  ┌────────────────────┐  │
-│  │ Scan Button │  │ Task Cards  │  │ Filters  │  │ Manual Task Form   │  │
-│  └──────┬─────┘  └──────┬──────┘  └─────┬────┘  └─────────┬──────────┘  │
-│         │               │               │                  │             │
-│         └───────────────┴───────────────┴──────────────────┘             │
-│                                    │                                     │
-│                          fetch() REST API                                │
-└────────────────────────────────────┼─────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          Browser (index.html)                               │
+│                          ~1585 lines, vanilla JS                            │
+│                                                                             │
+│  ┌────────────┐  ┌─────────────┐  ┌──────────┐  ┌───────────────────────┐  │
+│  │ Scan Button │  │ Task Cards  │  │ Filters  │  │ Interaction Panel     │  │
+│  │ + Slider    │  │ (sorted,    │  │ (6+All)  │  │ (Chat, Agent, Notes,  │  │
+│  │ + Link Mode │  │  filtered)  │  │          │  │  Plan, Details)       │  │
+│  └──────┬─────┘  └──────┬──────┘  └────┬─────┘  └──────────┬────────────┘  │
+│         │               │              │                    │               │
+│         └───────────────┴──────────────┴────────────────────┘               │
+│                                    │                                        │
+│                          fetch() REST API                                   │
+└────────────────────────────────────┼────────────────────────────────────────┘
                                      │
                               HTTP (localhost:3000)
                                      │
-┌────────────────────────────────────┼─────────────────────────────────────┐
-│                    Node.js Express Server (server.js)                     │
-│                                    │                                     │
-│         ┌──────────────────────────┼──────────────────────────┐          │
-│         │                          │                          │          │
-│    ┌────┴─────┐           ┌────────┴────────┐          ┌─────┴──────┐   │
-│    │ REST API │           │  Copilot SDK    │          │ tasks.json │   │
-│    │ Handlers │           │  (CopilotClient)│          │ (File I/O) │   │
-│    └──────────┘           └────────┬────────┘          └────────────┘   │
-│                                    │                                     │
-│                           MCP Protocol (stdio)                           │
-│                                    │                                     │
-│                           ┌────────┴────────┐                            │
-│                           │  Work IQ MCP    │                            │
-│                           │  (workiq mcp)   │                            │
-│                           └────────┬────────┘                            │
-└────────────────────────────────────┼─────────────────────────────────────┘
+┌────────────────────────────────────┼────────────────────────────────────────┐
+│                   Node.js Express Server (server.js)                        │
+│                   ~1089 lines, ES Modules                                   │
+│                                    │                                        │
+│        ┌───────────────────────────┼───────────────────────────┐            │
+│        │                           │                           │            │
+│   ┌────┴──────┐          ┌─────────┴─────────┐          ┌─────┴──────┐     │
+│   │ REST API  │          │  AI Integration    │          │ tasks.json │     │
+│   │ Endpoints │          │                    │          │ (File I/O) │     │
+│   │ (8 routes)│          │  ┌──────────────┐  │          │            │     │
+│   └───────────┘          │  │ Copilot SDK  │  │          └────────────┘     │
+│                          │  │ (reasoning)  │  │                             │
+│                          │  └──────┬───────┘  │                             │
+│                          │         │          │                             │
+│                          │  ┌──────┴───────┐  │                             │
+│                          │  │ Work IQ MCP  │  │                             │
+│                          │  │ (stdio, scan)│  │                             │
+│                          │  └──────────────┘  │                             │
+│                          │                    │                             │
+│                          │  ┌──────────────┐  │                             │
+│                          │  │ workiq ask   │  │                             │
+│                          │  │ (CLI, search)│  │                             │
+│                          │  └──────┬───────┘  │                             │
+│                          └─────────┼──────────┘                             │
+└────────────────────────────────────┼────────────────────────────────────────┘
                                      │
                             HTTPS (graph.microsoft.com)
                                      │
-                           ┌─────────┴─────────┐
-                           │  Microsoft Graph  │
-                           │       API         │
-                           └─────────┬─────────┘
+                           ┌─────────┴──────────┐
+                           │  Microsoft Graph   │
+                           │       API          │
+                           └─────────┬──────────┘
                                      │
-                           ┌─────────┴─────────┐
-                           │   M365 Data       │
-                           │  (Emails, Teams)  │
-                           └───────────────────┘
+                           ┌─────────┴──────────┐
+                           │    M365 Data       │
+                           │ (Emails, Teams)    │
+                           └────────────────────┘
 ```
 
 ### Component Roles
 
 | Component | Role |
 |---|---|
-| **Browser (index.html)** | Single-page frontend. Renders task list, handles user interactions, communicates with backend via REST API. All HTML, CSS, and JS in one file. |
-| **Express Server (server.js)** | Backend API server. Handles CRUD operations for tasks, orchestrates AI-powered email scanning, reads/writes tasks.json. |
-| **Copilot SDK (CopilotClient)** | AI reasoning engine. Sends prompts to the GitHub Copilot model, manages tool invocations, returns structured responses. |
-| **Work IQ MCP Server** | MCP-compatible tool server. Bridges between the Copilot SDK and Microsoft Graph API. Handles M365 authentication and data retrieval. |
+| **Browser (index.html)** | Single-page frontend. Renders task cards, filters, interaction panels, agent chat. All HTML, CSS, and JS in one file. Dark theme, no framework. |
+| **Express Server (server.js)** | Backend API server. 8 REST endpoints for CRUD, scanning, intent analysis, and search execution. Manages write queue for concurrency. |
+| **Copilot SDK (CopilotClient)** | AI reasoning engine. Used for scan (with MCP) and analyze (without MCP). Creates sessions, sends prompts, parses structured JSON responses. |
+| **Work IQ MCP** | MCP-compatible tool server (stdio). Used by Copilot SDK during scan operations. Bridges to Microsoft Graph API for M365 data retrieval. |
+| **workiq ask (CLI)** | Direct CLI interface to Work IQ. Used for search execution (primary). Spawned as child process, question sent via stdin. More reliable than wrapping in Copilot SDK. |
 | **Microsoft Graph API** | Microsoft's REST API for M365 data. Provides access to emails (Outlook) and chat messages (Teams). |
-| **tasks.json** | Local JSON file for persistent storage. Stores all tasks, scan metadata, and version info. |
+| **tasks.json** | Local JSON file for persistent storage. Schema v2 with tasks array, history entries, agent plans, and execution traces. |
+
+### Two AI Integration Methods
+
+| Method | Used By | How |
+|---|---|---|
+| **Copilot SDK + MCP** | Scan, Analyze (intent detection) | `CopilotClient` → `createSession()` with/without MCP servers |
+| **workiq ask (CLI)** | Search execution (primary) | Direct `spawn('workiq', ['ask'])` via stdin — proven more reliable than wrapping in Copilot SDK |
+| **Copilot SDK + MCP** | Search execution (fallback) | Used when no plan is available (legacy v1.3 behavior) |
 
 ### Startup Flow (START-DAILY-BRIEFING.bat)
 
 ```
-User doppelklickt BAT
+User double-clicks BAT
         │
         ▼
-BAT prüft Port 3000 ──► bereits belegt? ──► Browser öffnen
-        │ nein
+BAT checks port 3000 ──► already in use? ──► open browser, exit
+        │ no
         ▼
-node server.js (separates minimiertes Fenster)
+node server.js (separate minimized window via start /MIN)
         │
         ▼
-Warte auf Server-Ready (max 15s)
+Poll for server ready (max 15 attempts, 1s each)
         │
         ▼
-Browser öffnet http://localhost:3000
-        │
-        ▼
-index.html: checkServerHealth()
-        │
-        ├── ✅ Online → fetchTasks() → App bereit
-        └── ❌ Offline → Banner + Auto-Retry (5s)
+Server ready → open http://localhost:3000 in default browser
 ```
 
 ---
 
-## 2. Authentication & Security Chain
+## 2. Component Details
 
-```
-┌──────────┐     ┌──────────────┐     ┌─────────────────┐     ┌──────────────┐
-│   User   │────>│   Work IQ    │────>│  Microsoft      │────>│  Graph API   │
-│          │     │   CLI/MCP    │     │  Entra ID       │     │              │
-└──────────┘     └──────┬───────┘     │  (Azure AD)     │     └──────────────┘
-                        │             └────────┬────────┘
-                        │                      │
-                        │              OAuth 2.0 Flow
-                        │                      │
-                        ▼                      ▼
-                ┌───────────────┐     ┌─────────────────┐
-                │   Windows     │     │  Access Token   │
-                │   Credential  │     │  (~60-90 min)   │
-                │   Manager     │     │                 │
-                │               │     │  Refresh Token  │
-                │  Stores:      │     │  (~90 days)     │
-                │  - Refresh    │     └─────────────────┘
-                │    Token      │
-                │  - Account    │
-                │    metadata   │
-                └───────────────┘
-```
+### 2.1 Frontend (index.html)
 
-### Authentication Flow
+- **Lines:** ~1585 (HTML + CSS + JS in single file)
+- **Framework:** None — vanilla JavaScript, no build step
+- **Theme:** Dark (`background: #0b0d17`, `color: #e0e0e0`)
+- **Font:** System font stack (`-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto`)
 
-1. **First-time setup:** User runs `workiq accept-eula` which triggers Microsoft Entra ID (Azure AD) device code or interactive login
-2. **Token acquisition:** MSAL (Microsoft Authentication Library) obtains an OAuth 2.0 access token + refresh token
-3. **Token storage:** Refresh token is stored in **Windows Credential Manager** (secure OS-level storage, not in files)
-4. **Runtime flow:** When Work IQ needs to call Graph API, MSAL silently acquires a new access token using the stored refresh token
-5. **Token renewal:** Access tokens expire after ~60-90 minutes and are renewed automatically. Refresh tokens last ~90 days
+**Key UI elements:**
+- Header with title, server status dot (tooltip), last scan time, scan button + slider, link mode selector
+- Scan status banner (non-blocking, below header, with progress steps and timer)
+- Filter bar (7 buttons: All + 6 statuses, with dynamic badge counts)
+- Task card list (sorted, filtered, with interaction panels)
+- Add task form (title + optional notes)
+- Notification toast (fixed position, auto-dismiss 5s)
 
-### Token Lifecycle
+### 2.2 Backend (server.js)
 
-```
-Time ─────────────────────────────────────────────────────>
+- **Lines:** ~1089
+- **Module system:** ES Modules (`"type": "module"` in package.json)
+- **Port:** 3000 (hardcoded)
+- **Skill files loaded at startup:** `Documents/SCAN_SKILL.md`, `Documents/LOG_WORK_SKILL.md`
 
-Access Token:  [====60-90 min====][====renewed====][====renewed====]
-Refresh Token: [========================~90 days========================]
-                                                                    ↑
-                                                          User must re-auth
-```
+**Key backend components:**
+- `readTasks()` / `writeTasks()` — synchronous file I/O for tasks.json
+- `safeWriteTasks(mutationFn)` — promise-chain write queue for concurrency
+- `runWorkIQAsk(question, timeoutMs)` — spawns `workiq ask` process, sends question via stdin
+- `buildSearchQuestion(plan, taskContext, userText)` — constructs natural language question from search plan
+- `parseJsonFromResponse(text)` — extracts JSON from AI responses (direct, code block, or array match)
+- `parseMarkdownEmails(text)` — parses Work IQ Markdown responses into structured communication objects
+- `migrateTasks()` — v1 → v2 schema migration (adds history, doneAt)
+- `migrateStatuses()` — `active` → `new` status migration
+- Dedup helpers: `normalizeForCompare()`, `isSimilarTitle()` (Jaccard)
+- Keyword extraction: `extractKeywords()` (for deterministic fallback)
 
-### Permission Boundaries
+### 2.3 Data Store (tasks.json)
 
-- Work IQ uses **delegated permissions** — it can only access data the authenticated user has access to
-- The app cannot read other users' emails or Teams messages
-- Scopes typically include: `Mail.Read`, `Chat.Read`, `ChannelMessage.Read.All` (delegated)
-- Admin consent may be required for some scopes (depends on organization policy)
+- **Location:** Project root (same directory as server.js)
+- **Schema version:** 2
+- **Git:** Listed in `.gitignore` (contains personal M365 data)
+- **Concurrency:** Protected by `safeWriteTasks()` write queue
+- **File format:** Pretty-printed JSON (2-space indent, trailing newline)
 
-### Copilot SDK Authentication
+### 2.4 AI Engine: Copilot SDK
 
-- The Copilot SDK authenticates via GitHub credentials stored by the GitHub CLI (`gh`)
-- Uses `useLoggedInUser: true` (default) to pick up stored OAuth tokens
-- No GitHub token is stored in the app code
+- **Package:** `@github/copilot-sdk` (^0.1.25)
+- **Usage pattern:** Create client → create session (with/without MCP) → sendAndWait → destroy session → dispose client
+- **Session types:**
+  - With MCP servers (scan): `{ mcpServers: { workiq: { type: 'stdio', command: 'workiq', args: ['mcp'], tools: '*' } } }`
+  - Without MCP (analyze): `{}` — pure AI reasoning, no tool access
+- **Timeouts:** 120s for scan, 30s for analyze
 
----
+### 2.5 Search Engine: workiq ask CLI
 
-## 3. MCP (Model Context Protocol) Architecture
-
-### What is MCP?
-
-MCP (Model Context Protocol) is an open standard for connecting AI models to external tools and data sources. It defines a protocol for:
-- **Tool discovery:** The AI model queries available tools from MCP servers
-- **Tool invocation:** The AI decides when and how to call tools during reasoning
-- **Result handling:** Tool results are fed back into the AI's context for further processing
-
-### Why MCP?
-
-Instead of writing custom API integration code to query Microsoft Graph, MCP allows:
-1. The **AI model** to decide which queries to run based on the user's prompt
-2. **Work IQ** to handle the complexity of Graph API calls, pagination, and data formatting
-3. **Decoupled architecture** — the server.js doesn't need to know Graph API details
-
-### Communication Architecture
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                    Node.js Process (server.js)                    │
-│                                                                   │
-│  ┌───────────────────────────────────────────────────────────┐   │
-│  │                    CopilotClient                           │   │
-│  │                                                            │   │
-│  │  1. Creates session with MCP server config                 │   │
-│  │  2. Sends prompt to Copilot AI model                       │   │
-│  │  3. AI model discovers tools from MCP server               │   │
-│  │  4. AI model calls tools as needed                         │   │
-│  │  5. Collects results and generates final response          │   │
-│  │                                                            │   │
-│  │  ┌──────────────────────────────────────────────────────┐  │   │
-│  │  │              MCP Session Manager                      │  │   │
-│  │  │                                                       │  │   │
-│  │  │  Spawns child process: workiq mcp                     │  │   │
-│  │  │  Communicates via stdin/stdout (JSON-RPC over stdio)  │  │   │
-│  │  └────────────────────┬──────────────────────────────────┘  │   │
-│  └───────────────────────┼─────────────────────────────────────┘   │
-│                          │                                         │
-│              stdin/stdout (JSON-RPC 2.0)                           │
-│                          │                                         │
-│  ┌───────────────────────┼─────────────────────────────────────┐   │
-│  │            Work IQ MCP Server (child process)                │   │
-│  │                       │                                      │   │
-│  │  Exposes tools:       │                                      │   │
-│  │  - Search emails      │                                      │   │
-│  │  - Read email content │                                      │   │
-│  │  - List Teams chats   │                                      │   │
-│  │  - Read chat messages │                                      │   │
-│  │                       │                                      │   │
-│  │  Each tool call ──────┼──> HTTPS to Graph API                │   │
-│  └───────────────────────┼──────────────────────────────────────┘   │
-└──────────────────────────┼──────────────────────────────────────────┘
-                           │
-                    graph.microsoft.com
-```
-
-### stdio Transport
-
-- Work IQ MCP server runs as a **child process** spawned by the Copilot SDK
-- Communication happens over **stdin/stdout** using JSON-RPC 2.0 messages
-- This is the simplest MCP transport — no TCP ports, no HTTP, no discovery needed
-- The SDK manages the process lifecycle (start, communicate, terminate)
-
-### Tool Registration
-
-The MCP server is registered in the session configuration:
-
-```javascript
-const session = await client.createSession({
-  mcpServers: {
-    workiq: {
-      type: 'stdio',          // Transport mode
-      command: 'workiq',       // Executable
-      args: ['mcp'],           // Arguments
-      tools: '*'               // Expose all available tools
-    }
-  }
-});
-```
-
-The SDK then:
-1. Spawns `workiq mcp` as a child process
-2. Sends `initialize` and `tools/list` requests via stdin
-3. Receives the tool catalog via stdout
-4. Makes these tools available to the AI model during the session
+- **Binary:** `workiq` (globally installed via npm)
+- **Invocation:** `spawn('workiq', ['ask'], { stdio: ['pipe', 'pipe', 'pipe'], shell: true })`
+- **Input:** Question sent via stdin after 500ms init delay, then stdin.end()
+- **Timeout:** 90s default
+- **Why stdin:** `workiq ask -q` writes to console/TTY directly, bypassing stdout capture. Interactive mode via stdin works correctly.
 
 ---
 
-## 4. Data Flow — Scan Process
+## 3. Data Flow Diagrams
 
-When the user clicks "Scan Emails & Teams":
+### 3.1 Scan Flow
 
 ```
-Browser                    Express Server               Copilot SDK          Work IQ MCP         Graph API
-   │                            │                            │                    │                   │
-   │  1. POST /api/scan         │                            │                    │                   │
-   │ ──────────────────────>    │                            │                    │                   │
-   │                            │  2. new CopilotClient()    │                    │                   │
-   │                            │ ──────────────────────>    │                    │                   │
-   │                            │  3. createSession({        │                    │                   │
-   │                            │       mcpServers: workiq   │                    │                   │
-   │                            │     })                     │                    │                   │
-   │                            │ ──────────────────────>    │  spawn process     │                   │
-   │                            │                            │ ──────────────>    │                   │
-   │                            │                            │  tools/list        │                   │
-   │                            │                            │ <──────────────    │                   │
-   │                            │                            │                    │                   │
-   │                            │  4. sendAndWait(prompt)     │                    │                   │
-   │                            │ ──────────────────────>    │                    │                   │
-   │                            │                            │                    │                   │
-   │                            │                     AI reasons about prompt      │                   │
-   │                            │                     and decides to call tools    │                   │
-   │                            │                            │                    │                   │
-   │                            │                            │  5. tool call:     │                   │
-   │                            │                            │  search_emails     │                   │
-   │                            │                            │ ──────────────>    │  6. GET /me/      │
-   │                            │                            │                    │  messages?$filter  │
-   │                            │                            │                    │ ──────────────>   │
-   │                            │                            │                    │  7. JSON response  │
-   │                            │                            │                    │ <──────────────   │
-   │                            │                            │  tool result       │                   │
-   │                            │                            │ <──────────────    │                   │
-   │                            │                            │                    │                   │
-   │                            │                     AI may call more tools       │                   │
-   │                            │                     (Teams chats, etc.)          │                   │
-   │                            │                            │                    │                   │
-   │                            │                     AI produces JSON array       │                   │
-   │                            │                     of action items              │                   │
-   │                            │                            │                    │                   │
-   │                            │  8. AssistantMessageEvent   │                    │                   │
-   │                            │     { data.content: "[...]" │                    │                   │
-   │                            │ <──────────────────────    │                    │                   │
-   │                            │                            │                    │                   │
-   │                            │  9. Parse JSON response     │                    │                   │
-   │                            │     Process "update" items   │                    │                   │
-   │                            │     (merge into existing)    │                    │                   │
-   │                            │     Process "new" items      │                    │                   │
-   │                            │     (Safety-Net dedup check) │                    │                   │
-   │                            │     Save to tasks.json       │                    │                   │
-   │                            │     Update lastScan         │                    │                   │
-   │                            │                            │                    │                   │
-   │                            │  10. client.dispose()       │                    │                   │
-   │                            │ ──────────────────────>    │  kill process      │                   │
-   │                            │                            │ ──────────────>    │                   │
-   │                            │                            │                    │                   │
-   │  11. { success, added,     │                            │                    │                   │
-   │       skipped, total }     │                            │                    │                   │
-   │ <──────────────────────    │                            │                    │                   │
-   │                            │                            │                    │                   │
-   │  12. fetchTasks() +        │                            │                    │                   │
-   │      show notification     │                            │                    │                   │
-   │                            │                            │                    │                   │
+User clicks "Scan Emails & Teams"
+        │
+        ▼ POST /api/scan { scanDays }
+┌───────────────────────────────────────────────────────────┐
+│ Server: Build Context-Aware Prompt                         │
+│                                                            │
+│  1. Read existing tasks from tasks.json                    │
+│  2. Collect active tasks (new, needs-attention,            │
+│     escalated, in-progress) — max 50                       │
+│  3. Collect recent done tasks — max 30                      │
+│  4. Load SCAN_SKILL.md (or use inline fallback prompt)     │
+│  5. Inject existing tasks as JSON context                   │
+│                                                            │
+│ Prompt branches:                                           │
+│  ┌─ Skill + tasks → skill + context + instructions         │
+│  ├─ Skill only   → skill + "no existing tasks"             │
+│  ├─ Tasks only   → inline prompt with dedup rules          │
+│  └─ Neither      → minimal inline prompt                   │
+└───────────────────────┬───────────────────────────────────┘
+                        │
+                        ▼
+┌───────────────────────────────────────────────────────────┐
+│ Copilot SDK + Work IQ MCP                                  │
+│                                                            │
+│  CopilotClient → createSession({ mcpServers: workiq })     │
+│  session.sendAndWait(prompt, 120000)                        │
+│  session.destroy() → client.dispose()                       │
+└───────────────────────┬───────────────────────────────────┘
+                        │
+                        ▼ JSON array of items
+┌───────────────────────────────────────────────────────────┐
+│ Parse & Dedup (3 layers)                                   │
+│                                                            │
+│  Layer 1: AI context     — done tasks in prompt, AI        │
+│           should not re-create them                         │
+│  Layer 2: action:"skip"  — AI explicitly skips matches     │
+│  Layer 3: Jaccard safety — isSimilarTitle() > 0.7          │
+│           against ALL existing tasks                        │
+│                                                            │
+│ For each item:                                              │
+│  ├─ action:"skip"   → skipped++                             │
+│  ├─ action:"update" → apply changes to existing task        │
+│  ├─ action:"new"    → Jaccard check → create or skip        │
+│  └─ no action       → legacy dedup (link, title+from+src)   │
+└───────────────────────┬───────────────────────────────────┘
+                        │
+                        ▼
+              safeWriteTasks() → tasks.json
+              Response: { added, skipped, updated, total }
 ```
 
-### Step-by-Step Detail
+### 3.2 Agent Flow (Intent-Based)
 
-| Step | Component | Action |
-|---|---|---|
-| 1 | Browser | User clicks "Scan Emails & Teams". Button is disabled, loading overlay shown. `POST /api/scan` sent via fetch(). |
-| 2 | Server | Creates a new `CopilotClient` instance (connects to Copilot AI engine). |
-| 3 | Server | Creates a session with Work IQ registered as an MCP tool server (spawns `workiq mcp` child process). |
-| 4 | Server | Builds context-aware prompt: reads existing active tasks (max 50, id+title+source+from) and includes them in the scan prompt. Sends via `session.sendAndWait()` with 120-second timeout. |
-| 5 | Copilot SDK | AI model reasons about the prompt, calls Work IQ tools (search emails, list Teams chats), and **matches findings against provided existing tasks**. |
-| 6-7 | Work IQ | Queries Microsoft Graph API using the user's OAuth token. Returns email/chat data to the AI. |
-| 8 | Copilot SDK | AI processes all retrieved data and returns a JSON array. Each item has `action: "new"` (new task) or `action: "update"` (matches existing task, with `existingId`, `changes`, `reason`). |
-| 9 | Server | Parses JSON from AI response. Processes `"update"` items (merge changes into existing tasks, add history). Processes `"new"` items with Safety-Net dedup (Jaccard word-similarity >0.7). Falls back to old dedup logic for items without `action` field. Saves via write queue. |
-| 10 | Server | Disposes the CopilotClient (terminates Work IQ child process). |
-| 11 | Server | Returns `{ success, added, updated, skipped, total, lastScan }` to the browser. |
-| 12 | Browser | Fetches updated task list, renders it, shows notification toast with scan results. |
+```
+User types message in Interaction Panel
+        │
+        ▼ POST /api/tasks/:id/log/analyze { text }
+┌───────────────────────────────────────────────────────────┐
+│ Phase 1: Intent Analysis (Copilot SDK, no MCP — fast)      │
+│                                                            │
+│  Build prompt with:                                         │
+│  - Task context (title, from, source, date)                 │
+│  - Recent conversation history (last 8 update/note entries) │
+│  - User's message                                           │
+│                                                            │
+│  AI determines intent:                                      │
+│  ┌─────────────┬───────────────────────────────────────┐    │
+│  │ "summarize" │ User pasted content to summarize.     │    │
+│  │             │ AI returns result immediately.         │    │
+│  │             │ Saved to history → response to client. │    │
+│  ├─────────────┼───────────────────────────────────────┤    │
+│  │ "answer"    │ User asked a question answerable from │    │
+│  │             │ task context or general knowledge.     │    │
+│  │             │ AI returns result immediately.         │    │
+│  │             │ Saved to history → response to client. │    │
+│  ├─────────────┼───────────────────────────────────────┤    │
+│  │ "search"    │ User wants to find emails/Teams msgs. │    │
+│  │             │ AI returns a search plan with:         │    │
+│  │             │ understanding, searchFrom, keywords,   │    │
+│  │             │ timeWindow, searchTargets.             │    │
+│  │             │ Plan sent to client for confirmation.  │    │
+│  └─────────────┴───────────────────────────────────────┘    │
+│                                                            │
+│  Fallback: extractKeywords() + default time window          │
+└───────────────────────┬───────────────────────────────────┘
+                        │
+         ┌──────────────┼──────────────┐
+         │              │              │
+    summarize       answer         search
+    (immediate)   (immediate)    (plan shown)
+         │              │              │
+         ▼              ▼              ▼
+    Re-render       Re-render     User clicks
+    conversations   conversations "▶ Execute"
+                                       │
+                                       ▼ POST /api/tasks/:id/log { text, plan }
+┌──────────────────────────────────────────────────────────────┐
+│ Phase 2: Search Execution                                     │
+│                                                               │
+│  Primary: workiq ask (CLI)                                     │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ buildSearchQuestion(plan, taskContext, userText)          │   │
+│  │  → "Find all emails from X in my inbox from last N days" │   │
+│  │                                                           │   │
+│  │ runWorkIQAsk(question, 90000)                             │   │
+│  │  → spawn workiq ask, send question via stdin              │   │
+│  │  → parse response: JSON first, Markdown fallback          │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                               │
+│  Fallback: Copilot SDK + MCP (when no plan available)          │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ CopilotClient → createSession({ mcpServers: workiq })    │   │
+│  │ LOG_WORK_SKILL.md prompt or inline prompt                 │   │
+│  │ session.sendAndWait(prompt, 120000)                       │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                               │
+│  Build agentResponse summary from results                      │
+│  Save history entry with communications, agentPlan,            │
+│  agentResponse, agentExecution trace                           │
+└───────────────────────────────┬──────────────────────────────┘
+                                │
+                                ▼
+                      safeWriteTasks() → tasks.json
+                      Response: updated task object
+```
+
+### 3.3 Note Flow
+
+```
+User types text → clicks "📝 Note"
+        │
+        ▼ POST /api/tasks/:id/note { text }
+        │
+  safeWriteTasks():
+    push { timestamp, type: "note", text } to task.history
+        │
+        ▼
+  Response: updated task object
+  Frontend: re-render, show "📝 Note saved" notification
+```
 
 ---
 
-## 5. Data Flow — Manual Task CRUD
+## 4. Data Schema v2
 
-```
-Browser                         Express Server                  tasks.json
-   │                                 │                              │
-   │  POST /api/tasks               │                              │
-   │  { title, notes }              │                              │
-   │ ───────────────────────>       │                              │
-   │                                 │  readTasks()                 │
-   │                                 │ ───────────────────────>    │
-   │                                 │ <───────────────────────    │
-   │                                 │                              │
-   │                                 │  Generate UUID               │
-   │                                 │  Create task object          │
-   │                                 │  Append to tasks array       │
-   │                                 │                              │
-   │                                 │  writeTasks()                │
-   │                                 │ ───────────────────────>    │
-   │                                 │                              │
-   │  201 { task object }           │                              │
-   │ <───────────────────────       │                              │
-   │                                 │                              │
-   │  GET /api/tasks (re-fetch)     │                              │
-   │ ───────────────────────>       │  readTasks()                 │
-   │                                 │ ───────────────────────>    │
-   │  { version, lastScan, tasks }  │                              │
-   │ <───────────────────────       │                              │
-   │                                 │                              │
-   │  Re-render task list           │                              │
-   │  Update filter badge counts    │                              │
-```
+### Root Object
 
-### Mutation Pattern
-
-All task mutations follow the same pattern:
-1. Browser sends REST request (POST, PATCH, or DELETE)
-2. Server reads `tasks.json` → applies change → writes `tasks.json`
-3. Server returns the result
-4. Browser calls `fetchTasks()` to re-fetch the full task list
-5. `renderTasks()` re-renders the entire UI (sort, filter, badge counts)
-
-This "re-fetch after mutate" pattern is simple and guarantees the UI always reflects the true state of tasks.json.
-
----
-
-## 6. API Reference
-
-### GET /api/tasks
-
-Returns all tasks and metadata.
-
-**Response (200):**
 ```json
 {
   "version": 2,
-  "lastScan": "2026-02-23T07:00:00.000Z",
-  "tasks": [ ... ]
+  "tasks": [ Task, ... ],
+  "lastScan": "2026-02-26T10:00:00.000Z"
 }
 ```
 
-**Errors:** `500` — Failed to read tasks.json
+### Task Object
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string (UUID v4) | Unique identifier |
+| `title` | string | Task title (from AI scan or manual input) |
+| `source` | `"email"` \| `"teams"` \| `"manual"` | Where the task originated |
+| `from` | string \| null | Sender name (null for manual tasks) |
+| `date` | string \| null | Original message date (ISO 8601) |
+| `link` | string \| null | URL to original email or Teams message |
+| `status` | string | One of 6 valid statuses (see §6) |
+| `notes` | string | Free-text notes (legacy field, still writable via PATCH) |
+| `history` | HistoryEntry[] | Chronological log of all events and agent interactions |
+| `doneAt` | string \| null | ISO timestamp when status was set to "done" |
+| `createdAt` | string | ISO timestamp of task creation |
+| `updatedAt` | string | ISO timestamp of last modification |
+
+### HistoryEntry Object
+
+| Field | Type | Present In | Description |
+|---|---|---|---|
+| `timestamp` | string | all | ISO 8601 timestamp |
+| `type` | string | all | Entry type (see variants below) |
+| `text` | string | all | Display text or user input |
+| `communications` | Communication[] | `update` | Found email/Teams messages (may be empty) |
+| `agentPlan` | AgentPlan | `update` | AI analysis result (intent, understanding, search params) |
+| `agentResponse` | string | `update` | Final summary shown to user after search execution |
+| `agentExecution` | AgentExecution | `update` | Execution trace (prompt, raw response, timing, method) |
+
+**HistoryEntry type variants:**
+
+| Type | Meaning | Deletable |
+|---|---|---|
+| `created` | Task was created (by scan or manually) | No |
+| `status-change` | Status was changed by user | No |
+| `scan-update` | Task was updated by a re-scan | No |
+| `update` | Agent interaction (analyze + search) | Yes (🗑️) |
+| `note` | User-saved note (no agent interaction) | Yes (🗑️) |
+
+### AgentPlan Sub-Object
+
+| Field | Type | Description |
+|---|---|---|
+| `intent` | `"search"` \| `"summarize"` \| `"answer"` | Detected intent |
+| `understanding` | string | Action plan or result text |
+| `searchFrom` | string \| null | Person name or email domain to search for |
+| `keywords` | string[] | Search terms (used when searchFrom is null) |
+| `timeWindow` | `{ from, to, reasoning }` | Date range for search |
+| `searchTargets` | string | `"inbox"`, `"sent"`, `"teams"`, `"all"` |
+| `needsClarification` | boolean | Whether agent needs more info |
+| `clarificationQuestion` | string \| null | Question to ask user |
+| `userConfirmed` | boolean | Whether user confirmed the plan before execution |
+| `fallback` | boolean | Whether deterministic fallback was used |
+
+### AgentExecution Sub-Object
+
+| Field | Type | Description |
+|---|---|---|
+| `promptSent` | string \| null | The question sent to Work IQ |
+| `rawResponse` | string \| null | Raw response from Work IQ (truncated to 8000/2000 chars) |
+| `parsedCount` | number | Number of communications parsed from response |
+| `error` | string \| null | Error message if search failed |
+| `durationMs` | number | Total search duration in milliseconds |
+| `method` | `"workiq-ask"` \| `"copilot-sdk-mcp"` \| `"none"` | Which search method was used |
+
+### Communication Sub-Object
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | `"email"` \| `"teams"` | Communication type |
+| `from` | string | Sender name |
+| `to` | string | Recipient(s) |
+| `date` | string | Message date (ISO or natural language) |
+| `summary` | string | Subject line or 1-2 sentence summary |
+| `link` | string \| null | URL to original message |
 
 ---
 
-### POST /api/tasks
+## 5. Concurrency Model
 
-Creates a new manual task.
+### safeWriteTasks() — Sequential Write Queue
 
-**Request Body:**
-```json
-{
-  "title": "Task title (required)",
-  "notes": "Optional notes"
+All mutations to `tasks.json` go through `safeWriteTasks()`, which chains promises to ensure sequential writes even when multiple API requests arrive simultaneously.
+
+```
+Request A ──┐
+            │
+Request B ──┤  writePromise chain:
+            │
+Request C ──┘
+            │
+            ▼
+    ┌───────────────┐     ┌───────────────┐     ┌───────────────┐
+    │  Mutation A    │────▶│  Mutation B    │────▶│  Mutation C    │
+    │  read → write  │     │  read → write  │     │  read → write  │
+    └───────────────┘     └───────────────┘     └───────────────┘
+```
+
+```javascript
+let writePromise = Promise.resolve();
+
+function safeWriteTasks(mutationFn) {
+  writePromise = writePromise.then(() => {
+    const data = readTasks();    // read current state
+    const result = mutationFn(data);  // mutate in memory
+    writeTasks(data);            // write back to disk
+    return result;
+  });
+  return writePromise;
 }
 ```
 
-**Response (201):**
-```json
-{
-  "id": "uuid-v4",
-  "title": "Task title",
-  "source": "manual",
-  "from": null,
-  "date": null,
-  "link": null,
-  "status": "active",
-  "notes": "Optional notes",
-  "history": [{ "timestamp": "...", "type": "created", "text": "Task created manually" }],
-  "doneAt": null,
-  "createdAt": "2026-02-23T08:00:00.000Z",
-  "updatedAt": "2026-02-23T08:00:00.000Z"
-}
-```
+### busyTaskIds — Frontend Concurrency Guard
 
-**Errors:** `400` — Title is required | `500` — Write failure
+A `Set` of task IDs with active agent work. When any task is busy:
+- `updateTask()` does inline DOM updates instead of full re-render (prevents disrupting active panels)
+- `deleteTask()` removes the card from DOM without re-render (unless it's the busy task)
+- Status select, task count, and done styling are updated directly on the DOM element
+
+### Inline DOM Updates During Agent Work
+
+```
+busyTaskIds.size > 0?
+    │
+    ├── YES → Inline update:
+    │         - Update status <select> value + className
+    │         - Update task count text
+    │         - Toggle .done class on card
+    │         - Show notification
+    │
+    └── NO  → Full re-render:
+              fetchTasks() → renderTasks()
+              Re-open panels from openPanelTaskIds
+              Re-apply busy state from busyTaskIds
+              Restore pending plan displays
+```
 
 ---
 
-### PATCH /api/tasks/:id
+## 6. Status System
 
-Updates task fields (status, notes, title).
+### 6 Statuses with Priority, Colors, and Icons
 
-**Request Body (partial):**
-```json
-{
-  "status": "done",
-  "notes": "Updated notes"
+| Priority | Status | Icon | CSS Color | Hex |
+|---|---|---|---|---|
+| 0 | `needs-attention` | 🔴 | `status-needs-attention` | `#ef4444` |
+| 1 | `new` | 🆕 | `status-new` | `#60a5fa` |
+| 2 | `escalated` | 🚨 | `status-escalated` | `#f97316` |
+| 3 | `in-progress` | 🟡 | `status-in-progress` | `#fbbf24` |
+| 4 | `paused` | ⏸️ | `status-paused` | `#9ca3af` |
+| 5 | `done` | ✅ | `status-done` | `#34d399` |
+
+### Sort Algorithm
+
+Tasks are sorted by:
+1. **Status priority** (ascending) — `needs-attention` first, `done` last
+2. **createdAt** (descending) — newest first within same status
+
+Done tasks older than 3 days (based on `doneAt`) are auto-hidden from the visible list but remain in `tasks.json`.
+
+### Status Migration
+
+On server startup, `migrateStatuses()` converts any `active` status (from older versions) to `new`:
+
+```javascript
+if (task.status === 'active') {
+  task.status = 'new';
 }
 ```
-
-**Response (200):** Updated task object
-
-**Errors:**
-- `400` — Invalid status (must be: active, in-progress, done, paused)
-- `404` — Task not found
-- `500` — Write failure
-
----
-
-### DELETE /api/tasks/:id
-
-Deletes a task permanently.
-
-**Response (200):**
-```json
-{ "success": true }
-```
-
-**Errors:** `404` — Task not found | `500` — Write failure
-
----
-
-### DELETE /api/tasks/:id/history/:index
-
-Deletes a single history entry by its array index. Removes the complete entry including all nested data (`agentPlan`, `agentExecution`, `communications`). Other entries remain untouched.
-
-**Safety rules:**
-- Only entries with `type === "update"` can be deleted
-- System entries (`created`, `status-change`, `scan-update`) are protected and cannot be deleted
-
-**Response (200):** Updated task object (with entry removed from history array)
-
-**Errors:**
-- `400` — Invalid index (not a number, negative, or out of bounds)
-- `403` — System entries cannot be deleted (type is not "update")
-- `404` — Task not found
-- `500` — Write failure
-
----
-
-### POST /api/scan
-
-Triggers an AI-powered scan of M365 emails and Teams messages.
-
-**Request Body:** None
-
-**Response (200):**
-```json
-{
-  "success": true,
-  "added": 3,
-  "updated": 1,
-  "skipped": 2,
-  "total": 10,
-  "lastScan": "2026-02-23T09:00:00.000Z"
-}
-```
-
-**Errors:**
-- `500` — Scan failed (auth error, connection error, timeout)
-- `502` — No response from AI engine / AI returned unexpected format
-
----
-
-### POST /api/tasks/:id/log/analyze
-
-Phase 1 of the two-phase log agent: AI analyzes the user's log request and returns a structured search plan. Uses Copilot SDK WITHOUT Work IQ (fast, ~5-15s).
-
-**Request Body:**
-```json
-{
-  "text": "Ich habe Eors nach einer Antwort gefragt"
-}
-```
-
-**Response (200):**
-```json
-{
-  "plan": {
-    "understanding": "...",
-    "keywords": ["SAP Invoice", "5735236948"],
-    "timeWindow": { "from": "2026-02-20", "to": "now", "reasoning": "..." },
-    "searchTargets": "inbox",
-    "needsClarification": false,
-    "clarificationQuestion": null
-  }
-}
-```
-
-If AI analysis fails, returns a deterministic fallback with `"fallback": true`.
-
-**Errors:** `400` — Log text required | `404` — Task not found | `500` — Read failure
-
----
-
-### POST /api/tasks/:id/log
-
-Phase 2: Execute communication search with confirmed plan and save history entry. When `plan` is provided, uses `workiq ask` via interactive stdin mode (~30-60s). If `plan` is omitted, falls back to Copilot SDK + MCP (v1.3 behavior).
-
-**Request Body:**
-```json
-{
-  "text": "Ich habe Eors nach einer Antwort gefragt",
-  "plan": {
-    "keywords": ["SAP Invoice", "5735236948"],
-    "timeWindow": { "from": "2026-02-20", "to": "now" },
-    "searchTargets": "inbox"
-  }
-}
-```
-
-**Response (200):** Updated task object with new history entry containing `communications`, `agentPlan`, and `agentExecution` (includes `method: "workiq-ask"` or `"copilot-sdk-mcp"`).
-
-**Errors:** `400` — Log text required | `404` — Task not found | `500` — Write or search failure
 
 ---
 
 ## 7. Frontend Architecture
 
-### Single-File Design
+### 7.1 State Management
 
-The entire frontend is contained in `index.html`:
-- **HTML** structure (header, main, form, loading overlay)
-- **CSS** styles (~450 lines, all in a `<style>` tag)
-- **JavaScript** application logic (~660 lines, all in a `<script>` tag)
+**JavaScript variables:**
 
-No build step, no bundler, no framework. This matches the project convention (AI Café Presenter uses the same pattern).
-
-### State Management
-
-```
-┌─────────────────────────────────────────────┐
-│  In-Memory State                             │
-│                                              │
-│  let tasks = [];            // All tasks     │
-│  let currentFilter = 'all'; // Active filter │
-│  let serverOnline = false;  // Server reachable?     │
-│  let reconnectTimer = null; // Auto-retry interval   │
-│  let pendingPlans = {};     // taskId → { plan, originalText } (v1.4) │
-│  let openPanelTaskId = null; // Panel persistence across re-renders   │
-└──────────────────┬──────────────────────────┘
-                   │
-        Updated by fetchTasks()
-        after every mutation
-                   │
-                   ▼
-┌─────────────────────────────────────────────┐
-│  renderTasks()                               │
-│                                              │
-│  1. Count tasks per status → update badges   │
-│  2. Sort: status priority → createdAt desc   │
-│  3. Filter by currentFilter                  │
-│  4. Generate HTML for each task card         │
-│  5. Inject into DOM                          │
-└─────────────────────────────────────────────┘
-```
-
-There is no local state diffing or virtual DOM. The entire task list is re-rendered on every change. This is acceptable for the expected data volume (dozens of tasks, not thousands).
-
-### Notification System
-
-```
-showNotification(message, type)
-  │
-  ├── Remove existing notification (if any)
-  ├── Create <div class="notification notification-{type}">
-  ├── Append to document.body
-  ├── Auto-remove after 5 seconds
-  └── User can dismiss via ✕ button
-```
-
-Types: `success` (green border/text) and `error` (red border/text). Slides in from the right with CSS animation.
-
-### Server Health Check
-
-```
-checkServerHealth()
-  │
-  ├── fetch('/api/tasks') with AbortController (3s timeout)
-  ├── Success → setServerStatus(true) → load tasks
-  └── Failure → setServerStatus(false) → show banner + start polling
-
-setServerStatus(online)
-  │
-  ├── Toggle offline banner visibility
-  ├── Toggle status dot (green/red)
-  ├── Enable/disable scan + add buttons
-  ├── If reconnected: clear timer + show notification
-  └── If offline: start 5s polling timer
-```
-
-### Filter System
-
-Five filter buttons with `data-filter` attributes: `all`, `active`, `in-progress`, `done`, `paused`. Clicking a filter:
-1. Sets `currentFilter`
-2. Updates the `active` CSS class on the button
-3. Calls `renderTasks()` which filters the sorted array
-
-Badge counts are updated on every render by counting tasks per status.
-
-### Sort Logic
-
-```
-Primary sort:   Status priority (Active=0, In Progress=1, Paused=2, Done=3)
-Secondary sort: createdAt descending (newest first within each status group)
-```
-
-### Task Interaction Panel (v1.4)
-
-Each task card now has an **interaction panel** that replaces the old "📜 History" toggle.
-
-```
-Task Card Layout (v1.4):
-════════════════════════
-
-┌─ Card Header (always visible, clickable) ──────────────────────────────────┐
-│ Title + Meta + Status + Actions                                            │
-└────────────────────────────────────────────────────────────────────────────┘
-                │ click toggles ▼
-┌─ Interaction Panel (hidden by default) ────────────────────────────────────┐
-│                                                                            │
-│  ┌─ Agent Conversations (chat-style, chronological) ────────────────────┐  │
-│  │ 📝 User: "Ich habe Eors nach einer Antwort gefragt..."        [🗑️] │  │
-│  │ 🤖 Agent: "Es geht um ein Pending Approval. Du hast Eörs gefragt, │  │
-│  │    wie du vorgehen sollst. Ich suche in deiner Inbox nach seiner   │  │
-│  │    Antwort. Falls ich etwas finde, fasse ich es zusammen."        │  │
-│  │ ✅ User confirmed                                                    │  │
-│  │ 📧 Eörs → Martin — "Eörs bestätigt..." [Open ↗]                    │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
-│                                                                            │
-│  ┌─ Log Input (always visible in panel) ────────────────────────────────┐  │
-│  │ [What did you do? ___________________________] [🔍 Analyze]          │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
-│  ┌─ Plan Display / Progress Status (appears during agent flow) ─────────┐  │
-│  │ 🤔 Agent is analyzing your request...                                │  │
-│  │ 💡 Understanding + [✅ Search] [❌ Cancel]                            │  │
-│  │ 📤 Sending search to Work IQ...                                      │  │
-│  │ ⏳ Waiting for system response...   (after 10s timeout)              │  │
-│  │ 📥 Response received, processing...                                  │  │
-│  │ ✅ Done — 3 communications found                                     │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
-│                                                                            │
-│  [▶ Details]                                                               │
-│  ┌─ Details (collapsed, expandable) ────────────────────────────────────┐  │
-│  │ 1️⃣ Auftrag: Understanding + Keywords · Zeitraum · Ziel               │  │
-│  │ 2️⃣ Gesendet an Work IQ: Search parameters                           │  │
-│  │ 3️⃣ Antwort von Work IQ (45.2s): Raw response or error               │  │
-│  │ 4️⃣ Ergebnis: 📧 From→To (date) per communication                   │  │
-│  │ System Events: ➕ Created, ✅ Status changed, 🔄 Scan updated       │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
-└────────────────────────────────────────────────────────────────────────────┘
-```
-
-**State management additions (v1.4):**
-```
-let pendingPlans = {};       // taskId → { plan, originalText }
-let openPanelTaskId = null;  // Which task's panel is currently open (survives re-renders)
-```
-
-**Panel persistence across re-renders:**
-- `toggleTaskPanel(taskId)` sets `openPanelTaskId = taskId` when opening, `null` when closing
-- After `fetchTasks()` calls `renderTasks()` and the DOM is rebuilt, it checks `if (openPanelTaskId)` and directly adds `.visible` class to the panel element via `document.getElementById('panel-' + openPanelTaskId)`
-- This prevents the panel from closing when a log entry is submitted
-
-**Real-time progress feedback:**
-```
-Progress State Machine (displayed in plan area):
-═════════════════════════════════════════════════
-
-  analyzeLog()
-  ├─ "🤔 Agent is analyzing your request..."     ← immediate
-  ├─ Plan displayed with ✅/❌ buttons             ← on response
-  │
-  executeLog()
-  ├─ "📤 Sending search to Work IQ..."            ← immediate
-  ├─ "⏳ Waiting for system response..."          ← after 10s timer
-  ├─ "✅ Done — X communication(s) found"         ← on response
-  │   or "🔍 No communications found"             ← if empty array
-  │   or "❌ Search failed: <error>"               ← on error
-  └─ Panel stays open, new conversation visible   ← after fetchTasks
-```
-- Progress messages replace the spinner in the `plan-<taskId>` element
-- Each step update is a simple `innerHTML` change — no complex state needed
-- Use `setTimeout(fn, 10000)` for the "⏳ Waiting" upgrade (cancel on response)
-
-**Rendering logic:**
-- `renderTasks()` splits history entries into two groups:
-  1. **Agent conversations** — entries with `type === "update"` (shown chat-style)
-  2. **System events** — entries with `type !== "update"` (shown in Details toggle)
-- Agent conversations render in chronological order (oldest first = read like a chat)
-- System events render in reverse chronological order (newest first)
-- Clicking card header calls `toggleTaskPanel(taskId)` which replaces old `toggleHistory()`
-
----
-
-## 8. Data Schema
-
-### tasks.json
-
-```json
-{
-  "version": 2,
-  "lastScan": "2026-02-24T07:00:00.000Z | null",
-  "tasks": [ Task, ... ]
-}
-```
-
-| Field | Type | Description |
+| Variable | Type | Description |
 |---|---|---|
-| `version` | number | Schema version (2 since v1.2) |
-| `lastScan` | string \| null | ISO 8601 timestamp of last successful scan, or null if never scanned |
-| `tasks` | array | Array of Task objects |
+| `tasks` | Array | All tasks from last API response |
+| `currentFilter` | string | Active filter (`"all"` or a status value) |
+| `serverOnline` | boolean | Server connectivity state |
+| `reconnectTimer` | number \| null | Interval ID for reconnect polling |
+| `pendingPlans` | Object | `taskId → { plan, originalText, fallback }` — awaiting user confirmation |
+| `openPanelTaskIds` | Set | Task IDs with open interaction panels |
+| `collapsedEntries` | Set | Collapse IDs for long text entries |
+| `busyTaskIds` | Set | Task IDs with active agent work |
+| `linkMode` | string | Current link open mode |
 
-### Task Object
+**localStorage keys:**
 
-| Field | Type | Description | Valid Values |
-|---|---|---|---|
-| `id` | string | UUID v4 identifier | Auto-generated |
-| `title` | string | Short description of the action item | Free text (required) |
-| `source` | string | Where the task came from | `"email"`, `"teams"`, `"manual"` |
-| `from` | string \| null | Sender name (scanned tasks) or null (manual tasks) | |
-| `date` | string \| null | Original message date (ISO 8601) or null | |
-| `link` | string \| null | Deep link to source message or null | Outlook/Teams URL |
-| `status` | string | Current task status | `"active"`, `"in-progress"`, `"done"`, `"paused"` |
-| `notes` | string | User-added notes | Free text (default: "") |
-| `history` | array | Chronological log of task events (v1.2) | Array of HistoryEntry |
-| `doneAt` | string \| null | Timestamp when set to "done" (v1.2), null otherwise | ISO 8601 |
-| `createdAt` | string | When the task was created in the app (ISO 8601) | Auto-generated |
-| `updatedAt` | string | Last modification timestamp (ISO 8601) | Auto-updated |
-
-### HistoryEntry Object (v1.2, extended v1.4)
-
-| Field | Type | Description |
+| Key | Persists | Description |
 |---|---|---|
-| `timestamp` | string | When this event occurred (ISO 8601) |
-| `type` | string | `"created"`, `"status-change"`, `"update"`, `"scan-update"`, `"note"`, `"communication"` |
-| `text` | string | Human-readable description of the event |
-| `communications` | array \| undefined | Array of linked communications (only for type "update" and "communication") |
-| `agentPlan` | object \| undefined | (v1.4) Analysis phase: what the agent understood |
-| `agentExecution` | object \| undefined | (v1.4) Execution phase: what was sent, what came back |
+| `openPanels` | Set as JSON array | Which task panels are open (survives page reload) |
+| `collapsedEntries` | Set as JSON array | Which long entries are collapsed |
+| `scanDays` | string | Scan range slider value (1–14) |
+| `linkMode` | string | Link open mode (`"window"`, `"tab"`, `"split"`, `"incognito"`) |
 
-**agentPlan Object (v1.4) — Analysis Phase:**
-| Field | Type | Description |
-|---|---|---|
-| `understanding` | string | What the agent understood from the user's request |
-| `keywords` | string[] | Search keywords extracted from task title + user text |
-| `timeWindow` | object | `{ from, to, reasoning }` — the search date range |
-| `searchTargets` | string | What was searched: "inbox", "sent", "teams", or "all" |
-| `userConfirmed` | boolean | `true` if user explicitly confirmed, `false` if auto-executed |
-| `fallback` | boolean | `true` if AI analysis failed and deterministic fallback was used |
+### 7.2 Markdown Renderer
 
-**agentExecution Object (v1.4) — Execution Phase:**
-| Field | Type | Description |
-|---|---|---|
-| `promptSent` | string | The question/prompt sent to Work IQ (natural language or dynamic context) |
-| `rawResponse` | string \| null | Raw Work IQ response text (truncated to 2000 chars). `null` if no response. |
-| `parsedCount` | number | Number of communications successfully parsed from response |
-| `error` | string \| null | Error message if execution failed, otherwise `null` |
-| `durationMs` | number | Total search duration in milliseconds |
-| `method` | string | Search approach used: `"workiq-ask"` (direct CLI) or `"copilot-sdk-mcp"` (fallback) |
+A lightweight `renderMarkdown()` function that converts agent response text to HTML:
 
-```
-Full Agent Pipeline (visible in Details as 4-step story):
-─────────────────────────────────────────────────────────
-1️⃣ Auftrag              → agentPlan.understanding + keywords + timeWindow + targets
-2️⃣ Gesendet an Work IQ  → agentExecution.promptSent + method (workiq-ask or SDK+MCP)
-3️⃣ Antwort von Work IQ  → agentExecution.rawResponse + durationMs (or error)
-4️⃣ Ergebnis für Benutzer → communications[] (from→to per message) + parsedCount
-```
-
-### Communication Object (v1.2)
-
-| Field | Type | Description |
-|---|---|---|
-| `type` | string | `"email"` or `"teams"` |
-| `from` | string | Sender name |
-| `to` | string | Recipient name(s) |
-| `date` | string | Message date (ISO 8601) |
-| `summary` | string | AI-generated 1-2 sentence summary of the message |
-| `link` | string \| null | Deep link to the original message |
-
-### Example with All Sources and Statuses
-
-```json
-{
-  "version": 2,
-  "lastScan": "2026-02-23T09:00:00.000Z",
-  "tasks": [
-    {
-      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-      "title": "Review Q1 budget proposal",
-      "source": "email",
-      "from": "Sarah Johnson",
-      "date": "2026-02-22T14:30:00.000Z",
-      "link": "https://outlook.office365.com/owa/?ItemID=AAMk...",
-      "status": "active",
-      "notes": "",
-      "history": [{ "timestamp": "2026-02-23T09:01:00.000Z", "type": "created", "text": "Task created from email scan" }],
-      "doneAt": null,
-      "createdAt": "2026-02-23T09:01:00.000Z",
-      "updatedAt": "2026-02-23T09:01:00.000Z"
-    },
-    {
-      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-      "title": "Reply to project timeline discussion",
-      "source": "teams",
-      "from": "Alex Chen",
-      "date": "2026-02-21T10:15:00.000Z",
-      "link": "https://teams.microsoft.com/l/message/...",
-      "status": "in-progress",
-      "notes": "Need to check with PM first",
-      "history": [
-        { "timestamp": "2026-02-23T09:01:00.000Z", "type": "created", "text": "Task created from teams scan" },
-        { "timestamp": "2026-02-23T10:30:00.000Z", "type": "status-change", "text": "Status changed: active → in-progress" }
-      ],
-      "doneAt": null,
-      "createdAt": "2026-02-23T09:01:00.000Z",
-      "updatedAt": "2026-02-23T10:30:00.000Z"
-    },
-    {
-      "id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
-      "title": "Prepare slides for Monday standup",
-      "source": "manual",
-      "from": null,
-      "date": null,
-      "link": null,
-      "status": "done",
-      "notes": "Focus on Q4 results",
-      "history": [
-        { "timestamp": "2026-02-23T08:00:00.000Z", "type": "created", "text": "Task created manually" },
-        { "timestamp": "2026-02-23T11:00:00.000Z", "type": "status-change", "text": "Status changed: active → done" }
-      ],
-      "doneAt": "2026-02-23T11:00:00.000Z",
-      "createdAt": "2026-02-23T08:00:00.000Z",
-      "updatedAt": "2026-02-23T11:00:00.000Z"
-    },
-    {
-      "id": "d4e5f6a7-b8c9-0123-defa-234567890123",
-      "title": "Follow up on vendor contract",
-      "source": "email",
-      "from": "Legal Team",
-      "date": "2026-02-20T09:00:00.000Z",
-      "link": "https://outlook.office365.com/owa/?ItemID=BBNk...",
-      "status": "paused",
-      "notes": "Waiting for legal review to complete",
-      "history": [{ "timestamp": "2026-02-23T09:01:00.000Z", "type": "created", "text": "Task created from email scan" }],
-      "doneAt": null,
-      "createdAt": "2026-02-23T09:01:00.000Z",
-      "updatedAt": "2026-02-23T09:45:00.000Z"
-    }
-  ]
-}
-```
-
----
-
-## 9. Error Handling
-
-### Server-Side Strategy
-
-Every API endpoint wraps its logic in try/catch:
-
-```
-Request ──> try { read/write tasks.json, process } catch (err) { 500 + error detail }
-```
-
-The scan endpoint has additional error surfaces:
-
-```
-POST /api/scan
-  │
-  ├── CopilotClient creation fails ──> 500 { error, detail: err.message }
-  ├── Session creation fails ──────────> 500 { error, detail: err.message }
-  ├── sendAndWait returns null ────────> 502 { error: "No response from AI engine" }
-  ├── AI response not parseable ───────> 502 { error: "AI returned unexpected format", raw }
-  ├── sendAndWait timeout (120s) ──────> 500 { error, detail: "timeout..." }
-  ├── Auth/token error ────────────────> 500 { error, detail: "...auth/token..." }
-  └── Success ─────────────────────────> 200 { success, added, skipped, total }
-      │
-      └── finally: client.dispose() (always clean up)
-```
-
-### Client-Side Error Mapping (friendlyError)
-
-The frontend `friendlyError()` function maps server error responses to user-friendly messages:
-
-| Server Error Detail Contains | User-Facing Message |
+| Markdown | HTML |
 |---|---|
-| `auth`, `token`, `401`, `unauthorized` | Authentication expired — please run "workiq accept-eula" in your terminal and try again. |
-| `econnrefused`, `spawn`, `not found`, `not recognized` | Could not start Work IQ. Make sure it is installed globally (npm i -g @microsoft/workiq). |
-| `timeout`, `timed out` | Scan timed out — your mailbox may be very large. Please try again. |
-| error = "No response from AI engine" | No response from AI engine. Check your GitHub Copilot authentication. |
-| error = "AI returned unexpected format" | The AI returned an unexpected response. Please try scanning again. |
-| fetch TypeError (network error) | Cannot reach the server. Is it still running? |
-| Any other error | Falls back to `data.message` or `data.error` or generic message |
+| `## Heading` | `<h2>Heading</h2>` |
+| `### Heading` | `<h3>Heading</h3>` |
+| `**bold**` | `<strong>bold</strong>` |
+| `*italic*` | `<em>italic</em>` |
+| `` `code` `` | `<code>code</code>` |
+| `- list item` | `<ul><li>list item</li></ul>` |
+| Double newline | `</p><p>` |
+| Single newline | `<br>` |
 
-### JSON Response Parser
+All text is HTML-escaped via `escHtml()` before Markdown processing (XSS-safe).
 
-The `parseJsonFromResponse()` function handles multiple AI response formats (used for both `workiq ask` and Copilot SDK responses):
+### 7.3 Collapsible Entries
 
-```
-AI Response Text
-  │
-  ├── Try JSON.parse(text) directly ──> success? return array
-  │
-  ├── Try regex for ```json ... ``` ──> extract, parse ──> success? return array
-  │
-  ├── Try regex for [...] anywhere ──> extract, parse ──> success? return array
-  │
-  └── Return null (no JSON found)
-```
+- **Threshold:** 120 characters
+- Both user messages and agent responses are independently collapsible
+- Collapsed state persisted to `localStorage` via `collapsedEntries` Set
+- Toggle arrow rotates (▼ expanded, ► collapsed via CSS `transform: rotate(-90deg)`)
+- Preview text: first non-empty line, stripped of Markdown formatting, truncated to 80 chars
 
-**`parseMarkdownEmails(text)`** — Fallback parser for Work IQ's Markdown responses (v1.4.1):
+### 7.4 Server Health Check
 
 ```
-Work IQ Markdown Response
-  │
-  ├── Split by --- separators (horizontal rules between emails)
-  │
-  ├── For each block containing **From:**:
-  │     ├── Extract **Subject:** value
-  │     ├── Extract **From:** value
-  │     ├── Extract **Date:** value
-  │     ├── Extract **To:** value (if present)
-  │     ├── Extract Outlook deep link [N](https://outlook...)
-  │     └── Strip Markdown artifacts: **bold**, *italic*, [N](link) citations
-  │
-  └── Return array of { type, from, to, date, summary, link } or null
+Page load
+    │
+    ▼
+checkServerHealth()
+    │
+    ├── fetch /api/tasks (3s AbortController timeout)
+    │
+    ├── OK  → setServerStatus(true)
+    │         - Hide offline banner
+    │         - Green dot (12px, #34d399)
+    │         - Tooltip: Express, Copilot SDK, Work IQ, tasks.json
+    │         - Enable scan + add task buttons
+    │         - Clear reconnect timer
+    │         - Show "✅ Server verbunden" notification (if was offline)
+    │
+    └── FAIL → setServerStatus(false)
+              - Show amber offline banner with start instructions
+              - Red dot (12px, #ef4444)
+              - Tooltip: start instructions
+              - Disable scan + add task buttons
+              - Start reconnect polling (every 5s)
 ```
 
-**Parse pipeline (in order):**
-1. Try JSON parsing → if success, use JSON communications
-2. Try Markdown email parsing → if success, use extracted emails
-3. Neither → store raw response text for display (natural language fallback)
+### 7.5 Link Open Modes
 
-### Work IQ Direct CLI (v1.4)
+4 modes for opening task source links, selected via header buttons:
 
-Two helper functions enable direct Work IQ calls without Copilot SDK:
+| Mode | Icon | Behavior |
+|---|---|---|
+| `window` | 🪟 | Opens in a new browser window (default) |
+| `tab` | 📑 | Opens in a new tab (`window.open(url, '_blank')`) |
+| `split` | ◧ | Resizes Agent Zero to left half, opens link in right half |
+| `incognito` | 🕶️ | Attempts private window (falls back to regular window with notification) |
 
-**`runWorkIQAsk(question, timeoutMs)`** — Spawns `workiq ask` via interactive stdin mode:
-- Spawns process with `stdio: ['pipe', 'pipe', 'pipe']`
-- Writes question to stdin after 500ms initialization delay, then closes stdin
-- Captures stdout (interactive mode writes to stdout, unlike `-q` which writes to TTY)
-- Returns the full stdout text on success
-- Throws on timeout (default 90s) or non-zero exit code
-- **Critical Windows discovery:** `workiq ask -q` writes to Console/TTY directly, NOT stdout. Node.js can never capture `-q` output. Interactive stdin mode is the only reliable approach.
+---
 
-**`buildSearchQuestion(plan, taskContext, userText)`** — Builds person-focused, pure English questions:
-- **Person-focused pattern** (proven reliable): `"Find all emails from [person] in my [target] from the last N days (date-date)"`
-- Separates person names from topic keywords using regex: `/^[A-Z][a-z]+ [A-Z]/`
-- Person names → "from [person]" (primary filter)
-- Topic keywords → EXCLUDED from query (degrades results — tested & verified Feb 26, 2026)
-- Time window → "from the last N days" with explicit date range in parentheses
-- **Pure English only** — NO German userText (switches Work IQ to degraded mode)
-- **NO JSON format request** (triggers content filters)
-- Requests: "subject line, date, and the full email body content. Order by date descending."
-
-### Concurrency & Write Safety (v1.2)
+## 8. Deduplication Strategy
 
 ```
-POST /api/tasks/:id/log (Task A)  ──┐
-                                     ├── writeQueue (sequential)
-POST /api/tasks/:id/log (Task B)  ──┘
-                                     │
-                                     ▼
-                              readTasks() → modify → writeTasks()
-                              (one at a time, queued)
-```
-
-Multiple `/api/tasks/:id/log` calls can arrive concurrently (user working on multiple tasks). A simple Promise-based write queue ensures:
-- Only one `writeTasks()` call executes at a time
-- Later writes wait for earlier ones to complete
-- No data loss from concurrent file writes
-
-### Log Work — Two-Phase Agent (v1.4)
-
-The log work feature uses a two-phase approach for transparency and precision.
-
-```
-Two-Phase Architecture:
-═══════════════════════
-
-Phase 1: ANALYZE (fast, ~5-15 seconds)
-──────────────────────────────────────
-User text ──→ POST /api/tasks/:id/log/analyze
-                    │
-                    ▼
-         ┌──────────────────────┐
-         │ Copilot SDK          │   ← NO Work IQ MCP
-         │ (AI reasoning only)  │   ← No M365 data access
-         └──────────┬───────────┘   ← Fast: just text analysis
-                    │
-                    ▼
-         ┌──────────────────────┐
-         │ Structured Plan:     │
-         │ • understanding      │
-         │ • keywords           │
-         │ • timeWindow         │
-         │ • searchTargets      │
-         │ • needsClarification │
-         └──────────┬───────────┘
-                    │
-         ┌──────────▼───────────┐
-         │ Frontend: show plan  │──→ User confirms or adjusts
-         └──────────┬───────────┘
-                    │
-Phase 2: EXECUTE (after confirm, ~30-60 seconds)
-────────────────────────────────────────────────
-Confirmed plan ──→ POST /api/tasks/:id/log
-                    │
-                    ▼
-         ┌──────────────────────┐
-         │ buildSearchQuestion()│  ← Person-focused English question
-         │ • "Find all emails   │    from confirmed plan
-         │    from [person]     │
-         │    in my [target]    │  ← NO topic keywords
-         │    from the last     │  ← NO German userText
-         │    N days (dates)"   │  ← NO JSON format request
-         └──────────┬───────────┘
-                    │
-                    ▼
-         ┌──────────────────────┐
-         │ workiq ask (stdin)   │  ← Interactive mode via spawn
-         │ (Work IQ's own AI)   │  ← Writes question to stdin
-         │                      │  ← Captures stdout
-         └──────────┬───────────┘  ← No Copilot SDK wrapper
-                    │
-                    ▼
-         ┌──────────────────────┐
-         │ Two-tier parser:     │
-         │ 1. parseJsonFromResp │  ← Try JSON extraction first
-         │ 2. parseMarkdownEmail│  ← Fallback: Markdown → struct
-         └──────────┬───────────┘
-                    │
-                    ▼
-         History entry saved
-```
-
-**Why `workiq ask` instead of Copilot SDK + MCP (v1.4 decision):**
-```
-OLD (v1.3):  App → Copilot SDK → AI Model → Work IQ MCP → Search API → AI → parse
-             (3 processes: SDK, AI model, MCP server — 30-120s, fragile)
-
-NEW (v1.4):  App → workiq ask (stdin) → Work IQ AI → Search API → response → parse
-             (1 process: workiq — 30-60s, proven in Copilot CLI sessions)
-```
-Work IQ IS an AI agent. Wrapping it in another AI (Copilot SDK) adds overhead without benefit.
-
-**Key design decisions:**
-- Phase 1 creates a CopilotClient session WITHOUT `mcpServers` → AI can only reason, not search
-- Phase 2 calls `workiq ask` via interactive stdin mode → no SDK, no MCP overhead
-- **stdin mode is required**: `workiq ask -q` writes to TTY/Console directly, bypassing stdout
-- The analysis prompt is hardcoded (not a skill file) — it's a stable meta-prompt for understanding intent
-- `buildSearchQuestion()` creates **person-focused, pure English** questions (proven most reliable)
-- **Topic keywords are excluded** from Work IQ queries — they degrade result quality
-- **German user text is excluded** — it causes Work IQ to switch to degraded mode
-- Fallback: If Phase 1 SDK fails, server uses `extractKeywords()` for deterministic analysis
-- Fallback: If no `plan` in the `/log` request, falls back to Copilot SDK + MCP (v1.3 behavior)
-- `agentExecution.method` tracks which approach was used: `"workiq-ask"` or `"copilot-sdk-mcp"`
-
-**Clarification Loop:**
-```
-User input too vague ──→ Agent returns needsClarification: true
-                         + clarificationQuestion
-                              │
-                              ▼
-                    Frontend shows question
-                    + answer input field
-                              │
-                              ▼
-                    User answers ──→ Re-submit to /analyze
-                                    (original text + " Additional context: " + answer)
-                              │
-                              ▼
-                    Agent returns clear plan ──→ User confirms
-```
-
-**Skill File Architecture (v1.4):**
-```
-Documents/
-├── SCAN_SKILL.md       → POST /api/scan                (detect + dedup action items)
-└── LOG_WORK_SKILL.md   → POST /api/tasks/:id/log       (ONLY used in Copilot SDK fallback)
-                          POST /api/tasks/:id/log/analyze uses hardcoded analysis prompt
-                          When plan IS available: workiq ask with natural language question
-```
-
-### AI-Powered Deduplication Strategy (v1.3)
-
-#### Problem (v1.2)
-
-The v1.2 dedup logic uses exact-match comparisons that fail in common real-world scenarios:
-
-```
-v1.2 Matching Logic:
-  Stufe 1: t.link === item.link           → Fails: same task, different email links
-  Stufe 2: t.title === title              → Fails: AI rephrases title slightly
-           && t.from === from             → Fails: different sender, same topic
-           && t.source === source         → Fails: Teams + Email about same task
-```
-
-#### Solution: Context-Aware Scan Prompt
-
-Instead of blind scanning + weak server-side dedup, the AI receives existing tasks as context:
-
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                     SCAN FLOW v1.3 vs v1.2                           │
-├──────────────────────────────────────────────────────────────────────┤
-│                                                                      │
-│  v1.2:  Prompt: "Scan my emails..."                                  │
-│         AI returns: [ {title, source, from, date, link}, ... ]       │
-│         Server dedup: exact link match → exact title+from+source     │
-│         Result: ❌ Duplicates when AI rephrases or link differs      │
-│                                                                      │
-│  v1.3:  Prompt: "Here are EXISTING tasks: [...]. Scan my emails..."  │
-│         AI returns: [ {action:"new",...}, {action:"update",...}, ... ]│
-│         Server processes: update → merge changes, new → safety-net   │
-│         Result: ✅ AI matches semantically, server validates          │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
-```
-
-#### Processing Pipeline
-
-```
-AI Response Items
-      │
-      ▼
-┌─────────────┐     ┌──────────────────┐     ┌────────────────────┐
-│ action:     │     │ Find by          │     │ Merge changes:     │
-│ "update"    │────>│ existingId       │────>│ title, date, link  │
-│             │     │ in tasks.json    │     │ Add history entry  │
-└─────────────┘     └──────────────────┘     │ with AI reason     │
-                                              └────────────────────┘
-┌─────────────┐     ┌──────────────────┐     ┌────────────────────┐
-│ action:     │     │ Safety-Net:      │     │ If similar >70%:   │
-│ "new"       │────>│ Jaccard word     │────>│   SKIP (warn log)  │
-│             │     │ similarity check │     │ If not similar:    │
-└─────────────┘     │ vs all tasks     │     │   CREATE new task  │
-                    └──────────────────┘     └────────────────────┘
-┌─────────────┐     ┌──────────────────┐
-│ no action   │     │ Backward-compat: │
-│ field       │────>│ old v1.2 logic   │
-│             │     │ (link + title)   │
-└─────────────┘     └──────────────────┘
-```
-
-#### Safety-Net: Normalized Title Similarity
-
-```javascript
-// Server-side fallback after AI matching
-normalizeForCompare(title):
-  → lowercase → remove punctuation → collapse whitespace → trim
-
-isSimilarTitle(a, b):
-  → Jaccard similarity on word sets: |intersection| / |union|
-  → Threshold: 0.7 (70% word overlap)
-  → Example: "Approve SAP Invoice 5735236948" vs "SAP Invoice 5735236948 approval needed"
-    Words A: {approve, sap, invoice, 5735236948}
-    Words B: {sap, invoice, 5735236948, approval, needed}
-    Intersection: 3, Union: 6 → 0.5 (below threshold, but AI should catch this)
+AI scans M365 for action items
+        │
+        ▼
+┌──────────────────────────────────────────────────────────┐
+│ Layer 1: AI Context (preventive)                          │
+│                                                           │
+│  Active tasks (max 50) + done tasks (max 30)              │
+│  injected into scan prompt as JSON context.               │
+│  AI is instructed: "do NOT re-create done tasks."          │
+│  → Prevents most duplicates at the source.                 │
+└───────────────────────┬──────────────────────────────────┘
+                        │
+                        ▼ AI returns items with action field
+┌──────────────────────────────────────────────────────────┐
+│ Layer 2: AI action:"skip" (explicit)                      │
+│                                                           │
+│  AI sets action:"skip" for items it matched to done tasks. │
+│  These are counted as skipped, not processed further.      │
+└───────────────────────┬──────────────────────────────────┘
+                        │
+                        ▼ Remaining "new" items
+┌──────────────────────────────────────────────────────────┐
+│ Layer 3: Jaccard Similarity Safety Net (deterministic)    │
+│                                                           │
+│  For each new item, compare against ALL existing tasks:    │
+│                                                           │
+│  1. Normalize: lowercase, strip non-alphanumeric,          │
+│     collapse whitespace                                    │
+│  2. Split into word sets                                    │
+│  3. Jaccard = |intersection| / |union|                     │
+│  4. If Jaccard > 0.7 → skip (log warning)                  │
+│                                                           │
+│  Also: backward-compat dedup for items without action      │
+│  field (match by link, then title+from+source).            │
+└───────────────────────┬──────────────────────────────────┘
+                        │
+                        ▼
+              Create task or skip
 ```
 
 ---
 
-## 10. Dependencies
+## 9. Search Architecture
 
-| Package | Version | Purpose | Why Chosen |
-|---|---|---|---|
-| `express` | ^5.2.1 | HTTP server and REST API routing | Industry-standard Node.js web framework. Minimal overhead, well-documented. |
-| `uuid` | ^13.0.0 | Generate UUID v4 identifiers for tasks | RFC-compliant UUIDs for unique task IDs. No external service needed. |
-| `@github/copilot-sdk` | ^0.1.25 | AI reasoning engine (CopilotClient, session management, MCP integration) | Provides the connection to GitHub Copilot's AI model with built-in MCP support. ESM-only module. |
-| `@microsoft/workiq` | ^0.2.8 | MCP tool server for M365 data access (emails, Teams) | Pre-installed CLI with EULA accepted. Handles Graph API auth and queries. Used as MCP stdio server. |
+### 9.1 Two Search Methods
 
-### Runtime Requirements
-
-| Requirement | Version | Purpose |
-|---|---|---|
-| Node.js | v18+ | JavaScript runtime (must support ES Modules) |
-| GitHub CLI (`gh`) | Latest | Provides stored OAuth tokens for Copilot SDK authentication |
-| Windows Credential Manager | (OS built-in) | Stores Work IQ / MSAL refresh tokens securely |
-
-### Project Configuration
-
-```json
-{
-  "type": "module"
-}
+```
+Search request arrives
+        │
+        ├── Has plan?
+        │     │
+        │     ├── YES → workiq ask (CLI)        ← PRIMARY
+        │     │         Direct spawn, question via stdin
+        │     │         90s timeout
+        │     │         method = "workiq-ask"
+        │     │
+        │     └── NO  → Copilot SDK + MCP       ← FALLBACK
+        │               CopilotClient + workiq MCP server
+        │               LOG_WORK_SKILL.md or inline prompt
+        │               120s timeout
+        │               method = "copilot-sdk-mcp"
+        │
+        ▼
+Parse response → Build agentResponse → Save to history
 ```
 
-The project uses **ES Modules** (not CommonJS) because `@github/copilot-sdk` is ESM-only. This means:
-- `import`/`export` syntax instead of `require()`/`module.exports`
-- `__dirname` and `__filename` are not available natively (reconstructed via `fileURLToPath`)
-- All `.js` files are treated as ES Modules by Node.js
+### 9.2 buildSearchQuestion() Logic
+
+Constructs a natural language question for `workiq ask`:
+
+```
+plan.searchFrom exists?
+    │
+    ├── YES (person/domain) → "Find all emails from {searchFrom} in my {targets} {timeWindow}."
+    │
+    └── NO
+         │
+         ├── keywords exist? → "Find all emails in my {targets} {timeWindow} about {keywords}."
+         │
+         └── no keywords   → "Find all emails in my {targets} {timeWindow} related to '{task.title}'."
+
+Always appended: "For each email show: subject line, date, and the full email body content.
+                   Order by date descending."
+```
+
+**Time window calculation:**
+- If `plan.timeWindow.from` is set: calculate days from that date to now, minimum 2 days
+- If not set: default to "last 7 days"
+- Format: `"from the last N days (January 1, 2026-February 26, 2026)"`
+
+### 9.3 Response Parsing
+
+```
+Work IQ response
+        │
+        ├── Try JSON.parse(text) directly
+        │     └── Success? → use parsed array
+        │
+        ├── Try extract from ```json ... ``` code block
+        │     └── Success? → use parsed array
+        │
+        ├── Try match /\[[\s\S]*\]/ (JSON array in text)
+        │     └── Success? → use parsed array
+        │
+        └── Try parseMarkdownEmails(text)
+              │
+              ├── Split by --- separators
+              ├── Look for **From:** anchors
+              ├── Extract: From, Subject, Date, To, link
+              ├── Fallback: numbered header (### 1) Subject)
+              │
+              └── Success? → use parsed array
+                    └── No structured data → store rawResponse as agentResponse
+```
+
+### 9.4 agentResponse Generation
+
+After search execution, a summary is built for the user:
+
+| Condition | agentResponse |
+|---|---|
+| Search error | `❌ Die Suche ist fehlgeschlagen: {error}` |
+| Communications found | `✅ N Kommunikation(en) gefunden:` + numbered list with icons |
+| Raw text but no structure | The raw Work IQ response text (natural language answer) |
+| Nothing found | `🔍 Keine Ergebnisse gefunden...` with suggestion to retry |
+
+---
+
+## 10. API Reference
+
+| Method | Endpoint | Request Body | Response | Description |
+|---|---|---|---|---|
+| `GET` | `/` | — | HTML | Serves index.html |
+| `GET` | `/api/tasks` | — | `{ version, tasks, lastScan }` | Get all tasks |
+| `POST` | `/api/tasks` | `{ title, notes? }` | Task object (201) | Create manual task |
+| `PATCH` | `/api/tasks/:id` | `{ status?, notes?, title? }` | Task object | Update task fields |
+| `DELETE` | `/api/tasks/:id` | — | `{ success: true }` | Delete a task |
+| `DELETE` | `/api/tasks/:id/history/:index` | — | Task object | Delete a history entry (only `update` and `note` types) |
+| `POST` | `/api/tasks/:id/note` | `{ text }` | Task object | Save a note to task history |
+| `POST` | `/api/scan` | `{ scanDays? }` | `{ success, added, skipped, updated, total, lastScan }` | Scan M365 for action items |
+| `POST` | `/api/tasks/:id/log/analyze` | `{ text }` | `{ intent, plan?, result?, task? }` | Phase 1: AI intent analysis |
+| `POST` | `/api/tasks/:id/log` | `{ text, plan? }` | Task object | Phase 2: Execute search + save |
+
+**Status validation:** PATCH rejects any status not in `['new', 'needs-attention', 'escalated', 'in-progress', 'done', 'paused']`.
+
+**History deletion protection:** DELETE `/api/tasks/:id/history/:index` returns 403 for entry types other than `update` and `note`.
+
+---
+
+## 11. File Structure
+
+```
+Agent_Zero/
+├── server.js                  # Express backend (~1089 lines)
+├── index.html                 # Frontend SPA (~1585 lines)
+├── package.json               # Dependencies and metadata
+├── package-lock.json          # Locked dependency versions
+├── tasks.json                 # Local data store (gitignored)
+├── .gitignore                 # node_modules/, package-lock.json, tasks.json
+├── README.md                  # Quick start guide
+├── START-DAILY-BRIEFING.bat   # Windows launcher (port check, auto-start)
+├── Documents/
+│   ├── ARCHITECTURE.md        # This file
+│   ├── SCAN_SKILL.md          # Prompt template for M365 scan
+│   └── LOG_WORK_SKILL.md      # Prompt template for work logging
+├── Images/
+│   └── ChatGPT Image *.png    # App screenshot/logo
+└── Specifactions/
+    └── DAILY_BRIEFING_APP_SPEC.md  # Product specification
+```
+
+---
+
+## 12. Dependencies
+
+From `package.json`:
+
+| Package | Version | Purpose |
+|---|---|---|
+| `express` | ^5.2.1 | HTTP server and REST API routing |
+| `@github/copilot-sdk` | ^0.1.25 | AI reasoning engine (scan prompts, intent analysis) |
+| `@microsoft/workiq` | ^0.2.8 | M365 data access via MCP server and CLI |
+| `uuid` | ^13.0.0 | UUID v4 generation for task IDs |
+
+**Runtime requirements:**
+- Node.js v18+ (ES Modules, top-level await support)
+- `workiq` CLI globally installed (`npm i -g @microsoft/workiq`)
+- GitHub Copilot authentication (for Copilot SDK)
+- Microsoft 365 account with Work IQ EULA accepted
+
+---
+
+## 13. Known Limitations
+
+1. **Work IQ Sent Items search returns hit count but no details.** The search confirms N emails exist in Sent Items but does not return subject, recipients, or dates. Root cause: Work IQ uses the Microsoft Search API (limited metadata) rather than Graph Messages API (`/me/messages`). A [GitHub issue](https://github.com/microsoft/work-iq-mcp) has been filed.
+
+2. **Work IQ Inbox search may miss certain emails.** Some emails that are verifiably present in the mailbox are not found by Work IQ search. Suspected causes: Graph API indexing delay and/or Focused Inbox filtering.
+
+3. **searchFrom field often empty in AI responses.** When a task originates from a company (e.g., "zones.com"), the AI frequently puts the company name in `keywords` instead of `searchFrom`, resulting in less precise search queries. The analyze prompt includes explicit rules for this but the AI does not always follow them.
+
+4. **Incognito mode cannot be forced programmatically.** Browsers do not expose an API to open links in private/incognito windows. The incognito link mode falls back to a regular new window and shows an informational notification.

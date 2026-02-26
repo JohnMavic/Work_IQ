@@ -1,45 +1,53 @@
-# Daily Briefing App — Product Specification
+# Agent Zero — Product Specification
 
-**Version:** 1.4
+**Version:** 2.0
 **Date:** February 26, 2026
 **Author:** Martin Hämmerli
-**Status:** v1.4 implemented (Two-Phase Log Agent + Interaction Panel + Execution Tracing)
+**Status:** v2.0 implemented (Intent-Based Agent + Interaction Panel + Execution Tracing)
 
 ---
 
 ## 1. Purpose
 
-Build a local, single-page HTML application that helps the user stay on top of action items from Microsoft 365 emails and Teams messages. The app scans the last 4 days of communication, extracts tasks, and presents them in a clean, interactive list. The user can manage task status, add manual tasks, and click through to the original email or Teams message.
+Agent Zero is a local, single-page HTML application that helps the user stay on top of action items from Microsoft 365 emails and Teams messages. The app scans a configurable number of days (1–14, default 4) of communication, extracts tasks, and presents them in a dark-themed interactive card list. The user can manage task status across 6 granular states, interact with an intent-based AI agent per task, add manual tasks, save notes, and click through to the original email or Teams message.
 
 ---
 
 ## 2. Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                  Browser (HTML/JS)                   │
-│                                                     │
-│  ┌──────────┐  ┌──────────────┐  ┌───────────────┐ │
-│  │ Trigger   │  │ Task List    │  │ Manual Task   │ │
-│  │ Button    │  │ (table/cards)│  │ Input Form    │ │
-│  └─────┬────┘  └──────┬───────┘  └───────┬───────┘ │
-│        │              │                  │          │
-└────────┼──────────────┼──────────────────┼──────────┘
-         │              │                  │
-         ▼              ▼                  ▼
-┌─────────────────────────────────────────────────────┐
-│              Local Node.js Backend Server            │
-│                                                     │
-│  ┌──────────────┐  ┌────────────┐  ┌─────────────┐ │
-│  │ GitHub       │  │ Work IQ    │  │ tasks.json   │ │
-│  │ Copilot SDK  │  │ (MCP Tool) │  │ (persistent) │ │
-│  └──────────────┘  └────────────┘  └─────────────┘ │
-│                                                     │
-│  The SDK provides the AI reasoning engine.          │
-│  Work IQ provides access to M365 data.              │
-│  tasks.json stores the action item list.            │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│                    Browser (HTML/JS)                      │
+│                                                          │
+│  ┌──────────┐  ┌──────────────┐  ┌────────────────────┐ │
+│  │ Scan      │  │ Task Cards   │  │ Interaction Panel  │ │
+│  │ Trigger + │  │ (sorted,     │  │ (Chat UI, Agent,   │ │
+│  │ Slider    │  │  filtered)   │  │  Notes, Details)   │ │
+│  └─────┬────┘  └──────┬───────┘  └────────┬───────────┘ │
+│        │              │                   │              │
+└────────┼──────────────┼───────────────────┼──────────────┘
+         │              │                   │
+         ▼              ▼                   ▼
+┌──────────────────────────────────────────────────────────┐
+│               Local Node.js Backend Server               │
+│                                                          │
+│  ┌──────────────┐  ┌────────────┐  ┌─────────────────┐  │
+│  │ GitHub       │  │ Work IQ    │  │ tasks.json      │  │
+│  │ Copilot SDK  │  │ (MCP/CLI)  │  │ (persistent)    │  │
+│  └──────────────┘  └────────────┘  └─────────────────┘  │
+│                                                          │
+│  Copilot SDK: AI reasoning (analyze intent, scan).       │
+│  Work IQ: M365 data access (emails, Teams via CLI/MCP). │
+│  tasks.json: Local JSON file for task persistence.       │
+└──────────────────────────────────────────────────────────┘
 ```
+
+**Two AI integration methods:**
+
+| Method | Used By | How |
+|---|---|---|
+| Copilot SDK + MCP | Scan, Analyze (intent detection) | `CopilotClient` → `createSession()` with/without MCP servers |
+| Work IQ CLI (`workiq ask`) | Search execution | Direct `spawn('workiq', ['ask'])` via stdin — proven more reliable than wrapping Work IQ in another AI layer |
 
 ---
 
@@ -48,9 +56,9 @@ Build a local, single-page HTML application that helps the user stay on top of a
 | Component | Technology | Why |
 |---|---|---|
 | **Frontend** | Single HTML file (HTML + CSS + JS) | Simple, no build step, consistent with existing projects |
-| **Backend** | Node.js server (Express, ES Modules) | Required to run Copilot SDK and Work IQ MCP. Uses `"type": "module"` in package.json for ESM compatibility with the Copilot SDK |
-| **AI Engine** | GitHub Copilot SDK (`@github/copilot-sdk`) | Reuses the same Copilot reasoning engine — no need to rebuild AI logic |
-| **M365 Access** | Work IQ MCP (`@microsoft/workiq`) | Already installed (v0.2.8), EULA accepted, token active |
+| **Backend** | Node.js server (Express, ES Modules) | Required to run Copilot SDK and Work IQ. Uses `"type": "module"` in package.json for ESM compatibility |
+| **AI Engine** | GitHub Copilot SDK (`@github/copilot-sdk`) | AI reasoning for intent classification, scan analysis, summarization |
+| **M365 Access** | Work IQ (`@microsoft/workiq`) | Installed globally (v0.2.8+), provides access to M365 emails and Teams via MCP or CLI |
 | **Data Storage** | Local JSON file (`tasks.json`) | Simplest possible persistence, easy to inspect and debug |
 | **Deep Links** | Outlook `outlook://` protocol links | Opens referenced emails directly in Outlook desktop app |
 
@@ -68,735 +76,480 @@ First-time setup:
 2. `workiq accept-eula` (accept Work IQ terms, one-time)
 3. Verify M365 access: `workiq ask -q "Show my latest emails"`
 
+### 3.2 Dependencies (package.json)
+
+| Package | Version | Purpose |
+|---|---|---|
+| `express` | ^5.2.1 | HTTP server and REST API |
+| `@github/copilot-sdk` | ^0.1.25 | AI reasoning engine (Copilot SDK) |
+| `uuid` | ^13.0.0 | UUID generation for task IDs |
+
+**Note:** `@microsoft/workiq` is installed globally, not as a project dependency.
+
 ---
 
 ## 4. Features
 
-### 4.1 Scan Trigger (Manual)
+### 4.1 Scan Trigger
 
-- A prominent button on the page labeled **"Scan Emails & Teams"**
-- When clicked, the backend:
-  1. Reads existing active tasks from `tasks.json` (for context-aware matching — see 4.7)
-  2. Calls Work IQ via Copilot SDK to scan the last 4 days of emails and Teams chats
+- A prominent **"Scan Emails & Teams"** button in the header
+- **Configurable scan range:** slider (1–14 days, default 4) persisted in `localStorage`
+- The scan days value is sent in the request body: `{ scanDays: <number> }`
+- When triggered, the backend:
+  1. Reads existing tasks from `tasks.json` (active + done for dedup context)
+  2. Calls Work IQ via Copilot SDK (MCP session) to scan emails and Teams
   3. AI identifies action items AND matches them against existing tasks (semantic dedup)
-  4. **New items** → added to the list
-  5. **Matched items with changes** → existing task updated + history entry
+  4. **New items** → added with status `new`
+  5. **Matched items with changes** → existing task updated + `scan-update` history entry
   6. **Matched items without changes** → skipped
-  7. Returns the updated list to the frontend
-- While scanning, the UI shows a loading indicator with status text (e.g., "Scanning emails..." → "Scanning Teams..." → "Analyzing action items...")
-- The scan button is disabled during scanning (text changes to "Scanning...") to prevent concurrent scans
-- After a scan completes, a notification toast shows the result (e.g., "Scan complete: 3 new tasks added, 2 duplicates skipped")
-- Future enhancement: replace manual trigger with automated daily scheduler
+  7. **Items matching done tasks** → action `skip`, not re-created
+  8. Returns updated counts to frontend
+- **Non-blocking scan banner:** inline bar below header (not fullscreen overlay) with:
+  - Spinner + animated progress steps (9 steps from "Connecting to AI engine..." to "Hang tight — finalizing...")
+  - Elapsed time counter (`⏱ MM:SS`)
+  - Timeout warning at 90 seconds (amber color)
+- Scan button disabled during scan (text changes to "Scanning...")
+- After completion: notification toast with result summary
+- Scan prompt uses `SCAN_SKILL.md` if available, with fallback to inline prompt
 
 ### 4.2 Task List Display
 
-Each task is displayed as a card or table row with:
+Each task is displayed as a card with:
 
 | Field | Description |
 |---|---|
 | **Title** | Short description of the action item |
-| **Source** | "Email" or "Teams" badge |
+| **Source** | "Email", "Teams", or "Manual" badge (color-coded) |
 | **From** | Sender / person who assigned the task |
 | **Date** | When the original message was sent |
-| **Link** | Clickable link that opens the original email in Outlook or the Teams message in Teams |
-| **Status** | Current status (see 4.3) |
-| **Status Controls** | Buttons/dropdown to change status |
+| **Link** | Clickable "Open source ↗" link (if available) |
+| **Notes** | Optional notes (italic, below title) |
+| **Status** | Dropdown selector (6 statuses, see 4.3) |
 
-The list should be sorted by: Status (active first) → Date (newest first).
+### 4.3 Status System (6 Statuses)
 
-The sort groups tasks by status priority (Active → In Progress → Paused → Done), then within each group by `createdAt` timestamp in descending order (newest first).
+| Status | Emoji | Color | Priority | Description |
+|---|---|---|---|---|
+| `needs-attention` | 🔴 | Red (#ef4444) | 0 | Requires immediate action |
+| `new` | 🆕 | Blue (#60a5fa) | 1 | Default for scan results and manual creation |
+| `escalated` | 🚨 | Orange (#f97316) | 2 | Escalated to higher priority |
+| `in-progress` | 🟡 | Yellow (#fbbf24) | 3 | Currently being worked on |
+| `paused` | ⏸️ | Gray (#9ca3af) | 4 | Temporarily on hold |
+| `done` | ✅ | Green (#34d399) | 5 | Completed |
 
-### 4.3 Task Status Management
+**Sort order:** Priority ascending (needs-attention first), then `createdAt` descending within same status.
 
-Each task has one of four statuses:
+**Status migration:** On server startup, `migrateStatuses()` converts any legacy `active` status to `new`.
 
-| Status | Icon | Meaning |
-|---|---|---|
-| **Active** | 🔵 | Needs to be worked on |
-| **In Progress** | 🟡 | Currently being worked on |
-| **Done** | ✅ | Completed |
-| **Paused** | ⏸️ | Temporarily on hold |
-
-**Status transitions — all directions are allowed:**
-- Any status can be changed to any other status at any time
-- This is intentional: the user may need to reopen a "Done" task or pause an "Active" one
-- Status changes are saved immediately to `tasks.json`
-- The PATCH endpoint validates status values server-side — only `active`, `in-progress`, `done`, and `paused` are accepted (returns 400 for invalid values)
+**Valid status transitions:** Any status can transition to any other status (no restrictions).
 
 ### 4.4 Manual Task Creation
 
-- A form or input area to manually add tasks
-- Required fields: **Title** (free text)
-- Optional fields: **Notes** (free text)
-- Manual tasks are marked with a "Manual" badge instead of "Email" or "Teams"
-- Manual tasks have no source link
+- Input form at the bottom of the page: title (required) + notes (optional)
+- Created with `source: 'manual'`, `status: 'new'`, `from: null`, `date: null`
+- History entry: `{ type: 'created', text: 'Task created manually' }`
+- Add Task button disabled when server is offline
 
-### 4.5 Deep Links to Source Messages
+### 4.5 Task Deletion
 
-- **Emails:** Use the Outlook protocol handler (`outlook://` or `https://outlook.office.com/mail/deeplink/...`) to open the original email
-- **Teams messages:** Use the Teams deep link format (`https://teams.microsoft.com/l/message/...`) to open the original message
-- Links open in a **new tab/window**
-- Work IQ must provide the message ID or URL when extracting action items — this is critical for deep linking
+- Red ✕ button on each task card
+- `DELETE /api/tasks/:id` removes the task from `tasks.json`
+- If another task has an active agent (`busyTaskIds`), deletion uses minimal DOM update (removes card without full re-render)
 
-### 4.6 Data Persistence (tasks.json)
+### 4.6 Filter Bar
+
+- 7 filter buttons: All, 🔴 Attention, 🆕 New, 🚨 Escalated, 🟡 In Progress, ⏸️ Paused, ✅ Done
+- Dynamic badge counts updated on each render (only visible tasks counted)
+- Active filter highlighted with blue border
+- Task count display: `"X of Y tasks"`
+
+### 4.7 Deduplication (3-Layer)
+
+1. **AI Context Dedup:** Active + done tasks (up to 50 active + 30 done) included in scan prompt so AI can return `action: "skip"` or `action: "update"` with `existingId`
+2. **Action-Based Dedup:** Items with `action: "skip"` are counted as skipped. Items with `action: "update"` update the matched existing task
+3. **Jaccard Safety-Net:** All new items are checked against ALL existing tasks using word-level Jaccard similarity (threshold > 0.7). If similar, the item is skipped with a console warning
+
+**Backward compatibility:** Items without an `action` field use legacy dedup logic (match by `link`, then by `title + from + source`).
+
+### 4.8 Task Interaction Panel
+
+Each task card is clickable — clicking the title/meta area toggles an **Interaction Panel** below the card:
+
+- **Conversations:** Chat-like display of all `update` and `note` history entries (chronological order, oldest first)
+- **Input form:** Text input + 3 buttons:
+  - **📤 Send** — sends to AI agent for analysis (`analyzeLog`)
+  - **📝 Note** — saves directly as note (no agent interaction)
+  - **▶ Execute** — appears in plan UI after search intent analysis
+- **Plan display:** Shows search plan details (understanding, from, keywords, time window, targets) with Execute/Cancel buttons
+- **Clarification:** If agent sets `needsClarification: true`, shows a follow-up input
+- **Details toggle:** Expandable section showing execution trace (4-step: Auftrag → Gesendet → Antwort → Ergebnis) and system events
+
+**Visual indicators:**
+- **Neon-pink border** (`.has-content`): Task has conversation entries
+- **Green border + pulse animation** (`.agent-busy`): Task has active agent work
+- **Green background** (`.active-panel`): Panel is currently open
+
+### 4.9 Intent-Based Agent (3 Intents)
+
+The agent uses a two-phase approach:
+
+**Phase 1 — Analyze** (`POST /api/tasks/:id/log/analyze`):
+- Uses Copilot SDK **without** Work IQ MCP (fast, AI reasoning only, ~5–15s)
+- Determines one of 3 intents based on user message + task context + conversation history
+
+| Intent | Trigger Examples | Behavior | Requires Execute? |
+|---|---|---|---|
+| `summarize` | "fasse zusammen", "summarize this", "key points" | AI summarizes the content provided in the message | No — result saved immediately |
+| `answer` | "bis wann?", "what's the deadline?", "who is responsible?" | AI answers from task context + conversation history | No — result saved immediately |
+| `search` | "find emails from", "was hat X geschrieben?", "check inbox" | AI returns a search plan with parameters | Yes — user must click Execute |
+
+**Conversation context:** Last 8 history entries of type `update` or `note` are included in the analyze prompt, with full details (user text, agent intent, understanding, communications).
+
+**Phase 2 — Execute** (`POST /api/tasks/:id/log`):
+- Only for `search` intent, triggered by user clicking Execute
+- Uses **Work IQ CLI** (`workiq ask` via stdin) for M365 data access — direct spawn, not wrapped in Copilot SDK
+- Builds a natural language search question from the plan parameters (`buildSearchQuestion()`)
+- Timeout: 90 seconds for `workiq ask`
+- Parses response as JSON, or falls back to Markdown email parser (`parseMarkdownEmails()`)
+- Generates `agentResponse` summary server-side (see 4.13)
+- Falls back to Copilot SDK + MCP if no plan is provided
+
+**Deterministic fallback:** If AI analysis fails, `extractKeywords()` generates a search plan from the task title (stop-word removal), with default time window from task date to today.
+
+### 4.10 Auto-Cleanup
+
+- Done tasks older than 3 days (based on `doneAt` timestamp) are hidden from the UI during `renderTasks()`
+- Tasks are NOT deleted from `tasks.json` — only hidden from display
+- Filter badge counts use only visible tasks
+
+### 4.11 Server Status Detection
+
+- `checkServerHealth()` with `AbortController` (3-second timeout) on `/api/tasks`
+- **Offline banner** (amber) with startup instructions:
+  - Option 1: Double-click `START-DAILY-BRIEFING.bat`
+  - Option 2: Terminal command `cd E:\Work_IQ\Daily_Tasks && node server.js`
+- **Auto-reconnect polling** every 5 seconds when offline
+- **Reconnect notification:** "✅ Server verbunden" when connection is restored
+- **Status dot** in header (12px circle):
+  - 🟢 Green when online, 🔴 Red when offline
+  - CSS-only tooltip on hover showing architecture info (online: Express, Copilot SDK, Work IQ, tasks.json; offline: startup instructions)
+- Scan and Add Task buttons disabled when offline
+- `btn.disabled = !serverOnline` in `triggerScan()` finally block (not hardcoded `false`)
+
+### 4.12 History System
+
+Each task has a `history[]` array with entries of different types:
+
+| Type | Created By | Deletable? | Description |
+|---|---|---|---|
+| `created` | Scan or manual creation | No | Initial creation event |
+| `status-change` | Status dropdown change | No | Records old → new status |
+| `scan-update` | Re-scan matching | No | Records field changes from scan |
+| `update` | Agent interaction (Send) | Yes | User message + agent response |
+| `note` | Note button | Yes | User-saved note (no agent) |
+
+**History deletion:** `DELETE /api/tasks/:id/history/:index` — only `update` and `note` types can be deleted (system entries are protected with HTTP 403). Each conversation entry has a 🗑️ button (low opacity, visible on hover).
+
+### 4.13 Agent Response (agentResponse)
+
+The `agentResponse` field is generated **server-side** after search execution completes (`POST /api/tasks/:id/log`):
+
+| Condition | agentResponse Content |
+|---|---|
+| Search error | `❌ Die Suche ist fehlgeschlagen: <error>` |
+| Communications found | `✅ N Kommunikation(en) gefunden:\n\n` + numbered list with icons, senders, dates, summaries |
+| Raw text but no structured data | The raw Work IQ response text (natural language) |
+| No results | `🔍 Keine Ergebnisse gefunden...` with suggestion to retry with different terms |
+
+**Frontend display:** For search intents, `renderConversations()` shows `agentResponse` (final result) instead of `understanding` (plan). For summarize/answer intents, `understanding` contains the direct result.
+
+### 4.14 Execution Tracing
+
+Every search execution saves an `agentExecution` object:
+
+```json
+{
+  "promptSent": "<search question sent to Work IQ>",
+  "rawResponse": "<first 8000 chars of Work IQ response>",
+  "parsedCount": 3,
+  "error": null,
+  "durationMs": 45200,
+  "method": "workiq-ask"
+}
+```
+
+**Methods:** `workiq-ask` (direct CLI) or `copilot-sdk-mcp` (fallback via Copilot SDK).
+
+The Details panel renders execution trace in 4 numbered steps:
+1. **1️⃣ Auftrag** — Agent plan (understanding, keywords, time window, targets)
+2. **2️⃣ Gesendet an Work IQ** — The prompt/question sent, with method label
+3. **3️⃣ Antwort von Work IQ** — Raw response (truncated to 800 chars) with duration, or error
+4. **4️⃣ Ergebnis für Benutzer** — Parsed communications list, or natural language fallback
+
+### 4.15 Link Open Mode
+
+Header selector with 4 modes (persisted in `localStorage`):
+
+| Mode | Icon | Behavior |
+|---|---|---|
+| `window` | 🪟 | Opens link in new browser window (default) |
+| `tab` | 📑 | Opens link in new tab |
+| `split` | ◧ | Moves Agent Zero to left half, opens link in right half (50/50) |
+| `incognito` | 🕶️ | Attempts private window (falls back to regular window with notification) |
+
+### 4.16 Collapsible Conversations
+
+- Messages longer than 120 characters get a toggle arrow (▼/▶)
+- Collapsed state stored per entry in `collapsedEntries` Set (persisted in `localStorage`)
+- Both user messages and agent responses can be independently collapsed
+- Preview shows first meaningful line, truncated to 80 characters
+
+### 4.17 Lightweight Markdown Renderer
+
+The `renderMarkdown()` function converts agent responses to HTML:
+
+| Markdown | HTML |
+|---|---|
+| `## Heading` | `<h2>` |
+| `### Heading` | `<h3>` |
+| `**bold**` | `<strong>` |
+| `*italic*` | `<em>` |
+| `` `code` `` | `<code>` |
+| `- item` | `<li>` in `<ul>` |
+| Double newline | `</p><p>` |
+| Single newline | `<br>` |
+
+Tables are rendered via CSS styling on `.agent-msg-bot table` elements.
+
+### 4.18 Progress Feedback (Search Execution)
+
+When the user clicks Execute, the plan UI shows live status updates:
+1. **📤 Sending search to Work IQ...** — immediately
+2. **⏳ Waiting for system response...** — after 10 seconds (if still running)
+3. **✅ Done — N communication(s) found** — on success
+4. **🔍 No communications found** — on empty result
+5. **❌ Search failed: ...** — on error
+
+### 4.19 Concurrency
+
+- **Write queue** (`safeWriteTasks()`): All mutations go through a sequential promise chain to prevent concurrent file writes
+- **Busy task tracking** (`busyTaskIds` Set): When an agent is working on a task:
+  - Card gets green border + pulse animation
+  - Status changes on OTHER tasks use inline DOM updates (no full re-render)
+  - Task deletion uses minimal DOM removal
+- **Multiple concurrent agents:** Multiple tasks can have active agent work simultaneously
+- **Panel persistence** (`openPanelTaskIds`): Open panels survive `fetchTasks()` re-renders, restored from `localStorage`
+- **Pending plan restoration:** After re-render, pending search plans are re-displayed for open panels
+
+---
+
+## 5. Data Schema (v2)
+
+### 5.1 tasks.json Structure
 
 ```json
 {
   "version": 2,
-  "lastScan": "2026-02-24T07:00:00.000Z",
-  "tasks": [
-    {
-      "id": "uuid-v4",
-      "title": "Review Q1 budget proposal",
-      "source": "email",
-      "from": "Sarah Johnson",
-      "date": "2026-02-22T14:30:00.000Z",
-      "link": "https://outlook.office.com/mail/deeplink/...",
-      "status": "active",
-      "notes": "",
-      "history": [
-        {
-          "timestamp": "2026-02-23T07:01:00.000Z",
-          "type": "created",
-          "text": "Task created from email scan"
-        },
-        {
-          "timestamp": "2026-02-24T09:15:00.000Z",
-          "type": "update",
-          "text": "Emailed Sarah with revised numbers",
-          "communications": [
-            {
-              "type": "email",
-              "from": "Martin Hämmerli",
-              "to": "Sarah Johnson",
-              "date": "2026-02-24T09:10:00.000Z",
-              "summary": "Sent revised Q1 budget numbers with updated travel costs",
-              "link": "https://outlook.office.com/mail/deeplink/..."
-            }
-          ]
-        }
-      ],
-      "doneAt": null,
-      "createdAt": "2026-02-23T07:01:00.000Z",
-      "updatedAt": "2026-02-24T09:15:00.000Z"
-    }
-  ]
+  "lastScan": "2026-02-26T10:30:00.000Z",
+  "tasks": [ ... ]
 }
 ```
 
-**Schema changes from v1:**
-- `version`: Bumped from 1 to 2
-- `history`: New array field on each task (see 4.12)
-- `doneAt`: ISO timestamp when task was set to "done" (null otherwise, used for auto-cleanup — see 4.13)
-- **Migration:** On first load, if `version === 1`, the server auto-migrates: adds empty `history: []` and `doneAt: null` to each task, sets `version: 2`
+### 5.2 Task Object
 
-### 4.7 Duplicate Detection & Smart Task Updates on Re-Scan (v1.3)
-
-When scanning, the system uses **AI-powered context-aware matching** to prevent duplicates and intelligently update existing tasks.
-
-#### Core Principle: Context-Aware Scan
-
-The AI receives the list of existing active tasks as context in the scan prompt, combined with instructions from `Documents/SCAN_SKILL.md`. This allows the AI to semantically match new findings against known tasks — not just by exact string comparison, but by understanding that e.g. "SAP Invoice 5735236948 pending approval" and "Please approve invoice #5735236948" refer to the same action item.
-
-#### Skill File
-
-The scan prompt is built from two parts:
-1. **`Documents/SCAN_SKILL.md`** — static instructions defining matching rules, response format, and quality guidelines. Loaded once at server start.
-2. **Dynamic context** — existing active tasks (JSON) + scan instruction with time range.
-
-This separation allows the Architect to refine AI behavior by editing the skill file, without requiring code changes.
-
-#### Scan Prompt Structure
-
-```
-<contents of SCAN_SKILL.md>
-
-EXISTING TASKS:
-[
-  {"id":"abc-123","title":"Approve SAP Invoice 5735236948","source":"email","from":"John"},
-  {"id":"def-456","title":"Review Q1 budget proposal","source":"teams","from":"Sarah"}
-]
-
-Scan my emails and Teams messages from the last 4 days.
-For each action item found, decide: action "update" (with existingId) or "new".
-```
-
-#### Context Limits
-
-- Only `active` and `in-progress` tasks are included (not done/paused)
-- Maximum 50 tasks in the context (newest first by `createdAt`)
-- Only `id`, `title`, `source`, `from` per task (minimal token usage)
-
-#### AI Response Format
-
-```json
-[
-  { "action": "new", "title": "...", "source": "email", "from": "...", "date": "...", "link": "..." },
-  { "action": "update", "existingId": "abc-123", "changes": { "date": "2026-03-01" }, "reason": "Follow-up email with updated deadline" }
-]
-```
-
-#### Server-Side Processing
-
-For each item in the AI response:
-
-| `action` | Server behavior |
-|---|---|
-| `"new"` | Safety-Net check (see below), then create task if no match |
-| `"update"` | Find task by `existingId`, merge changed fields, add history entry with `reason` |
-| *(no action field)* | **Backward-compatibility fallback:** Use old logic (link-match, then title+from+source exact match) |
-
-#### Updatable Fields
-
-| Field | Updatebar | Notes |
+| Field | Type | Description |
 |---|---|---|
-| `title` | ✅ | AI provides improved/current title |
-| `date` | ✅ | New deadline from follow-up message |
-| `link` | ✅ | More recent link (e.g., latest reply in thread) |
-| `from` | ❌ | Original sender preserved; new sender logged in history reason |
-| `source` | ❌ | Original source type preserved |
-| `status` | ❌ | Only manually changeable by user |
+| `id` | string (UUID) | Unique identifier |
+| `title` | string | Action item description |
+| `source` | string | `"email"`, `"teams"`, or `"manual"` |
+| `from` | string \| null | Sender name |
+| `date` | string \| null | Original message date (ISO 8601) |
+| `link` | string \| null | Deep link to original message |
+| `status` | string | One of 6 statuses (see 4.3) |
+| `notes` | string | Free-text notes |
+| `history` | HistoryEntry[] | Array of history entries |
+| `doneAt` | string \| null | ISO timestamp when status changed to done |
+| `createdAt` | string | ISO timestamp of creation |
+| `updatedAt` | string | ISO timestamp of last modification |
 
-#### History Entry for Updates
+### 5.3 HistoryEntry Object
 
-When an existing task is updated via scan:
-```json
-{
-  "timestamp": "2026-02-25T08:00:00.000Z",
-  "type": "scan-update",
-  "text": "Updated by scan: Follow-up email with updated deadline (date: 2026-02-20 → 2026-03-01)"
-}
-```
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `timestamp` | string | Yes | ISO 8601 timestamp |
+| `type` | string | Yes | `"created"`, `"status-change"`, `"scan-update"`, `"update"`, `"note"` |
+| `text` | string | Yes | User message or system description |
+| `communications` | Communication[] | No | Found emails/messages (search results) |
+| `agentPlan` | AgentPlan | No | AI analysis result |
+| `agentResponse` | string | No | Final formatted result after search (see 4.13) |
+| `agentExecution` | AgentExecution | No | Execution trace metadata (see 4.14) |
 
-#### Safety-Net Dedup (Server-Side Fallback)
+### 5.4 AgentPlan Object
 
-After AI matching, the server applies an additional **word-level similarity check** as a last defense against duplicates:
-
-1. Normalize both titles: lowercase, remove punctuation, collapse whitespace
-2. Calculate **Jaccard similarity** on word sets: `|intersection| / |union|`
-3. If similarity > **0.7** (70% word overlap): treat as duplicate, skip with warning log
-4. This catches edge cases where the AI misses a match
-
-#### Response to Frontend
-
-```json
-{ "success": true, "added": 2, "updated": 1, "skipped": 3, "total": 15, "lastScan": "..." }
-```
-
-### 4.8 Notification Toast System
-
-- Non-blocking slide-in notifications appear in the top-right corner
-- Two variants: **success** (green) and **error** (red), styled consistently with the dark theme
-- Auto-dismiss after 5 seconds, or manually dismissable via ✕ button
-- Used for scan results, error messages, and status feedback
-- Only one notification visible at a time (new notification replaces previous)
-
-### 4.9 Error Handling (User-Facing)
-
-The frontend translates technical errors into human-readable messages via `friendlyError()`:
-
-| Error Condition | User Message |
-|---|---|
-| Authentication/token expired | "Authentication expired — please run `workiq accept-eula` in your terminal and try again." |
-| Work IQ not installed/not found | "Could not start Work IQ. Make sure it is installed globally (`npm i -g @microsoft/workiq`)." |
-| Scan timeout (120s) | "Scan timed out — your mailbox may be very large. Please try again." |
-| No AI response | "No response from AI engine. Check your GitHub Copilot authentication." |
-| Malformed AI response | "The AI returned an unexpected response. Please try scanning again." |
-| Network/server unreachable | "Cannot reach the server. Is it still running?" |
-
-### 4.10 Filter Badge Counts
-
-Each status filter button dynamically displays the number of tasks in that status:
-- Example: "🔵 Active (3)", "✅ Done (5)"
-- Counts update automatically after every task mutation (add, update, delete, scan)
-- If a status has zero tasks, the count is hidden (e.g., just "⏸️ Paused")
-
-### 4.11 Server Status Detection
-
-The frontend detects whether the backend server is running and provides clear feedback:
-
-- **Health Check on Load:** `checkServerHealth()` performs a `fetch('/api/tasks')` with a 3-second `AbortController` timeout
-- **Offline Banner:** A prominent amber banner appears in the main area when the server is unreachable, with instructions to start the server (BAT file or manual command)
-- **Auto-Reconnect:** When offline, a polling timer (every 5 seconds) retries the health check automatically. On reconnection, the banner disappears, tasks are loaded, and a "✅ Server verbunden" notification is shown
-- **Status Dot:** A small colored dot in the header indicates server status (🟢 green = online, 🔴 red = offline)
-- **Button Protection:** The "Scan Emails & Teams" and "Add Task" submit buttons are disabled with tooltip "Server nicht erreichbar" when the server is offline
-
-### 4.12 Task History (v1.2)
-
-Every task has a `history` array that tracks all changes and activities over time. The history is the "logbook" of a task.
-
-**History entry schema:**
-```json
-{
-  "timestamp": "ISO 8601",
-  "type": "created | status-change | update | scan-update | note | communication",
-  "text": "Human-readable summary of what happened",
-  "communications": [],
-  "agentPlan": null,
-  "agentExecution": null
-}
-```
-
-The `agentPlan` field (v1.4, optional) records the analysis phase — what the agent understood:
-
-```json
-{
-  "agentPlan": {
-    "understanding": "What the agent understood from the user's request",
-    "keywords": ["search", "terms"],
-    "timeWindow": { "from": "...", "to": "...", "reasoning": "..." },
-    "searchTargets": "inbox",
-    "userConfirmed": true,
-    "fallback": false
-  }
-}
-```
-
-The `agentExecution` field (v1.4, optional) records the execution phase — what was sent, what came back, and the result:
-
-```json
-{
-  "agentExecution": {
-    "promptSent": "The question/prompt sent to Work IQ (natural language question or dynamic context)",
-    "rawResponse": "The raw text response from Work IQ (truncated to 2000 chars if longer)",
-    "parsedCount": 3,
-    "error": null,
-    "durationMs": 45230,
-    "method": "workiq-ask"
-  }
-}
-```
-
-The `method` field indicates which search approach was used:
-- `"workiq-ask"` — Direct `workiq ask` CLI call (v1.4, when plan exists)
-- `"copilot-sdk-mcp"` — Copilot SDK + Work IQ MCP (v1.3 fallback, when no plan exists)
-
-Together, these two fields provide **full transparency** of the agent pipeline:
-```
-agentPlan        → What the agent UNDERSTOOD (analysis phase)
-agentExecution   → What the agent SENT and what came BACK (execution phase)
-communications   → What the agent EXTRACTED from the response (final result)
-```
-
-**Entry types:**
-| Type | When created | Example text |
+| Field | Type | Description |
 |---|---|---|
-| `created` | Task is first created (scan or manual) | "Task created from email scan" |
-| `status-change` | User changes task status | "Status changed: active → in-progress" |
-| `update` | User adds a work log (see 4.14) | "Emailed Sarah with revised numbers" |
-| `scan-update` | Re-scan detects changes to existing task | "Updated by scan: title changed" |
-| `note` | User adds a note manually | "Need to follow up by Friday" |
-| `communication` | AI found linked communication (see 4.14) | "Found email to Sarah Johnson" |
+| `intent` | string | `"summarize"`, `"search"`, or `"answer"` |
+| `understanding` | string | For search: action plan description. For summarize/answer: the result text |
+| `searchFrom` | string \| null | Person name, email domain, or null |
+| `keywords` | string[] | Search terms (only used if searchFrom is null) |
+| `timeWindow` | object | `{ from, to, reasoning }` |
+| `searchTargets` | string | `"inbox"`, `"sent"`, `"teams"`, or `"all"` |
+| `needsClarification` | boolean | Whether agent needs more info |
+| `clarificationQuestion` | string \| null | Follow-up question if clarification needed |
+| `userConfirmed` | boolean | Set to `true` when user clicks Execute (only on saved entries) |
+| `fallback` | boolean | `true` if deterministic fallback was used |
 
-**UI Display (v1.4 — Chat-Style Task Interaction Panel):**
+### 5.5 AgentExecution Object
 
-Clicking on a task card opens an **interaction panel** directly below the card header. This panel is the primary workspace for the task — NOT the old "History" button.
-
-```
-┌─ Task Card (always visible) ───────────────────────────────────────────────┐
-│ Modern Invoice – SAP Invoice 5735236948...        🟡 In Progress    ✕     │
-│ Email · from MSApprovalNotifications · 20.02.2026  Open source ↗         │
-├─ Interaction Panel (opens on click) ───────────────────────────────────────┤
-│                                                                            │
-│  📝 User: "Ich habe Eors nach einer Antwort gefragt. Suche in meiner     │
-│      Inbox nach seiner Antwort."                                          │
-│  🤖 Agent: "Es geht um ein Pending Approval für SAP Invoice 5735236948.  │
-│      Du hast Eörs gefragt, wie du vorgehen sollst. Ich werde in deiner   │
-│      Inbox nach Antworten von Eörs suchen, die diese Invoice-Nummer      │
-│      erwähnen. Falls ich etwas finde, fasse ich es zusammen."            │
-│  ✅ User confirmed                                                        │
-│  📧 Eörs → Martin (22.02.) — "Eörs bestätigt, dass GR ausgelöst         │
-│      werden kann" [Open ↗]                                                │
-│                                                                            │
-│  [What did you do? ___________________________] [🔍 Analyze]              │
-│                                                                            │
-│  [▶ Details]                                                               │
-│    🔑 SAP Invoice 5735236948, PO 0101439547, Eörs                         │
-│    📅 2026-02-20 → now                                                     │
-│    🎯 inbox                                                                │
-│    ─────────────────────────────────────────                               │
-│    24.02. ➕ Task created from email scan                                  │
-│    25.02. ✅ Status changed: active → in-progress                          │
-└────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Layout rules:**
-1. **Clicking the task card header** toggles the interaction panel (replaces old History toggle)
-2. The old "📜 History" button is REMOVED — the interaction panel replaces it
-3. **Agent conversations** (type "update" entries with agentPlan) are displayed chat-style:
-   - 📝 User's message (what they typed)
-   - 🤖 Agent's understanding (from agentPlan.understanding)
-   - ✅ "User confirmed" or ⚠️ "(auto-generated)" if fallback
-   - 📧/💬 Each communication found (summary + link)
-   - Or "🔍 No communications found" if empty
-4. Agent conversations are shown in **chronological order** (oldest first) — this reads like a chat
-5. The **Log input** (✏️ Log) is always visible at the bottom of the panel (no separate toggle needed)
-6. **"▶ Details" toggle** at the very bottom — expands to show a **4-step pipeline story** per agent interaction:
-   - 1️⃣ **Auftrag** — What the agent understood: plan understanding + keywords + time window + target
-   - 2️⃣ **Gesendet an Work IQ** — The search parameters actually sent to the AI system
-   - 3️⃣ **Antwort von Work IQ** — Raw system response (truncated >500 chars) or error message, with duration in seconds
-   - 4️⃣ **Ergebnis für Benutzer** — Count of extracted communications + from→to summary per message, or "Keine Kommunikationen gefunden"
-   - System events: created, status-change, scan-update (the old history entries)
-   - This pipeline view tells the complete story: who sent what to whom, how the system responded, and what the user sees as a result
-   - These are useful for debugging but NOT the primary view
-7. The interaction panel should be **generously sized** — no cramped layout
-8. Multiple entries stack vertically (chat-like, chronological)
-9. **Panel persistence:** When a log entry is submitted and `fetchTasks()` re-renders, the currently open panel MUST re-open automatically. Store the open panel's `taskId` before re-rendering, then re-open it after DOM update.
-10. **Real-time progress feedback:** During the entire two-phase agent flow, the user MUST see step-by-step status updates in the panel. No silent spinners. The flow is:
-    ```
-    Phase 1: "🤔 Agent is analyzing your request..."
-             → Plan displayed (user confirms/cancels)
-    Phase 2: "📤 Sending search to Work IQ..."
-             → "⏳ Waiting for system response..." (after 10s)
-             → "✅ Done — X communication(s) found" or "🔍 No communications found"
-             → New history entry appears in panel (panel stays open)
-    Error:   "❌ Search timed out after 90s" or "❌ Connection failed: ..."
-    ```
-    These status messages appear IN the plan area of the panel (replacing the spinner). The user stays informed at every stage.
-11. **History entry deletion:** Each agent conversation (type "update") in the interaction panel has a **🗑️ delete button** (top-right corner of the conversation block). Clicking it:
-    - Shows a confirmation: `"Delete this entry and all associated data?"` with `[Yes, delete]` and `[Cancel]`
-    - On confirm: `DELETE /api/tasks/:taskId/history/:index`
-    - The server removes the ENTIRE history entry at that index — including `agentPlan`, `agentExecution`, `communications`, and `text`
-    - Other history entries are NOT affected (the array is spliced, not rewritten)
-    - After deletion, `fetchTasks()` re-renders with the panel still open (same persistence as rule 9)
-    - **System events** (type "created", "status-change", "scan-update") do NOT have delete buttons — these are immutable audit entries
-
-### 4.13 Auto-Cleanup of Done Tasks (v1.2)
-
-Tasks with status "done" remain visible for **3 days** after being marked done, then automatically disappear from the UI:
-
-- When a task is set to "done", record `doneAt: <ISO timestamp>` on the task
-- When a task is moved **away** from "done" (e.g., back to "active"), reset `doneAt: null`
-- **Cleanup logic (frontend):** When rendering, filter out tasks where `status === 'done'` AND `doneAt` is older than 3 days. These tasks are NOT deleted from `tasks.json` — they are just hidden in the UI.
-- **Filter behavior:** The "✅ Done" filter only shows done tasks that are still within the 3-day window
-- **Optional server-side purge:** A future enhancement could periodically remove old done tasks from `tasks.json`. For v1.2, keep them in the file (they just don't render).
-
-### 4.14 AI-Powered Work Logging with Communication Search (v1.2, prompt improved v1.3, two-phase agent v1.4)
-
-When the user wants to log work on a task, the AI assists by finding and linking related communications.
-
-**Problem (v1.3):** The agent immediately executes a Work IQ search (~30–90 seconds) without explaining what it understood or what it will search for. If the prompt is imprecise or the search times out, the user gets no result and no explanation. The agent must be transparent.
-
-**Solution (v1.4): Two-Phase Flow — Analyze, then Execute**
-
-```
-Phase 1: ANALYZE (~5-15s, no Work IQ)       Phase 2: EXECUTE (after confirm, ~15-60s)
-┌────────────────────────────────────┐      ┌──────────────────────────────────────┐
-│ User types log text                │      │ User confirms/adjusts the plan       │
-│ → POST /api/tasks/:id/log/analyze  │      │ → POST /api/tasks/:id/log            │
-│ → Copilot SDK (NO Work IQ)        │      │ → workiq ask (direct CLI call)       │
-│ → AI analyzes intent, not data     │      │ → Natural language question from plan│
-│ → Returns structured search plan   │      │ → Saves history entry with results   │
-│ → Frontend shows plan to user      │      │                                      │
-└────────────────────────────────────┘      └──────────────────────────────────────┘
-```
-
-**Phase 1 — Analyze (fast, no M365 data access):**
-1. User clicks "✏️ Log" and types what they did
-2. Frontend sends `POST /api/tasks/:id/log/analyze { text }`
-3. Server creates a Copilot SDK session WITHOUT Work IQ MCP (just AI reasoning)
-4. AI receives task context + user's log text + analysis instructions
-5. AI returns a structured plan:
-   ```json
-   {
-     "understanding": "This is about a pending approval for SAP Invoice 5735236710, PO 0101439547. You asked several people for updates. I will search your inbox for recent replies that mention this invoice number or PO, starting from the task date (Feb 20). If I find replies, I will summarize them for you.",
-     "keywords": ["SAP Invoice 5735236710", "PO 0101439547"],
-     "timeWindow": {
-       "from": "2026-02-20",
-       "to": "now",
-       "reasoning": "You acted AFTER the task was created, so I search forward from the task date."
-     },
-     "searchTargets": "inbox",
-     "needsClarification": false,
-     "clarificationQuestion": null
-   }
-   ```
-   The `understanding` field is an **action plan**, not a rephrasing. It must describe: (1) the task context, (2) what the user did, (3) what the agent will do concretely, (4) what happens with results. Written in the user's language (German input → German response).
-6. If `needsClarification` is true: Frontend shows the question + input field for the user's answer. User answers → re-submit to `/analyze` with extended context (original text + answer appended).
-7. Frontend displays the plan visually: understanding, keywords, time window, search target.
-8. User has three options: **✅ Confirm** | **❌ Cancel**
-
-**Phase 2 — Execute (after user confirmation):**
-1. User clicks "✅ Search" to confirm the plan
-2. Frontend sends `POST /api/tasks/:id/log { text, plan }` — the enhanced log endpoint
-3. Server builds a **natural language question** from the confirmed plan using `buildSearchQuestion()`:
-   - **Person-focused queries** (proven most reliable): `"Find all emails from [person] in my [target] from the last N days (date-date)"`
-   - **Pure English only** — NO German user text mixed in (degrades Work IQ results)
-   - **NO topic keywords** — adding topic keywords like "NSSR or Cisco" causes Work IQ to return metadata-only responses without email content
-   - **NO JSON format request** — asking for JSON output triggers content filters
-   - **Explicit date range** in parentheses: `"from the last 7 days (February 19-26, 2026)"`
-   - Requests: `"subject line, date, and the full email body content. Order by date descending."`
-4. Server calls `workiq ask` via interactive stdin mode (`child_process.spawn`):
-   - Spawns `workiq ask` (without `-q`), writes question via stdin
-   - `-q` flag writes to TTY/Console directly, bypassing stdout — Node.js cannot capture it
-   - stdin mode writes to stdout → captured by Node.js
-   - Typical latency: 30-60s
-5. Server parses response using two-tier parser:
-   - First: `parseJsonFromResponse()` — tries JSON extraction
-   - Fallback: `parseMarkdownEmails()` — extracts structured data from Markdown `**Subject:**`, `**From:**`, `**Date:**` blocks separated by `---`
-6. Server saves history entry with communications array + execution trace (`agentExecution`)
-7. Frontend shows results
-
-**Why workiq ask instead of Copilot SDK + MCP (v1.4 decision):**
-```
-OLD (v1.3):  Copilot SDK → AI Model → Work IQ MCP → Search API → AI → parse
-NEW (v1.4):  workiq ask (stdin) → Work IQ AI → Search API → response → parse
-
-Benefits:
-- Simpler: 1 process instead of 3 (SDK + AI model + MCP server)
-- Faster: ~30-60s instead of ~30-120s
-- More reliable: Work IQ knows its own tools best
-- Proven: Same approach works perfectly in Copilot CLI sessions
-```
-
-**Query Design Rules (tested & verified Feb 26, 2026):**
-```
-✅ DO: "Find all emails from Jeff Duffield in my inbox from the last 7 days"
-❌ DON'T: "Search for messages about Jeff Duffield or NSSR or Cisco or SSD"
-❌ DON'T: "...Ich habe Jeff Duffield um Rat gefragt..."  (German text degrades results)
-❌ DON'T: "...Return as JSON array [{...}]"  (triggers content filters)
-
-Person-focused > keyword-focused
-Soft time refs ("last N days") > ISO dates (2026-02-24T00:00:00Z)
-Full body request > summary request
-```
-
-**Skill File Usage (v1.4):**
-```
-Phase 1 (Analyze):  Hardcoded analysis prompt (stable meta-prompt, no skill file)
-Phase 2 (Execute):  workiq ask with natural language question (no skill file needed)
-Fallback (no plan): Copilot SDK + MCP + LOG_WORK_SKILL.md (v1.3 backward-compat)
-```
-
-**Clarification Rules (embedded in analysis prompt):**
-- If user's log text is too vague to determine search intent → ask what they want to find
-- If task date is >30 days old → ask for a narrower time window
-- If user says they "reacted" to something → search AFTER task date (forward)
-- If user asks for "additional info/context" → search BEFORE task date (backward)
-- If direction is ambiguous → ask: "Should I search for communications before or after the task date?"
-- Always ask ONE specific question per clarification round
-
-**Frontend UI for the plan display:**
-```
-┌─ Agent's Plan ──────────────────────────────────────────┐
-│ 💡 Es geht um ein Pending Approval für SAP Invoice      │
-│    5735236710. Du hast Eörs nach einer Antwort gefragt. │
-│    Ich werde in deiner Inbox nach Emails von Eörs       │
-│    suchen, die diese Invoice-Nummer oder PO erwähnen.   │
-│    Falls ich etwas finde, fasse ich es für dich         │
-│    zusammen.                                             │
-│                                                         │
-│ Keywords: 5735236710, 0101439547, Eörs                  │
-│ Time: Feb 20 → today                                    │
-│ Target: Inbox emails                                    │
-│                                                         │
-│              [✅ Search]    [❌ Cancel]                   │
-└─────────────────────────────────────────────────────────┘
-```
-
-If the agent needs clarification:
-```
-┌─ Agent asks ────────────────────────────────────────────┐
-│ ❓ The task is from January 15, which is 40 days ago.    │
-│    In which timeframe should I search for replies?       │
-│                                                         │
-│    [________________________] [Send]                     │
-└─────────────────────────────────────────────────────────┘
-```
-
-**Fallback:** If the Copilot SDK analysis fails (e.g., timeout, no response), the server falls back to **deterministic analysis**: extract keywords from task title, set time window from task date to now, and present a basic plan to the user. The plan card shows `(auto-generated)` to indicate no AI analysis was performed.
-
-**API Endpoints (v1.4):**
-| Method | Endpoint | Description |
+| Field | Type | Description |
 |---|---|---|
-| `POST` | `/api/tasks/:id/log/analyze` | Phase 1: AI analyzes the log request, returns search plan |
-| `POST` | `/api/tasks/:id/log` | Phase 2: Execute search with confirmed plan, save history (enhanced, accepts optional `plan` field) |
-| `DELETE` | `/api/tasks/:id/history/:index` | Delete a single history entry by array index (removes entry + all metadata) |
+| `promptSent` | string | Search question sent to Work IQ |
+| `rawResponse` | string | Raw Work IQ response (first 8000 chars for workiq-ask, 2000 for SDK) |
+| `parsedCount` | number | Number of communications parsed |
+| `error` | string \| null | Error message if search failed |
+| `durationMs` | number | Search duration in milliseconds |
+| `method` | string | `"workiq-ask"` or `"copilot-sdk-mcp"` |
 
-**Request/Response — Analyze:**
-- Request: `{ "text": "Ich habe verschiedene Personen nach Updates angefragt" }`
-- Response: `{ "plan": { "understanding": "...", "keywords": [...], "timeWindow": {...}, "searchTargets": "...", "needsClarification": false, "clarificationQuestion": null } }`
-- Clarification re-submit: `{ "text": "Original text. Additional context: last 2 weeks" }`
+### 5.6 Communication Object
 
-**Request/Response — Execute (enhanced):**
-- Request: `{ "text": "...", "plan": { "keywords": [...], "timeWindow": {...}, "searchTargets": "..." } }`
-- Response: Updated task object with new history entry containing communications
-- If `plan` is omitted: falls back to v1.3 behavior (direct search without analysis step)
-
-**Request/Response — Delete History Entry:**
-- Request: no body
-- Response (200): Updated task object with the entry removed from history array
-- Response (400): `{ "error": "Invalid history index" }` — if index is out of bounds or not a number
-- Response (404): `{ "error": "Task not found" }`
-- **Safety:** Only entries with `type === "update"` may be deleted via this endpoint. Attempts to delete system entries (`created`, `status-change`, `scan-update`) return `{ "error": "System entries cannot be deleted" }` (403)
-
-### 4.15 Parallel Task Operations (v1.2)
-
-The user must be able to work on multiple tasks simultaneously without blocking:
-
-- **Logging work on task A** while **browsing/editing task B** must work without conflict
-- Each `/api/tasks/:id/log` call is scoped to one task ID — no global lock
-- The frontend must NOT use a full-screen overlay for log operations (only for the initial scan)
-- **Per-task loading state:** Each task card manages its own spinner/loading indicator
-- **Optimistic UI:** After a log is submitted, the text input clears immediately. The history entry appears when the API responds.
-- **Concurrency safety (server-side):** `readTasks()` and `writeTasks()` must be safe against concurrent writes. For v1.2, a simple file-level mutex (queue writes sequentially) is sufficient. No need for a database.
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | `"email"` or `"teams"` |
+| `from` | string | Sender name |
+| `to` | string | Recipient name(s) |
+| `date` | string | Message date (ISO 8601 or natural language from Markdown parser) |
+| `summary` | string | 1–2 sentence summary or subject line |
+| `link` | string \| null | URL to original message |
 
 ---
 
-## 5. UI Design Requirements
+## 6. API Specification
 
-- **Dark theme** — consistent with AI Café Presenter aesthetic
-- **Responsive** — works well on a standard 1920x1080 monitor
-- **Clean, minimal** — no unnecessary decoration
-- **Color scheme:** Dark background (#0b0d17), accent colors for statuses
-- **Font:** System font stack (-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif)
-- **Layout:**
-  - Top: App title + "Scan Emails & Teams" button + last scan timestamp
-  - Middle: Task list (main area, scrollable)
-  - Bottom or side panel: Manual task input form
-- **Single HTML file for the frontend** — all CSS and JS inline (same pattern as AI Café Presenter)
+**Base URL:** `http://localhost:3000`
 
----
+### 6.1 Endpoints
 
-## 6. Backend API Endpoints
-
-The Node.js server exposes these REST endpoints for the frontend:
-
-| Method | Endpoint | Description |
+| Method | Route | Description |
 |---|---|---|
-| `GET` | `/api/tasks` | Return all tasks from tasks.json |
-| `POST` | `/api/scan` | Trigger a new scan (calls Copilot SDK + Work IQ) |
-| `POST` | `/api/tasks` | Add a manual task |
-| `PATCH` | `/api/tasks/:id` | Update task status or notes |
+| `GET` | `/api/tasks` | Return all tasks + metadata |
+| `POST` | `/api/tasks` | Create manual task |
+| `PATCH` | `/api/tasks/:id` | Update task (status, notes, title) |
 | `DELETE` | `/api/tasks/:id` | Delete a task |
-| `POST` | `/api/tasks/:id/log/analyze` | Phase 1: AI analyzes log request, returns search plan (v1.4) |
-| `POST` | `/api/tasks/:id/log` | Phase 2: Execute search with confirmed plan + save history (v1.2, enhanced v1.4) |
-| `DELETE` | `/api/tasks/:id/history/:index` | Delete a single history entry (type "update" only, v1.4) |
+| `DELETE` | `/api/tasks/:id/history/:index` | Delete a history entry |
+| `POST` | `/api/tasks/:id/note` | Save a note (no agent) |
+| `POST` | `/api/scan` | Scan M365 emails and Teams |
+| `POST` | `/api/tasks/:id/log/analyze` | Phase 1: AI intent analysis |
+| `POST` | `/api/tasks/:id/log` | Phase 2: Execute search |
+
+### 6.2 GET /api/tasks
+
+**Response:** `{ version, lastScan, tasks[] }`
+
+### 6.3 POST /api/tasks
+
+**Request body:** `{ title: string, notes?: string }`
+**Response:** Created task object (HTTP 201)
+**Validation:** Title required and non-empty
+
+### 6.4 PATCH /api/tasks/:id
+
+**Request body:** `{ status?, notes?, title? }` (any subset)
+**Valid statuses:** `new`, `needs-attention`, `escalated`, `in-progress`, `done`, `paused`
+**Side effects:**
+- Status change → history entry (`type: 'status-change'`)
+- Changing to `done` → sets `doneAt`
+- Changing from `done` → clears `doneAt`
+
+### 6.5 DELETE /api/tasks/:id
+
+**Response:** `{ success: true }` or 404
+
+### 6.6 DELETE /api/tasks/:id/history/:index
+
+**Validation:**
+- Index must be a valid non-negative integer
+- Only `update` and `note` types can be deleted
+- System types (`created`, `status-change`, `scan-update`) → HTTP 403
+**Response:** Updated task object
+
+### 6.7 POST /api/tasks/:id/note
+
+**Request body:** `{ text: string }`
+**Side effects:** Adds history entry `{ type: 'note', text }`, updates `updatedAt`
+**Response:** Updated task object
+
+### 6.8 POST /api/scan
+
+**Request body:** `{ scanDays?: number }` (1–14, default 4)
+**Side effects:**
+- Creates new tasks (status `new`)
+- Updates existing tasks (matched by `existingId`)
+- Sets `lastScan` timestamp
+**Response:** `{ success, added, skipped, updated, total, lastScan }`
+**Error responses:**
+- 502: No response from AI engine
+- 502: AI returned unexpected format (includes `raw` field)
+- 500: Scan failed
+
+### 6.9 POST /api/tasks/:id/log/analyze
+
+**Request body:** `{ text: string }`
+**Response (summarize/answer):** `{ intent, result, task }` — result saved to history immediately
+**Response (search):** `{ intent: 'search', plan: AgentPlan, fallback? }` — plan returned for user confirmation
+**AI prompt includes:** Task context (title, from, source, date) + last 8 conversation entries
+**Timeout:** 30 seconds for Copilot SDK analysis
+
+### 6.10 POST /api/tasks/:id/log
+
+**Request body:** `{ text: string, plan?: AgentPlan }`
+**With plan:** Uses `workiq ask` CLI (direct stdin, 90s timeout). Builds search question from plan via `buildSearchQuestion()`
+**Without plan:** Falls back to Copilot SDK + Work IQ MCP session (120s timeout)
+**Side effects:** Adds history entry with `communications[]`, `agentPlan`, `agentResponse`, `agentExecution`
+**Response parsing:** JSON first, then Markdown email parser (`parseMarkdownEmails()`), then raw text
 
 ---
 
-## 7. Implementation Steps
+## 7. Skill Files
 
-### Phase 1: Foundation ✅
-1. ✅ Initialize a Node.js project in `E:\Work_IQ\Daily_Tasks\`
-2. ✅ Install dependencies: `@github/copilot-sdk`, `@microsoft/workiq`, `express`, `uuid`
-3. ✅ Create `server.js` with Express server and basic REST API
-4. ✅ Create `tasks.json` with empty initial structure
-5. ✅ Create `index.html` with dark-themed UI, task list display, and manual task form
-6. ✅ Verify: Server starts, HTML loads, manual tasks can be added/edited/deleted
+External Markdown files loaded at server startup:
 
-### Phase 2: Work IQ Integration ✅
-7. ✅ Configure Work IQ as an MCP tool in the Copilot SDK (stdio transport via `workiq mcp`)
-8. ✅ Implement the `/api/scan` endpoint:
-   - Send prompt to Copilot SDK: "Scan my emails and Teams messages from the last 4 days. For each message that contains an action item assigned to me or expected from me, return: title, source type (email/teams), sender name, date, and message link."
-   - Parse the AI response into task objects (with robust JSON extraction from markdown code blocks)
-9. ✅ Implement duplicate detection against existing tasks (primary: by link, fallback: by title + from + source)
-10. ✅ Verify: Scan button triggers real M365 data retrieval and creates tasks
+| File | Path | Purpose |
+|---|---|---|
+| `SCAN_SKILL.md` | `Documents/SCAN_SKILL.md` | Detailed scan prompt template with JSON output format |
+| `LOG_WORK_SKILL.md` | `Documents/LOG_WORK_SKILL.md` | Communication search prompt template (fallback path) |
 
-### Phase 3: Polish ✅
-11. ✅ Add loading states and error handling (friendlyError() with human-readable messages)
-12. ✅ Add status filter buttons (show all / active only / done) with dynamic count badges
-13. ✅ Add task count badges per status
-14. ✅ Test edge cases: empty inbox, no Teams messages, token expired
-15. ✅ Document how to start the app (README.md with install, usage, troubleshooting)
-
-### Phase 4: Task History & Smart Updates (v1.2) ✅
-16. ✅ Migrate tasks.json schema from v1 to v2 (add `history`, `doneAt` fields, auto-migrate on load)
-17. ✅ Add `POST /api/tasks/:id/log` endpoint with AI communication search via Copilot SDK + Work IQ
-18. ✅ Add collapsible task history UI to each task card (collapsed by default, expand on click)
-19. ✅ Implement auto-cleanup: hide done tasks older than 3 days from UI
-20. ✅ Update scan logic: detect changes in existing tasks and create scan-update history entries
-21. ✅ Add per-task loading spinners for log operations (no full-screen overlay)
-22. ✅ Implement file-level write mutex for concurrent task updates
-23. ✅ Add history entries for all task mutations (status changes, notes, log work)
-24. ✅ Update README, Spec, and Architecture docs to v1.2
-
-### Phase 5: AI-Powered Deduplication (v1.3) ✅
-25. ✅ Refactor scan prompt to include existing active tasks as context (max 50, id+title+source+from)
-26. ✅ Update AI response format to support `action: "update"` (with existingId, changes, reason) and `action: "new"`
-27. ✅ Implement server-side processing for update/new actions with smart field merging
-28. ✅ Add Safety-Net dedup: normalized title similarity check (Jaccard >0.7 on word sets)
-29. ✅ Maintain backward-compatibility: items without `action` field use old dedup logic as fallback
-30. ✅ Improve history entries for scan-updates: include AI-provided reason + changed field details
-31. ✅ Create SCAN_SKILL.md and LOG_WORK_SKILL.md (skill file externalization)
-32. ✅ Load skill files at server start, inject into prompts, graceful fallback
-33. ✅ Update Spec, Architecture, and README to v1.3
-
-### Phase 6: Two-Phase Log Agent + Chat-Style Interaction Panel (v1.4) ✅
-34. ✅ Add `POST /api/tasks/:id/log/analyze` endpoint (Copilot SDK without Work IQ, ~5-15s)
-35. ✅ Add `extractKeywords()` helper for deterministic fallback analysis
-36. ✅ Enhance `POST /api/tasks/:id/log` to accept optional `plan` parameter + save `agentPlan` and `agentExecution` in history
-37. ✅ Build targeted execution prompt from confirmed plan (keywords + time window + targets)
-38. ✅ Replace "📜 History" toggle with **click-to-open interaction panel** on task card
-39. ✅ Render agent conversations chat-style: User message → Agent understanding → Confirmation → Communications
-40. ✅ Add "▶ Details" toggle inside panel for technical metadata + execution trace + system events
-41. ✅ Move Log input into the interaction panel (always visible when panel is open)
-42. ✅ Add clarification loop UI (question display + answer input + re-analyze)
-43. ✅ Add real-time progress feedback: step-by-step status in plan area (no silent spinners)
-44. ✅ Handle fallback: if SDK analysis fails, use deterministic keyword extraction
-45. ✅ Add `DELETE /api/tasks/:id/history/:index` with type protection (only "update" deletable)
-46. ✅ Add panel persistence (`openPanelTaskId` survives `fetchTasks()` re-renders)
-47. ✅ Add execution tracing (`agentExecution` with promptSent, rawResponse, parsedCount, error)
-48. ✅ Add 🗑️ delete button on agent conversations (type "update" entries only)
-49. ✅ Update Spec, Architecture, README, and LOG_WORK_SKILL.md to v1.4
+If a skill file is missing, a warning is logged and the server falls back to inline prompts.
 
 ---
 
-## 8. How to Start the App (Target)
-
-**Primary (one-click):**
-
-Double-click `START-DAILY-BRIEFING.bat` — this starts the server (if not already running), waits for it to be ready, and opens the browser automatically.
-
-**Alternative (manual):**
-
-```powershell
-cd E:\Work_IQ\Daily_Tasks
-node server.js
-```
-
-Then open `http://localhost:3000` in the browser.
-
----
-
-## 9. File Structure (Target)
+## 8. File Structure
 
 ```
-E:\Work_IQ\Daily_Tasks\
-├── Documents\
-│   ├── ARCHITECTURE.md                ← Technical architecture reference
-│   ├── SCAN_SKILL.md                  ← AI instructions for scan & dedup (v1.3)
-│   └── LOG_WORK_SKILL.md             ← AI instructions for log work search (v1.3)
-├── Specifactions\
-│   └── DAILY_BRIEFING_APP_SPEC.md     ← this file
-├── server.js                           ← Node.js backend (ES Modules)
-├── index.html                          ← Frontend (single file)
-├── tasks.json                          ← Persistent task data
-├── package.json                        ← Node.js dependencies ("type": "module")
-├── START-DAILY-BRIEFING.bat            ← One-click launcher (starts server + opens browser)
-└── README.md                           ← How to install and run
+Agent_Zero/
+├── index.html                        (~1430 lines, frontend)
+├── server.js                         (~950 lines, backend)
+├── package.json                      (project metadata + dependencies)
+├── package-lock.json                 (dependency lock file)
+├── tasks.json                        (task data, in .gitignore)
+├── .gitignore
+├── START-DAILY-BRIEFING.bat          (launcher: port check, start server, open browser)
+├── README.md
+├── Documents/
+│   ├── ARCHITECTURE.md               (technical architecture document)
+│   ├── SCAN_SKILL.md                 (scan prompt template)
+│   └── LOG_WORK_SKILL.md             (log work prompt template)
+├── Specifactions/
+│   └── DAILY_BRIEFING_APP_SPEC.md    (this document)
+└── Images/                           (screenshots and diagrams)
 ```
 
 ---
 
-## 10. Key Risks and Mitigations
+## 9. UI State Persistence (localStorage)
 
-| Risk | Mitigation |
-|---|---|
-| Work IQ token expires | App shows clear error message + instructions to re-authenticate (`workiq accept-eula` or re-login) |
-| Admin consent not granted for Work IQ | Test Work IQ access before building the full app: `workiq ask -q "Show my latest emails"` |
-| Copilot SDK is in technical preview | Keep the architecture modular — if SDK changes, only `server.js` needs updating |
-| Deep links may vary by Outlook version | Support both `outlook://` protocol and `outlook.office.com` web links |
-| Large volume of emails (100+) | Limit scan to last 4 days, max 50 action items per scan |
-
----
-
-## 11. Future Enhancements (Out of Scope for v1.4)
-
-- Automated daily scheduler (Windows Task Scheduler or cron)
-- Email/Teams notification when new action items are found
-- Priority levels (high/medium/low)
-- Due dates and deadline warnings
-- Weekly summary report
-- Multi-user support
-- Server-side purge of old done tasks (currently only hidden in UI)
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `scanDays` | string (number) | `"4"` | Selected scan range (1–14) |
+| `linkMode` | string | `"window"` | Link open mode (window/tab/split/incognito) |
+| `openPanels` | JSON array | `[]` | Task IDs with open interaction panels |
+| `collapsedEntries` | JSON array | `[]` | Collapse IDs for long conversation entries |
