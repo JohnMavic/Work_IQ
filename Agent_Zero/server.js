@@ -614,7 +614,8 @@ RULES FOR UNDERSTANDING (most important!):
 - End with an implicit confirmation: the user will see this and click "Search" to approve
 
 RULES FOR TIME WINDOW:
-- If user says they REACTED to something or sent a reply → search AFTER the task date
+- ALWAYS include the task date itself as the start date (from). Replies can arrive on the same day.
+- If user asks for updates or replies → search FROM the task date TO now (inclusive)
 - If user asks for background info or additional context → search BEFORE the task date
 - If the direction is unclear → set needsClarification to true, ask about time window
 - If task date is >30 days old → set needsClarification to true, ask for a narrower range
