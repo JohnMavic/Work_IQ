@@ -1560,13 +1560,17 @@
     if (linkMode === 'tab') {
       window.open(url, '_blank');
     } else if (linkMode === 'split') {
-      // Move current window to left half
+      // Open link in right half as popup window (popup forces separate window with dimensions)
       const halfW = Math.floor(screen.availWidth / 2);
       const h = screen.availHeight;
-      window.moveTo(0, 0);
-      window.resizeTo(halfW, h);
-      // Open link in right half
-      window.open(url, '_blank', `left=${halfW},top=0,width=${halfW},height=${h}`);
+      const newWin = window.open(url, '_blank', `popup,left=${halfW},top=0,width=${halfW},height=${h}`);
+      // Try to resize current window to left half (works if window was opened by script)
+      try { window.moveTo(0, 0); window.resizeTo(halfW, h); } catch(e) {}
+      if (!newWin || newWin.closed) {
+        // Popup blocked — fallback to new tab
+        window.open(url, '_blank');
+        showNotification('Pop-up blocked — use Win+← and Win+→ to split manually', 'info');
+      }
     } else if (linkMode === 'incognito') {
       window.open(url, '_blank', `width=${screen.availWidth},height=${screen.availHeight}`);
       showNotification('Incognito cannot be opened programmatically — link opened in new window', 'info');
