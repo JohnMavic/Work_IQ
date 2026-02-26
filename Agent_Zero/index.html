@@ -43,6 +43,9 @@
     .btn-sm { padding: 4px 10px; font-size: 0.75rem; }
     .btn-ghost { background: transparent; border: 1px solid #333; color: #aaa; }
     .btn-ghost.active { border-color: #3b82f6; color: #3b82f6; }
+    .link-mode-btn { background: #1e293b; border: 1px solid #334155; border-radius: 4px; padding: 2px 6px; font-size: 0.85rem; cursor: pointer; opacity: 0.5; transition: all 0.15s; }
+    .link-mode-btn:hover { opacity: 0.8; }
+    .link-mode-btn.active { opacity: 1; border-color: #818cf8; box-shadow: 0 0 4px #818cf8; }
 
     /* --- Status Badges --- */
     .badge {
@@ -509,6 +512,13 @@
           <input type="range" id="scanDays" min="1" max="14" value="4" style="width:80px;accent-color:#818cf8">
           <span id="scanDaysLabel" style="color:#c7d2fe;font-size:0.75rem;min-width:38px">4 days</span>
         </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="color:#94a3b8;font-size:0.75rem;white-space:nowrap">Open links:</span>
+          <button class="link-mode-btn" data-mode="window" title="New Window" onclick="setLinkMode('window')">🪟</button>
+          <button class="link-mode-btn" data-mode="tab" title="New Tab" onclick="setLinkMode('tab')">📑</button>
+          <button class="link-mode-btn" data-mode="split" title="Split Window" onclick="setLinkMode('split')">◧</button>
+          <button class="link-mode-btn" data-mode="incognito" title="Incognito" onclick="setLinkMode('incognito')">🕶️</button>
+        </div>
       </div>
     </div>
   </header>
@@ -932,7 +942,7 @@
       const dateText = task.date ? formatDate(task.date) : '';
       const separator = fromText && dateText ? ' · ' : '';
       const linkHtml = task.link
-        ? `<a href="${escHtml(task.link)}" target="_blank" rel="noopener">Open source ↗</a>`
+        ? `<a href="${escHtml(task.link)}" onclick="return openLink(event)" rel="noopener">Open source ↗</a>`
         : '';
       const notesHtml = task.notes ? `<div class="task-notes">${escHtml(task.notes)}</div>` : '';
 
@@ -1041,7 +1051,7 @@
         for (const comm of entry.communications) {
           const commIcon = comm.type === 'teams' ? '💬' : '📧';
           const commLink = comm.link
-            ? ` <a href="${escHtml(comm.link)}" target="_blank" rel="noopener">Open ↗</a>`
+            ? ` <a href="${escHtml(comm.link)}" onclick="return openLink(event)" rel="noopener">Open ↗</a>`
             : '';
           const commDate = comm.date ? formatDate(comm.date) : '';
           html += `<div class="agent-comm">${commIcon} ${escHtml(comm.from || '')} → ${escHtml(comm.to || '')} (${commDate})${commLink}`;
@@ -1123,7 +1133,7 @@
               detailsHtml += `<span style="margin-left:16px;color:#94a3b8;font-size:0.8rem">${escHtml(c.summary)}</span>`;
             }
             if (c.link) {
-              detailsHtml += `<span style="margin-left:16px"><a href="${escHtml(c.link)}" target="_blank" style="color:#60a5fa;font-size:0.75rem">🔗 Öffnen</a></span>`;
+              detailsHtml += `<span style="margin-left:16px"><a href="${escHtml(c.link)}" onclick="return openLink(event)" style="color:#60a5fa;font-size:0.75rem">🔗 Öffnen</a></span>`;
             }
           }
         } else if (ex.rawResponse && !ex.error) {
@@ -1532,6 +1542,39 @@
     scanDaysLabel.textContent = scanDaysSlider.value + (scanDaysSlider.value === '1' ? ' day' : ' days');
     localStorage.setItem('scanDays', scanDaysSlider.value);
   });
+
+  // Link open mode
+  let linkMode = localStorage.getItem('linkMode') || 'window';
+
+  function setLinkMode(mode) {
+    linkMode = mode;
+    localStorage.setItem('linkMode', mode);
+    document.querySelectorAll('.link-mode-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.mode === mode);
+    });
+  }
+
+  function openLink(event) {
+    event.preventDefault();
+    const url = event.currentTarget.href;
+    if (linkMode === 'tab') {
+      window.open(url, '_blank');
+    } else if (linkMode === 'split') {
+      const w = Math.floor(screen.width / 2);
+      window.open(url, '_blank', `width=${w},height=${screen.height},left=${w},top=0`);
+    } else if (linkMode === 'incognito') {
+      // Browsers block incognito from JS — fallback to new window with note
+      window.open(url, '_blank', `width=${screen.width},height=${screen.height}`);
+      showNotification('Incognito kann nicht programmatisch geöffnet werden — Link wurde in neuem Fenster geöffnet', 'info');
+    } else {
+      // 'window' (default)
+      window.open(url, '_blank', `width=${screen.width},height=${screen.height}`);
+    }
+    return false;
+  }
+
+  // Init link mode buttons
+  setLinkMode(linkMode);
 </script>
 
 </body>
