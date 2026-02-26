@@ -55,6 +55,15 @@ For each action item found, return ONE of these:
 - Use action-oriented language: "Review...", "Approve...", "Reply to...", "Follow up on..."
 - Do NOT include generic prefixes like "Action Item:" or "Task:"
 
+## CRITICAL: Link Accuracy
+
+- Each `link` MUST be the exact URL that was returned alongside THAT specific message in the search results
+- Do NOT reuse the same link for multiple tasks — each task must have its own unique link
+- If the search result did not include a specific link for a message, set `link` to null
+- If you are unsure which link belongs to which task, set `link` to null
+- **A wrong link is FAR worse than no link** — the user will click it and land on an unrelated message
+- Verify: does the link's sender match the task's `from` field? If not, the link is wrong — set it to null
+
 ## What Is an Action Item?
 
 An action item is a message where:
