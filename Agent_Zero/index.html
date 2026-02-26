@@ -958,7 +958,7 @@
       const dateText = task.date ? formatDate(task.date) : '';
       const separator = fromText && dateText ? ' · ' : '';
       const linkHtml = task.link
-        ? `<a href="${escHtml(task.link)}" onclick="return openLink(event)" rel="noopener">Open source ↗</a>`
+        ? `<a href="${escHtml(task.link)}" onclick="return openLink(event)" rel="noopener">Open source ↗</a> <a href="${escHtml(task.link)}" onclick="return openLinkSplit(event)" rel="noopener" title="Open in split screen" style="opacity:0.6">◧</a>`
         : '';
       const notesHtml = task.notes ? `<div class="task-notes">${escHtml(task.notes)}</div>` : '';
 
@@ -1568,6 +1568,29 @@
     document.querySelectorAll('.link-mode-btn').forEach(b => {
       b.classList.toggle('active', b.dataset.mode === mode);
     });
+  }
+
+  function openLinkSplit(event) {
+    event.preventDefault();
+    const url = event.currentTarget.href;
+    // Force split mode for this click
+    const noFrameDomains = ['outlook.office365.com', 'outlook.office.com', 'outlook.live.com',
+      'teams.microsoft.com', 'login.microsoftonline.com', 'portal.azure.com',
+      'github.com', 'mail.google.com', 'drive.google.com'];
+    const linkHost = new URL(url).hostname;
+    const blocked = noFrameDomains.some(d => linkHost === d || linkHost.endsWith('.' + d));
+    if (blocked) {
+      window.open(url, '_blank', `popup,width=${Math.floor(screen.availWidth/2)},height=${screen.availHeight},left=${Math.floor(screen.availWidth/2)},top=0`);
+    } else {
+      const panel = document.getElementById('splitPanel');
+      const frame = document.getElementById('splitPanelFrame');
+      document.getElementById('splitPanelUrl').textContent = url;
+      frame._splitUrl = url;
+      panel.style.display = 'flex';
+      document.getElementById('splitMain').style.flex = '1';
+      frame.src = url;
+    }
+    return false;
   }
 
   function openLink(event) {
