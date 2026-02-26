@@ -503,11 +503,11 @@
       </span>
       <span class="last-scan" id="lastScan"></span>
       <button class="btn btn-scan" id="btnScan" onclick="triggerScan()">Scan Emails &amp; Teams</button>
-      <div style="display:flex;align-items:center;gap:6px;margin-left:8px">
-        <label for="scanDays" style="color:#94a3b8;font-size:0.75rem;white-space:nowrap">Scan:</label>
-        <input type="range" id="scanDays" min="1" max="14" value="4" style="width:80px;accent-color:#818cf8">
-        <span id="scanDaysLabel" style="color:#c7d2fe;font-size:0.75rem;min-width:38px">4 days</span>
-      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;justify-content:flex-end;padding:4px 24px 0">
+      <label for="scanDays" style="color:#94a3b8;font-size:0.75rem;white-space:nowrap">Scan range:</label>
+      <input type="range" id="scanDays" min="1" max="14" value="4" style="width:100px;accent-color:#818cf8">
+      <span id="scanDaysLabel" style="color:#c7d2fe;font-size:0.75rem;min-width:38px">4 days</span>
     </div>
   </header>
 
