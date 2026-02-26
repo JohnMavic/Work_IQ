@@ -378,7 +378,7 @@ app.post('/api/scan', async (req, res) => {
       }
     });
 
-    // Build context-aware prompt with existing tasks (v1.3)
+    // Build context-aware prompt with existing tasks (v1.3, dedup fix v1.5)
     const data = readTasks();
     const activeTasks = data.tasks
       .filter(t => t.status === 'active' || t.status === 'in-progress')
@@ -386,26 +386,37 @@ app.post('/api/scan', async (req, res) => {
       .slice(0, 50)
       .map(t => ({ id: t.id, title: t.title, source: t.source, from: t.from }));
 
+    // Include recent done tasks so AI won't re-create them (dedup fix)
+    const doneTasks = data.tasks
+      .filter(t => t.status === 'done')
+      .sort((a, b) => (b.doneAt || b.updatedAt || '').localeCompare(a.doneAt || a.updatedAt || ''))
+      .slice(0, 30)
+      .map(t => ({ id: t.id, title: t.title, source: t.source, from: t.from, status: 'done' }));
+
+    const allContextTasks = [...activeTasks, ...doneTasks];
+
     let scanPrompt;
-    if (SCAN_SKILL && activeTasks.length > 0) {
+    if (SCAN_SKILL && allContextTasks.length > 0) {
       scanPrompt = SCAN_SKILL + `\n\n` +
-        `EXISTING TASKS:\n` +
-        JSON.stringify(activeTasks) + `\n\n` +
+        `EXISTING TASKS (active and done — do NOT re-create done tasks):\n` +
+        JSON.stringify(allContextTasks) + `\n\n` +
         `Scan my emails and Teams messages from the last 4 days.\n` +
-        `For each action item found, decide: action "update" (with existingId) or "new".`;
+        `For each action item found, decide: action "update" (with existingId) or "new".\n` +
+        `If a found item matches a DONE task, use action "skip" — do NOT create it again.`;
     } else if (SCAN_SKILL) {
       scanPrompt = SCAN_SKILL + `\n\n` +
         `There are no existing tasks yet.\n\n` +
         `Scan my emails and Teams messages from the last 4 days.\n` +
         `For each action item found, return with action "new".`;
-    } else if (activeTasks.length > 0) {
+    } else if (allContextTasks.length > 0) {
       // Fallback: no skill file, use inline prompt (backward-compat)
-      scanPrompt = `I have these EXISTING action items (do NOT re-create them):\n` +
-        JSON.stringify(activeTasks) + `\n\n` +
+      scanPrompt = `I have these EXISTING action items (do NOT re-create done ones):\n` +
+        JSON.stringify(allContextTasks) + `\n\n` +
         `Scan my emails and Teams messages from the last 4 days. ` +
         `For each message that contains an action item assigned to me or expected from me:\n\n` +
         `1. Check if it matches an existing task above (same topic/request, even if worded differently or from a different channel/sender).\n` +
-        `   - If YES: return {"action":"update","existingId":"<id>","changes":{...},"reason":"<why>"}\n` +
+        `   - If it matches a DONE task: skip it entirely — do NOT return it.\n` +
+        `   - If it matches an active/in-progress task: return {"action":"update","existingId":"<id>","changes":{...},"reason":"<why>"}\n` +
         `     Only include fields in "changes" that actually changed (title, date, link). Do NOT include "from" or "source" in changes.\n` +
         `   - If NO match: return {"action":"new","title":"...","source":"email" or "teams","from":"...","date":"...","link":"..."}\n\n` +
         `Return ONLY a JSON array. No markdown, no explanation.\n` +
@@ -445,6 +456,12 @@ app.post('/api/scan', async (req, res) => {
 
       for (const item of items) {
         if (!item.title && !item.existingId) continue;
+
+        // --- ACTION: SKIP (AI matched to done task) ---
+        if (item.action === 'skip') {
+          skipped++;
+          continue;
+        }
 
         // --- ACTION: UPDATE (AI matched to existing task) ---
         if (item.action === 'update' && item.existingId) {
