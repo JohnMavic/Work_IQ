@@ -1092,22 +1092,25 @@
         ? `<div class="task-summary" onclick="event.stopPropagation(); this.classList.toggle('expanded')"><span class="summary-icon">📋</span><span class="summary-text">${escHtml(task.summary)}</span></div>`
         : '';
 
-      // Step indicators (3-phase pipeline)
-      const step1State = 'done'; // Always done if task exists
-      const step2State = task.enrichmentStatus === 'enriched' ? 'done'
-                       : task.enrichmentStatus === 'enriching' ? 'active'
-                       : task.enrichmentStatus === 'error' ? 'error'
-                       : 'pending';
-      const step3State = task.updateCheckStatus === 'updated' ? 'updated'
-                       : task.updateCheckStatus === 'checked' ? 'done'
-                       : task.updateCheckStatus === 'checking' ? 'active'
-                       : task.updateCheckStatus === 'error' ? 'error'
-                       : 'pending';
-      const stepIndicator = `<span class="step-indicators">` +
-        `<span class="step-dot step-done" data-step="1" title="Subject extracted"></span>` +
-        `<span class="step-dot ${step2State !== 'pending' ? 'step-' + step2State : ''}" data-step="2" title="Content summarized"></span>` +
-        `<span class="step-dot ${step3State !== 'pending' ? 'step-' + step3State : ''}" data-step="3" title="Update checked"></span>` +
-        `</span>`;
+      // Step indicators (3-phase pipeline) — hide for manual tasks
+      const isManualTask = task.enrichmentStatus === 'n/a';
+      let stepIndicator = '';
+      if (!isManualTask) {
+        const step2State = task.enrichmentStatus === 'enriched' ? 'done'
+                         : task.enrichmentStatus === 'enriching' ? 'active'
+                         : task.enrichmentStatus === 'error' ? 'error'
+                         : 'pending';
+        const step3State = task.updateCheckStatus === 'updated' ? 'updated'
+                         : task.updateCheckStatus === 'checked' ? 'done'
+                         : task.updateCheckStatus === 'checking' ? 'active'
+                         : task.updateCheckStatus === 'error' ? 'error'
+                         : 'pending';
+        stepIndicator = `<span class="step-indicators">` +
+          `<span class="step-dot step-done" data-step="1" title="Subject extracted"></span>` +
+          `<span class="step-dot ${step2State !== 'pending' ? 'step-' + step2State : ''}" data-step="2" title="Content summarized"></span>` +
+          `<span class="step-dot ${step3State !== 'pending' ? 'step-' + step3State : ''}" data-step="3" title="Update checked"></span>` +
+          `</span>`;
+      }
 
       // Timestamps
       const createdText = task.createdAt ? formatDateTime(task.createdAt) : '';

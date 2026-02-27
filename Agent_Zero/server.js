@@ -281,6 +281,7 @@ app.post('/api/tasks', async (req, res) => {
       const t = {
         id: uuidv4(),
         title: title.trim(),
+        summary: null,
         source: 'manual',
         from: null,
         date: null,
@@ -289,6 +290,10 @@ app.post('/api/tasks', async (req, res) => {
         notes: notes ? notes.trim() : '',
         history: [{ timestamp: now, type: 'created', text: 'Task created manually' }],
         doneAt: null,
+        enrichmentStatus: 'n/a',
+        updateCheckStatus: 'n/a',
+        enrichedAt: null,
+        lastUpdateCheck: null,
         createdAt: now,
         updatedAt: now
       };
