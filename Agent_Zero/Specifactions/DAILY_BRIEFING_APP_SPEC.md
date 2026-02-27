@@ -1,9 +1,9 @@
 # Agent Zero — Product Specification
 
-**Version:** 2.0
-**Date:** February 26, 2026
+**Version:** 2.5
+**Date:** February 27, 2026
 **Author:** Martin Hämmerli
-**Status:** v2.0 implemented (Intent-Based Agent + Interaction Panel + Execution Tracing)
+**Status:** v2.5 implemented (Multi-Phase Scan Architecture + Email Content Summary)
 
 ---
 
@@ -341,16 +341,51 @@ When the user clicks Execute, the plan UI shows live status updates:
 - **Panel persistence** (`openPanelTaskIds`): Open panels survive `fetchTasks()` re-renders, restored from `localStorage`
 - **Pending plan restoration:** After re-render, pending search plans are re-displayed for open panels
 
+### 4.20 Email Content Summary
+
+Each scanned task includes an optional `summary` field — a 2-4 sentence briefing of the original email or Teams message content. This allows the user to understand the full context of an action item without opening the original message.
+
+- **Scan produces summary:** The AI agent extracts and summarizes the email body, including key details (deadlines, amounts, names, decisions, requests)
+- **Stored in task object:** `summary` field (string | null). Null for pure notifications with no content beyond the subject line
+- **Displayed in UI:** Collapsible summary block under the task title/metadata, toggled by click. Default: collapsed (single line with truncation). Expanded: full summary text
+- **Updated on re-scan:** When a task is updated by a re-scan, the summary can be refreshed with new context
+- **Not used for deduplication:** Summary is for display only, not for matching logic
+
+### 4.21 Multi-Phase Scan Architecture
+
+The scan process is split into 3 sequential phases for faster initial feedback and progressive content loading:
+
+**Phase 1 — Discovery (Subject-Only):**
+- Uses `SCAN_DISCOVERY_SKILL.md` — extracts only subject line, sender, date
+- Tasks appear immediately with `summary: null`, `enrichmentStatus: "pending"`
+- Returns `newTaskIds[]` for Phase 2 orchestration
+- Step 1 indicator turns green ✅
+
+**Phase 2 — Enrichment (Content Extraction):**
+- `POST /api/tasks/:id/enrich` per new task, sequentially
+- Task card frozen (neon blue #00d4ff, no user interaction)
+- Uses `ENRICH_SKILL.md` — reads full email body, generates 2-4 sentence summary in original language
+- Sets `enrichmentStatus: "enriched"`, `enrichedAt` timestamp
+- Step 2 indicator turns green ✅
+
+**Phase 3 — Update Check (Thread Replies):**
+- `POST /api/tasks/:id/check-update` per enriched task, sequentially
+- Checks for new replies in email thread since task creation
+- If update found: appends "📌 Update:" to summary, sets `updateCheckStatus: "updated"`
+- Step 3 indicator turns green ✅ or yellow (updated)
+
+**Freeze Mode:** During Phase 2/3, the task being processed is frozen — neon blue border/glow, pulse animation, `pointer-events: none`, "❄️ Agent working..." badge. All interaction functions (delete, update, panel toggle, analyze) check `frozenTasks` Set and refuse action.
+
 ---
 
-## 5. Data Schema (v2)
+## 5. Data Schema (v3)
 
 ### 5.1 tasks.json Structure
 
 ```json
 {
-  "version": 2,
-  "lastScan": "2026-02-26T10:30:00.000Z",
+  "version": 3,
+  "lastScan": "2026-02-27T10:30:00.000Z",
   "tasks": [ ... ]
 }
 ```
@@ -361,6 +396,7 @@ When the user clicks Execute, the plan UI shows live status updates:
 |---|---|---|
 | `id` | string (UUID) | Unique identifier |
 | `title` | string | Action item description |
+| `summary` | string \| null | 2-4 sentence briefing of email/message content (null for notifications) |
 | `source` | string | `"email"`, `"teams"`, or `"manual"` |
 | `from` | string \| null | Sender name |
 | `date` | string \| null | Original message date (ISO 8601) |
@@ -369,6 +405,10 @@ When the user clicks Execute, the plan UI shows live status updates:
 | `notes` | string | Free-text notes |
 | `history` | HistoryEntry[] | Array of history entries |
 | `doneAt` | string \| null | ISO timestamp when status changed to done |
+| `enrichmentStatus` | string | `"pending"`, `"enriching"`, `"enriched"`, or `"error"` |
+| `updateCheckStatus` | string | `"pending"`, `"checking"`, `"checked"`, `"updated"`, or `"error"` |
+| `enrichedAt` | string \| null | ISO timestamp of last enrichment |
+| `lastUpdateCheck` | string \| null | ISO timestamp of last update check |
 | `createdAt` | string | ISO timestamp of creation |
 | `updatedAt` | string | ISO timestamp of last modification |
 
@@ -437,8 +477,10 @@ When the user clicks Execute, the plan UI shows live status updates:
 | `DELETE` | `/api/tasks/:id` | Delete a task |
 | `DELETE` | `/api/tasks/:id/history/:index` | Delete a history entry |
 | `POST` | `/api/tasks/:id/note` | Save a note (no agent) |
-| `POST` | `/api/scan` | Scan M365 emails and Teams |
-| `POST` | `/api/tasks/:id/log/analyze` | Phase 1: AI intent analysis |
+| `POST` | `/api/scan` | Phase 1: Discovery scan (subjects only) |
+| `POST` | `/api/tasks/:id/enrich` | Phase 2: Content extraction + summary |
+| `POST` | `/api/tasks/:id/check-update` | Phase 3: Thread update check |
+| `POST` | `/api/tasks/:id/log/analyze` | AI intent analysis |
 | `POST` | `/api/tasks/:id/log` | Phase 2: Execute search |
 
 ### 6.2 GET /api/tasks
@@ -482,14 +524,34 @@ When the user clicks Execute, the plan UI shows live status updates:
 
 **Request body:** `{ scanDays?: number }` (1–14, default 4)
 **Side effects:**
-- Creates new tasks (status `new`)
+- Creates new tasks (status `new`, `summary: null`, `enrichmentStatus: "pending"`)
 - Updates existing tasks (matched by `existingId`)
 - Sets `lastScan` timestamp
-**Response:** `{ success, added, skipped, updated, total, lastScan }`
+**Response:** `{ success, added, skipped, updated, total, newTaskIds[], lastScan }`
 **Error responses:**
 - 502: No response from AI engine
 - 502: AI returned unexpected format (includes `raw` field)
 - 500: Scan failed
+
+### 6.8a POST /api/tasks/:id/enrich
+
+**Request body:** none
+**Side effects:**
+- Opens fresh Work IQ session, reads full email body
+- Sets `summary`, `enrichmentStatus: "enriched"`, `enrichedAt`
+- On failure: sets `enrichmentStatus: "error"`
+**Response:** `{ success, summary, language, confidence, enrichmentStatus }`
+**Timeout:** 120 seconds
+
+### 6.8b POST /api/tasks/:id/check-update
+
+**Request body:** none
+**Side effects:**
+- Checks for thread replies since task creation
+- If update found: appends "📌 Update:" to summary, sets `updateCheckStatus: "updated"`
+- If no update: sets `updateCheckStatus: "checked"`
+**Response:** `{ success, hasUpdate, updateCheckStatus }`
+**Timeout:** 90 seconds
 
 ### 6.9 POST /api/tasks/:id/log/analyze
 
@@ -515,7 +577,9 @@ External Markdown files loaded at server startup:
 
 | File | Path | Purpose |
 |---|---|---|
-| `SCAN_SKILL.md` | `Documents/SCAN_SKILL.md` | Detailed scan prompt template with JSON output format |
+| `SCAN_DISCOVERY_SKILL.md` | `Documents/SCAN_DISCOVERY_SKILL.md` | Phase 1: Subject-only discovery scan prompt |
+| `ENRICH_SKILL.md` | `Documents/ENRICH_SKILL.md` | Phase 2: Content extraction + summary prompt |
+| `SCAN_SKILL.md` | `Documents/SCAN_SKILL.md` | Legacy scan skill (backup/fallback) |
 | `LOG_WORK_SKILL.md` | `Documents/LOG_WORK_SKILL.md` | Communication search prompt template (fallback path) |
 
 If a skill file is missing, a warning is logged and the server falls back to inline prompts.

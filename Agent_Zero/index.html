@@ -114,6 +114,79 @@
     .task-meta a:hover { text-decoration: underline; }
     .task-notes { font-size: 0.8rem; color: #888; font-style: italic; margin-top: 2px; }
 
+    .task-summary {
+      font-size: 0.85em;
+      color: #94a3b8;
+      margin-top: 6px;
+      cursor: pointer;
+      overflow: hidden;
+      max-height: 1.5em;
+      transition: max-height 0.3s ease;
+      line-height: 1.5;
+    }
+    .task-summary.expanded {
+      max-height: 200px;
+    }
+    .task-summary .summary-icon { margin-right: 4px; }
+
+    /* --- Step Indicators (3-phase pipeline) --- */
+    .step-indicators {
+      display: inline-flex;
+      gap: 4px;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+    .step-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #374151;
+      display: inline-block;
+      transition: background 0.3s;
+    }
+    .step-dot.step-done { background: #22c55e; }
+    .step-dot.step-active {
+      background: #00d4ff;
+      animation: stepPulse 1.5s ease-in-out infinite;
+    }
+    .step-dot.step-error { background: #ef4444; }
+    .step-dot.step-updated { background: #fbbf24; }
+
+    @keyframes stepPulse {
+      0%, 100% { opacity: 0.4; box-shadow: none; }
+      50% { opacity: 1; box-shadow: 0 0 6px rgba(0, 212, 255, 0.6); }
+    }
+
+    /* --- Frozen Task Card --- */
+    .task-card.frozen {
+      border-color: #00d4ff !important;
+      background: linear-gradient(135deg, #0a1628 0%, #0d1f3c 100%) !important;
+      box-shadow: 0 0 12px rgba(0, 212, 255, 0.15);
+      position: relative;
+    }
+    .task-card.frozen .task-actions { pointer-events: none; opacity: 0.4; }
+    .task-card.frozen .task-main { pointer-events: none; }
+    .task-card.frozen::after {
+      content: '❄️ Agent working...';
+      position: absolute;
+      top: 8px;
+      right: 12px;
+      font-size: 0.7rem;
+      color: #00d4ff;
+      animation: frozenPulse 2s ease-in-out infinite;
+    }
+    @keyframes frozenPulse {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 1; }
+    }
+
+    /* --- Timestamp Row --- */
+    .task-timestamps {
+      font-size: 0.7rem;
+      color: #4b5563;
+      margin-top: 4px;
+    }
+
     .task-actions {
       display: flex; align-items: center; gap: 8px;
     }
@@ -592,6 +665,7 @@
   let currentFilter = 'all';
   let serverOnline = false;
   let reconnectTimer = null;
+  const frozenTasks = new Set();
 
   // --- Server Health Check ---
 
@@ -727,6 +801,7 @@
   }
 
   async function updateTask(id, updates) {
+    if (frozenTasks.has(id)) return;
     try {
       const res = await fetch(`/api/tasks/${id}`, {
         method: 'PATCH',
@@ -772,6 +847,7 @@
   }
 
   async function deleteTask(id) {
+    if (frozenTasks.has(id)) return;
     try {
       await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
       tasks = tasks.filter(t => t.id !== id);
@@ -802,23 +878,10 @@
     btn.disabled = true;
     btn.textContent = 'Scanning...';
     overlay.classList.add('visible');
-    loadingText.className = 'loading-text';
 
     const days = document.getElementById('scanDays').value || '4';
-    const steps = [
-      { text: 'Connecting to AI engine...', at: 0 },
-      { text: 'Starting Work IQ service...', at: 5 },
-      { text: 'Authenticating with Microsoft 365...', at: 10 },
-      { text: `Scanning emails (last ${days} day${days === '1' ? '' : 's'})...`, at: 15 },
-      { text: 'Scanning Teams messages...', at: 25 },
-      { text: 'Analyzing messages for action items...', at: 35 },
-      { text: 'Almost done — processing results...', at: 50 },
-      { text: 'Still working — large mailbox takes longer...', at: 65 },
-      { text: 'Hang tight — finalizing...', at: 80 }
-    ];
-
     let elapsed = 0;
-    loadingText.textContent = steps[0].text;
+    loadingText.textContent = 'Phase 1: Scanning subjects...';
     loadingTimer.textContent = '⏱ 00:00';
 
     const timerInterval = setInterval(() => {
@@ -826,40 +889,104 @@
       const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
       const ss = String(elapsed % 60).padStart(2, '0');
       loadingTimer.textContent = `⏱ ${mm}:${ss}`;
-
-      // Advance step based on elapsed time
-      for (let i = steps.length - 1; i >= 0; i--) {
-        if (elapsed >= steps[i].at) {
-          loadingText.textContent = steps[i].text;
-          break;
-        }
-      }
-
-      // Timeout warning at 90s
-      if (elapsed === 90) {
-        loadingText.textContent = '⚠️ Der Scan dauert ungewöhnlich lange. Deine Mailbox ist möglicherweise sehr gross. Bitte warte noch einen Moment...';
-        loadingText.className = 'loading-text warning';
-      }
     }, 1000);
 
     try {
-      const res = await fetch('/api/scan', { 
+      // ═══════════════════════════════════════════════
+      // PHASE 1: Discovery — subjects only
+      // ═══════════════════════════════════════════════
+      loadingText.textContent = `Phase 1: Scanning subjects (last ${days} days)...`;
+      const scanRes = await fetch('/api/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scanDays: parseInt(document.getElementById('scanDays').value) || 4 })
+        body: JSON.stringify({ scanDays: parseInt(days) || 4 })
       });
-      const data = await res.json();
-      if (!res.ok) {
-        showNotification(friendlyError(data), 'error');
-      } else {
-        await fetchTasks();
-        const msg = data.added > 0 || data.updated > 0
-          ? `Scan complete: ${data.added} new task${data.added !== 1 ? 's' : ''} added` +
-            (data.updated ? `, ${data.updated} updated` : '') +
-            (data.skipped ? `, ${data.skipped} duplicate${data.skipped !== 1 ? 's' : ''} skipped` : '') + '.'
-          : 'Scan complete: no new action items found.';
-        showNotification(msg, 'success');
+      const scanData = await scanRes.json();
+
+      if (!scanRes.ok) {
+        showNotification(friendlyError(scanData), 'error');
+        return;
       }
+
+      // Show Phase 1 results immediately
+      await fetchTasks();
+      const newIds = scanData.newTaskIds || [];
+
+      if (scanData.added > 0) {
+        showNotification(
+          `Phase 1 complete: ${scanData.added} new task${scanData.added !== 1 ? 's' : ''} found` +
+          (scanData.updated ? `, ${scanData.updated} updated` : '') + '. Enriching content...',
+          'success'
+        );
+      } else {
+        showNotification(
+          'Scan complete: no new action items found.' +
+          (scanData.updated ? ` ${scanData.updated} task${scanData.updated !== 1 ? 's' : ''} updated.` : ''),
+          'success'
+        );
+      }
+
+      // Close the scan banner — phases 2 & 3 happen per-task with freeze UI
+      clearInterval(timerInterval);
+      overlay.classList.remove('visible');
+      btn.disabled = !serverOnline;
+      btn.textContent = 'Scan Emails & Teams';
+
+      // ═══════════════════════════════════════════════
+      // PHASE 2: Enrichment — per new task, sequential
+      // ═══════════════════════════════════════════════
+      for (const taskId of newIds) {
+        freezeTask(taskId);
+        updateStepIndicator(taskId, 2, 'active');
+        try {
+          const enrichRes = await fetch(`/api/tasks/${taskId}/enrich`, { method: 'POST' });
+          const enrichData = await enrichRes.json();
+          if (enrichRes.ok && enrichData.summary) {
+            updateStepIndicator(taskId, 2, 'done');
+            updateTaskSummaryInCard(taskId, enrichData.summary);
+          } else {
+            updateStepIndicator(taskId, 2, 'error');
+          }
+        } catch (err) {
+          console.error(`Enrichment failed for ${taskId}:`, err);
+          updateStepIndicator(taskId, 2, 'error');
+        } finally {
+          unfreezeTask(taskId);
+        }
+      }
+
+      // ═══════════════════════════════════════════════
+      // PHASE 3: Update Check — all enriched tasks
+      // ═══════════════════════════════════════════════
+      const allTasks = await (await fetch('/api/tasks')).json();
+      const enrichedTasks = (allTasks.tasks || [])
+        .filter(t => t.enrichmentStatus === 'enriched' && t.status !== 'done' && !newIds.includes(t.id));
+
+      for (const task of enrichedTasks) {
+        freezeTask(task.id);
+        updateStepIndicator(task.id, 3, 'active');
+        try {
+          const checkRes = await fetch(`/api/tasks/${task.id}/check-update`, { method: 'POST' });
+          const checkData = await checkRes.json();
+          if (checkRes.ok) {
+            updateStepIndicator(task.id, 3, checkData.hasUpdate ? 'updated' : 'done');
+            if (checkData.hasUpdate) {
+              showNotification(`Task updated: ${task.title.substring(0, 40)}...`, 'success');
+            }
+          } else {
+            updateStepIndicator(task.id, 3, 'error');
+          }
+        } catch (err) {
+          console.error(`Update check failed for ${task.id}:`, err);
+          updateStepIndicator(task.id, 3, 'error');
+        } finally {
+          unfreezeTask(task.id);
+        }
+      }
+
+      // Final refresh to show all updated data
+      await fetchTasks();
+
     } catch (err) {
       if (err.name === 'TypeError' && err.message.includes('fetch')) {
         showNotification('Cannot reach the server. Is it still running?', 'error');
@@ -961,6 +1088,37 @@
         ? `<a href="${escHtml(task.link)}" onclick="return openLink(event)" rel="noopener">Open source ↗</a>`
         : '';
       const notesHtml = task.notes ? `<div class="task-notes">${escHtml(task.notes)}</div>` : '';
+      const summaryHtml = task.summary
+        ? `<div class="task-summary" onclick="event.stopPropagation(); this.classList.toggle('expanded')"><span class="summary-icon">📋</span><span class="summary-text">${escHtml(task.summary)}</span></div>`
+        : '';
+
+      // Step indicators (3-phase pipeline)
+      const step1State = 'done'; // Always done if task exists
+      const step2State = task.enrichmentStatus === 'enriched' ? 'done'
+                       : task.enrichmentStatus === 'enriching' ? 'active'
+                       : task.enrichmentStatus === 'error' ? 'error'
+                       : 'pending';
+      const step3State = task.updateCheckStatus === 'updated' ? 'updated'
+                       : task.updateCheckStatus === 'checked' ? 'done'
+                       : task.updateCheckStatus === 'checking' ? 'active'
+                       : task.updateCheckStatus === 'error' ? 'error'
+                       : 'pending';
+      const stepIndicator = `<span class="step-indicators">` +
+        `<span class="step-dot step-done" data-step="1" title="Subject extracted"></span>` +
+        `<span class="step-dot ${step2State !== 'pending' ? 'step-' + step2State : ''}" data-step="2" title="Content summarized"></span>` +
+        `<span class="step-dot ${step3State !== 'pending' ? 'step-' + step3State : ''}" data-step="3" title="Update checked"></span>` +
+        `</span>`;
+
+      // Timestamps
+      const createdText = task.createdAt ? formatDateTime(task.createdAt) : '';
+      const updatedText = task.updatedAt && task.updatedAt !== task.createdAt
+        ? ` · Updated: ${formatDateTime(task.updatedAt)}`
+        : '';
+      const timestampHtml = createdText
+        ? `<div class="task-timestamps">Created: ${createdText}${updatedText}</div>`
+        : '';
+
+      const isFrozen = frozenTasks.has(task.id);
 
       // Split history into conversations vs system events
       const history = task.history || [];
@@ -971,14 +1129,16 @@
       const contentClass = conversations.length > 0 ? ' has-content' : '';
 
       return `
-        <div class="task-card${doneClass}${contentClass}" id="card-${task.id}">
+        <div class="task-card${doneClass}${contentClass}${isFrozen ? ' frozen' : ''}" id="card-${task.id}">
           <div class="task-main" onclick="toggleTaskPanel('${task.id}')">
-            <div class="task-title">${escHtml(task.title)}</div>
+            <div class="task-title">${escHtml(task.title)} ${stepIndicator}</div>
             <div class="task-meta">
               ${sourceBadge}
               <span>${fromText}${separator}${dateText}</span>
               ${linkHtml}
             </div>
+            ${timestampHtml}
+            ${summaryHtml}
             ${notesHtml}
           </div>
           <div class="task-actions" onclick="event.stopPropagation()">
@@ -1183,6 +1343,7 @@
   }
 
   function toggleTaskPanel(taskId) {
+    if (frozenTasks.has(taskId)) return;
     const panel = document.getElementById('panel-' + taskId);
     if (!panel) return;
     const card = document.getElementById('card-' + taskId);
@@ -1233,6 +1394,10 @@
   }
 
   async function analyzeLog(taskId, input) {
+    if (frozenTasks.has(taskId)) {
+      showNotification('This task is being processed. Please wait.', 'error');
+      return;
+    }
     const text = input.value.trim();
     if (!text) return;
 
@@ -1507,6 +1672,54 @@
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
+  }
+
+  function formatDateTime(iso) {
+    const d = new Date(iso);
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return `${months[d.getMonth()]} ${d.getDate()}, ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  }
+
+  function freezeTask(taskId) {
+    frozenTasks.add(taskId);
+    const card = document.getElementById('card-' + taskId);
+    if (card) card.classList.add('frozen');
+  }
+
+  function unfreezeTask(taskId) {
+    frozenTasks.delete(taskId);
+    const card = document.getElementById('card-' + taskId);
+    if (card) card.classList.remove('frozen');
+  }
+
+  function updateStepIndicator(taskId, step, state) {
+    const card = document.getElementById('card-' + taskId);
+    if (!card) return;
+    const dot = card.querySelector(`.step-dot[data-step="${step}"]`);
+    if (!dot) return;
+    dot.classList.remove('step-done', 'step-active', 'step-error', 'step-updated');
+    switch (state) {
+      case 'done':    dot.classList.add('step-done'); break;
+      case 'active':  dot.classList.add('step-active'); break;
+      case 'error':   dot.classList.add('step-error'); break;
+      case 'updated': dot.classList.add('step-updated'); break;
+    }
+  }
+
+  function updateTaskSummaryInCard(taskId, summary) {
+    const card = document.getElementById('card-' + taskId);
+    if (!card) return;
+    let summaryEl = card.querySelector('.task-summary');
+    if (!summaryEl && summary) {
+      summaryEl = document.createElement('div');
+      summaryEl.className = 'task-summary';
+      summaryEl.onclick = function(e) { e.stopPropagation(); this.classList.toggle('expanded'); };
+      const mainEl = card.querySelector('.task-main');
+      if (mainEl) mainEl.appendChild(summaryEl);
+    }
+    if (summaryEl && summary) {
+      summaryEl.innerHTML = `<span class="summary-icon">📋</span><span class="summary-text">${escHtml(summary)}</span>`;
+    }
   }
 
   // Lightweight Markdown → HTML renderer for agent responses

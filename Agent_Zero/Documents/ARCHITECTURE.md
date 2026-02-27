@@ -1,7 +1,7 @@
 # Agent Zero — Technical Architecture
 
-**Version:** 2.0
-**Date:** February 26, 2026
+**Version:** 2.5
+**Date:** February 27, 2026
 **Author:** Martin Hämmerli
 
 ---
@@ -170,61 +170,58 @@ Server ready → open http://localhost:3000 in default browser
 
 ## 3. Data Flow Diagrams
 
-### 3.1 Scan Flow
+### 3.1 Scan Flow (Multi-Phase Pipeline)
 
 ```
 User clicks "Scan Emails & Teams"
         │
         ▼ POST /api/scan { scanDays }
 ┌───────────────────────────────────────────────────────────┐
-│ Server: Build Context-Aware Prompt                         │
+│ PHASE 1: Discovery — Subject Lines Only                    │
 │                                                            │
 │  1. Read existing tasks from tasks.json                    │
-│  2. Collect active tasks (new, needs-attention,            │
-│     escalated, in-progress) — max 50                       │
-│  3. Collect recent done tasks — max 30                      │
-│  4. Load SCAN_SKILL.md (or use inline fallback prompt)     │
-│  5. Inject existing tasks as JSON context                   │
-│  6. Add Content Extraction Strategy instruction — tells     │
-│     Work IQ to analyze full email body content, not just    │
-│     subject lines, to catch action items buried in body     │
-│                                                            │
-│ Prompt branches:                                           │
-│  ┌─ Skill + tasks → skill + context + instructions         │
-│  ├─ Skill only   → skill + "no existing tasks"             │
-│  ├─ Tasks only   → inline prompt with dedup rules          │
-│  └─ Neither      → minimal inline prompt                   │
+│  2. Load SCAN_DISCOVERY_SKILL.md (subject-only rules)      │
+│  3. Inject existing tasks as JSON context                   │
+│  4. AI scans emails/Teams — returns subject + sender + date │
+│  5. Parse & Dedup (Jaccard, link, title+from+source)        │
+│  6. Create tasks with summary=null, enrichmentStatus=       │
+│     "pending", updateCheckStatus="pending"                  │
+│  7. Return { added, skipped, updated, newTaskIds[] }        │
 └───────────────────────┬───────────────────────────────────┘
+                        │
+            ┌───── for each newTaskId (sequential) ─────┐
+            │                                            │
+            ▼ POST /api/tasks/:id/enrich                 │
+┌───────────────────────────────────────────────────┐    │
+│ PHASE 2: Enrichment — Content Extraction           │    │
+│                                                    │    │
+│  1. Freeze task card (neon blue, no interaction)   │    │
+│  2. Open fresh Work IQ session                     │    │
+│  3. Load ENRICH_SKILL.md (multi-pass strategy)     │    │
+│  4. AI reads full email body → generates summary   │    │
+│  5. Save summary, set enrichmentStatus="enriched"  │    │
+│  6. Unfreeze task card                              │    │
+└───────────────────────────────────────────────────┘    │
+            │                                            │
+            └────────────────────────────────────────────┘
+                        │
+            ┌───── for each enriched task (sequential) ─┐
+            │                                            │
+            ▼ POST /api/tasks/:id/check-update           │
+┌───────────────────────────────────────────────────┐    │
+│ PHASE 3: Update Check — Thread Replies              │    │
+│                                                    │    │
+│  1. Freeze task card                                │    │
+│  2. Check for thread replies since task creation    │    │
+│  3. If update found: append "📌 Update:" to summary │    │
+│  4. Set updateCheckStatus="checked" or "updated"    │    │
+│  5. Unfreeze task card                              │    │
+└───────────────────────────────────────────────────┘    │
+            │                                            │
+            └────────────────────────────────────────────┘
                         │
                         ▼
-┌───────────────────────────────────────────────────────────┐
-│ Copilot SDK + Work IQ MCP                                  │
-│                                                            │
-│  CopilotClient → createSession({ mcpServers: workiq })     │
-│  session.sendAndWait(prompt, 120000)                        │
-│  session.destroy() → client.dispose()                       │
-└───────────────────────┬───────────────────────────────────┘
-                        │
-                        ▼ JSON array of items
-┌───────────────────────────────────────────────────────────┐
-│ Parse & Dedup (3 layers)                                   │
-│                                                            │
-│  Layer 1: AI context     — done tasks in prompt, AI        │
-│           should not re-create them                         │
-│  Layer 2: action:"skip"  — AI explicitly skips matches     │
-│  Layer 3: Jaccard safety — isSimilarTitle() > 0.7          │
-│           against ALL existing tasks                        │
-│                                                            │
-│ For each item:                                              │
-│  ├─ action:"skip"   → skipped++                             │
-│  ├─ action:"update" → apply changes to existing task        │
-│  ├─ action:"new"    → Jaccard check → create or skip        │
-│  └─ no action       → legacy dedup (link, title+from+src)   │
-└───────────────────────┬───────────────────────────────────┘
-                        │
-                        ▼
-              safeWriteTasks() → tasks.json
-              Response: { added, skipped, updated, total }
+              Final fetchTasks() → re-render all cards
 ```
 
 ### 3.2 Agent Flow (Intent-Based)
@@ -319,15 +316,15 @@ User types text → clicks "📝 Note"
 
 ---
 
-## 4. Data Schema v2
+## 4. Data Schema v3
 
 ### Root Object
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "tasks": [ Task, ... ],
-  "lastScan": "2026-02-26T10:00:00.000Z"
+  "lastScan": "2026-02-27T10:00:00.000Z"
 }
 ```
 
@@ -337,6 +334,7 @@ User types text → clicks "📝 Note"
 |---|---|---|
 | `id` | string (UUID v4) | Unique identifier |
 | `title` | string | Task title (from AI scan or manual input) |
+| `summary` | string \| null | 2-4 sentence briefing of the email/message content |
 | `source` | `"email"` \| `"teams"` \| `"manual"` | Where the task originated |
 | `from` | string \| null | Sender name (null for manual tasks) |
 | `date` | string \| null | Original message date (ISO 8601) |
@@ -345,6 +343,10 @@ User types text → clicks "📝 Note"
 | `notes` | string | Free-text notes (legacy field, still writable via PATCH) |
 | `history` | HistoryEntry[] | Chronological log of all events and agent interactions |
 | `doneAt` | string \| null | ISO timestamp when status was set to "done" |
+| `enrichmentStatus` | `"pending"` \| `"enriching"` \| `"enriched"` \| `"error"` | Phase 2 enrichment state |
+| `updateCheckStatus` | `"pending"` \| `"checking"` \| `"checked"` \| `"updated"` \| `"error"` | Phase 3 update check state |
+| `enrichedAt` | string \| null | ISO timestamp of last enrichment |
+| `lastUpdateCheck` | string \| null | ISO timestamp of last update check |
 | `createdAt` | string | ISO timestamp of task creation |
 | `updatedAt` | string | ISO timestamp of last modification |
 
@@ -519,6 +521,7 @@ if (task.status === 'active') {
 | `openPanelTaskIds` | Set | Task IDs with open interaction panels |
 | `collapsedEntries` | Set | Collapse IDs for long text entries |
 | `busyTaskIds` | Set | Task IDs with active agent work |
+| `frozenTasks` | Set | Task IDs frozen during scan pipeline (neon blue, no interaction) |
 | `linkMode` | string | Current link open mode |
 
 **localStorage keys:**
@@ -736,8 +739,10 @@ After search execution, a summary is built for the user:
 | `DELETE` | `/api/tasks/:id` | — | `{ success: true }` | Delete a task |
 | `DELETE` | `/api/tasks/:id/history/:index` | — | Task object | Delete a history entry (only `update` and `note` types) |
 | `POST` | `/api/tasks/:id/note` | `{ text }` | Task object | Save a note to task history |
-| `POST` | `/api/scan` | `{ scanDays? }` | `{ success, added, skipped, updated, total, lastScan }` | Scan M365 for action items |
-| `POST` | `/api/tasks/:id/log/analyze` | `{ text }` | `{ intent, plan?, result?, task? }` | Phase 1: AI intent analysis |
+| `POST` | `/api/scan` | `{ scanDays? }` | `{ success, added, skipped, updated, total, newTaskIds[], lastScan }` | Phase 1: Discovery scan (subjects only) |
+| `POST` | `/api/tasks/:id/enrich` | — | `{ success, summary, language, confidence, enrichmentStatus }` | Phase 2: Content extraction + summary |
+| `POST` | `/api/tasks/:id/check-update` | — | `{ success, hasUpdate, updateCheckStatus }` | Phase 3: Thread update check |
+| `POST` | `/api/tasks/:id/log/analyze` | `{ text }` | `{ intent, plan?, result?, task? }` | AI intent analysis |
 | `POST` | `/api/tasks/:id/log` | `{ text, plan? }` | Task object | Phase 2: Execute search + save |
 
 **Status validation:** PATCH rejects any status not in `['new', 'needs-attention', 'escalated', 'in-progress', 'done', 'paused']`.
@@ -759,9 +764,12 @@ Agent_Zero/
 ├── README.md                  # Quick start guide
 ├── START-DAILY-BRIEFING.bat   # Windows launcher (port check, auto-start)
 ├── Documents/
-│   ├── ARCHITECTURE.md        # This file
-│   ├── SCAN_SKILL.md          # Prompt template for M365 scan
-│   └── LOG_WORK_SKILL.md      # Prompt template for work logging
+│   ├── ARCHITECTURE.md            # This file
+│   ├── SCAN_SKILL.md              # Legacy scan skill (backup/fallback)
+│   ├── SCAN_DISCOVERY_SKILL.md    # Phase 1: Subject-only discovery scan
+│   ├── ENRICH_SKILL.md            # Phase 2: Content extraction + summary
+│   ├── LOG_WORK_SKILL.md          # Prompt template for work logging
+│   └── MULTI_PHASE_SCAN_SPEC.md   # Multi-phase scan architecture spec
 ├── Images/
 │   └── ChatGPT Image *.png    # App screenshot/logo
 └── Specifactions/

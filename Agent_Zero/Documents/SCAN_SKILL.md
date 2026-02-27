@@ -40,7 +40,7 @@ For each action item found, return ONE of these:
 {
   "action": "update",
   "existingId": "<id from the existing tasks list>",
-  "changes": { "title": "...", "date": "...", "link": "..." },
+  "changes": { "title": "...", "summary": "...", "date": "...", "link": "..." },
   "reason": "Brief explanation of what changed"
 }
 ```
@@ -53,12 +53,23 @@ For each action item found, return ONE of these:
 {
   "action": "new",
   "title": "Short, clear description of the action item",
+  "summary": "2-4 sentence summary of the full email/message content. Include key context: what is the topic, what was said, what is expected from the user, any deadlines or amounts mentioned. This is the user's briefing — they should understand the situation without opening the original message.",
   "source": "email" or "teams",
   "from": "Sender's display name",
   "date": "ISO 8601 date string",
   "link": "URL to open the original message, or null"
 }
 ```
+
+### Summary Guidelines
+
+- The `summary` is the most important field after `title` — it is the user's morning briefing
+- Write 2-4 sentences that capture: what the email is about, what is being asked, and any key details (deadlines, amounts, names, decisions)
+- Good: "Walid requests confirmation on the Zurich Circle Expansion lease terms. The dual MPR survey for rooms 10.3D/10.3E needs to be forwarded to the Sodexo facilities team (8 recipients). Decision expected by end of week."
+- Bad: "Email about office expansion." (too vague — user learns nothing)
+- Bad: Copy-pasting the entire email body (too long — this is a summary, not a transcript)
+- If the email is purely a notification with no meaningful content beyond the subject line (e.g., "Your JIT access request was approved"), set summary to null
+- Write the summary in the same language as the original email. If the email is in German, write the summary in German. If in English, write in English. Do not translate.
 
 ## Quality Guidelines for Titles
 

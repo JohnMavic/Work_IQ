@@ -18,8 +18,13 @@ const TASKS_FILE = path.join(__dirname, 'tasks.json');
 const SCAN_SKILL_PATH = path.join(__dirname, 'Documents', 'SCAN_SKILL.md');
 const LOG_WORK_SKILL_PATH = path.join(__dirname, 'Documents', 'LOG_WORK_SKILL.md');
 
+const SCAN_DISCOVERY_SKILL_PATH = path.join(__dirname, 'Documents', 'SCAN_DISCOVERY_SKILL.md');
+const ENRICH_SKILL_PATH = path.join(__dirname, 'Documents', 'ENRICH_SKILL.md');
+
 let SCAN_SKILL = '';
 let LOG_WORK_SKILL = '';
+let SCAN_DISCOVERY_SKILL = '';
+let ENRICH_SKILL = '';
 
 try {
   SCAN_SKILL = fs.readFileSync(SCAN_SKILL_PATH, 'utf-8');
@@ -33,6 +38,20 @@ try {
   console.log(`Loaded LOG_WORK_SKILL.md (${LOG_WORK_SKILL.length} chars)`);
 } catch (err) {
   console.warn('Warning: LOG_WORK_SKILL.md not found, using minimal log prompt');
+}
+
+try {
+  SCAN_DISCOVERY_SKILL = fs.readFileSync(SCAN_DISCOVERY_SKILL_PATH, 'utf-8');
+  console.log(`Loaded SCAN_DISCOVERY_SKILL.md (${SCAN_DISCOVERY_SKILL.length} chars)`);
+} catch (err) {
+  console.warn('Warning: SCAN_DISCOVERY_SKILL.md not found');
+}
+
+try {
+  ENRICH_SKILL = fs.readFileSync(ENRICH_SKILL_PATH, 'utf-8');
+  console.log(`Loaded ENRICH_SKILL.md (${ENRICH_SKILL.length} chars)`);
+} catch (err) {
+  console.warn('Warning: ENRICH_SKILL.md not found');
 }
 
 app.use(express.json());
@@ -210,6 +229,31 @@ function migrateStatuses() {
     writeTasks(data);
     console.log(`Migrated ${migrated} tasks from 'active' to 'new' status`);
   }
+}
+
+// --- Schema Migration v2 → v3 (Multi-Phase Scan) ---
+
+function migrateToV3() {
+  const data = readTasks();
+  if (data.version >= 3) return;
+
+  for (const task of data.tasks) {
+    if (task.enrichmentStatus === undefined) {
+      task.enrichmentStatus = task.summary ? 'enriched' : 'pending';
+    }
+    if (task.updateCheckStatus === undefined) {
+      task.updateCheckStatus = 'pending';
+    }
+    if (task.enrichedAt === undefined) {
+      task.enrichedAt = task.summary ? task.updatedAt : null;
+    }
+    if (task.lastUpdateCheck === undefined) {
+      task.lastUpdateCheck = null;
+    }
+  }
+  data.version = 3;
+  writeTasks(data);
+  console.log(`Migrated tasks.json to v3 (${data.tasks.length} tasks)`);
 }
 
 // --- API Endpoints ---
@@ -443,45 +487,46 @@ app.post('/api/scan', async (req, res) => {
 
     let scanPrompt;
     const daysText = `last ${scanDays} day${scanDays === 1 ? '' : 's'}`;
-    if (SCAN_SKILL && allContextTasks.length > 0) {
-      scanPrompt = SCAN_SKILL + `\n\n` +
+    const discoverySkill = SCAN_DISCOVERY_SKILL || SCAN_SKILL || '';
+    if (discoverySkill && allContextTasks.length > 0) {
+      scanPrompt = discoverySkill + `\n\n` +
         `EXISTING TASKS (active and done — do NOT re-create done tasks):\n` +
         JSON.stringify(allContextTasks) + `\n\n` +
         `Scan my emails and Teams messages from the ${daysText}.\n` +
-        `For each message, analyze the full available content — not just the subject line. Extract all details, requests, and action items from the email body.\n` +
         `For each action item found, decide: action "update" (with existingId) or "new".\n` +
         `If a found item matches a DONE task, use action "skip" — do NOT create it again.`;
-    } else if (SCAN_SKILL) {
-      scanPrompt = SCAN_SKILL + `\n\n` +
+    } else if (discoverySkill) {
+      scanPrompt = discoverySkill + `\n\n` +
         `There are no existing tasks yet.\n\n` +
         `Scan my emails and Teams messages from the ${daysText}.\n` +
-        `For each message, analyze the full available content — not just the subject line. Extract all details, requests, and action items from the email body.\n` +
         `For each action item found, return with action "new".`;
     } else if (allContextTasks.length > 0) {
       // Fallback: no skill file, use inline prompt (backward-compat)
       scanPrompt = `I have these EXISTING action items (do NOT re-create done ones):\n` +
         JSON.stringify(allContextTasks) + `\n\n` +
         `Scan my emails and Teams messages from the ${daysText}. ` +
-        `For each message, analyze the full available content — not just the subject line. Extract all details, requests, and action items from the email body.\n` +
         `For each message that contains an action item assigned to me or expected from me:\n\n` +
         `1. Check if it matches an existing task above (same topic/request, even if worded differently or from a different channel/sender).\n` +
         `   - If it matches a DONE task: skip it entirely — do NOT return it.\n` +
         `   - If it matches an active/in-progress task: return {"action":"update","existingId":"<id>","changes":{...},"reason":"<why>"}\n` +
         `     Only include fields in "changes" that actually changed (title, date, link). Do NOT include "from" or "source" in changes.\n` +
-        `   - If NO match: return {"action":"new","title":"...","source":"email" or "teams","from":"...","date":"...","link":"..."}\n\n` +
+        `   - If NO match: return {"action":"new","title":"EXACT subject line","source":"email" or "teams","from":"...","date":"...","link":"..."}\n\n` +
         `Return ONLY a JSON array. No markdown, no explanation.\n` +
         `If no action items found, return [].`;
     } else {
       scanPrompt = `Scan my emails and Teams messages from the ${daysText}. ` +
-        `For each message, analyze the full available content — not just the subject line. Extract all details, requests, and action items from the email body. ` +
         `For each message that contains an action item assigned to me or expected from me, ` +
         `return ONLY a JSON array (no markdown, no explanation) with objects containing: ` +
-        `action (always "new"), title (string), source ("email" or "teams"), from (sender name string), ` +
+        `action (always "new"), title (EXACT subject line — do not rephrase), ` +
+        `source ("email" or "teams"), from (sender name string), ` +
         `date (ISO 8601 string), and link (message URL or deep link string, or null if unavailable). ` +
         `If there are no action items, return an empty array [].`;
     }
 
-    const response = await session.sendAndWait({ prompt: scanPrompt }, 120000);
+    const scanStart = Date.now();
+    console.log(`[SCAN] Prompt size: ${scanPrompt.length} chars, timeout: 180s, scanDays: ${scanDays}`);
+    const response = await session.sendAndWait({ prompt: scanPrompt }, 180000);
+    console.log(`[SCAN] Response received in ${((Date.now() - scanStart) / 1000).toFixed(1)}s`);
     await session.destroy();
 
     if (!response) {
@@ -504,6 +549,7 @@ app.post('/api/scan', async (req, res) => {
       let added = 0;
       let skipped = 0;
       let updated = 0;
+      const newTaskIds = [];
 
       for (const item of items) {
         if (!item.title && !item.existingId) continue;
@@ -537,6 +583,10 @@ app.post('/api/scan', async (req, res) => {
           if (changes.link && changes.link !== existing.link) {
             changedFields.push(`link updated`);
             existing.link = String(changes.link).trim();
+          }
+          if (changes.summary && changes.summary !== existing.summary) {
+            changedFields.push('summary updated');
+            existing.summary = String(changes.summary).trim();
           }
 
           if (changedFields.length > 0) {
@@ -587,10 +637,11 @@ app.post('/api/scan', async (req, res) => {
           continue;
         }
 
-        // Create new task
+        // Create new task (Phase 1: discovery only — no summary)
         const task = {
           id: uuidv4(),
           title: titleNorm,
+          summary: null,
           source: sourceNorm,
           from: fromNorm,
           date: item.date || null,
@@ -599,22 +650,239 @@ app.post('/api/scan', async (req, res) => {
           notes: '',
           history: [{ timestamp: now, type: 'created', text: `Task created from ${sourceNorm} scan` }],
           doneAt: null,
+          enrichmentStatus: 'pending',
+          updateCheckStatus: 'pending',
+          enrichedAt: null,
+          lastUpdateCheck: null,
           createdAt: now,
           updatedAt: now
         };
 
         data.tasks.push(task);
+        newTaskIds.push(task.id);
         added++;
       }
 
       data.lastScan = now;
-      return { added, skipped, updated, total: data.tasks.length, lastScan: now };
+      return { added, skipped, updated, total: data.tasks.length, lastScan: now, newTaskIds };
     });
 
     res.json({ success: true, ...result });
   } catch (err) {
     console.error('Scan failed:', err);
     res.status(500).json({ error: 'Scan failed', detail: err.message });
+  } finally {
+    if (client) {
+      try { await client.dispose(); } catch {}
+    }
+  }
+});
+
+// POST /api/tasks/:id/enrich — Phase 2: content extraction & summary
+app.post('/api/tasks/:id/enrich', async (req, res) => {
+  const { id } = req.params;
+
+  let task;
+  try {
+    const data = readTasks();
+    task = data.tasks.find(t => t.id === id);
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+    if (task.enrichmentStatus === 'enriched') {
+      return res.json({ success: true, alreadyEnriched: true, summary: task.summary });
+    }
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to read task', detail: err.message });
+  }
+
+  // Mark as enriching
+  await safeWriteTasks((data) => {
+    const t = data.tasks.find(t => t.id === id);
+    if (t) t.enrichmentStatus = 'enriching';
+  });
+
+  let client;
+  try {
+    client = new CopilotClient();
+    const session = await client.createSession({
+      mcpServers: {
+        workiq: {
+          type: 'stdio',
+          command: 'workiq',
+          args: ['mcp'],
+          tools: '*'
+        }
+      }
+    });
+
+    const enrichSkill = ENRICH_SKILL || '';
+    const enrichPrompt = enrichSkill + '\n\n' +
+      `Find the email/message with this EXACT subject line: "${task.title}"\n` +
+      `From: ${task.from || 'unknown sender'}\n` +
+      `Date: ${task.date || 'recent'}\n` +
+      `Source: ${task.source}\n\n` +
+      `Extract the full content and create a summary as specified above.`;
+
+    const enrichStart = Date.now();
+    console.log(`[ENRICH] Task "${task.title}" — starting enrichment`);
+    const response = await session.sendAndWait({ prompt: enrichPrompt }, 120000);
+    console.log(`[ENRICH] Response in ${((Date.now() - enrichStart) / 1000).toFixed(1)}s`);
+    await session.destroy();
+
+    if (!response) {
+      await safeWriteTasks((data) => {
+        const t = data.tasks.find(t => t.id === id);
+        if (t) t.enrichmentStatus = 'error';
+      });
+      return res.status(502).json({ error: 'No response from AI engine' });
+    }
+
+    const rawContent = response.data.content;
+    const result = parseJsonFromResponse(rawContent);
+
+    // Save summary
+    const updated = await safeWriteTasks((data) => {
+      const t = data.tasks.find(t => t.id === id);
+      if (!t) return null;
+
+      const now = new Date().toISOString();
+      if (result && result.summary) {
+        t.summary = String(result.summary).trim();
+        t.enrichmentStatus = 'enriched';
+        t.enrichedAt = now;
+        if (!t.history) t.history = [];
+        t.history.push({
+          timestamp: now,
+          type: 'enriched',
+          text: `Content summary added (confidence: ${result.confidence || 'unknown'}, language: ${result.language || 'unknown'})`
+        });
+      } else {
+        t.enrichmentStatus = 'error';
+        if (!t.history) t.history = [];
+        t.history.push({
+          timestamp: now,
+          type: 'enrich-error',
+          text: `Content extraction failed: ${result?.error || 'Unknown error'}`
+        });
+      }
+      t.updatedAt = now;
+      return { summary: t.summary, enrichmentStatus: t.enrichmentStatus };
+    });
+
+    res.json({ success: true, ...updated });
+  } catch (err) {
+    console.error(`[ENRICH] Failed for task ${id}:`, err);
+    await safeWriteTasks((data) => {
+      const t = data.tasks.find(t => t.id === id);
+      if (t) {
+        t.enrichmentStatus = 'error';
+        t.updatedAt = new Date().toISOString();
+      }
+    });
+    res.status(500).json({ error: 'Enrichment failed', detail: err.message });
+  } finally {
+    if (client) {
+      try { await client.dispose(); } catch {}
+    }
+  }
+});
+
+// POST /api/tasks/:id/check-update — Phase 3: check for thread updates
+app.post('/api/tasks/:id/check-update', async (req, res) => {
+  const { id } = req.params;
+
+  let task;
+  try {
+    const data = readTasks();
+    task = data.tasks.find(t => t.id === id);
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to read task', detail: err.message });
+  }
+
+  // Mark as checking
+  await safeWriteTasks((data) => {
+    const t = data.tasks.find(t => t.id === id);
+    if (t) t.updateCheckStatus = 'checking';
+  });
+
+  let client;
+  try {
+    client = new CopilotClient();
+    const session = await client.createSession({
+      mcpServers: {
+        workiq: {
+          type: 'stdio',
+          command: 'workiq',
+          args: ['mcp'],
+          tools: '*'
+        }
+      }
+    });
+
+    const checkPrompt = `Check if there are any NEW replies or updates in the email thread about: "${task.title}"\n` +
+      `From: ${task.from || 'unknown'}\n` +
+      `Original date: ${task.date || 'unknown'}\n` +
+      `Last known summary: ${task.summary || '(no summary)'}\n\n` +
+      `If there are new replies or updates AFTER the original message, return:\n` +
+      `{"hasUpdate": true, "updateSummary": "What is new — in the same language as the original message"}\n\n` +
+      `If there are no new replies or the thread is unchanged, return:\n` +
+      `{"hasUpdate": false}\n\n` +
+      `Return ONLY JSON. No markdown, no explanation.`;
+
+    const checkStart = Date.now();
+    console.log(`[UPDATE-CHECK] Task "${task.title}" — checking for updates`);
+    const response = await session.sendAndWait({ prompt: checkPrompt }, 90000);
+    console.log(`[UPDATE-CHECK] Response in ${((Date.now() - checkStart) / 1000).toFixed(1)}s`);
+    await session.destroy();
+
+    if (!response) {
+      await safeWriteTasks((data) => {
+        const t = data.tasks.find(t => t.id === id);
+        if (t) t.updateCheckStatus = 'error';
+      });
+      return res.status(502).json({ error: 'No response from AI engine' });
+    }
+
+    const rawContent = response.data.content;
+    const result = parseJsonFromResponse(rawContent);
+
+    const updated = await safeWriteTasks((data) => {
+      const t = data.tasks.find(t => t.id === id);
+      if (!t) return null;
+
+      const now = new Date().toISOString();
+      t.lastUpdateCheck = now;
+
+      if (result && result.hasUpdate && result.updateSummary) {
+        t.updateCheckStatus = 'updated';
+        if (!t.history) t.history = [];
+        t.history.push({
+          timestamp: now,
+          type: 'thread-update',
+          text: String(result.updateSummary).trim()
+        });
+        // Append update to summary
+        t.summary = (t.summary || '') + '\n\n📌 Update: ' + String(result.updateSummary).trim();
+        t.updatedAt = now;
+        return { hasUpdate: true, updateSummary: result.updateSummary };
+      } else {
+        t.updateCheckStatus = 'checked';
+        t.updatedAt = now;
+        return { hasUpdate: false };
+      }
+    });
+
+    res.json({ success: true, ...updated });
+  } catch (err) {
+    console.error(`[UPDATE-CHECK] Failed for task ${id}:`, err);
+    await safeWriteTasks((data) => {
+      const t = data.tasks.find(t => t.id === id);
+      if (t) {
+        t.updateCheckStatus = 'error';
+        t.updatedAt = new Date().toISOString();
+      }
+    });
+    res.status(500).json({ error: 'Update check failed', detail: err.message });
   } finally {
     if (client) {
       try { await client.dispose(); } catch {}
@@ -672,6 +940,7 @@ app.post('/api/tasks/:id/log/analyze', async (req, res) => {
 
 TASK:
 Title: "${task.title}"
+Summary: ${task.summary || '(no summary available)'}
 From: ${task.from || 'unknown'}
 Source: ${task.source}
 Date: ${taskDate}
@@ -1087,6 +1356,7 @@ function parseMarkdownEmails(text) {
 
 migrateTasks();
 migrateStatuses();
+migrateToV3();
 
 app.listen(PORT, () => {
   console.log(`Agent Zero running at http://localhost:${PORT}`);
