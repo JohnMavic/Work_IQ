@@ -185,6 +185,9 @@ User clicks "Scan Emails & Teams"
 │  3. Collect recent done tasks — max 30                      │
 │  4. Load SCAN_SKILL.md (or use inline fallback prompt)     │
 │  5. Inject existing tasks as JSON context                   │
+│  6. Add Content Extraction Strategy instruction — tells     │
+│     Work IQ to analyze full email body content, not just    │
+│     subject lines, to catch action items buried in body     │
 │                                                            │
 │ Prompt branches:                                           │
 │  ┌─ Skill + tasks → skill + context + instructions         │
