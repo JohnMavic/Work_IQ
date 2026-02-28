@@ -100,7 +100,10 @@
     .task-card.done { opacity: 0.5; }
     .task-card.has-content { border-color: #ec4899; }
     .task-card.has-content:hover { border-color: #f472b6; }
-    .task-card.active-panel { border-color: #22c55e; background: #0f1a14; }
+    .task-card.active-panel,
+    .task-card.active-panel:hover,
+    .task-card.active-panel.has-content,
+    .task-card.active-panel.has-content:hover { border-color: #22c55e; background: #0f1a14; }
     .task-card.active-panel.done { opacity: 1; }
     .task-card.agent-busy { border-color: #22c55e; animation: busyPulse 2s ease-in-out infinite; }
 
@@ -131,6 +134,9 @@
     .task-summary.expanded {
       max-height: 400px;
     }
+    .task-card.active-panel .task-summary {
+      max-height: none;
+    }
     .task-summary .summary-icon { margin-right: 4px; }
 
     /* --- Ambiguity Review Panel --- */
@@ -144,9 +150,38 @@
       color: #fbbf24;
       line-height: 1.5;
     }
+    .ambiguity-panel.all-resolved {
+      border-left-color: #22c55e;
+      background: rgba(34, 197, 94, 0.06);
+      color: #86efac;
+    }
     .ambiguity-panel .ambiguity-title { font-weight: 600; margin-bottom: 4px; }
     .ambiguity-panel ul { margin: 4px 0 0 16px; padding: 0; }
     .ambiguity-panel li { margin-bottom: 4px; color: #e2e8f0; }
+    .ambiguity-panel li.resolved {
+      color: #64748b;
+      text-decoration: line-through;
+      text-decoration-color: #475569;
+    }
+    .ambiguity-panel li.resolved::marker { content: '✅ '; }
+    .ambiguity-response-form {
+      display: flex;
+      gap: 6px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(251, 191, 36, 0.15);
+    }
+    .ambiguity-response-form input {
+      flex: 1;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 4px;
+      color: #e2e8f0;
+      padding: 4px 8px;
+      font-size: 0.9em;
+    }
+    .ambiguity-response-form input:focus { outline: none; border-color: #f59e0b; }
+    .all-resolved .ambiguity-response-form { display: none; }
 
     /* --- Step Indicators (3-phase pipeline) --- */
     .step-indicators {
@@ -308,9 +343,9 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-top: 12px;
-      padding-top: 12px;
-      border-top: 1px solid #1e2233;
+      margin-bottom: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #1e2233;
     }
     .panel-log-form input {
       flex: 1;
@@ -1159,12 +1194,46 @@
         ? `<div class="task-summary" onclick="event.stopPropagation(); this.classList.toggle('expanded')"><span class="summary-icon">📋</span><span class="summary-text">${escHtml(task.summary)}</span></div>`
         : '';
 
-      const ambiguityHtml = task.ambiguities && task.ambiguities.length > 0
-        ? `<div class="ambiguity-panel" onclick="event.stopPropagation()">
-            <div class="ambiguity-title">⚠️ Agent needs your review (${task.ambiguities.length} item${task.ambiguities.length !== 1 ? 's' : ''}):</div>
-            <ul>${task.ambiguities.map(a => `<li>${escHtml(a)}</li>`).join('')}</ul>
-          </div>`
+      // Ambiguity: slim indicator for task-main, full panel for chat area
+      const ambiguityItems = (() => {
+        if (!task.ambiguities || task.ambiguities.length === 0) return [];
+        return task.ambiguities.map(a =>
+          typeof a === 'string' ? { question: a, resolved: false } : a
+        );
+      })();
+      const ambiguityOpenCount = ambiguityItems.filter(a => !a.resolved).length;
+      const ambiguityAllResolved = ambiguityItems.length > 0 && ambiguityOpenCount === 0;
+
+      // Slim indicator in task-main (just one line)
+      const ambiguityIndicator = ambiguityItems.length > 0
+        ? `<div class="ambiguity-indicator" onclick="event.stopPropagation(); toggleTaskPanel('${task.id}')" style="font-size:0.82em;margin-top:4px;cursor:pointer;color:${ambiguityAllResolved ? '#86efac' : '#fbbf24'}">${ambiguityAllResolved ? '✅ All review items resolved' : `⚠️ ${ambiguityOpenCount} review item${ambiguityOpenCount !== 1 ? 's' : ''} — click to respond`}</div>`
         : '';
+
+      // Full interactive panel for chat area
+      const ambiguityHtml = (() => {
+        if (ambiguityItems.length === 0) return '';
+        const panelClass = ambiguityAllResolved ? 'ambiguity-panel all-resolved' : 'ambiguity-panel';
+        const titleIcon = ambiguityAllResolved ? '✅' : '⚠️';
+        const titleText = ambiguityAllResolved
+          ? `${titleIcon} All review items resolved`
+          : `${titleIcon} Agent needs your review (${ambiguityOpenCount} open item${ambiguityOpenCount !== 1 ? 's' : ''}):`;
+        // Group: open items first, resolved items after
+        const openItems = ambiguityItems.filter(a => !a.resolved);
+        const resolvedItems = ambiguityItems.filter(a => a.resolved);
+        const sorted = [...openItems, ...resolvedItems];
+        const listHtml = sorted.map(a => {
+          const cls = a.resolved ? ' class="resolved"' : '';
+          return `<li${cls}>${escHtml(a.question)}</li>`;
+        }).join('');
+        return `<div class="${panelClass}" onclick="event.stopPropagation()">
+            <div class="ambiguity-title">${titleText}</div>
+            <ul>${listHtml}</ul>
+            <div class="ambiguity-response-form">
+              <input type="text" placeholder="Your clarification..." onkeydown="if(event.key==='Enter')respondToReview('${task.id}',this)">
+              <button class="btn btn-primary btn-sm" onclick="respondToReview('${task.id}',this.previousElementSibling)">📤 Respond</button>
+            </div>
+          </div>`;
+      })();
 
       // Step indicators (3-phase pipeline) — hide for manual tasks
       const isManualTask = task.enrichmentStatus === 'n/a';
@@ -1202,8 +1271,8 @@
       const history = task.history || [];
       const conversations = history
         .map((entry, idx) => ({ ...entry, _historyIndex: idx }))
-        .filter(e => e.type === 'update' || e.type === 'note');
-      const systemEvents = history.filter(e => e.type !== 'update' && e.type !== 'note');
+        .filter(e => e.type === 'update' || e.type === 'note' || e.type === 'review-response');
+      const systemEvents = history.filter(e => e.type !== 'update' && e.type !== 'note' && e.type !== 'review-response');
       const contentClass = conversations.length > 0 ? ' has-content' : '';
 
       return `
@@ -1217,7 +1286,7 @@
             </div>
             ${timestampHtml}
             ${summaryHtml}
-            ${ambiguityHtml}
+            ${ambiguityIndicator}
             ${notesHtml}
           </div>
           <div class="task-actions" onclick="event.stopPropagation()">
@@ -1233,7 +1302,6 @@
             <button class="btn btn-danger" onclick="deleteTask('${task.id}')">✕</button>
           </div>
           <div class="task-panel" id="panel-${task.id}">
-            ${renderConversations(conversations, task.id)}
             <div class="panel-log-form">
               <input type="text" placeholder="Message or update..." onkeydown="if(event.key==='Enter')analyzeLog('${task.id}',this)">
               <button class="btn btn-primary btn-sm" onclick="analyzeLog('${task.id}',this.previousElementSibling)" title="Send to agent">📤 Send</button>
@@ -1244,6 +1312,8 @@
               <input type="text" placeholder="Your answer..." onkeydown="if(event.key==='Enter')submitClarification('${task.id}',this)">
               <button class="btn btn-primary btn-sm" onclick="submitClarification('${task.id}',this.previousElementSibling)">Send</button>
             </div>
+            ${ambiguityHtml}
+            ${renderConversations(conversations, task.id)}
             ${renderDetails(conversations, systemEvents, task.id)}
           </div>
         </div>`;
@@ -1251,8 +1321,8 @@
 
   function renderConversations(conversations, taskId) {
     if (conversations.length === 0) return '';
-    // Chronological order (oldest first = read like a chat)
-    return conversations.map(entry => {
+    // Reverse-chronological order (newest first — like email threads)
+    return [...conversations].reverse().map(entry => {
       const ts = formatDate(entry.timestamp);
       let html = `<div class="agent-conversation">`;
       html += `<button class="conv-delete-btn" onclick="event.stopPropagation();deleteHistoryEntry('${taskId}',${entry._historyIndex})" title="Delete this entry">🗑️</button>`;
@@ -1265,7 +1335,7 @@
 
       // Agent interaction (type === 'update')
       const agentIntent = entry.agentPlan?.intent;
-      const userIcon = agentIntent === 'search' ? '🔍' : '📤';
+      const userIcon = agentIntent === 'search' ? '🔍' : agentIntent === 'review' ? '💬' : '📤';
       const userPreview = previewText(entry.text);
 
       // Collapsible user message
@@ -1286,7 +1356,7 @@
       const agentText = (agentIntent === 'search' && entry.agentResponse) ? entry.agentResponse
         : entry.agentPlan ? (entry.agentPlan.understanding || '') : '';
       if (agentText) {
-        const botIcon = agentIntent === 'summarize' ? '📋' : agentIntent === 'answer' ? '💬' : '🤖';
+        const botIcon = agentIntent === 'summarize' ? '📋' : agentIntent === 'answer' ? '💬' : agentIntent === 'review' ? '✅' : '🤖';
         const agentPreview = previewText(agentText);
         const isLongAgent = agentText.length > 120;
         const agentCollapseId = `${taskId}-${entry._historyIndex}-agent`;
@@ -1411,6 +1481,8 @@
         const icon = entry.type === 'created' ? '➕'
                    : entry.type === 'status-change' ? '✅'
                    : entry.type === 'scan-update' ? '🔄'
+                   : entry.type === 'summary-update' ? '✏️'
+                   : entry.type === 'review-response' ? '💬'
                    : entry.type === 'enriched' ? '📋'
                    : entry.type === 'enrich-error' ? '⚠️'
                    : entry.type === 'update-check' ? '🔍'
@@ -1527,7 +1599,7 @@
         planEl.innerHTML = `<div class="agent-msg-bot">${icon} ${renderMarkdown(data.result)}</div>`;
         planEl.classList.add('visible');
         input.value = '';
-        showNotification(intent === 'summarize' ? '📋 Summary saved' : '💬 Answer saved', 'success');
+        showNotification(intent === 'summarize' ? '✏️ Summary updated' : '💬 Answer saved', 'success');
         // Re-render to show in conversation history
         await fetchTasks();
         // Hide plan after re-render (it's now in conversation)
@@ -1730,6 +1802,37 @@
       await fetchTasks();
     } catch (err) {
       showNotification('Delete failed: ' + err.message, 'error');
+    }
+  }
+
+  async function respondToReview(taskId, input) {
+    const text = input.value.trim();
+    if (!text) return;
+    input.disabled = true;
+    const btn = input.nextElementSibling;
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Processing...'; }
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ response: text })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showNotification(data.error || 'Review failed', 'error');
+        return;
+      }
+      input.value = '';
+      const task = data.task;
+      const items = (task.ambiguities || []).map(a => typeof a === 'string' ? { question: a, resolved: false } : a);
+      const openCount = items.filter(a => !a.resolved).length;
+      showNotification(openCount === 0 ? '✅ All review items resolved' : `✅ Review updated (${openCount} open)`, 'success');
+      await fetchTasks();
+    } catch (err) {
+      showNotification('Review failed: ' + err.message, 'error');
+    } finally {
+      input.disabled = false;
+      if (btn) { btn.disabled = false; btn.textContent = '📤 Respond'; }
     }
   }
 

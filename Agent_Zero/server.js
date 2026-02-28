@@ -116,6 +116,17 @@ function isSimilarTitle(a, b) {
 
 // --- Keyword Extraction for Log Analysis Fallback (v1.4) ---
 
+// --- Normalize Ambiguities (v2.1) ---
+// Converts old string[] format to object[] format for backward compatibility
+function normalizeAmbiguities(arr) {
+  if (!arr || !Array.isArray(arr)) return [];
+  return arr.map(item => {
+    if (typeof item === 'string') return { question: item, resolved: false };
+    if (typeof item === 'object' && item.question) return item;
+    return { question: String(item), resolved: false };
+  });
+}
+
 function extractKeywords(title) {
   const stopWords = new Set([
     'the','a','an','is','are','was','were','be','been','have','has','had',
@@ -350,7 +361,18 @@ app.patch('/api/tasks/:id', async (req, res) => {
         }
       }
 
-      const allowedFields = ['status', 'notes', 'title', 'enrichmentStatus', 'updateCheckStatus'];
+      // Track summary change in history
+      if (updates.summary !== undefined && updates.summary !== t.summary) {
+        const prevSummary = t.summary;
+        t.history.push({
+          timestamp: now,
+          type: 'summary-update',
+          text: `✏️ Summary updated via direct edit` +
+            (prevSummary ? `\nPrevious: ${prevSummary.length > 300 ? prevSummary.substring(0, 300) + '...' : prevSummary}` : '')
+        });
+      }
+
+      const allowedFields = ['status', 'notes', 'title', 'summary', 'enrichmentStatus', 'updateCheckStatus'];
       for (const field of allowedFields) {
         if (updates[field] !== undefined) {
           t[field] = typeof updates[field] === 'string' ? updates[field].trim() : updates[field];
@@ -803,7 +825,7 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
           ? 'needs-review' : 'enriched';
         t.enrichedAt = now;
         if (result.ambiguities && result.ambiguities.length > 0) {
-          t.ambiguities = result.ambiguities;
+          t.ambiguities = normalizeAmbiguities(result.ambiguities);
         }
         t.history.push({
           timestamp: now,
@@ -1067,7 +1089,7 @@ USER'S MESSAGE:
 "${text.trim()}"
 
 STEP 1: Determine the INTENT. Choose exactly one:
-- "summarize" — user provided text/content and wants you to summarize or extract key points. The content to summarize is IN the message itself.
+- "summarize" — user provided text/content and wants you to summarize or extract key points, OR user wants to correct/update/replace the existing task summary. The result becomes the new main task summary.
 - "search" — user wants you to FIND emails, Teams messages, or communications. Requires Work IQ search.
 - "answer" — user asks a question that you can answer from the task context, the provided text, or general knowledge. No search needed.
 
@@ -1103,6 +1125,7 @@ If intent is "search":
 
 RULES:
 - If the user pastes a long email/text and says "fasse zusammen", "summarize", "was steht da", "key points" → intent is "summarize"
+- If the user corrects or updates the task summary (e.g. "die Summary stimmt nicht", "update the summary", "die Zusammenfassung ist falsch", "ändere die Summary", "das Thema ist eigentlich...") → intent is "summarize". Return the COMPLETE corrected summary as result — no meta-commentary, just the factual summary text.
 - If the user asks "was hat X geschrieben", "find emails from", "check my inbox" → intent is "search"
 - If the user asks "bis wann muss ich", "what's the deadline", "who is responsible" and the answer is in the task context → intent is "answer"
 - For "search" intent: ALWAYS include the task date as start date.
@@ -1133,6 +1156,20 @@ Return ONLY the JSON object. No markdown, no explanation.`;
             if (!t) return null;
             const now = new Date().toISOString();
             if (!t.history) t.history = [];
+
+            // When intent is "summarize", overwrite the main task summary
+            if (result.intent === 'summarize') {
+              const previousSummary = t.summary;
+              t.summary = String(result.result).trim();
+              t.history.push({
+                timestamp: now,
+                type: 'summary-update',
+                text: `✏️ Summary updated via user interaction` +
+                  (previousSummary ? `\nPrevious: ${previousSummary.length > 300 ? previousSummary.substring(0, 300) + '...' : previousSummary}` : '')
+              });
+              console.log(`[${now}] Summary updated for task "${task.title}" (${id})`);
+            }
+
             t.history.push({
               timestamp: now,
               type: 'update',
@@ -1408,6 +1445,166 @@ app.post('/api/tasks/:id/log', async (req, res) => {
     res.json(task);
   } catch (err) {
     res.status(500).json({ error: 'Failed to log work', detail: err.message });
+  }
+});
+
+// POST /api/tasks/:id/review — User responds to ambiguity review items (v2.1)
+app.post('/api/tasks/:id/review', async (req, res) => {
+  const { id } = req.params;
+  const { response } = req.body;
+
+  if (!response || !response.trim()) {
+    return res.status(400).json({ error: 'Response text is required' });
+  }
+
+  let task;
+  try {
+    const data = readTasks();
+    task = data.tasks.find(t => t.id === id);
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to read tasks', detail: err.message });
+  }
+
+  const ambiguities = normalizeAmbiguities(task.ambiguities);
+  const openItems = ambiguities.filter(a => !a.resolved);
+  if (openItems.length === 0) {
+    return res.json({ success: true, message: 'No open review items', task });
+  }
+
+  const now = new Date().toISOString();
+  console.log(`[${now}] Review response for task "${task.title}" (${id}): "${response.trim().substring(0, 100)}..."`);
+
+  let client;
+  try {
+    client = new CopilotClient();
+    const session = await client.createSession({});
+
+    const reviewPrompt = `You are an intelligent assistant for a task management app. The user is responding to review questions that the agent flagged as uncertain during content enrichment.
+
+TASK CONTEXT:
+Title: "${task.title}"
+Source: ${task.source}
+From: ${task.from || 'unknown'}
+Current Summary: ${task.summary || '(no summary)'}
+
+OPEN REVIEW QUESTIONS:
+${openItems.map((a, i) => `${i}: "${a.question}"`).join('\n')}
+
+USER'S RESPONSE:
+"${response.trim()}"
+
+INSTRUCTIONS:
+1. Analyze which review questions are sufficiently answered by the user's response.
+2. If the user's response provides enough information, provide an updated summary incorporating the new facts.
+3. If some questions remain unanswered or new uncertainties arise, formulate them as remaining questions.
+
+Return ONLY this JSON:
+{
+  "resolvedIndices": [0, 2],
+  "updatedSummary": "The complete updated summary incorporating the user's clarifications. Write in the same language as the current summary. If no changes needed, return null.",
+  "remainingQuestions": ["Any new or still-open question — only if truly unresolved"],
+  "allResolved": true
+}
+
+RULES:
+- resolvedIndices: array of indices (0-based) from the OPEN REVIEW QUESTIONS list that the user answered
+- updatedSummary: must be a COMPLETE replacement summary (not a diff), or null if no update needed
+- remainingQuestions: empty array [] if all resolved, otherwise new/reformulated open questions
+- allResolved: true if all open questions are answered, false otherwise
+- Be generous — if the user clearly addresses a question, mark it as resolved
+- Write in the same language as the user's response
+
+Return ONLY the JSON object. No markdown, no explanation.`;
+
+    const aiResponse = await session.sendAndWait({ prompt: reviewPrompt }, 30000);
+    await session.destroy();
+
+    if (!aiResponse) {
+      return res.status(500).json({ error: 'No response from AI' });
+    }
+
+    const result = parseJsonFromResponse(aiResponse.data.content);
+    if (!result || typeof result !== 'object') {
+      return res.status(500).json({ error: 'Could not parse AI response' });
+    }
+
+    // Apply resolution
+    const updatedTask = await safeWriteTasks((data) => {
+      const t = data.tasks.find(t => t.id === id);
+      if (!t) return null;
+      if (!t.history) t.history = [];
+      const nowWrite = new Date().toISOString();
+
+      // Normalize existing ambiguities
+      t.ambiguities = normalizeAmbiguities(t.ambiguities);
+
+      // Map open items back to the full array and mark resolved ones
+      const resolvedSet = new Set(result.resolvedIndices || []);
+      let openIndex = 0;
+      for (let i = 0; i < t.ambiguities.length; i++) {
+        if (!t.ambiguities[i].resolved) {
+          if (resolvedSet.has(openIndex)) {
+            t.ambiguities[i].resolved = true;
+            t.ambiguities[i].resolvedAt = nowWrite;
+          }
+          openIndex++;
+        }
+      }
+
+      // Add remaining questions as new open items
+      if (result.remainingQuestions && result.remainingQuestions.length > 0) {
+        for (const q of result.remainingQuestions) {
+          t.ambiguities.push({ question: String(q).trim(), resolved: false });
+        }
+      }
+
+      // Update summary if provided
+      const previousSummary = t.summary;
+      if (result.updatedSummary) {
+        t.summary = String(result.updatedSummary).trim();
+        t.history.push({
+          timestamp: nowWrite,
+          type: 'summary-update',
+          text: `✏️ Summary updated after review clarification` +
+            (previousSummary ? `\nPrevious: ${previousSummary.length > 300 ? previousSummary.substring(0, 300) + '...' : previousSummary}` : '')
+        });
+      }
+
+      // Check if all resolved
+      const stillOpen = t.ambiguities.filter(a => !a.resolved);
+      if (stillOpen.length === 0) {
+        t.enrichmentStatus = 'enriched';
+      }
+
+      // Log the review interaction
+      const resolvedCount = resolvedSet.size;
+      const totalOpen = openItems.length;
+      t.history.push({
+        timestamp: nowWrite,
+        type: 'review-response',
+        text: response.trim(),
+        agentPlan: {
+          intent: 'review',
+          understanding: `${resolvedCount}/${totalOpen} items resolved` +
+            (stillOpen.length > 0 ? ` — ${stillOpen.length} still open` : ' — all resolved') +
+            (result.updatedSummary ? ' · Summary updated' : '')
+        }
+      });
+
+      t.updatedAt = nowWrite;
+      return t;
+    });
+
+    if (!updatedTask) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    console.log(`[${now}] Review resolved: ${result.resolvedIndices?.length || 0} items, allResolved: ${result.allResolved}`);
+    res.json({ success: true, task: updatedTask });
+  } catch (err) {
+    console.error(`[REVIEW] Failed for task ${id}:`, err);
+    res.status(500).json({ error: 'Review processing failed', detail: err.message });
   }
 });
 
