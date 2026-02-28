@@ -726,36 +726,43 @@ async function triggerScan() {
     btn.textContent = 'Scan Emails & Teams';
 
     // ═══════════════════════════════════════════════
-    // PHASE 2: Enrichment — per new task, sequential
+    // PHASE 2: Enrichment — ALL tasks without summary
+    // Per Spec 6.1: "For each task with enrichmentStatus: pending"
     // ═══════════════════════════════════════════════
-    for (const taskId of newIds) {
-      freezeTask(taskId);
-      updateStepIndicator(taskId, 2, 'active');  // Dot 2 = pulsing blue
+    const phase2Tasks = await (await fetch('/api/tasks')).json();
+    const tasksToEnrich = (phase2Tasks.tasks || [])
+      .filter(t => t.enrichmentStatus === 'pending' && t.status !== 'done');
+
+    for (const task of tasksToEnrich) {
+      freezeTask(task.id);
+      updateStepIndicator(task.id, 2, 'active');
       try {
-        const enrichRes = await fetch(`/api/tasks/${taskId}/enrich`, { method: 'POST' });
+        const enrichRes = await fetch(`/api/tasks/${task.id}/enrich`, { method: 'POST' });
         const enrichData = await enrichRes.json();
-        if (enrichRes.ok && enrichData.summary) {
-          updateStepIndicator(taskId, 2, 'done');
-          updateTaskSummaryInCard(taskId, enrichData.summary);
+        if (enrichRes.ok && (enrichData.summary || enrichData.alreadyEnriched)) {
+          updateStepIndicator(task.id, 2, 'done');
+          if (enrichData.summary) updateTaskSummaryInCard(task.id, enrichData.summary);
         } else {
-          updateStepIndicator(taskId, 2, 'error');
+          updateStepIndicator(task.id, 2, 'error');
         }
       } catch (err) {
-        console.error(`Enrichment failed for ${taskId}:`, err);
-        updateStepIndicator(taskId, 2, 'error');
+        console.error(`Enrichment failed for ${task.id}:`, err);
+        updateStepIndicator(task.id, 2, 'error');
       } finally {
-        unfreezeTask(taskId);
+        unfreezeTask(task.id);
       }
     }
 
     // ═══════════════════════════════════════════════
-    // PHASE 3: Update Check — all enriched tasks
+    // PHASE 3: Update Check — ALL enriched, non-done tasks
+    // Per Spec 7.1: "For each task with enrichmentStatus: enriched
+    // and updateCheckStatus: pending"
     // ═══════════════════════════════════════════════
-    const allTasks = await (await fetch('/api/tasks')).json();
-    const enrichedTasks = (allTasks.tasks || [])
-      .filter(t => t.enrichmentStatus === 'enriched' && t.status !== 'done' && !newIds.includes(t.id));
+    const phase3Tasks = await (await fetch('/api/tasks')).json();
+    const tasksToCheck = (phase3Tasks.tasks || [])
+      .filter(t => t.enrichmentStatus === 'enriched' && t.status !== 'done');
 
-    for (const task of enrichedTasks) {
+    for (const task of tasksToCheck) {
       freezeTask(task.id);
       updateStepIndicator(task.id, 3, 'active');
       try {

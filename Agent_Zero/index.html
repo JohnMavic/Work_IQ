@@ -116,18 +116,37 @@
 
     .task-summary {
       font-size: 0.85em;
-      color: #94a3b8;
+      color: #cbd5e1;
       margin-top: 6px;
-      cursor: pointer;
-      overflow: hidden;
-      max-height: 1.5em;
-      transition: max-height 0.3s ease;
+      padding: 8px 10px;
+      background: rgba(30, 41, 59, 0.6);
+      border-left: 3px solid #3b82f6;
+      border-radius: 4px;
       line-height: 1.5;
+      max-height: 6em;
+      overflow: hidden;
+      cursor: pointer;
+      transition: max-height 0.3s ease;
     }
     .task-summary.expanded {
-      max-height: 200px;
+      max-height: 400px;
     }
     .task-summary .summary-icon { margin-right: 4px; }
+
+    /* --- Ambiguity Review Panel --- */
+    .ambiguity-panel {
+      font-size: 0.82em;
+      margin-top: 6px;
+      padding: 8px 10px;
+      background: rgba(251, 191, 36, 0.08);
+      border-left: 3px solid #f59e0b;
+      border-radius: 4px;
+      color: #fbbf24;
+      line-height: 1.5;
+    }
+    .ambiguity-panel .ambiguity-title { font-weight: 600; margin-bottom: 4px; }
+    .ambiguity-panel ul { margin: 4px 0 0 16px; padding: 0; }
+    .ambiguity-panel li { margin-bottom: 4px; color: #e2e8f0; }
 
     /* --- Step Indicators (3-phase pipeline) --- */
     .step-indicators {
@@ -162,19 +181,17 @@
       border-color: #00d4ff !important;
       background: linear-gradient(135deg, #0a1628 0%, #0d1f3c 100%) !important;
       box-shadow: 0 0 12px rgba(0, 212, 255, 0.15);
-      position: relative;
     }
     .task-card.frozen .task-actions { pointer-events: none; opacity: 0.4; }
     .task-card.frozen .task-main { pointer-events: none; }
-    .task-card.frozen::after {
-      content: '❄️ Agent working...';
-      position: absolute;
-      top: 8px;
-      right: 12px;
+    .frozen-badge {
+      display: none;
       font-size: 0.7rem;
       color: #00d4ff;
+      white-space: nowrap;
       animation: frozenPulse 2s ease-in-out infinite;
     }
+    .task-card.frozen .frozen-badge { display: inline; }
     @keyframes frozenPulse {
       0%, 100% { opacity: 0.6; }
       50% { opacity: 1; }
@@ -531,7 +548,7 @@
       display: none;
       background: linear-gradient(135deg, #1e1b4b, #312e81);
       padding: 8px 20px;
-      justify-content: center; align-items: center; gap: 12px;
+      justify-content: center; align-items: baseline; gap: 12px;
       border-bottom: 1px solid #4338ca;
     }
     .scan-banner.visible { display: flex; }
@@ -545,9 +562,9 @@
       0%, 100% { box-shadow: 0 0 6px rgba(34, 197, 94, 0.25); }
       50% { box-shadow: 0 0 16px rgba(34, 197, 94, 0.5); }
     }
-    .loading-text { font-size: 0.9rem; color: #aaa; }
+    .loading-text { font-size: 0.85rem; color: #c7d2fe; line-height: 1; }
     .loading-text.warning { color: #fbbf24; }
-    .loading-timer { font-size: 0.8rem; color: #555; margin-top: 8px; }
+    .loading-timer { font-size: 0.85rem; color: #818cf8; line-height: 1; }
 
     /* --- Notification Toast --- */
     .notification {
@@ -615,20 +632,20 @@
   <!-- Scan Status Banner (non-blocking, below header) -->
   <div class="scan-banner" id="loadingOverlay">
     <div class="spinner"></div>
-    <span class="loading-text" id="loadingText" style="color:#c7d2fe;font-size:0.85rem">Scanning...</span>
-    <span class="loading-timer" id="loadingTimer" style="color:#818cf8;font-size:0.75rem"></span>
+    <span class="loading-text" id="loadingText">Scanning...</span>
+    <span class="loading-timer" id="loadingTimer"></span>
   </div>
 
   <!-- Main Content -->
   <main>
     <!-- Server Offline Banner -->
     <div class="server-offline-banner" id="offlineBanner" style="display: none;">
-      <h3>⚠️ Server nicht erreichbar</h3>
-      <p>Der Backend-Server läuft nicht. Bitte starte ihn:</p>
-      <p><strong>Option 1:</strong> Doppelklick auf <code>START-AGENT-ZERO.bat</code></p>
-      <p><strong>Option 2:</strong> Terminal öffnen und ausführen:<br>
+      <h3>⚠️ Server unreachable</h3>
+      <p>The backend server is not running. Please start it:</p>
+      <p><strong>Option 1:</strong> Double-click <code>START-AGENT-ZERO.bat</code></p>
+      <p><strong>Option 2:</strong> Open a terminal and run:<br>
         <code>cd E:\Work_IQ\Agent_Zero &amp;&amp; node server.js</code></p>
-      <div class="retry-hint">🔄 Verbindung wird automatisch geprüft...</div>
+      <div class="retry-hint">🔄 Connection will be checked automatically...</div>
     </div>
 
     <div class="filter-bar">
@@ -707,34 +724,34 @@
 
     if (online) {
       tooltip.innerHTML =
-        '<div class="tooltip-title online">✅ Server verbunden</div>' +
+        '<div class="tooltip-title online">✅ Server connected</div>' +
         '<table>' +
         '<tr><td>Express</td><td>localhost:3000</td></tr>' +
         '<tr><td>AI Engine</td><td>GitHub Copilot SDK</td></tr>' +
-        '<tr><td>M365 Daten</td><td>Work IQ → Graph API</td></tr>' +
-        '<tr><td>Speicher</td><td>tasks.json (lokal)</td></tr>' +
+        '<tr><td>M365 Data</td><td>Work IQ → Graph API</td></tr>' +
+        '<tr><td>Storage</td><td>tasks.json (local)</td></tr>' +
         '</table>';
     } else {
       tooltip.innerHTML =
-        '<div class="tooltip-title offline">❌ Server nicht erreichbar</div>' +
+        '<div class="tooltip-title offline">❌ Server unreachable</div>' +
         '<div class="offline-hint">' +
-        '→ START-AGENT-ZERO.bat doppelklicken<br>' +
-        '→ Oder: <code>node server.js</code> im Terminal' +
+        '→ Double-click START-AGENT-ZERO.bat<br>' +
+        '→ Or: <code>node server.js</code> in terminal' +
         '</div>';
     }
 
     btnScan.disabled = !online;
-    btnScan.title = online ? '' : 'Server nicht erreichbar';
+    btnScan.title = online ? '' : 'Server unreachable';
     if (btnAddTask) {
       btnAddTask.disabled = !online;
-      btnAddTask.title = online ? '' : 'Server nicht erreichbar';
+      btnAddTask.title = online ? '' : 'Server unreachable';
     }
 
     if (online && reconnectTimer) {
       clearInterval(reconnectTimer);
       reconnectTimer = null;
       if (wasOffline) {
-        showNotification('✅ Server verbunden', 'success');
+        showNotification('✅ Server connected', 'success');
       }
     }
 
@@ -926,65 +943,112 @@
         );
       }
 
-      // Close the scan banner — phases 2 & 3 happen per-task with freeze UI
+      // Close the scan banner — phases 2 & 3 use the same banner
       clearInterval(timerInterval);
-      overlay.classList.remove('visible');
-      btn.disabled = !serverOnline;
-      btn.textContent = 'Scan Emails & Teams';
 
       // ═══════════════════════════════════════════════
-      // PHASE 2: Enrichment — per new task, sequential
+      // PHASE 2: Enrichment — ALL tasks without summary
+      // Per Spec 6.1: "For each task with enrichmentStatus: pending"
       // ═══════════════════════════════════════════════
-      for (const taskId of newIds) {
-        freezeTask(taskId);
-        updateStepIndicator(taskId, 2, 'active');
-        try {
-          const enrichRes = await fetch(`/api/tasks/${taskId}/enrich`, { method: 'POST' });
-          const enrichData = await enrichRes.json();
-          if (enrichRes.ok && enrichData.summary) {
-            updateStepIndicator(taskId, 2, 'done');
-            updateTaskSummaryInCard(taskId, enrichData.summary);
-          } else {
-            updateStepIndicator(taskId, 2, 'error');
-          }
-        } catch (err) {
-          console.error(`Enrichment failed for ${taskId}:`, err);
-          updateStepIndicator(taskId, 2, 'error');
-        } finally {
-          unfreezeTask(taskId);
-        }
-      }
+      const phase2Tasks = await (await fetch('/api/tasks')).json();
+      const tasksToEnrich = (phase2Tasks.tasks || [])
+        .filter(t => t.enrichmentStatus === 'pending' && t.status !== 'done');
 
-      // ═══════════════════════════════════════════════
-      // PHASE 3: Update Check — all enriched tasks
-      // ═══════════════════════════════════════════════
-      const allTasks = await (await fetch('/api/tasks')).json();
-      const enrichedTasks = (allTasks.tasks || [])
-        .filter(t => t.enrichmentStatus === 'enriched' && t.status !== 'done' && !newIds.includes(t.id));
+      if (tasksToEnrich.length > 0) {
+        // Show Phase 2 banner with timer
+        btn.textContent = 'Enriching...';
+        overlay.classList.add('visible');
+        let phase2Elapsed = 0;
+        loadingText.textContent = `Phase 2: Enriching content (0/${tasksToEnrich.length})...`;
+        loadingTimer.textContent = '⏱ 00:00';
+        const phase2Timer = setInterval(() => {
+          phase2Elapsed++;
+          const mm = String(Math.floor(phase2Elapsed / 60)).padStart(2, '0');
+          const ss = String(phase2Elapsed % 60).padStart(2, '0');
+          loadingTimer.textContent = `⏱ ${mm}:${ss}`;
+        }, 1000);
 
-      for (const task of enrichedTasks) {
-        freezeTask(task.id);
-        updateStepIndicator(task.id, 3, 'active');
-        try {
-          const checkRes = await fetch(`/api/tasks/${task.id}/check-update`, { method: 'POST' });
-          const checkData = await checkRes.json();
-          if (checkRes.ok) {
-            updateStepIndicator(task.id, 3, checkData.hasUpdate ? 'updated' : 'done');
-            if (checkData.hasUpdate) {
-              showNotification(`Task updated: ${task.title.substring(0, 40)}...`, 'success');
+        for (let i = 0; i < tasksToEnrich.length; i++) {
+          const task = tasksToEnrich[i];
+          loadingText.textContent = `Phase 2: Enriching content (${i + 1}/${tasksToEnrich.length})...`;
+          freezeTask(task.id);
+          updateStepIndicator(task.id, 2, 'active');
+          try {
+            const enrichRes = await fetch(`/api/tasks/${task.id}/enrich`, { method: 'POST' });
+            const enrichData = await enrichRes.json();
+            if (enrichRes.ok && (enrichData.summary || enrichData.alreadyEnriched)) {
+              if (enrichData.ambiguities && enrichData.ambiguities.length > 0) {
+                updateStepIndicator(task.id, 2, 'updated'); // amber — needs review
+              } else {
+                updateStepIndicator(task.id, 2, 'done');
+              }
+            } else {
+              updateStepIndicator(task.id, 2, 'error');
             }
-          } else {
-            updateStepIndicator(task.id, 3, 'error');
+          } catch (err) {
+            console.error(`Enrichment failed for ${task.id}:`, err);
+            updateStepIndicator(task.id, 2, 'error');
+          } finally {
+            unfreezeTask(task.id);
+            await refreshSingleTask(task.id);
           }
-        } catch (err) {
-          console.error(`Update check failed for ${task.id}:`, err);
-          updateStepIndicator(task.id, 3, 'error');
-        } finally {
-          unfreezeTask(task.id);
         }
+        clearInterval(phase2Timer);
       }
 
-      // Final refresh to show all updated data
+      // ═══════════════════════════════════════════════
+      // PHASE 3: Update Check — ALL enriched/needs-review, non-done tasks
+      // Runs EVERY scan cycle regardless of updateCheckStatus
+      // (enrichment is one-time, but update checks repeat every scan)
+      // ═══════════════════════════════════════════════
+      const phase3Tasks = await (await fetch('/api/tasks')).json();
+      const tasksToCheck = (phase3Tasks.tasks || [])
+        .filter(t => (t.enrichmentStatus === 'enriched' || t.enrichmentStatus === 'needs-review') && t.status !== 'done');
+
+      if (tasksToCheck.length > 0) {
+        // Show Phase 3 banner with timer
+        btn.textContent = 'Checking updates...';
+        overlay.classList.add('visible');
+        let phase3Elapsed = 0;
+        loadingText.textContent = `Phase 3: Checking for updates (0/${tasksToCheck.length})...`;
+        loadingTimer.textContent = '⏱ 00:00';
+        const phase3Timer = setInterval(() => {
+          phase3Elapsed++;
+          const mm = String(Math.floor(phase3Elapsed / 60)).padStart(2, '0');
+          const ss = String(phase3Elapsed % 60).padStart(2, '0');
+          loadingTimer.textContent = `⏱ ${mm}:${ss}`;
+        }, 1000);
+
+        for (let i = 0; i < tasksToCheck.length; i++) {
+          const task = tasksToCheck[i];
+          loadingText.textContent = `Phase 3: Checking for updates (${i + 1}/${tasksToCheck.length})...`;
+          freezeTask(task.id);
+          updateStepIndicator(task.id, 3, 'active');
+          try {
+            const checkRes = await fetch(`/api/tasks/${task.id}/check-update`, { method: 'POST' });
+            const checkData = await checkRes.json();
+            if (checkRes.ok) {
+              updateStepIndicator(task.id, 3, checkData.hasUpdate ? 'updated' : 'done');
+              if (checkData.hasUpdate) {
+                showNotification(`Task updated: ${task.title.substring(0, 40)}...`, 'success');
+              }
+            } else {
+              updateStepIndicator(task.id, 3, 'error');
+            }
+          } catch (err) {
+            console.error(`Update check failed for ${task.id}:`, err);
+            updateStepIndicator(task.id, 3, 'error');
+          } finally {
+            unfreezeTask(task.id);
+            await refreshSingleTask(task.id);
+          }
+        }
+        clearInterval(phase3Timer);
+      }
+
+      overlay.classList.remove('visible');
+
+      // Final refresh to update counts and filters
       await fetchTasks();
 
     } catch (err) {
@@ -1073,7 +1137,10 @@
       return;
     }
 
-    list.innerHTML = filtered.map(task => {
+    list.innerHTML = filtered.map(task => renderTaskCard(task)).join('');
+  }
+
+  function renderTaskCard(task) {
       const sourceBadge = task.source === 'email' ? '<span class="badge badge-email">Email</span>'
         : task.source === 'teams' ? '<span class="badge badge-teams">Teams</span>'
         : '<span class="badge badge-manual">Manual</span>';
@@ -1092,11 +1159,19 @@
         ? `<div class="task-summary" onclick="event.stopPropagation(); this.classList.toggle('expanded')"><span class="summary-icon">📋</span><span class="summary-text">${escHtml(task.summary)}</span></div>`
         : '';
 
+      const ambiguityHtml = task.ambiguities && task.ambiguities.length > 0
+        ? `<div class="ambiguity-panel" onclick="event.stopPropagation()">
+            <div class="ambiguity-title">⚠️ Agent needs your review (${task.ambiguities.length} item${task.ambiguities.length !== 1 ? 's' : ''}):</div>
+            <ul>${task.ambiguities.map(a => `<li>${escHtml(a)}</li>`).join('')}</ul>
+          </div>`
+        : '';
+
       // Step indicators (3-phase pipeline) — hide for manual tasks
       const isManualTask = task.enrichmentStatus === 'n/a';
       let stepIndicator = '';
       if (!isManualTask) {
         const step2State = task.enrichmentStatus === 'enriched' ? 'done'
+                         : task.enrichmentStatus === 'needs-review' ? 'updated'
                          : task.enrichmentStatus === 'enriching' ? 'active'
                          : task.enrichmentStatus === 'error' ? 'error'
                          : 'pending';
@@ -1115,10 +1190,10 @@
       // Timestamps
       const createdText = task.createdAt ? formatDateTime(task.createdAt) : '';
       const updatedText = task.updatedAt && task.updatedAt !== task.createdAt
-        ? ` · Updated: ${formatDateTime(task.updatedAt)}`
+        ? ` · 🔄 Last updated: ${formatDateTime(task.updatedAt)}`
         : '';
       const timestampHtml = createdText
-        ? `<div class="task-timestamps">Created: ${createdText}${updatedText}</div>`
+        ? `<div class="task-timestamps">📥 Discovered: ${createdText}${updatedText}</div>`
         : '';
 
       const isFrozen = frozenTasks.has(task.id);
@@ -1142,9 +1217,11 @@
             </div>
             ${timestampHtml}
             ${summaryHtml}
+            ${ambiguityHtml}
             ${notesHtml}
           </div>
           <div class="task-actions" onclick="event.stopPropagation()">
+            <span class="frozen-badge">❄️ Agent working...</span>
             <select class="status-select ${statusClass}" onchange="updateTask('${task.id}', { status: this.value })">
               <option value="needs-attention" ${task.status === 'needs-attention' ? 'selected' : ''}>🔴 Attention</option>
               <option value="new" ${task.status === 'new' ? 'selected' : ''}>🆕 New</option>
@@ -1170,7 +1247,6 @@
             ${renderDetails(conversations, systemEvents, task.id)}
           </div>
         </div>`;
-    }).join('');
   }
 
   function renderConversations(conversations, taskId) {
@@ -1257,7 +1333,7 @@
       if (conv.agentPlan) {
         const p = conv.agentPlan;
         detailsHtml += `<div class="detail-meta">`;
-        detailsHtml += `<span style="color:#93c5fd"><strong>1️⃣ Auftrag</strong></span>`;
+        detailsHtml += `<span style="color:#93c5fd"><strong>1️⃣ Task</strong></span>`;
         detailsHtml += `<span>${escHtml(p.understanding)}</span>`;
         const meta = [];
         if (p.keywords?.length) meta.push(`🔑 ${escHtml(p.keywords.join(', '))}`);
@@ -1273,7 +1349,7 @@
 
         // Step 2: GESENDET (promptSent = search parameters sent to Work IQ)
         const methodLabel = ex.method === 'workiq-ask' ? 'workiq ask (direkt)' : 'Copilot SDK + MCP';
-        detailsHtml += `<span style="color:#fbbf24"><strong>2️⃣ Gesendet an Work IQ</strong> <span style="font-size:0.7rem;color:#888">(${methodLabel})</span></span>`;
+        detailsHtml += `<span style="color:#fbbf24"><strong>2️⃣ Sent to Work IQ</strong> <span style="font-size:0.7rem;color:#888">(${methodLabel})</span></span>`;
         if (ex.promptSent) {
           detailsHtml += `<span>${escHtml(ex.promptSent)}</span>`;
         }
@@ -1281,23 +1357,23 @@
         // Step 3: ANTWORT (rawResponse or error, with duration)
         const duration = ex.durationMs ? ` (${(ex.durationMs / 1000).toFixed(1)}s)` : '';
         if (ex.error) {
-          detailsHtml += `<span style="color:#f87171"><strong>3️⃣ Antwort von Work IQ${duration}</strong></span>`;
+          detailsHtml += `<span style="color:#f87171"><strong>3️⃣ Response from Work IQ${duration}</strong></span>`;
           detailsHtml += `<span style="color:#f87171">❌ ${escHtml(ex.error)}</span>`;
         } else if (ex.rawResponse) {
-          detailsHtml += `<span style="color:#4ade80"><strong>3️⃣ Antwort von Work IQ${duration}</strong></span>`;
+          detailsHtml += `<span style="color:#4ade80"><strong>3️⃣ Response from Work IQ${duration}</strong></span>`;
           const truncated = ex.rawResponse.length > 800 ? ex.rawResponse.substring(0, 800) + '...' : ex.rawResponse;
           detailsHtml += `<span style="white-space:pre-wrap;font-size:0.7rem;color:#64748b">${escHtml(truncated)}</span>`;
         } else {
-          detailsHtml += `<span style="color:#9ca3af"><strong>3️⃣ Antwort von Work IQ${duration}</strong></span>`;
-          detailsHtml += `<span style="color:#9ca3af">Keine Antwort erhalten</span>`;
+          detailsHtml += `<span style="color:#9ca3af"><strong>3️⃣ Response from Work IQ${duration}</strong></span>`;
+          detailsHtml += `<span style="color:#9ca3af">No response received</span>`;
         }
 
         // Step 4: ERGEBNIS (parsed communications summary)
-        detailsHtml += `<span style="color:#93c5fd"><strong>4️⃣ Ergebnis für Benutzer</strong></span>`;
+        detailsHtml += `<span style="color:#93c5fd"><strong>4️⃣ Result for user</strong></span>`;
         if (ex.error) {
-          detailsHtml += `<span>⚠️ Suche fehlgeschlagen — Eintrag ohne Kommunikationen gespeichert</span>`;
+          detailsHtml += `<span>⚠️ Search failed — entry saved without communications</span>`;
         } else if (conv.communications?.length > 0) {
-          detailsHtml += `<span>✅ ${ex.parsedCount} Kommunikation(en) extrahiert:</span>`;
+          detailsHtml += `<span>✅ ${ex.parsedCount} communication(s) extracted:</span>`;
           for (const c of conv.communications) {
             const icon = c.type === 'teams' ? '💬' : '📧';
             // Handle both ISO dates and natural language dates from Markdown parser
@@ -1312,16 +1388,16 @@
               detailsHtml += `<span style="margin-left:16px;color:#94a3b8;font-size:0.8rem">${escHtml(c.summary)}</span>`;
             }
             if (c.link) {
-              detailsHtml += `<span style="margin-left:16px"><a href="${escHtml(c.link)}" onclick="return openLink(event)" style="color:#60a5fa;font-size:0.75rem">🔗 Öffnen</a></span>`;
+              detailsHtml += `<span style="margin-left:16px"><a href="${escHtml(c.link)}" onclick="return openLink(event)" style="color:#60a5fa;font-size:0.75rem">🔗 Open</a></span>`;
             }
           }
         } else if (ex.rawResponse && !ex.error) {
           // Work IQ responded but no structured data parsed — show natural language answer
-          detailsHtml += `<span>📝 Work IQ Antwort (kein strukturiertes Ergebnis):</span>`;
+          detailsHtml += `<span>📝 Work IQ response (no structured result):</span>`;
           const answer = ex.rawResponse.length > 2000 ? ex.rawResponse.substring(0, 2000) + '...' : ex.rawResponse;
           detailsHtml += `<span style="white-space:pre-wrap;font-size:0.8rem;color:#cbd5e1">${escHtml(answer)}</span>`;
         } else {
-          detailsHtml += `<span>🔍 Keine Kommunikationen gefunden</span>`;
+          detailsHtml += `<span>🔍 No communications found</span>`;
         }
 
         detailsHtml += `</div>`;
@@ -1332,8 +1408,16 @@
     if (systemEvents.length > 0) {
       detailsHtml += `<div style="margin-top:8px;padding-top:8px;border-top:1px solid #1a1f33">`;
       for (const entry of [...systemEvents].reverse()) {
-        const icon = entry.type === 'created' ? '➕' : entry.type === 'status-change' ? '✅' : entry.type === 'scan-update' ? '🔄' : '📌';
-        detailsHtml += `<div class="detail-entry"><span style="color:#444">${formatDate(entry.timestamp)}</span> ${icon} ${escHtml(entry.text)}</div>`;
+        const icon = entry.type === 'created' ? '➕'
+                   : entry.type === 'status-change' ? '✅'
+                   : entry.type === 'scan-update' ? '🔄'
+                   : entry.type === 'enriched' ? '📋'
+                   : entry.type === 'enrich-error' ? '⚠️'
+                   : entry.type === 'update-check' ? '🔍'
+                   : entry.type === 'update-check-error' ? '⚠️'
+                   : '📌';
+        const entryText = escHtml(entry.text).replace(/\n/g, '<br>');
+        detailsHtml += `<div class="detail-entry" style="white-space:normal"><span style="color:#444">${formatDate(entry.timestamp)}</span> ${icon} ${entryText}</div>`;
       }
       detailsHtml += `</div>`;
     }
@@ -1693,6 +1777,24 @@
     frozenTasks.delete(taskId);
     const card = document.getElementById('card-' + taskId);
     if (card) card.classList.remove('frozen');
+  }
+
+  // Refresh a single task card from server without full page re-render
+  async function refreshSingleTask(taskId) {
+    try {
+      const data = await (await fetch('/api/tasks')).json();
+      const task = (data.tasks || []).find(t => t.id === taskId);
+      if (!task) return;
+      const oldCard = document.getElementById('card-' + taskId);
+      if (!oldCard) return;
+      // Re-render just this card
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = renderTaskCard(task);
+      const newCard = tempDiv.firstElementChild;
+      oldCard.replaceWith(newCard);
+    } catch (err) {
+      console.error(`Failed to refresh task ${taskId}:`, err);
+    }
   }
 
   function updateStepIndicator(taskId, step, state) {

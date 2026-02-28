@@ -20,11 +20,13 @@ const LOG_WORK_SKILL_PATH = path.join(__dirname, 'Documents', 'LOG_WORK_SKILL.md
 
 const SCAN_DISCOVERY_SKILL_PATH = path.join(__dirname, 'Documents', 'SCAN_DISCOVERY_SKILL.md');
 const ENRICH_SKILL_PATH = path.join(__dirname, 'Documents', 'ENRICH_SKILL.md');
+const UPDATE_CHECK_SKILL_PATH = path.join(__dirname, 'Documents', 'UPDATE_CHECK_SKILL.md');
 
 let SCAN_SKILL = '';
 let LOG_WORK_SKILL = '';
 let SCAN_DISCOVERY_SKILL = '';
 let ENRICH_SKILL = '';
+let UPDATE_CHECK_SKILL = '';
 
 try {
   SCAN_SKILL = fs.readFileSync(SCAN_SKILL_PATH, 'utf-8');
@@ -52,6 +54,13 @@ try {
   console.log(`Loaded ENRICH_SKILL.md (${ENRICH_SKILL.length} chars)`);
 } catch (err) {
   console.warn('Warning: ENRICH_SKILL.md not found');
+}
+
+try {
+  UPDATE_CHECK_SKILL = fs.readFileSync(UPDATE_CHECK_SKILL_PATH, 'utf-8');
+  console.log(`Loaded UPDATE_CHECK_SKILL.md (${UPDATE_CHECK_SKILL.length} chars)`);
+} catch (err) {
+  console.warn('Warning: UPDATE_CHECK_SKILL.md not found');
 }
 
 app.use(express.json());
@@ -341,7 +350,7 @@ app.patch('/api/tasks/:id', async (req, res) => {
         }
       }
 
-      const allowedFields = ['status', 'notes', 'title'];
+      const allowedFields = ['status', 'notes', 'title', 'enrichmentStatus', 'updateCheckStatus'];
       for (const field of allowedFields) {
         if (updates[field] !== undefined) {
           t[field] = typeof updates[field] === 'string' ? updates[field].trim() : updates[field];
@@ -692,7 +701,7 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
     const data = readTasks();
     task = data.tasks.find(t => t.id === id);
     if (!task) return res.status(404).json({ error: 'Task not found' });
-    if (task.enrichmentStatus === 'enriched') {
+    if (task.enrichmentStatus === 'enriched' || task.enrichmentStatus === 'needs-review') {
       return res.json({ success: true, alreadyEnriched: true, summary: task.summary });
     }
   } catch (err) {
@@ -719,24 +728,59 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
       }
     });
 
+    // Extract keywords from title (drop common words, keep distinctive terms)
+    const stopWords = new Set(['the', 'a', 'an', 'to', 'for', 'of', 'in', 'on', 'at', 'by', 'and', 'or', 'via', 'with', 'from', 'my', 'your', 'is', 'are', 'was', 'be', 'has', 'have', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'this', 'that', 'these', 'those', 'it', 'its']);
+    const keywords = task.title
+      .replace(/[^a-zA-Z0-9äöüÄÖÜß\s-]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 2 && !stopWords.has(w.toLowerCase()))
+      .slice(0, 8)
+      .join(' ');
+
+    // Build link context
+    let linkContext = '';
+    if (task.link) {
+      if (task.link.includes('teams.microsoft.com')) {
+        const threadMatch = task.link.match(/19:[a-f0-9]+@thread\.[a-z]+/);
+        const msgMatch = task.link.match(/\/(\d{10,})\?/);
+        linkContext = `\nDirect Teams link: ${task.link}`;
+        if (threadMatch) linkContext += `\nTeams Thread ID: ${threadMatch[0]}`;
+        if (msgMatch) linkContext += `\nMessage ID: ${msgMatch[1]}`;
+      } else if (task.link.includes('outlook.office365.com') || task.link.includes('ItemID=')) {
+        linkContext = `\nDirect Outlook link: ${task.link}`;
+      }
+    }
+
     const enrichSkill = ENRICH_SKILL || '';
     const enrichPrompt = enrichSkill + '\n\n' +
-      `Find the email/message with this EXACT subject line: "${task.title}"\n` +
-      `From: ${task.from || 'unknown sender'}\n` +
-      `Date: ${task.date || 'recent'}\n` +
-      `Source: ${task.source}\n\n` +
-      `Extract the full content and create a summary as specified above.`;
+      `Search for the ${task.source === 'teams' ? 'Teams conversation' : 'email thread'} about: ${keywords}\n` +
+      `Full subject: "${task.title}"\n` +
+      `Sender (hint, may not be exact): ${task.from || 'unknown'}\n` +
+      `Date of original message: ${task.date || 'recent'}\n` +
+      `Discovery date (when this action item was first identified): ${task.createdAt || task.date || 'recent'}\n` +
+      `Source: ${task.source}` +
+      linkContext + '\n\n' +
+      `Find ALL messages in this conversation thread. Apply temporal reasoning: information from AFTER the discovery date is a direct update. Information from BEFORE may be historical context — evaluate whether it belongs to THIS action item or to a previous occurrence. Create a summary as specified above.`;
 
     const enrichStart = Date.now();
-    console.log(`[ENRICH] Task "${task.title}" — starting enrichment`);
-    const response = await session.sendAndWait({ prompt: enrichPrompt }, 120000);
-    console.log(`[ENRICH] Response in ${((Date.now() - enrichStart) / 1000).toFixed(1)}s`);
+    console.log(`[ENRICH] Task "${task.title}" — starting enrichment (prompt: ${enrichPrompt.length} chars)`);
+    const response = await session.sendAndWait({ prompt: enrichPrompt }, 300000);
+    const enrichDuration = Date.now() - enrichStart;
+    console.log(`[ENRICH] Response in ${(enrichDuration / 1000).toFixed(1)}s`);
     await session.destroy();
 
     if (!response) {
       await safeWriteTasks((data) => {
         const t = data.tasks.find(t => t.id === id);
-        if (t) t.enrichmentStatus = 'error';
+        if (t) {
+          t.enrichmentStatus = 'error';
+          if (!t.history) t.history = [];
+          t.history.push({
+            timestamp: new Date().toISOString(),
+            type: 'enrich-error',
+            text: `⚠️ Agent → Work IQ: No response received after ${(enrichDuration / 1000).toFixed(0)}s\n🔑 Keywords: ${keywords}\n📎 Link: ${task.link || 'none'}`
+          });
+        }
       });
       return res.status(502).json({ error: 'No response from AI engine' });
     }
@@ -744,43 +788,60 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
     const rawContent = response.data.content;
     const result = parseJsonFromResponse(rawContent);
 
-    // Save summary
+    // Save summary with detailed history
     const updated = await safeWriteTasks((data) => {
       const t = data.tasks.find(t => t.id === id);
       if (!t) return null;
 
       const now = new Date().toISOString();
+      const durationText = `${(enrichDuration / 1000).toFixed(0)}s`;
+      if (!t.history) t.history = [];
+
       if (result && result.summary) {
         t.summary = String(result.summary).trim();
-        t.enrichmentStatus = 'enriched';
+        t.enrichmentStatus = result.ambiguities && result.ambiguities.length > 0
+          ? 'needs-review' : 'enriched';
         t.enrichedAt = now;
-        if (!t.history) t.history = [];
+        if (result.ambiguities && result.ambiguities.length > 0) {
+          t.ambiguities = result.ambiguities;
+        }
         t.history.push({
           timestamp: now,
           type: 'enriched',
-          text: `Content summary added (confidence: ${result.confidence || 'unknown'}, language: ${result.language || 'unknown'})`
+          text: `✅ Content extraction successful (${durationText})\n🔑 Searched: ${keywords}\n📎 Source: ${task.source === 'teams' ? 'Teams chat' : 'Email'} from ${task.from || '?'}\n💬 Confidence: ${result.confidence || '?'} · Language: ${result.language || '?'}\n📋 Summary: ${t.summary}`
+            + (result.ambiguities && result.ambiguities.length > 0
+              ? `\n⚠️ ${result.ambiguities.length} item(s) need your review` : '')
         });
       } else {
         t.enrichmentStatus = 'error';
-        if (!t.history) t.history = [];
         t.history.push({
           timestamp: now,
           type: 'enrich-error',
-          text: `Content extraction failed: ${result?.error || 'Unknown error'}`
+          text: `❌ Content extraction failed (${durationText})\n🔑 Searched: ${keywords}\n📎 Source: ${task.source === 'teams' ? 'Teams chat' : 'Email'} from ${task.from || '?'}\n⚠️ Error: ${result?.error || 'No usable result from Work IQ'}`
         });
       }
       t.updatedAt = now;
-      return { summary: t.summary, enrichmentStatus: t.enrichmentStatus };
+      return { summary: t.summary, enrichmentStatus: t.enrichmentStatus, ambiguities: t.ambiguities || [] };
     });
 
     res.json({ success: true, ...updated });
   } catch (err) {
     console.error(`[ENRICH] Failed for task ${id}:`, err);
+    const isTimeout = err.message && err.message.includes('Timeout');
     await safeWriteTasks((data) => {
       const t = data.tasks.find(t => t.id === id);
       if (t) {
+        const now = new Date().toISOString();
         t.enrichmentStatus = 'error';
-        t.updatedAt = new Date().toISOString();
+        t.updatedAt = now;
+        if (!t.history) t.history = [];
+        t.history.push({
+          timestamp: now,
+          type: 'enrich-error',
+          text: isTimeout
+            ? `⏱️ Timeout: Work IQ did not respond within 300s\n🔑 Searched: content for "${task.title.substring(0, 60)}"\n📎 Source: ${task.source === 'teams' ? 'Teams chat' : 'Email'}\n💡 Tip: Task will be retried on the next scan`
+            : `❌ System error during content extraction\n⚠️ ${err.message}\n📎 Source: ${task.source === 'teams' ? 'Teams chat' : 'Email'} from ${task.from || '?'}`
+        });
       }
     });
     res.status(500).json({ error: 'Enrichment failed', detail: err.message });
@@ -824,19 +885,46 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
       }
     });
 
-    const checkPrompt = `Check if there are any NEW replies or updates in the email thread about: "${task.title}"\n` +
-      `From: ${task.from || 'unknown'}\n` +
-      `Original date: ${task.date || 'unknown'}\n` +
-      `Last known summary: ${task.summary || '(no summary)'}\n\n` +
-      `If there are new replies or updates AFTER the original message, return:\n` +
-      `{"hasUpdate": true, "updateSummary": "What is new — in the same language as the original message"}\n\n` +
-      `If there are no new replies or the thread is unchanged, return:\n` +
-      `{"hasUpdate": false}\n\n` +
-      `Return ONLY JSON. No markdown, no explanation.`;
+    // Extract keywords from title (same technique as Phase 2)
+    const stopWords = new Set(['the', 'a', 'an', 'to', 'for', 'of', 'in', 'on', 'at', 'by', 'and', 'or', 'via', 'with', 'from', 'my', 'your', 'is', 'are', 'was', 'be', 'has', 'have', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'this', 'that', 'these', 'those', 'it', 'its']);
+    const keywords = task.title
+      .replace(/[^a-zA-Z0-9äöüÄÖÜß\s-]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 2 && !stopWords.has(w.toLowerCase()))
+      .slice(0, 8)
+      .join(' ');
+
+    // Build link context
+    let linkContext = '';
+    if (task.link) {
+      if (task.link.includes('teams.microsoft.com')) {
+        const threadMatch = task.link.match(/19:[a-f0-9]+@thread\.[a-z]+/);
+        const msgMatch = task.link.match(/\/(\d{10,})\?/);
+        linkContext = `\nDirect Teams link: ${task.link}`;
+        if (threadMatch) linkContext += `\nTeams Thread ID: ${threadMatch[0]}`;
+        if (msgMatch) linkContext += `\nMessage ID: ${msgMatch[1]}`;
+      } else if (task.link.includes('outlook.office365.com') || task.link.includes('ItemID=')) {
+        linkContext = `\nDirect Outlook link: ${task.link}`;
+      }
+    }
+
+    // Temporal anchor: use lastUpdateCheck if available, otherwise enrichedAt or createdAt
+    const lastChecked = task.lastUpdateCheck || task.enrichedAt || task.createdAt || task.date || 'unknown';
+
+    const updateSkill = UPDATE_CHECK_SKILL || '';
+    const checkPrompt = updateSkill + '\n\n' +
+      `Search for the ${task.source === 'teams' ? 'Teams conversation' : 'email thread'} about: ${keywords}\n` +
+      `Full subject: "${task.title}"\n` +
+      `Sender (hint, may not be exact): ${task.from || 'unknown'}\n` +
+      `Source: ${task.source}\n` +
+      `Last checked date: ${lastChecked}\n` +
+      `Current summary: ${task.summary || '(no summary)'}` +
+      linkContext + '\n\n' +
+      `Find this conversation and check for messages dated AFTER ${lastChecked}. Only report genuinely NEW activity. Everything before that date was already captured.`;
 
     const checkStart = Date.now();
-    console.log(`[UPDATE-CHECK] Task "${task.title}" — checking for updates`);
-    const response = await session.sendAndWait({ prompt: checkPrompt }, 90000);
+    console.log(`[UPDATE-CHECK] Task "${task.title}" — checking for updates since ${lastChecked} (prompt: ${checkPrompt.length} chars)`);
+    const response = await session.sendAndWait({ prompt: checkPrompt }, 300000);
     console.log(`[UPDATE-CHECK] Response in ${((Date.now() - checkStart) / 1000).toFixed(1)}s`);
     await session.destroy();
 
@@ -861,10 +949,18 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
       if (result && result.hasUpdate && result.updateSummary) {
         t.updateCheckStatus = 'updated';
         if (!t.history) t.history = [];
+        const checkDuration = ((Date.now() - checkStart) / 1000).toFixed(1);
+        const historyLines = [
+          `🔄 Update detected (${checkDuration}s)`,
+          `   Search: "${keywords}"`,
+          `   Since: ${lastChecked}`,
+          `   New messages: ${result.newMessageCount || 'unknown'}`,
+          `   Update: ${String(result.updateSummary).trim()}`
+        ];
         t.history.push({
           timestamp: now,
           type: 'thread-update',
-          text: String(result.updateSummary).trim()
+          text: historyLines.join('\n')
         });
         // Append update to summary
         t.summary = (t.summary || '') + '\n\n📌 Update: ' + String(result.updateSummary).trim();
@@ -872,6 +968,13 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
         return { hasUpdate: true, updateSummary: result.updateSummary };
       } else {
         t.updateCheckStatus = 'checked';
+        const checkDuration = ((Date.now() - checkStart) / 1000).toFixed(1);
+        if (!t.history) t.history = [];
+        t.history.push({
+          timestamp: now,
+          type: 'update-check',
+          text: `✅ No new activity detected (${checkDuration}s) — searched: "${keywords}"`
+        });
         t.updatedAt = now;
         return { hasUpdate: false };
       }
@@ -883,8 +986,15 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
     await safeWriteTasks((data) => {
       const t = data.tasks.find(t => t.id === id);
       if (t) {
+        const now = new Date().toISOString();
         t.updateCheckStatus = 'error';
-        t.updatedAt = new Date().toISOString();
+        t.updatedAt = now;
+        if (!t.history) t.history = [];
+        t.history.push({
+          timestamp: now,
+          type: 'update-check-error',
+          text: `❌ Update check failed (searched: "${task.title.slice(0, 40)}")\n   Error: ${err.message}`
+        });
       }
     });
     res.status(500).json({ error: 'Update check failed', detail: err.message });
@@ -1242,7 +1352,7 @@ app.post('/api/tasks/:id/log', async (req, res) => {
   // Build a final agent response summary
   let agentResponse = '';
   if (searchError) {
-    agentResponse = `❌ Die Suche ist fehlgeschlagen: ${searchError}`;
+    agentResponse = `❌ Search failed: ${searchError}`;
   } else if (communications.length > 0) {
     const summaries = communications.map((c, i) => {
       const icon = c.type === 'teams' ? '💬' : '📧';
@@ -1254,7 +1364,7 @@ app.post('/api/tasks/:id/log', async (req, res) => {
     // Work IQ returned text but no structured results — show the natural language answer
     agentResponse = rawResponseText;
   } else {
-    agentResponse = `🔍 Keine Ergebnisse gefunden. Die Suche hat keine passenden E-Mails oder Teams-Nachrichten ergeben. Möchtest du mit anderen Suchbegriffen oder einem grösseren Zeitfenster erneut suchen?`;
+    agentResponse = `🔍 No results found. The search did not return any matching emails or Teams messages. Would you like to try again with different keywords or a broader time window?`;
   }
 
   // Write the history entry via queue
@@ -1362,6 +1472,26 @@ function parseMarkdownEmails(text) {
 migrateTasks();
 migrateStatuses();
 migrateToV3();
+
+// Reset stuck transitional statuses from interrupted enrichment/update-check
+(function resetStuckStatuses() {
+  const data = readTasks();
+  let fixed = 0;
+  for (const task of data.tasks) {
+    if (task.enrichmentStatus === 'enriching') {
+      task.enrichmentStatus = 'pending';
+      fixed++;
+    }
+    if (task.updateCheckStatus === 'checking') {
+      task.updateCheckStatus = 'pending';
+      fixed++;
+    }
+  }
+  if (fixed > 0) {
+    writeTasks(data);
+    console.log(`Reset ${fixed} stuck enriching/checking status(es) to pending`);
+  }
+})();
 
 app.listen(PORT, () => {
   console.log(`Agent Zero running at http://localhost:${PORT}`);
