@@ -204,7 +204,7 @@
 |----------|----------|--------------|
 | `readTasks()` | server.js | Reads and parses `tasks.json` synchronously |
 | `writeTasks(data)` | server.js | Writes `tasks.json` synchronously with 2-space indent |
-| `safeWriteTasks(mutationFn)` | server.js | Promise-based write queue ensuring sequential file writes under concurrent requests |
+| `safeWriteTasks(mutationFn)` | server.js | Promise-based write queue ensuring sequential file writes under concurrent requests. Includes chain recovery (`.catch(() => {})`) so a failed write does not permanently break the queue. Errors are logged with timestamp and re-thrown to callers. |
 | `normalizeForCompare(title)` | server.js | Lowercase, strip non-alphanumeric, collapse whitespace for dedup comparison |
 | `isSimilarTitle(a, b)` | server.js | Jaccard set similarity >0.7 threshold between word sets |
 | `normalizeAmbiguities(arr)` | server.js | Converts old `string[]` to `{question, resolved}[]` format |

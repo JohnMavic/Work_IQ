@@ -86,11 +86,16 @@ function writeTasks(data) {
 let writePromise = Promise.resolve();
 
 function safeWriteTasks(mutationFn) {
-  writePromise = writePromise.then(() => {
-    const data = readTasks();
-    const result = mutationFn(data);
-    writeTasks(data);
-    return result;
+  writePromise = writePromise.catch(() => {}).then(() => {
+    try {
+      const data = readTasks();
+      const result = mutationFn(data);
+      writeTasks(data);
+      return result;
+    } catch (err) {
+      console.error(`[${new Date().toISOString()}] safeWriteTasks FAILED: ${err.message}`);
+      throw err;
+    }
   });
   return writePromise;
 }

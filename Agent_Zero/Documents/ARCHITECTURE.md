@@ -427,7 +427,7 @@ Agent_Zero/
 | Some emails not found by Work IQ | Graph API indexing delay or Focused Inbox filtering | Retry on next scan; keyword variation |
 | 180s timeout per enrichment | Long threads risk timeout | Sequential processing prevents cascade failures |
 | Task titles are AI-rephrased | Titles may not match original email subjects | Keyword search instead of exact match |
-| tasks.json is not concurrent-safe | Parallel writes could corrupt data | Sequential processing + write queue |
+| tasks.json is not concurrent-safe | Parallel writes could corrupt data | Sequential write queue with chain recovery (`.catch(() => {})` prevents permanent queue freeze) |
 | Conditional Access Policy blocks 3rd-party apps | Cannot use Graph PowerShell SDK or CLI for M365 | Work IQ (pre-authorized) or Graph Explorer |
 
 ---

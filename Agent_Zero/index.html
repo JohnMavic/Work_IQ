@@ -839,6 +839,7 @@
       }
     } catch (err) {
       console.error('Failed to add task:', err);
+      showNotification('Failed to add task. Is the server running?', 'error');
     }
   }
 
@@ -850,7 +851,10 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates)
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        showNotification('Failed to save changes. Please try again.', 'error');
+        return;
+      }
       const updatedTask = await res.json();
 
       // Update local state without full re-render (prevents disrupting active agent work)
@@ -891,7 +895,11 @@
   async function deleteTask(id) {
     if (frozenTasks.has(id)) return;
     try {
-      await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        showNotification('Failed to delete task. Please try again.', 'error');
+        return;
+      }
       tasks = tasks.filter(t => t.id !== id);
       openPanelTaskIds.delete(id);
       // Clean up collapsed entries for deleted task
