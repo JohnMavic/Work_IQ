@@ -16,7 +16,7 @@
 | 5 | `DELETE` | `/api/tasks/:id` | Permanently removes a task by ID from storage. | `safeWriteTasks()` with `data.tasks.filter()` |
 | 6 | `DELETE` | `/api/tasks/:id/history/:index` | Deletes a single history entry by array index. Protects system entries — only allows deletion of `update`, `note`, and `review-response` types. | `safeWriteTasks()`, type whitelist check |
 | 7 | `POST` | `/api/tasks/:id/note` | Adds a quick text note to task history without any agent interaction. Creates history entry with `type: 'note'`. | `safeWriteTasks()`, no AI involved |
-| 8 | `POST` | `/api/scan` | **Phase 1 — Discovery.** Scans Microsoft 365 emails and Teams messages for new action items. Uses AI to identify subjects requiring attention. Deduplicates against existing tasks using Jaccard title similarity (>0.7) and exact link matching. Creates new tasks with `enrichmentStatus: 'pending'`. Can also update existing tasks if AI returns matching items with changes. | `CopilotClient` → Copilot SDK session with Work IQ MCP server (`stdio`, `workiq mcp`), `SCAN_DISCOVERY_SKILL.md` prompt, `isSimilarTitle()` Jaccard dedup, `normalizeForCompare()`, scan days parameter (1–7), 90s timeout |
+| 8 | `POST` | `/api/scan` | **Phase 1 — Discovery.** Scans Microsoft 365 emails and Teams messages for new action items. Uses AI to identify subjects requiring attention. Deduplicates against existing tasks using Jaccard title similarity (>0.7) and exact link matching. Creates new tasks with `enrichmentStatus: 'pending'`. Can also update existing tasks if AI returns matching items with changes. | `CopilotClient` → Copilot SDK session with Work IQ MCP server (`stdio`, `workiq mcp`), `SCAN_DISCOVERY_SKILL.md` prompt, `isSimilarTitle()` Jaccard dedup, `normalizeForCompare()`, scan days parameter (1–14), 180s timeout |
 | 9 | `POST` | `/api/tasks/:id/enrich` | **Phase 2 — Enrichment.** Extracts detailed content from the original email/Teams thread. Generates a structured summary with confidence level and language detection. Detects ambiguities where the agent is unsure. Skips tasks already enriched or in needs-review state. | `CopilotClient` + Work IQ MCP, `ENRICH_SKILL.md` prompt, `extractKeywords()` for search terms, `normalizeAmbiguities()`, 300s timeout, keyword-based search (not exact-subject) |
 | 10 | `POST` | `/api/tasks/:id/check-update` | **Phase 3 — Update Check.** Checks if new messages have appeared in the thread since the last check. Runs on EVERY scan (not just once like enrichment). Appends update summary to existing task summary. Resets `updateCheckStatus` per scan cycle. | `CopilotClient` + Work IQ MCP, `UPDATE_CHECK_SKILL.md` prompt, `extractKeywords()`, temporal anchor (`lastUpdateCheck` or `enrichedAt`), 300s timeout |
 | 11 | `POST` | `/api/tasks/:id/log/analyze` | **Log Work Phase 1 — Intent Analysis.** AI analyzes user's free-text message to determine intent: `summarize` (create/update summary), `search` (find communications), or `answer` (respond from context). For `summarize` intent: overwrites `task.summary` and logs change. For `search`: returns executable plan. No Work IQ needed — pure AI reasoning. | `CopilotClient` with empty session (no MCP), 30s timeout, `parseJsonFromResponse()`, intent-based routing, summary overwrite with `summary-update` history entry |
@@ -29,7 +29,7 @@
 
 | Phase | Name | Trigger | What Happens | Timeout | Runs |
 |-------|------|---------|--------------|---------|------|
-| 1 | Discovery | User clicks "Scan Emails & Teams" | AI scans M365 via Work IQ for new action items. Creates tasks with `summary: null`, `enrichmentStatus: 'pending'`. Deduplicates against all non-deleted tasks. | 90s | Once per scan |
+| 1 | Discovery | User clicks "Scan Emails & Teams" | AI scans M365 via Work IQ for new action items. Creates tasks with `summary: null`, `enrichmentStatus: 'pending'`. Deduplicates against all non-deleted tasks. | 180s | Once per scan |
 | 2 | Enrichment | Automatic after Phase 1 | For each task with `enrichmentStatus: 'pending'`: extracts thread content, generates summary, detects ambiguities. Sets status to `'enriched'` or `'needs-review'`. | 300s per task | Once per task (skips if already enriched) |
 | 3 | Update Check | Automatic after Phase 2 | For each task with `enrichmentStatus: 'enriched'` or `'needs-review'` (non-done): checks for new messages since last check. Appends updates to summary. | 300s per task | Every scan cycle (resets `updateCheckStatus` each time) |
 
@@ -153,7 +153,7 @@
 |---------|--------------|----------------|
 | Open Panels | Which task panels are expanded survives page refresh | `openPanelTaskIds` Set → localStorage `openPanels` JSON array |
 | Collapsed Threads | Which conversation threads are collapsed survives page refresh | `collapsedEntries` Set → localStorage `collapsedEntries` JSON array |
-| Scan Days | Default scan period slider value persists | localStorage `scanDays` (1–7) |
+| Scan Days | Default scan period slider value persists | localStorage `scanDays` (1–14) |
 | Link Mode | Preferred link open mode persists | localStorage `linkMode` (window/tab/split/incognito) |
 
 ---
