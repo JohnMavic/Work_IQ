@@ -224,7 +224,6 @@
 | `freezeTask(id)` / `unfreezeTask(id)` | index.html | Adds/removes task from frozen set, toggles `.frozen` CSS class |
 | `refreshSingleTask(id)` | index.html | Re-fetches and re-renders single task card without full page reload |
 | `updateStepIndicator(id, step, state)` | index.html | Updates pipeline phase dot state (pending/active/done/error/updated) |
-| `updateTaskSummaryInCard(id, summary)` | index.html | Dynamically inserts or updates summary element in task card DOM |
 
 ---
 

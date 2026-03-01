@@ -1911,22 +1911,6 @@
     }
   }
 
-  function updateTaskSummaryInCard(taskId, summary) {
-    const card = document.getElementById('card-' + taskId);
-    if (!card) return;
-    let summaryEl = card.querySelector('.task-summary');
-    if (!summaryEl && summary) {
-      summaryEl = document.createElement('div');
-      summaryEl.className = 'task-summary';
-      summaryEl.onclick = function(e) { e.stopPropagation(); this.classList.toggle('expanded'); };
-      const mainEl = card.querySelector('.task-main');
-      if (mainEl) mainEl.appendChild(summaryEl);
-    }
-    if (summaryEl && summary) {
-      summaryEl.innerHTML = `<span class="summary-icon">📋</span><span class="summary-text">${escHtml(summary)}</span>`;
-    }
-  }
-
   // Lightweight Markdown → HTML renderer for agent responses
   function renderMarkdown(text) {
     if (!text) return '';
