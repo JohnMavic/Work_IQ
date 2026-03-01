@@ -100,6 +100,24 @@ function safeWriteTasks(mutationFn) {
   return writePromise;
 }
 
+// --- Auto-Cleanup: permanently delete done tasks after retention period ---
+
+function cleanupDoneTasks(retentionDays = 3) {
+  const data = readTasks();
+  const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+  const before = data.tasks.length;
+  data.tasks = data.tasks.filter(t => {
+    if (t.status === 'done' && t.doneAt && t.doneAt < cutoff) return false;
+    return true;
+  });
+  const removed = before - data.tasks.length;
+  if (removed > 0) {
+    writeTasks(data);
+    console.log(`[${new Date().toISOString()}] Auto-cleanup: permanently deleted ${removed} done task(s) older than ${retentionDays} day(s)`);
+  }
+  return removed;
+}
+
 // --- Dedup Helpers (v1.3) ---
 
 function normalizeForCompare(title) {
@@ -456,6 +474,17 @@ app.delete('/api/tasks/:id/history/:index', async (req, res) => {
     res.json(task);
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete history entry', detail: err.message });
+  }
+});
+
+// POST /api/cleanup — permanently delete done tasks older than retentionDays
+app.post('/api/cleanup', (req, res) => {
+  try {
+    const retentionDays = parseInt(req.body.retentionDays) || 3;
+    const removed = cleanupDoneTasks(retentionDays);
+    res.json({ removed, retentionDays });
+  } catch (err) {
+    res.status(500).json({ error: 'Cleanup failed', detail: err.message });
   }
 });
 
@@ -1694,6 +1723,9 @@ migrateToV3();
     console.log(`Reset ${fixed} stuck enriching/checking status(es) to pending`);
   }
 })();
+
+// Startup cleanup: delete done tasks older than default retention (3 days)
+cleanupDoneTasks(3);
 
 app.listen(PORT, () => {
   console.log(`Agent Zero running at http://localhost:${PORT}`);

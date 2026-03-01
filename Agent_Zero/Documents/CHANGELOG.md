@@ -4,6 +4,48 @@ All notable changes to this project are documented here.
 
 ---
 
+## v2.1.0 — March 1, 2026
+
+**Header UI Redesign + Scan Control + Auto-Cleanup**
+
+### Header UI Redesign
+- 3-row dashboard layout: App name → Status/Progress → Actions
+- Row 2 transforms between idle state (server dot + "Online"/"Offline" label + last scan + sliders) and scanning state (spinner + phase text + timer + stop button)
+- CSS `:has()` + sibling selector auto-toggles idle/scanning — constant header height, no content jumping
+- Purple gradient background on row 2 during scan
+
+### Step Indicator Hover Tooltips
+- Phase dots now show detailed status info on hover (phase name, current action, success/error/pending state)
+- Tooltips explain what each phase does and what the current result means
+
+### Scan Abort
+- Red "⏹ Stop" button appears in progress bar during scanning
+- Safely stops scan between tasks — waits for current task's write to finish before aborting
+- Button changes to "⏹ Stopping..." while waiting for current task to complete
+- Notification confirms how many tasks were processed before the abort
+
+### Freeze Mode Styling
+- Stronger neon cyan border and glow on frozen task cards (`box-shadow: 0 0 18px`)
+- "❄️ Agent working..." badge now uses vibrant `#00e5ff` with `text-shadow` glow effect
+- Background gradient darkened for better contrast
+
+### Auto-Cleanup of Done Tasks
+- Done tasks are **permanently deleted** from `tasks.json` after configurable retention period
+- Default: 3 days; configurable via slider in header (1–30 days)
+- Server-side cleanup runs on startup and before each scan via `POST /api/cleanup`
+- Frontend also filters expired done tasks from display (immediate visual feedback when slider changes)
+- Only tasks with status `done` and a `doneAt` timestamp older than retention are deleted
+
+### Code Quality (from bug fix session)
+- Removed Incognito and Split View link modes (browser restrictions)
+- Fixed `safeWriteTasks()` permanent queue freeze (chain recovery with `.catch(() => {}).then(...)`)
+- Fixed notification deduplication (querySelectorAll)
+- Removed `updateTaskSummaryInCard()` dead code
+- Added error notifications for 3 silent failure paths
+- Fixed offline banner BAT filename
+
+---
+
 ## v2.0.0 — February 27, 2026
 
 **Three-Phase Scan Pipeline — Complete Rewrite**

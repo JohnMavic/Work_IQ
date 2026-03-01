@@ -68,7 +68,7 @@
       cursor: default;
     }
     .scan-range-group input[type="range"] {
-      width: 80px;
+      width: 100px;
       accent-color: #818cf8;
     }
     .scan-range-group span {
@@ -104,6 +104,7 @@
     .btn:hover { opacity: 0.85; }
     .btn-primary { background: #3b82f6; color: #fff; }
     .btn-scan { background: #6366f1; color: #fff; font-size: 0.9rem; padding: 10px 20px; min-width: 180px; }
+    .btn-abort { background: #dc2626; color: #fff; font-size: 0.75rem; padding: 4px 10px; margin-left: auto; }
     .btn-danger { background: #ef4444; color: #fff; padding: 4px 10px; font-size: 0.75rem; }
     .btn-sm { padding: 4px 10px; font-size: 0.75rem; }
     .btn-ghost { background: transparent; border: 1px solid #333; color: #aaa; }
@@ -267,6 +268,7 @@
       background: #374151;
       display: inline-block;
       transition: background 0.3s;
+      cursor: help;
     }
     .step-dot.step-done { background: #22c55e; }
     .step-dot.step-active {
@@ -284,22 +286,24 @@
     /* --- Frozen Task Card --- */
     .task-card.frozen {
       border-color: #00d4ff !important;
-      background: linear-gradient(135deg, #0a1628 0%, #0d1f3c 100%) !important;
-      box-shadow: 0 0 12px rgba(0, 212, 255, 0.15);
+      background: linear-gradient(135deg, #0a1a38 0%, #0d2850 100%) !important;
+      box-shadow: 0 0 18px rgba(0, 212, 255, 0.3);
     }
     .task-card.frozen .task-actions { pointer-events: none; opacity: 0.4; }
     .task-card.frozen .task-main { pointer-events: none; }
     .frozen-badge {
       display: none;
-      font-size: 0.7rem;
-      color: #00d4ff;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #00e5ff;
       white-space: nowrap;
+      text-shadow: 0 0 8px rgba(0, 229, 255, 0.6);
       animation: frozenPulse 2s ease-in-out infinite;
     }
     .task-card.frozen .frozen-badge { display: inline; }
     @keyframes frozenPulse {
-      0%, 100% { opacity: 0.6; }
-      50% { opacity: 1; }
+      0%, 100% { opacity: 0.7; text-shadow: 0 0 8px rgba(0, 229, 255, 0.4); }
+      50% { opacity: 1; text-shadow: 0 0 14px rgba(0, 229, 255, 0.8); }
     }
 
     /* --- Timestamp Row --- */
@@ -695,6 +699,7 @@
         <div class="spinner"></div>
         <span class="loading-text" id="loadingText">Scanning...</span>
         <span class="loading-timer" id="loadingTimer"></span>
+        <button class="btn btn-abort" id="btnAbort" onclick="abortScan()" title="Stop scan after current task finishes">⏹ Stop</button>
       </div>
       <div class="status-idle">
         <span class="server-dot-wrapper">
@@ -709,6 +714,12 @@
           <label for="scanDays">Scan range:</label>
           <input type="range" id="scanDays" min="1" max="14" value="4">
           <span id="scanDaysLabel">4 days</span>
+        </span>
+        <span class="status-divider">·</span>
+        <span class="scan-range-group">
+          <label for="cleanupDays">Auto-delete done:</label>
+          <input type="range" id="cleanupDays" min="1" max="30" value="3">
+          <span id="cleanupDaysLabel">3 days</span>
         </span>
       </div>
     </div>
@@ -771,6 +782,7 @@
   let serverOnline = false;
   let reconnectTimer = null;
   const frozenTasks = new Set();
+  let scanAborted = false;
 
   // --- Server Health Check ---
 
@@ -987,11 +999,21 @@
     }
   }
 
+  function abortScan() {
+    scanAborted = true;
+    const abortBtn = document.getElementById('btnAbort');
+    if (abortBtn) { abortBtn.disabled = true; abortBtn.textContent = '⏹ Stopping...'; }
+    const loadingText = document.getElementById('loadingText');
+    if (loadingText) loadingText.textContent += ' — Stopping after current task...';
+  }
+
   async function triggerScan() {
+    scanAborted = false;
     const btn = document.getElementById('btnScan');
     const overlay = document.getElementById('loadingOverlay');
     const loadingText = document.getElementById('loadingText');
     const loadingTimer = document.getElementById('loadingTimer');
+    const abortBtn = document.getElementById('btnAbort');
 
     btn.disabled = true;
     btn.textContent = 'Scanning...';
@@ -1010,6 +1032,21 @@
     }, 1000);
 
     try {
+      // Auto-cleanup: permanently delete expired done tasks before scanning
+      const retentionDays = parseInt(document.getElementById('cleanupDays')?.value) || 3;
+      try {
+        const cleanupRes = await fetch('/api/cleanup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ retentionDays })
+        });
+        const cleanupData = await cleanupRes.json();
+        if (cleanupData.removed > 0) {
+          showNotification(`Auto-cleanup: ${cleanupData.removed} expired done task(s) permanently deleted`, 'success');
+          await fetchTasks();
+        }
+      } catch (e) { /* cleanup is best-effort */ }
+
       // ═══════════════════════════════════════════════
       // PHASE 1: Discovery — subjects only
       // ═══════════════════════════════════════════════
@@ -1070,6 +1107,10 @@
         }, 1000);
 
         for (let i = 0; i < tasksToEnrich.length; i++) {
+          if (scanAborted) {
+            showNotification(`Scan stopped by user after enriching ${i}/${tasksToEnrich.length} tasks`, 'error');
+            break;
+          }
           const task = tasksToEnrich[i];
           loadingText.textContent = `Phase 2: Enriching content (${i + 1}/${tasksToEnrich.length})...`;
           freezeTask(task.id);
@@ -1102,6 +1143,7 @@
       // Runs EVERY scan cycle regardless of updateCheckStatus
       // (enrichment is one-time, but update checks repeat every scan)
       // ═══════════════════════════════════════════════
+      if (!scanAborted) {
       const phase3Tasks = await (await fetch('/api/tasks')).json();
       const tasksToCheck = (phase3Tasks.tasks || [])
         .filter(t => (t.enrichmentStatus === 'enriched' || t.enrichmentStatus === 'needs-review') && t.status !== 'done');
@@ -1121,6 +1163,10 @@
         }, 1000);
 
         for (let i = 0; i < tasksToCheck.length; i++) {
+          if (scanAborted) {
+            showNotification(`Scan stopped by user after checking ${i}/${tasksToCheck.length} tasks`, 'error');
+            break;
+          }
           const task = tasksToCheck[i];
           loadingText.textContent = `Phase 3: Checking for updates (${i + 1}/${tasksToCheck.length})...`;
           freezeTask(task.id);
@@ -1146,6 +1192,7 @@
         }
         clearInterval(phase3Timer);
       }
+      } // end if (!scanAborted)
 
       overlay.classList.remove('visible');
 
@@ -1164,6 +1211,8 @@
       loadingText.className = 'loading-text';
       btn.disabled = !serverOnline;
       btn.textContent = 'Scan Emails & Teams';
+      scanAborted = false;
+      if (abortBtn) { abortBtn.disabled = false; abortBtn.textContent = '⏹ Stop'; }
     }
   }
 
@@ -1202,10 +1251,11 @@
     const list = document.getElementById('taskList');
     const countEl = document.getElementById('taskCount');
 
-    // Auto-cleanup: hide done tasks older than 3 days
-    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    // Auto-cleanup: hide done tasks older than retention period (actual deletion happens server-side)
+    const retentionDays = parseInt(document.getElementById('cleanupDays')?.value) || 3;
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
     const visibleTasks = tasks.filter(t =>
-      !(t.status === 'done' && t.doneAt && t.doneAt < threeDaysAgo)
+      !(t.status === 'done' && t.doneAt && t.doneAt < cutoff)
     );
 
     // Update filter badge counts (only visible tasks)
@@ -1314,10 +1364,27 @@
                          : task.updateCheckStatus === 'checking' ? 'active'
                          : task.updateCheckStatus === 'error' ? 'error'
                          : 'pending';
+
+        const step1Tip = 'Phase 1: Discovery ✅ — Subject extracted from email/Teams';
+        const step2Tips = {
+          pending: 'Phase 2: Enrichment — Waiting to search for related messages',
+          active: 'Phase 2: Enrichment ⏳ — Searching Work IQ for related emails and Teams chats...',
+          done: 'Phase 2: Enrichment ✅ — Summary created from related messages',
+          updated: 'Phase 2: Enrichment ⚠️ — Needs your review (ambiguous information found)',
+          error: 'Phase 2: Enrichment ❌ — Search failed, will retry on next scan'
+        };
+        const step3Tips = {
+          pending: 'Phase 3: Update Check — Waiting to check for new messages',
+          active: 'Phase 3: Update Check ⏳ — Searching for messages since last check...',
+          done: 'Phase 3: Update Check ✅ — No new messages found',
+          updated: 'Phase 3: Update Check 🔔 — New messages found since last check',
+          error: 'Phase 3: Update Check ❌ — Check failed, will retry on next scan'
+        };
+
         stepIndicator = `<span class="step-indicators">` +
-          `<span class="step-dot step-done" data-step="1" title="Subject extracted"></span>` +
-          `<span class="step-dot ${step2State !== 'pending' ? 'step-' + step2State : ''}" data-step="2" title="Content summarized"></span>` +
-          `<span class="step-dot ${step3State !== 'pending' ? 'step-' + step3State : ''}" data-step="3" title="Update checked"></span>` +
+          `<span class="step-dot step-done" data-step="1" title="${step1Tip}"></span>` +
+          `<span class="step-dot ${step2State !== 'pending' ? 'step-' + step2State : ''}" data-step="2" title="${step2Tips[step2State]}"></span>` +
+          `<span class="step-dot ${step3State !== 'pending' ? 'step-' + step3State : ''}" data-step="3" title="${step3Tips[step3State]}"></span>` +
           `</span>`;
       }
 
@@ -2027,6 +2094,17 @@
   scanDaysSlider.addEventListener('input', () => {
     scanDaysLabel.textContent = scanDaysSlider.value + (scanDaysSlider.value === '1' ? ' day' : ' days');
     localStorage.setItem('scanDays', scanDaysSlider.value);
+  });
+
+  // Cleanup retention slider
+  const cleanupSlider = document.getElementById('cleanupDays');
+  const cleanupLabel = document.getElementById('cleanupDaysLabel');
+  cleanupSlider.value = localStorage.getItem('cleanupDays') || '3';
+  cleanupLabel.textContent = cleanupSlider.value + (cleanupSlider.value === '1' ? ' day' : ' days');
+  cleanupSlider.addEventListener('input', () => {
+    cleanupLabel.textContent = cleanupSlider.value + (cleanupSlider.value === '1' ? ' day' : ' days');
+    localStorage.setItem('cleanupDays', cleanupSlider.value);
+    renderTasks(); // re-filter immediately when slider changes
   });
 
   // Link open mode

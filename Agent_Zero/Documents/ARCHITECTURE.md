@@ -1,6 +1,6 @@
 # Agent Zero — Architecture
 
-> Version 2.0.0 · February 27, 2026 · Author: Martin Hämmerli
+> Version 2.1.0 · March 1, 2026 · Author: Martin Hämmerli
 
 Agent Zero is a personal action-item tracker that scans Microsoft 365 emails and Teams messages for tasks,
 extracts content summaries, and monitors threads for updates — all powered by AI.
@@ -231,6 +231,7 @@ Additionally, stuck statuses are reset: `enriching` → `pending`, `checking` �
 | `POST` | `/api/tasks/:id/check-update` | Phase 3: Check for updates | 300s |
 | `POST` | `/api/tasks/:id/log/analyze` | AI intent analysis (no Work IQ) | 30s |
 | `POST` | `/api/tasks/:id/log` | Execute search + log result | 90s |
+| `POST` | `/api/cleanup` | Permanently delete done tasks older than `retentionDays` | — |
 
 ---
 
@@ -253,9 +254,12 @@ The entire frontend lives in `index.html` — a single-file dark-themed SPA.
 
 - **Filter bar** with badge counts: All, Attention, New, Escalated, In-Progress, Done, Paused
 - **Task cards** with status dropdown, summary section, step indicators, action buttons
-- **Freeze mode**: Neon cyan border + "🤖 Agent working..." badge during AI processing
+- **Step indicator tooltips**: Hover over phase dots for detailed status info (phase name, current action, result)
+- **Freeze mode**: Vibrant neon cyan border + glowing "❄️ Agent working..." badge during AI processing
+- **Scan abort**: Red "⏹ Stop" button in progress bar — safely stops scan between tasks (waits for current task to finish)
+- **Auto-cleanup**: Done tasks are permanently deleted from `tasks.json` after configurable retention period (default 3 days, slider 1–30 days). Cleanup runs on server startup and before each scan.
 - **Auto-refresh**: `refreshSingleTask()` re-renders individual cards after agent work
-- **Server health check**: Polls `/api/tasks` every 5s when offline, green/red status dot
+- **Server health check**: Polls `/api/tasks` every 5s when offline, green/red status dot + "Online"/"Offline" label
 - **Link opening**: Window or tab mode (user preference persisted in localStorage)
 - **Log work**: Two-phase agent (analyze intent → execute search)
 - **Detail panel**: Expandable history with multi-line entries, icons per history type
@@ -264,8 +268,9 @@ The entire frontend lives in `index.html` — a single-file dark-themed SPA.
 
 | Function | Purpose |
 |----------|---------|
-| `triggerScan()` | Orchestrates all 3 scan phases sequentially |
-| `renderTasks()` | Renders filtered task list |
+| `triggerScan()` | Orchestrates all 3 scan phases sequentially, with abort support |
+| `abortScan()` | Sets `scanAborted` flag — scan stops after current task finishes |
+| `renderTasks()` | Renders filtered task list (respects cleanup retention slider) |
 | `renderTaskCard(task)` | Renders a single task card (extracted for auto-refresh) |
 | `refreshSingleTask(taskId)` | Fetches fresh data + replaces single card DOM |
 | `freezeTask(taskId)` / `unfreezeTask(taskId)` | Toggle freeze mode on a card |
