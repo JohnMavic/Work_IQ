@@ -256,7 +256,7 @@ The entire frontend lives in `index.html` — a single-file dark-themed SPA.
 - **Freeze mode**: Neon cyan border + "🤖 Agent working..." badge during AI processing
 - **Auto-refresh**: `refreshSingleTask()` re-renders individual cards after agent work
 - **Server health check**: Polls `/api/tasks` every 5s when offline, green/red status dot
-- **Split-view link opening**: Window, tab, split, or incognito modes
+- **Link opening**: Window or tab mode (user preference persisted in localStorage)
 - **Log work**: Two-phase agent (analyze intent → execute search)
 - **Detail panel**: Expandable history with multi-line entries, icons per history type
 

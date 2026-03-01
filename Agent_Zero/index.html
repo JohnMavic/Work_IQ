@@ -618,24 +618,9 @@
     .notification-error { background: #2a0f0f; color: #f87171; border: 1px solid #7f1d1d; }
     @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
-    /* Split View */
-    .split-wrapper { display: flex; height: 100vh; }
-    .split-wrapper .split-main { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
-    .split-wrapper .split-panel {
-      width: 50%; border-left: 2px solid #818cf8; display: flex; flex-direction: column; background: #0f1120;
-    }
-    .split-panel-header {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 6px 12px; background: #1e293b; border-bottom: 1px solid #334155;
-    }
-    .split-panel-header span { color: #94a3b8; font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-    .split-panel-header button { background: #ef4444; color: #fff; border: none; border-radius: 4px; padding: 2px 8px; cursor: pointer; font-size: 0.8rem; margin-left: 8px; }
-    .split-panel iframe { flex: 1; border: none; background: #fff; }
   </style>
 </head>
 <body>
-<div class="split-wrapper" id="splitWrapper">
-<div class="split-main" id="splitMain">
 
   <!-- Header -->
   <header>
@@ -657,8 +642,6 @@
           <span style="color:#94a3b8;font-size:0.75rem;white-space:nowrap">Open in:</span>
           <button class="link-mode-btn" data-mode="window" title="New Window — Opens link in a separate browser window" onclick="setLinkMode('window')">🪟</button>
           <button class="link-mode-btn" data-mode="tab" title="New Tab — Opens link in a new tab" onclick="setLinkMode('tab')">📑</button>
-          <button class="link-mode-btn" data-mode="split" title="Split Screen — Agent Zero left, link right (50/50)" onclick="setLinkMode('split')">◧</button>
-          <button class="link-mode-btn" data-mode="incognito" title="Private Window — Attempts to open link privately" onclick="setLinkMode('incognito')">🕶️</button>
         </div>
       </div>
     </div>
@@ -1982,6 +1965,8 @@
 
   // Link open mode
   let linkMode = localStorage.getItem('linkMode') || 'window';
+  // Migration: remove defunct modes
+  if (linkMode !== 'window' && linkMode !== 'tab') { linkMode = 'window'; localStorage.setItem('linkMode', 'window'); }
 
   function setLinkMode(mode) {
     linkMode = mode;
@@ -1996,33 +1981,6 @@
     const url = event.currentTarget.href;
     if (linkMode === 'tab') {
       window.open(url, '_blank');
-    } else if (linkMode === 'split') {
-      // Known domains that block iframe embedding via CSP frame-ancestors
-      const noFrameDomains = ['outlook.office365.com', 'outlook.office.com', 'outlook.live.com',
-        'teams.microsoft.com', 'login.microsoftonline.com', 'portal.azure.com',
-        'github.com', 'mail.google.com', 'drive.google.com'];
-      const linkHost = new URL(url).hostname;
-      const blocked = noFrameDomains.some(d => linkHost === d || linkHost.endsWith('.' + d));
-
-      if (blocked) {
-        // Skip iframe — open directly in popup window
-        window.open(url, '_blank', `popup,width=${Math.floor(screen.availWidth/2)},height=${screen.availHeight},left=${Math.floor(screen.availWidth/2)},top=0`);
-      } else {
-        // Try iframe split view
-        const panel = document.getElementById('splitPanel');
-        const frame = document.getElementById('splitPanelFrame');
-        const urlLabel = document.getElementById('splitPanelUrl');
-        urlLabel.textContent = url;
-        frame._splitUrl = url;
-        frame.onload = null;
-        frame.onerror = null;
-        panel.style.display = 'flex';
-        document.getElementById('splitMain').style.flex = '1';
-        frame.src = url;
-      }
-    } else if (linkMode === 'incognito') {
-      window.open(url, '_blank', `width=${screen.availWidth},height=${screen.availHeight}`);
-      showNotification('Incognito cannot be opened programmatically — link opened in new window', 'info');
     } else {
       // 'window' (default)
       window.open(url, '_blank', `width=${screen.availWidth},height=${screen.availHeight}`);
@@ -2030,37 +1988,10 @@
     return false;
   }
 
-  function closeSplitPanel() {
-    const panel = document.getElementById('splitPanel');
-    const frame = document.getElementById('splitPanelFrame');
-    frame.src = 'about:blank';
-    frame._splitUrl = '';
-    panel.style.display = 'none';
-  }
-
-  function openSplitInWindow() {
-    const frame = document.getElementById('splitPanelFrame');
-    const url = frame._splitUrl || frame.src;
-    if (url && url !== 'about:blank') {
-      window.open(url, '_blank', `popup,width=${Math.floor(screen.availWidth/2)},height=${screen.availHeight},left=${Math.floor(screen.availWidth/2)},top=0`);
-    }
-    closeSplitPanel();
-  }
-
   // Init link mode buttons
   setLinkMode(linkMode);
 </script>
 
-</div><!-- /split-main -->
-<div class="split-panel" id="splitPanel" style="display:none">
-  <div class="split-panel-header">
-    <span id="splitPanelUrl"></span>
-    <button onclick="closeSplitPanel()">✕ Close</button>
-    <button onclick="openSplitInWindow()" title="Open in separate window" style="background:#6366f1">🪟</button>
-  </div>
-  <iframe id="splitPanelFrame"></iframe>
-</div>
-</div><!-- /split-wrapper -->
 
 </body>
 </html>

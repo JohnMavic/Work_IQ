@@ -135,9 +135,7 @@
 
 | Feature | What It Does | Implementation |
 |---------|--------------|----------------|
-| 4 Open Modes | Window (new window), Tab (new tab), Split (50/50 iframe), Incognito (private window) | `setLinkMode()`, `openLink()`, localStorage `linkMode` |
-| Split View | Opens link in 50/50 split panel alongside Agent Zero. Header shows URL + close + pop-out buttons. | `.split-panel` with `<iframe>`, `closeSplitPanel()`, `openSplitInWindow()` |
-| CSP Handling | Detects domains that block iframe embedding (Outlook, Teams, GitHub, SharePoint, etc.) and falls back to window mode | `openLink()` checks URL against blocked domain list |
+| 2 Open Modes | Window (new window), Tab (new tab) | `setLinkMode()`, `openLink()`, localStorage `linkMode` |
 | Source Links | "Open source ↗" links on task cards for original email/Teams message | `task.link` rendered as `<a>` with `onclick="return openLink(event)"` |
 
 ### 4.9 Notification System
@@ -154,7 +152,7 @@
 | Open Panels | Which task panels are expanded survives page refresh | `openPanelTaskIds` Set → localStorage `openPanels` JSON array |
 | Collapsed Threads | Which conversation threads are collapsed survives page refresh | `collapsedEntries` Set → localStorage `collapsedEntries` JSON array |
 | Scan Days | Default scan period slider value persists | localStorage `scanDays` (1–14) |
-| Link Mode | Preferred link open mode persists | localStorage `linkMode` (window/tab/split/incognito) |
+| Link Mode | Preferred link open mode persists | localStorage `linkMode` (window/tab) |
 
 ---
 
