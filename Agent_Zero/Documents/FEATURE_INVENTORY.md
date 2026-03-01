@@ -175,7 +175,7 @@
 | `updateCheckStatus` | string | Pipeline | `'pending'`, `'checking'`, `'checked'`, `'updated'`, `'error'` |
 | `enrichedAt` | string \| null | Enrichment | ISO timestamp of enrichment completion |
 | `lastUpdateCheck` | string \| null | Update Check | ISO timestamp of last update check |
-| `ambiguities` | array | Enrichment / Review | `{question: string, resolved: boolean, resolvedAt?: string}[]` |
+| `ambiguities` | array | Enrichment / Review | `{question: string, resolved: boolean, resolvedAt?: string}[]` — legacy `string[]` format is auto-converted via `normalizeAmbiguities()` |
 | `createdAt` | string | Creation | ISO timestamp |
 | `updatedAt` | string | Any change | ISO timestamp |
 

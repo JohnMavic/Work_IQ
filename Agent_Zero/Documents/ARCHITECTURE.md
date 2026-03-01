@@ -319,7 +319,7 @@ in Phase 1. This is where deep reading and temporal reasoning happens.
 - **Ambiguity handling:** When the agent finds information it cannot confidently classify as current or historical, it returns an `ambiguities` array with questions for the user. Task gets `enrichmentStatus: 'needs-review'` instead of `'enriched'`.
 - **Content extraction:** Reads ALL replies in email threads, ALL messages in Teams chats, forwarding notes + original content. Extracts names, dates, deadlines, amounts, links, instructions, action items, decisions.
 - **Summary:** 2-4 sentences starting with the CURRENT situation, then historical context if relevant. Written in the **same language** as the original message.
-- **Output:** JSON with `summary`, `language`, `confidence` (high/medium/low/none), optional `ambiguities[]`
+- **Output:** JSON with `summary`, `language`, `confidence` (high/medium/low/none), optional `ambiguities[]` (object format; legacy string arrays auto-normalized via `normalizeAmbiguities()`)
 
 ### LOG_WORK_SKILL.md — Work Logging
 
