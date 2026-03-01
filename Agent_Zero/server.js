@@ -429,8 +429,8 @@ app.delete('/api/tasks/:id/history/:index', async (req, res) => {
 
       const entry = t.history[index];
 
-      // Protect system entries — only "update" and "note" types can be deleted
-      if (entry.type !== 'update' && entry.type !== 'note') return 'protected';
+      // Protect system entries — only user-generated types can be deleted
+      if (entry.type !== 'update' && entry.type !== 'note' && entry.type !== 'review-response') return 'protected';
 
       // Remove the entry (splice preserves other entries)
       t.history.splice(index, 1);
