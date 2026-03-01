@@ -1100,8 +1100,7 @@
   }
 
   function showNotification(message, type = 'success') {
-    const existing = document.querySelector('.notification');
-    if (existing) existing.remove();
+    document.querySelectorAll('.notification').forEach(n => n.remove());
 
     const el = document.createElement('div');
     el.className = `notification notification-${type}`;
