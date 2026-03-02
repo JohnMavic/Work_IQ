@@ -14,6 +14,11 @@ All notable changes to this project are documented here.
 - After creation, the agent **automatically starts working** on the assignment — no second step needed
 - Modal closes on ESC, click outside, or Cancel button
 
+### Unified Freeze Mode
+- All agent operations (scan phases, analyzeLog, executeLog) now use the same **neon cyan freeze mode** — consistent visual feedback regardless of which process is running
+- Removed the separate `agent-busy` green pulse mode — one consistent visual for "agent is working"
+- Frozen tasks block status changes and deletion (pointer-events disabled)
+
 ### Intelligent Communication Search (SEARCH_SKILL.md)
 - New skill file replaces the single-shot `workiq ask` CLI approach
 - Agent now uses Copilot SDK + Work IQ MCP with full control over the search strategy

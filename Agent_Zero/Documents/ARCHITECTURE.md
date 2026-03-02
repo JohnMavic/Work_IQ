@@ -287,7 +287,7 @@ The entire frontend lives in `index.html` — a single-file dark-themed SPA.
 - **Filter bar** with badge counts: All, Attention, New, Escalated, In-Progress, Done, Paused
 - **Task cards** with status dropdown, summary section, step indicators, action buttons
 - **Step indicator tooltips**: Hover over phase dots for detailed status info (phase name, current action, result)
-- **Freeze mode**: Vibrant neon cyan border + glowing "❄️ Agent working..." badge during AI processing
+- **Freeze mode**: Unified neon cyan border + glowing "❄️ Agent working..." badge during **any** AI processing — scan phases, analyzeLog, and executeLog all use the same visual. Frozen tasks block status changes and deletion.
 - **Scan abort**: Red "⏹ Stop" button in progress bar — safely stops scan between tasks (waits for current task to finish)
 - **Auto-cleanup**: Done tasks are permanently deleted from `tasks.json` after configurable retention period (default 3 days, slider 1–30 days). Cleanup runs on server startup and before each scan.
 - **Auto-refresh**: `refreshSingleTask()` re-renders individual cards after agent work

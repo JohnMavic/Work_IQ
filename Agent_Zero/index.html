@@ -177,7 +177,6 @@
     .task-card.active-panel.has-content,
     .task-card.active-panel.has-content:hover { border-color: #22c55e; background: #0f1a14; }
     .task-card.active-panel.done { opacity: 1; }
-    .task-card.agent-busy { border-color: #22c55e; animation: busyPulse 2s ease-in-out infinite; }
 
     .task-main { display: flex; flex-direction: column; gap: 6px; }
     .task-title { font-size: 0.95rem; font-weight: 500; color: #fff; }
@@ -667,10 +666,6 @@
       border-radius: 50%; animation: spin 0.8s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
-    @keyframes busyPulse {
-      0%, 100% { box-shadow: 0 0 6px rgba(34, 197, 94, 0.25); }
-      50% { box-shadow: 0 0 16px rgba(34, 197, 94, 0.5); }
-    }
     .loading-text { font-size: 0.85rem; color: #c7d2fe; line-height: 1; }
     .loading-text.warning { color: #fbbf24; }
     .loading-timer { font-size: 0.85rem; color: #818cf8; line-height: 1; }
@@ -906,10 +901,10 @@
         const card = document.getElementById('card-' + taskId);
         if (card) card.classList.add('active-panel');
       }
-      // Re-apply busy state
-      for (const taskId of busyTaskIds) {
+      // Re-apply frozen state
+      for (const taskId of frozenTasks) {
         const card = document.getElementById('card-' + taskId);
-        if (card) card.classList.add('agent-busy');
+        if (card) card.classList.add('frozen');
       }
       // Restore pending plan displays
       for (const [taskId, pending] of Object.entries(pendingPlans)) {
@@ -999,8 +994,8 @@
       const idx = tasks.findIndex(t => t.id === id);
       if (idx !== -1) tasks[idx] = updatedTask;
 
-      // If any agent is busy on ANY task, do minimal DOM update instead of full re-render
-      if (busyTaskIds.size > 0) {
+      // If any task is frozen (agent working), do minimal DOM update instead of full re-render
+      if (frozenTasks.size > 0) {
         // Update status select inline
         const select = document.querySelector(`#card-${id} .status-select`);
         if (select && updates.status) {
@@ -1044,8 +1039,8 @@
       collapsedEntries = new Set([...collapsedEntries].filter(e => !e.startsWith(id)));
       saveUIState();
 
-      if (busyTaskIds.size > 0 && !busyTaskIds.has(id)) {
-        // Another task is busy — remove card from DOM without full re-render
+      if (frozenTasks.size > 0 && !frozenTasks.has(id)) {
+        // Another task is frozen — remove card from DOM without full re-render
         const card = document.getElementById('card-' + id);
         if (card) card.remove();
         updateTaskCount();
@@ -1795,8 +1790,6 @@
   let pendingPlans = {}; // taskId → { plan, originalText, fallback }
   let openPanelTaskIds = new Set(JSON.parse(localStorage.getItem('openPanels') || '[]'));
   let collapsedEntries = new Set(JSON.parse(localStorage.getItem('collapsedEntries') || '[]'));
-  let busyTaskIds = new Set(); // Tasks with active agent work (analyzing or executing)
-
   function saveUIState() {
     localStorage.setItem('openPanels', JSON.stringify([...openPanelTaskIds]));
     localStorage.setItem('collapsedEntries', JSON.stringify([...collapsedEntries]));
@@ -1814,9 +1807,8 @@
     let clarifyEl = document.getElementById('clarify-' + taskId);
     input.disabled = true;
 
-    // Mark task as busy (neon green highlight)
-    busyTaskIds.add(taskId);
-    document.getElementById('card-' + taskId)?.classList.add('agent-busy');
+    // Mark task as frozen (neon cyan highlight — same visual as scan phases)
+    freezeTask(taskId);
 
     planEl.innerHTML = '<div class="log-plan-understanding">🤔 Agent is analyzing your request...</div>';
     planEl.classList.add('visible');
@@ -1884,8 +1876,7 @@
     } finally {
       const freshInput = document.querySelector(`#panel-${taskId} .panel-log-form input`);
       if (freshInput) freshInput.disabled = false;
-      busyTaskIds.delete(taskId);
-      document.getElementById('card-' + taskId)?.classList.remove('agent-busy');
+      unfreezeTask(taskId);
     }
   }
 
@@ -1910,9 +1901,8 @@
 
     let planEl = document.getElementById('plan-' + taskId);
 
-    // Mark task as busy (neon green highlight)
-    busyTaskIds.add(taskId);
-    document.getElementById('card-' + taskId)?.classList.add('agent-busy');
+    // Mark task as frozen (neon cyan highlight — same visual as scan phases)
+    freezeTask(taskId);
 
     // Step 1: Show sending status
     if (planEl) planEl.innerHTML = '<div class="log-plan-understanding">📤 Sending search to Work IQ...</div>';
@@ -1975,8 +1965,7 @@
       showNotification('Failed to log work: ' + err.message, 'error');
     } finally {
       delete pendingPlans[taskId]; // safe to call even if already deleted above
-      busyTaskIds.delete(taskId);
-      document.getElementById('card-' + taskId)?.classList.remove('agent-busy');
+      unfreezeTask(taskId);
     }
   }
 
