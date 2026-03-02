@@ -283,6 +283,7 @@ The entire frontend lives in `index.html` — a single-file dark-themed SPA.
 
 ### Key Features
 
+- **Add Task modal**: Header button "＋ Add Task" opens a modal with Title, Assignment (agent instruction), and Context (optional background info). After creation, the agent automatically starts processing the assignment — no second step required.
 - **Filter bar** with badge counts: All, Attention, New, Escalated, In-Progress, Done, Paused
 - **Task cards** with status dropdown, summary section, step indicators, action buttons
 - **Step indicator tooltips**: Hover over phase dots for detailed status info (phase name, current action, result)
@@ -293,6 +294,7 @@ The entire frontend lives in `index.html` — a single-file dark-themed SPA.
 - **Server health check**: Polls `/api/tasks` every 5s when offline, green/red status dot + "Online"/"Offline" label
 - **Link opening**: Window or tab mode (user preference persisted in localStorage)
 - **Log work**: Two-phase agent (analyze intent → intelligent search via SEARCH_SKILL.md with 3-attempt strategy, self-assessment, and confidence levels)
+- **Prominent answer display**: When agent returns a direct answer with confidence, it's shown as an always-visible block with color-coded border — never collapsed
 - **Detail panel**: Expandable history with multi-line entries, icons per history type, search attempt details, confidence badges, relevance annotations
 
 ### Key Functions
@@ -301,6 +303,8 @@ The entire frontend lives in `index.html` — a single-file dark-themed SPA.
 |----------|---------|
 | `triggerScan()` | Orchestrates all 3 scan phases sequentially, with abort support |
 | `abortScan()` | Sets `scanAborted` flag — scan stops after current task finishes |
+| `showAddTaskModal()` / `hideAddTaskModal()` | Open/close Add Task modal dialog |
+| `addTask()` | Creates task via API, then auto-triggers `analyzeLog()` if assignment provided |
 | `renderTasks()` | Renders filtered task list (respects cleanup retention slider) |
 | `renderTaskCard(task)` | Renders a single task card (extracted for auto-refresh) |
 | `refreshSingleTask(taskId)` | Fetches fresh data + replaces single card DOM |

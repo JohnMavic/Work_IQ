@@ -524,15 +524,20 @@
     .empty-state p { font-size: 1rem; margin-bottom: 8px; }
     .empty-state .hint { font-size: 0.8rem; }
 
-    /* --- Add Task Form --- */
-    .add-task-section {
-      padding: 20px 32px;
-      border-top: 1px solid #1e2233;
-      background: #0e1020;
+    /* --- Add Task Modal --- */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0; z-index: 1000;
+      background: rgba(0,0,0,0.65); backdrop-filter: blur(4px);
+      justify-content: center; align-items: center;
     }
-    .add-task-form {
-      display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;
+    .modal-overlay.visible { display: flex; }
+    .modal-dialog {
+      background: #141728; border: 1px solid #2a2f45; border-radius: 12px;
+      padding: 28px 32px; width: 520px; max-width: 92vw;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.5);
     }
+    .modal-dialog h2 { margin: 0 0 20px; font-size: 1.1rem; color: #e0e0e0; }
+    .modal-form { display: flex; flex-direction: column; gap: 14px; }
     .form-group { display: flex; flex-direction: column; gap: 4px; }
     .form-group label { font-size: 0.75rem; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
     .form-group input, .form-group textarea {
@@ -543,8 +548,10 @@
     .form-group input:focus, .form-group textarea:focus {
       outline: none; border-color: #3b82f6;
     }
-    .form-group.title-group { flex: 2; min-width: 200px; }
-    .form-group.notes-group { flex: 1; min-width: 150px; }
+    .form-group textarea { resize: vertical; min-height: 60px; }
+    .form-group .field-hint { font-size: 0.7rem; color: #555; margin-top: 2px; }
+    .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
+    .btn-add-task { background: #10b981; color: #fff; font-size: 0.9rem; padding: 10px 20px; min-width: 140px; }
 
     /* --- Server Offline Banner --- */
     .server-offline-banner {
@@ -727,7 +734,10 @@
 
     <!-- Row 3: Actions -->
     <div class="header-row-3">
-      <button class="btn btn-scan" id="btnScan" onclick="triggerScan()">Scan Emails &amp; Teams</button>
+      <div style="display:flex;gap:10px">
+        <button class="btn btn-scan" id="btnScan" onclick="triggerScan()">Scan Emails &amp; Teams</button>
+        <button class="btn btn-add-task" id="btnAddTask" onclick="showAddTaskModal()">＋ Add Task</button>
+      </div>
       <div class="link-mode-group">
         <span class="link-mode-label">Open links in:</span>
         <button class="link-mode-btn" data-mode="window" title="New Window — Opens link in a separate browser window" onclick="setLinkMode('window')">🪟 Window</button>
@@ -761,20 +771,32 @@
     <div class="task-list" id="taskList"></div>
   </main>
 
-  <!-- Add Task Form -->
-  <section class="add-task-section">
-    <form class="add-task-form" id="addTaskForm" onsubmit="addTask(event)">
-      <div class="form-group title-group">
-        <label for="taskTitle">New Task</label>
-        <input type="text" id="taskTitle" placeholder="What needs to be done?" required>
-      </div>
-      <div class="form-group notes-group">
-        <label for="taskNotes">Notes (optional)</label>
-        <input type="text" id="taskNotes" placeholder="Additional details...">
-      </div>
-      <button type="submit" class="btn btn-primary">Add Task</button>
-    </form>
-  </section>
+  <!-- Add Task Modal -->
+  <div class="modal-overlay" id="addTaskModal">
+    <div class="modal-dialog">
+      <h2>＋ New Task</h2>
+      <form class="modal-form" onsubmit="addTask(event)">
+        <div class="form-group">
+          <label for="taskTitle">Title *</label>
+          <input type="text" id="taskTitle" placeholder="e.g. Find the technician name for Tuesday's survey" required>
+        </div>
+        <div class="form-group">
+          <label for="taskAssignment">Assignment</label>
+          <textarea id="taskAssignment" rows="3" placeholder="What should the agent do? e.g. Search my emails and Teams messages for the technician who will perform the room survey on March 3rd"></textarea>
+          <span class="field-hint">The agent will immediately start working on this after creation</span>
+        </div>
+        <div class="form-group">
+          <label for="taskContext">Context (optional)</label>
+          <textarea id="taskContext" rows="3" placeholder="Background information, email excerpts, names, dates..."></textarea>
+          <span class="field-hint">Additional details that help the agent find the right information</span>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" onclick="hideAddTaskModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create &amp; Start</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
 <script>
   // --- State ---
@@ -818,7 +840,7 @@
     const dot = document.getElementById('serverDot');
     const tooltip = document.getElementById('serverTooltip');
     const btnScan = document.getElementById('btnScan');
-    const btnAddTask = document.querySelector('#addTaskForm button[type="submit"]');
+    const btnAddTask = document.getElementById('btnAddTask');
 
     banner.style.display = online ? 'none' : 'block';
     dot.className = online ? 'server-dot online' : 'server-dot';
@@ -901,11 +923,27 @@
     }
   }
 
+  function showAddTaskModal() {
+    document.getElementById('addTaskModal').classList.add('visible');
+    document.getElementById('taskTitle').focus();
+  }
+
+  function hideAddTaskModal() {
+    document.getElementById('addTaskModal').classList.remove('visible');
+    document.getElementById('taskTitle').value = '';
+    document.getElementById('taskAssignment').value = '';
+    document.getElementById('taskContext').value = '';
+  }
+
   async function addTask(e) {
     e.preventDefault();
     const title = document.getElementById('taskTitle').value.trim();
-    const notes = document.getElementById('taskNotes').value.trim();
+    const assignment = document.getElementById('taskAssignment').value.trim();
+    const context = document.getElementById('taskContext').value.trim();
     if (!title) return;
+
+    // Build notes from context (stored on task for reference)
+    const notes = context || '';
 
     try {
       const res = await fetch('/api/tasks', {
@@ -914,9 +952,28 @@
         body: JSON.stringify({ title, notes })
       });
       if (res.ok) {
-        document.getElementById('taskTitle').value = '';
-        document.getElementById('taskNotes').value = '';
+        const newTask = await res.json();
+        hideAddTaskModal();
         await fetchTasks();
+        showNotification('✅ Task created', 'success');
+
+        // Auto-trigger agent if assignment was provided
+        if (assignment) {
+          // Build the full message: assignment + context
+          const fullMessage = context
+            ? assignment + '\n\nContext:\n' + context
+            : assignment;
+
+          // Small delay to let DOM render the new task card
+          await new Promise(r => setTimeout(r, 200));
+
+          // Find the input field in the new task's panel and trigger analyzeLog
+          const input = document.querySelector(`#panel-${newTask.id} .panel-log-form input`);
+          if (input) {
+            input.value = fullMessage;
+            analyzeLog(newTask.id, input);
+          }
+        }
       }
     } catch (err) {
       console.error('Failed to add task:', err);
@@ -2146,6 +2203,14 @@
 
   // --- Init ---
   checkServerHealth();
+
+  // Close modal on ESC or click outside
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hideAddTaskModal();
+  });
+  document.getElementById('addTaskModal').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) hideAddTaskModal();
+  });
 
   // Scan days slider
   const scanDaysSlider = document.getElementById('scanDays');

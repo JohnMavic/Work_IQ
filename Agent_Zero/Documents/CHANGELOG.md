@@ -8,6 +8,12 @@ All notable changes to this project are documented here.
 
 **Intelligent Search — Log Work Redesign**
 
+### Add Task Redesign
+- "Add Task" button moved from hidden bottom section into header row 3, next to "Scan Emails & Teams"
+- Click opens a modal dialog with three fields: Title (required), Assignment (what the agent should do), Context (optional background info)
+- After creation, the agent **automatically starts working** on the assignment — no second step needed
+- Modal closes on ESC, click outside, or Cancel button
+
 ### Intelligent Communication Search (SEARCH_SKILL.md)
 - New skill file replaces the single-shot `workiq ask` CLI approach
 - Agent now uses Copilot SDK + Work IQ MCP with full control over the search strategy
