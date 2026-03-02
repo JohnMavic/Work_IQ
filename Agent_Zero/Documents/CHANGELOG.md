@@ -28,6 +28,16 @@ All notable changes to this project are documented here.
 - Search attempt details logged in history for transparency
 - Timeout increased from 90s to 300s to accommodate 3-attempt strategy
 
+### Frontend Rendering (index.html)
+- Method label shows specific search method used (SEARCH_SKILL, legacy, minimal)
+- Plan display shows `expectedAnswer` (🎯) and bilingual keywords (🔑🇬🇧)
+- Confidence badge with color coding (green/yellow/orange/red) in detail log
+- Agent's direct answer displayed prominently in Step 4
+- Search attempts detail: strategy, what was found, relevance per attempt
+- Ambiguities shown with ⚠️ indicators
+- Communication relevance annotations (↳ why this message answers the question)
+- Communication summaries shown in conversation view with styling
+
 ---
 
 ## v2.1.0 — March 1, 2026

@@ -204,6 +204,36 @@ Tasks are stored in `tasks.json` as `{ version: 3, tasks: [...] }`.
 **History types:** `creation`, `status-change`, `scan-update`, `note`, `conversation`,
 `enriched`, `enrichment-error`, `thread-update`, `update-check-error`
 
+### Agent Plan (v2.2)
+
+Search history entries include `agentPlan` with the analyze phase output:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `understanding` | string | Action plan: what the agent will search |
+| `expectedAnswer` | string | What KIND of answer the user needs (v2.2) |
+| `keywords` | string[] | Search terms in user's language |
+| `keywordsEnglish` | string[] | English translations of keywords (v2.2) |
+| `timeWindow` | object | `{ from, to, reasoning }` |
+| `searchTargets` | string | `inbox`, `sent`, `teams`, or `all` |
+
+### Agent Execution (v2.2)
+
+Search history entries include `agentExecution` with execution details:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `method` | string | `copilot-sdk-search-skill` (v2.2), `copilot-sdk-legacy`, `copilot-sdk-minimal` |
+| `confidence` | string | `high` / `medium` / `low` / `none` (v2.2) |
+| `answer` | string | Agent's direct answer to the user's question (v2.2) |
+| `searchAttempts` | array | `[{ attempt, strategy, found, relevant }]` (v2.2) |
+| `ambiguities` | string[] | Questions for the user (v2.2) |
+| `promptSent` | string | Context string sent to AI |
+| `rawResponse` | string | Truncated raw AI response |
+| `parsedCount` | number | Number of communications parsed |
+| `durationMs` | number | Total search duration |
+| `error` | string | Error message if search failed |
+
 ### Schema Migrations
 
 Three migrations run automatically on server startup:
@@ -262,7 +292,7 @@ The entire frontend lives in `index.html` — a single-file dark-themed SPA.
 - **Server health check**: Polls `/api/tasks` every 5s when offline, green/red status dot + "Online"/"Offline" label
 - **Link opening**: Window or tab mode (user preference persisted in localStorage)
 - **Log work**: Two-phase agent (analyze intent → intelligent search via SEARCH_SKILL.md with 3-attempt strategy, self-assessment, and confidence levels)
-- **Detail panel**: Expandable history with multi-line entries, icons per history type
+- **Detail panel**: Expandable history with multi-line entries, icons per history type, search attempt details, confidence badges, relevance annotations
 
 ### Key Functions
 

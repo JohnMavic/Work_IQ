@@ -1513,10 +1513,10 @@
             : '';
           const commDate = comm.date ? formatDate(comm.date) : '';
           html += `<div class="agent-comm">${commIcon} ${escHtml(comm.from || '')} → ${escHtml(comm.to || '')} (${commDate})${commLink}`;
-          if (comm.summary) html += `<br>${escHtml(comm.summary)}`;
+          if (comm.summary) html += `<br><span style="color:#94a3b8;font-size:0.85em">${escHtml(comm.summary)}</span>`;
           html += `</div>`;
         }
-      } else if (entry.agentPlan && agentIntent === 'search') {
+      } else if (entry.agentPlan && agentIntent === 'search' && !entry.agentResponse) {
         html += `<div class="agent-no-results">🔍 No communications found</div>`;
       }
 
@@ -1538,8 +1538,12 @@
         detailsHtml += `<div class="detail-meta">`;
         detailsHtml += `<span style="color:#93c5fd"><strong>1️⃣ Task</strong></span>`;
         detailsHtml += `<span>${escHtml(p.understanding)}</span>`;
+        if (p.expectedAnswer) {
+          detailsHtml += `<span style="color:#a78bfa">🎯 Expected: ${escHtml(p.expectedAnswer)}</span>`;
+        }
         const meta = [];
         if (p.keywords?.length) meta.push(`🔑 ${escHtml(p.keywords.join(', '))}`);
+        if (p.keywordsEnglish?.length) meta.push(`🔑🇬🇧 ${escHtml(p.keywordsEnglish.join(', '))}`);
         if (p.timeWindow) meta.push(`📅 ${escHtml(p.timeWindow.from || '?')} → ${escHtml(p.timeWindow.to || 'now')}`);
         if (p.searchTargets) meta.push(`🎯 ${escHtml(p.searchTargets)}`);
         if (meta.length) detailsHtml += `<span>${meta.join(' · ')}</span>`;
@@ -1551,7 +1555,14 @@
         detailsHtml += `<div class="detail-meta" style="border-left:2px solid #f59e0b;margin-top:4px">`;
 
         // Step 2: GESENDET (promptSent = search parameters sent to Work IQ)
-        const methodLabel = ex.method === 'workiq-ask' ? 'workiq ask (direkt)' : 'Copilot SDK + MCP';
+        const methodLabels = {
+          'workiq-ask': 'workiq ask (legacy)',
+          'copilot-sdk-search-skill': 'Copilot SDK + SEARCH_SKILL',
+          'copilot-sdk-legacy': 'Copilot SDK + LOG_WORK_SKILL',
+          'copilot-sdk-minimal': 'Copilot SDK (minimal)',
+          'copilot-sdk-mcp': 'Copilot SDK + MCP'
+        };
+        const methodLabel = methodLabels[ex.method] || ex.method || 'unknown';
         detailsHtml += `<span style="color:#fbbf24"><strong>2️⃣ Sent to Work IQ</strong> <span style="font-size:0.7rem;color:#888">(${methodLabel})</span></span>`;
         if (ex.promptSent) {
           detailsHtml += `<span>${escHtml(ex.promptSent)}</span>`;
@@ -1571,12 +1582,43 @@
           detailsHtml += `<span style="color:#9ca3af">No response received</span>`;
         }
 
-        // Step 4: ERGEBNIS (parsed communications summary)
-        detailsHtml += `<span style="color:#93c5fd"><strong>4️⃣ Result for user</strong></span>`;
+        // Step 4: ERGEBNIS (v2.2: confidence + answer + search attempts)
+        const confColors = { high: '#4ade80', medium: '#fbbf24', low: '#fb923c', none: '#f87171' };
+        const confIcons = { high: '✅', medium: '⚠️', low: '🔍', none: '❌' };
+        const confColor = confColors[ex.confidence] || '#93c5fd';
+        const confIcon = confIcons[ex.confidence] || '📋';
+
+        if (ex.confidence) {
+          detailsHtml += `<span style="color:${confColor}"><strong>4️⃣ Result</strong> <span style="background:${confColor}22;padding:1px 6px;border-radius:4px;font-size:0.75rem">${confIcon} ${escHtml(ex.confidence)}</span></span>`;
+        } else {
+          detailsHtml += `<span style="color:#93c5fd"><strong>4️⃣ Result for user</strong></span>`;
+        }
+
+        // v2.2: Show agent's direct answer if available
+        if (ex.answer) {
+          detailsHtml += `<span style="color:#e0e0e0;font-size:0.85rem;white-space:pre-wrap">${escHtml(ex.answer)}</span>`;
+        }
+
+        // v2.2: Show search attempts detail
+        if (ex.searchAttempts?.length > 0) {
+          detailsHtml += `<span style="color:#64748b;font-size:0.7rem;margin-top:2px"><strong>Search attempts:</strong></span>`;
+          for (const attempt of ex.searchAttempts) {
+            const relIcon = attempt.relevant ? '✅' : '❌';
+            detailsHtml += `<span style="margin-left:8px;font-size:0.7rem;color:#64748b">${relIcon} Attempt ${attempt.attempt}: ${escHtml(attempt.strategy || '')} → ${escHtml(attempt.found || 'nothing')}</span>`;
+          }
+        }
+
+        // v2.2: Show ambiguities
+        if (ex.ambiguities?.length > 0) {
+          for (const amb of ex.ambiguities) {
+            detailsHtml += `<span style="color:#fbbf24;margin-left:8px">⚠️ ${escHtml(amb)}</span>`;
+          }
+        }
+
         if (ex.error) {
           detailsHtml += `<span>⚠️ Search failed — entry saved without communications</span>`;
         } else if (conv.communications?.length > 0) {
-          detailsHtml += `<span>✅ ${ex.parsedCount} communication(s) extracted:</span>`;
+          detailsHtml += `<span>📋 ${ex.parsedCount || conv.communications.length} communication(s):</span>`;
           for (const c of conv.communications) {
             const icon = c.type === 'teams' ? '💬' : '📧';
             // Handle both ISO dates and natural language dates from Markdown parser
@@ -1590,16 +1632,19 @@
             if (c.summary) {
               detailsHtml += `<span style="margin-left:16px;color:#94a3b8;font-size:0.8rem">${escHtml(c.summary)}</span>`;
             }
+            if (c.relevance) {
+              detailsHtml += `<span style="margin-left:16px;color:#a78bfa;font-size:0.7rem">↳ ${escHtml(c.relevance)}</span>`;
+            }
             if (c.link) {
               detailsHtml += `<span style="margin-left:16px"><a href="${escHtml(c.link)}" onclick="return openLink(event)" style="color:#60a5fa;font-size:0.75rem">🔗 Open</a></span>`;
             }
           }
-        } else if (ex.rawResponse && !ex.error) {
+        } else if (!ex.answer && ex.rawResponse && !ex.error) {
           // Work IQ responded but no structured data parsed — show natural language answer
           detailsHtml += `<span>📝 Work IQ response (no structured result):</span>`;
           const answer = ex.rawResponse.length > 2000 ? ex.rawResponse.substring(0, 2000) + '...' : ex.rawResponse;
           detailsHtml += `<span style="white-space:pre-wrap;font-size:0.8rem;color:#cbd5e1">${escHtml(answer)}</span>`;
-        } else {
+        } else if (!ex.answer) {
           detailsHtml += `<span>🔍 No communications found</span>`;
         }
 
