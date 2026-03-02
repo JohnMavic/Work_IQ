@@ -4,6 +4,32 @@ All notable changes to this project are documented here.
 
 ---
 
+## v2.2.0 — March 2, 2026
+
+**Intelligent Search — Log Work Redesign**
+
+### Intelligent Communication Search (SEARCH_SKILL.md)
+- New skill file replaces the single-shot `workiq ask` CLI approach
+- Agent now uses Copilot SDK + Work IQ MCP with full control over the search strategy
+- **Goal-oriented search:** Agent receives `expectedAnswer` (what KIND of answer the user needs) — searches for communications that ANSWER the question, not just contain keywords
+- **3-attempt search strategy:** Targeted → Broader → Sender/Recipient (same proven pattern as enrichment)
+- **Self-assessment:** Agent evaluates after each attempt whether results actually answer the user's question
+- **Relevance filtering:** Irrelevant results are discarded — an honest "nothing found" beats keyword-matched noise
+- **Language awareness:** Search terms automatically translated between German and English
+- **Confidence levels:** `high` / `medium` / `low` / `none` — response formatting adapts accordingly
+
+### Improved Analyze Prompt
+- New `expectedAnswer` field tells the agent what KIND of answer the user needs (e.g. "a person's name")
+- Bilingual keyword generation (user's language + English)
+- Understanding is now a concrete action plan, not just a paraphrase
+
+### Response Quality
+- Three-tier honest answer formatting: found (with confidence) / partially found / not found
+- Search attempt details logged in history for transparency
+- Timeout increased from 90s to 300s to accommodate 3-attempt strategy
+
+---
+
 ## v2.1.0 — March 1, 2026
 
 **Header UI Redesign + Scan Control + Auto-Cleanup**

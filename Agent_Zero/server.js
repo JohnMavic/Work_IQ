@@ -21,12 +21,14 @@ const LOG_WORK_SKILL_PATH = path.join(__dirname, 'Documents', 'LOG_WORK_SKILL.md
 const SCAN_DISCOVERY_SKILL_PATH = path.join(__dirname, 'Documents', 'SCAN_DISCOVERY_SKILL.md');
 const ENRICH_SKILL_PATH = path.join(__dirname, 'Documents', 'ENRICH_SKILL.md');
 const UPDATE_CHECK_SKILL_PATH = path.join(__dirname, 'Documents', 'UPDATE_CHECK_SKILL.md');
+const SEARCH_SKILL_PATH = path.join(__dirname, 'Documents', 'SEARCH_SKILL.md');
 
 let SCAN_SKILL = '';
 let LOG_WORK_SKILL = '';
 let SCAN_DISCOVERY_SKILL = '';
 let ENRICH_SKILL = '';
 let UPDATE_CHECK_SKILL = '';
+let SEARCH_SKILL = '';
 
 try {
   SCAN_SKILL = fs.readFileSync(SCAN_SKILL_PATH, 'utf-8');
@@ -61,6 +63,13 @@ try {
   console.log(`Loaded UPDATE_CHECK_SKILL.md (${UPDATE_CHECK_SKILL.length} chars)`);
 } catch (err) {
   console.warn('Warning: UPDATE_CHECK_SKILL.md not found');
+}
+
+try {
+  SEARCH_SKILL = fs.readFileSync(SEARCH_SKILL_PATH, 'utf-8');
+  console.log(`Loaded SEARCH_SKILL.md (${SEARCH_SKILL.length} chars)`);
+} catch (err) {
+  console.warn('Warning: SEARCH_SKILL.md not found');
 }
 
 app.use(express.json());
@@ -1144,9 +1153,11 @@ If intent is "answer":
 If intent is "search":
 {
   "intent": "search",
-  "understanding": "A clear action plan: what you will search, where, and what you expect to find. Use 'I will...' or 'Ich werde...'",
+  "understanding": "A clear action plan: what you will search, where, and what you expect to find. Be specific: 'I will search for emails from Mark Higgins (WWT) about the MPR survey at Zurich The Circle, looking for the name of the tech performing the survey on March 3.' Use 'I will...' or 'Ich werde...'",
+  "expectedAnswer": "What KIND of answer the user needs. Examples: 'A person name — the tech doing the survey', 'A date — when the delivery arrives', 'A status update — current state of the approval'. This helps evaluate whether search results actually answer the question.",
   "searchFrom": "WHO to search for — a person name, email domain, or null if searching by topic only",
-  "keywords": ["specific", "search", "terms — only used if searchFrom is null"],
+  "keywords": ["primary", "search", "terms"],
+  "keywordsEnglish": ["English", "translations", "of", "keywords — if user writes in German, translate key terms to English for searching English emails"],
   "timeWindow": {
     "from": "ISO date string",
     "to": "ISO date string or 'now'",
@@ -1163,6 +1174,9 @@ RULES:
 - If the user asks "was hat X geschrieben", "find emails from", "check my inbox" → intent is "search"
 - If the user asks "bis wann muss ich", "what's the deadline", "who is responsible" and the answer is in the task context → intent is "answer"
 - For "search" intent: ALWAYS include the task date as start date.
+- For "search" intent: ALWAYS provide expectedAnswer — think about what the user actually wants to KNOW.
+- For "search" intent: If the user writes in German but the emails are likely in English, provide keywordsEnglish with translated search terms (e.g. "Bestandsaufnahme" → "survey", "Konferenzraum" → "conference room", "MPR").
+- For "search" intent: keywords should contain the user's original language terms. keywordsEnglish should contain English equivalents.
 - For "summarize"/"answer": provide the result IMMEDIATELY — the user should not need to click Execute.
 - Write in the same language as the user's message (German → German, English → English)
 - If the search intent is unclear → set needsClarification to true
@@ -1281,7 +1295,7 @@ Return ONLY the JSON object. No markdown, no explanation.`;
   }
 });
 
-// POST /api/tasks/:id/log — log work with AI communication search
+// POST /api/tasks/:id/log — log work with AI communication search (v2.2: intelligent search)
 app.post('/api/tasks/:id/log', async (req, res) => {
   const { id } = req.params;
   const { text, plan } = req.body;
@@ -1302,39 +1316,124 @@ app.post('/api/tasks/:id/log', async (req, res) => {
     return res.status(500).json({ error: 'Failed to read tasks', detail: err.message });
   }
 
-  // AI communication search
+  // AI communication search (v2.2: Copilot SDK + Work IQ MCP + SEARCH_SKILL.md)
   let communications = [];
   let rawResponseText = null;
   let promptContext = null;
   let searchError = null;
-  let searchMethod = 'none';
+  let searchMethod = 'copilot-sdk-search-skill';
+  let searchConfidence = null;
+  let searchAnswer = null;
+  let searchAttempts = [];
+  let searchAmbiguities = [];
   const searchStartTime = Date.now();
 
-  if (plan) {
-    // v1.4: Direct workiq ask — same approach proven in Copilot CLI
-    // Work IQ IS an AI agent; no need to wrap it in another AI (Copilot SDK)
-    searchMethod = 'workiq-ask';
-    try {
-      const question = buildSearchQuestion(plan, taskContext, text.trim());
-      promptContext = question;
+  let client;
+  try {
+    const taskDate = taskContext.date || taskContext.createdAt || '';
 
-      console.log(`[LOG] workiq ask for task "${taskContext.title}" at ${new Date().toISOString()}`);
-      console.log(`[LOG] Question: ${question.substring(0, 300)}...`);
+    // Build the search prompt from the plan (v2.2) or fallback
+    let searchPrompt;
+    if (plan && SEARCH_SKILL) {
+      // v2.2: Intelligent search with SEARCH_SKILL.md
+      const allKeywords = [
+        ...(plan.keywords || []),
+        ...(plan.keywordsEnglish || [])
+      ].filter(Boolean);
 
-      const result = await runWorkIQAsk(question);
-      const elapsed = Date.now() - searchStartTime;
-      rawResponseText = result.substring(0, 8000);
+      const timeDesc = plan.timeWindow
+        ? `from ${plan.timeWindow.from || taskDate} to ${plan.timeWindow.to || 'now'}`
+        : `from ${taskDate} onward`;
 
-      console.log(`[LOG] Response received in ${elapsed}ms (${result.length} chars)`);
-      console.log(`[LOG] Preview: ${result.substring(0, 300)}...`);
+      searchPrompt = SEARCH_SKILL + '\n\n' +
+        `## Your Search Assignment\n\n` +
+        `USER'S QUESTION: "${text.trim()}"\n` +
+        `EXPECTED ANSWER TYPE: ${plan.expectedAnswer || 'general information'}\n\n` +
+        `TASK CONTEXT:\n` +
+        `- Title: "${taskContext.title}"\n` +
+        `- From: ${taskContext.from || 'unknown'}\n` +
+        `- Source: ${taskContext.source}\n` +
+        `- Date: ${taskDate}\n` +
+        `- Summary: ${taskContext.summary || '(no summary)'}\n\n` +
+        `SEARCH PARAMETERS:\n` +
+        `- Keywords: ${allKeywords.join(', ') || 'use task title keywords'}\n` +
+        `- Search from: ${plan.searchFrom || 'any sender'}\n` +
+        `- Time window: ${timeDesc}\n` +
+        `- Search targets: ${plan.searchTargets || 'all'}\n\n` +
+        `ACTION PLAN: ${plan.understanding || 'Search for communications related to the task'}\n\n` +
+        `Execute your search now. Remember: 3 attempts, self-assessment after each, discard irrelevant results.`;
 
-      const parsed = parseJsonFromResponse(result);
-      if (Array.isArray(parsed)) {
+      searchMethod = 'copilot-sdk-search-skill';
+    } else if (LOG_WORK_SKILL) {
+      // Fallback: LOG_WORK_SKILL.md (legacy, no plan available)
+      searchPrompt = LOG_WORK_SKILL + '\n\n' +
+        `TASK CONTEXT:\n` +
+        `Task: "${taskContext.title}"\n` +
+        `Original sender: ${taskContext.from || 'unknown'}, Source: ${taskContext.source}, Date: ${taskDate}\n\n` +
+        `USER LOG:\n` +
+        `"${text.trim()}"\n\n` +
+        `Search from ${taskDate} onward.`;
+
+      searchMethod = 'copilot-sdk-legacy';
+    } else {
+      // Minimal fallback: no skill file at all
+      searchPrompt = `The user logged work on this task:\n` +
+        `Task: "${taskContext.title}"\n` +
+        `Original sender: ${taskContext.from || 'unknown'}, Source: ${taskContext.source}, Date: ${taskDate}\n\n` +
+        `User says: "${text.trim()}"\n\n` +
+        `Search my emails and Teams messages for the FULL conversation thread ` +
+        `related to this task. Use the task title keywords as search terms. ` +
+        `Search from ${taskDate} onward. Include ALL replies, forwards, and ` +
+        `CC responses in the thread — not just the original message.\n\n` +
+        `For each message found, return a JSON object with:\n` +
+        `type ("email" or "teams"), from (sender name), to (recipient names), ` +
+        `date (ISO 8601), summary (1-2 sentence summary), ` +
+        `link (URL or null).\n\n` +
+        `Return ONLY a JSON array ordered by date (oldest first). No markdown.\n` +
+        `If nothing found, return [].`;
+
+      searchMethod = 'copilot-sdk-minimal';
+    }
+
+    promptContext = `[${searchMethod}] Task: "${taskContext.title}" | From: ${taskContext.from || 'unknown'} | Date: ${taskDate} | User: "${text.trim()}"`;
+
+    console.log(`[LOG] ${searchMethod} for task "${taskContext.title}" at ${new Date().toISOString()}`);
+    console.log(`[LOG] Prompt size: ${searchPrompt.length} chars`);
+
+    client = new CopilotClient();
+    const session = await client.createSession({
+      mcpServers: {
+        workiq: { type: 'stdio', command: 'workiq', args: ['mcp'], tools: '*' }
+      }
+    });
+
+    const response = await session.sendAndWait({ prompt: searchPrompt }, 300000);
+    const elapsed = Date.now() - searchStartTime;
+    console.log(`[LOG] Response received in ${elapsed}ms`);
+    await session.destroy();
+
+    if (response) {
+      const rawContent = response.data.content;
+      rawResponseText = typeof rawContent === 'string' ? rawContent.substring(0, 8000) : JSON.stringify(rawContent).substring(0, 8000);
+      console.log(`[LOG] Preview: ${rawResponseText.substring(0, 300)}...`);
+
+      const parsed = parseJsonFromResponse(rawContent);
+
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.answer !== undefined) {
+        // v2.2 SEARCH_SKILL response format: { answer, confidence, searchAttempts, communications, ambiguities }
+        searchAnswer = parsed.answer || null;
+        searchConfidence = parsed.confidence || null;
+        searchAttempts = parsed.searchAttempts || [];
+        searchAmbiguities = parsed.ambiguities || [];
+        communications = Array.isArray(parsed.communications) ? parsed.communications : [];
+        console.log(`[LOG] SEARCH_SKILL response: confidence=${searchConfidence}, comms=${communications.length}, attempts=${searchAttempts.length}`);
+      } else if (Array.isArray(parsed)) {
+        // Legacy format: plain JSON array of communications
         communications = parsed;
-        console.log(`[LOG] Parsed ${communications.length} communications (JSON)`);
+        console.log(`[LOG] Legacy format: ${communications.length} communications`);
       } else {
         // Try Markdown email parser as fallback
-        const mdEmails = parseMarkdownEmails(result);
+        const mdEmails = parseMarkdownEmails(rawContent);
         if (mdEmails) {
           communications = mdEmails;
           console.log(`[LOG] Parsed ${communications.length} communications (Markdown)`);
@@ -1342,97 +1441,48 @@ app.post('/api/tasks/:id/log', async (req, res) => {
           console.warn(`[LOG] No structured data parsed — storing natural language response`);
         }
       }
-    } catch (err) {
-      const elapsed = Date.now() - searchStartTime;
-      console.error(`[LOG] workiq ask failed after ${elapsed}ms:`, err.message);
-      searchError = err.message;
     }
-  } else {
-    // Fallback: Copilot SDK + Work IQ MCP (v1.3 behavior, no plan available)
-    searchMethod = 'copilot-sdk-mcp';
-    let client;
-    try {
-      console.log(`[LOG] Copilot SDK + MCP for task "${taskContext.title}" at ${new Date().toISOString()}`);
-
-      client = new CopilotClient();
-      const session = await client.createSession({
-        mcpServers: {
-          workiq: { type: 'stdio', command: 'workiq', args: ['mcp'], tools: '*' }
-        }
-      });
-
-      const taskDate = taskContext.date || taskContext.createdAt || '';
-
-      let logPrompt;
-      if (LOG_WORK_SKILL) {
-        logPrompt = LOG_WORK_SKILL + `\n\n` +
-          `TASK CONTEXT:\n` +
-          `Task: "${taskContext.title}"\n` +
-          `Original sender: ${taskContext.from || 'unknown'}, Source: ${taskContext.source}, Date: ${taskDate}\n\n` +
-          `USER LOG:\n` +
-          `"${text.trim()}"\n\n` +
-          `Search from ${taskDate} onward.`;
-      } else {
-        logPrompt = `The user logged work on this task:\n` +
-          `Task: "${taskContext.title}"\n` +
-          `Original sender: ${taskContext.from || 'unknown'}, Source: ${taskContext.source}, Date: ${taskDate}\n\n` +
-          `User says: "${text.trim()}"\n\n` +
-          `Search my emails and Teams messages for the FULL conversation thread ` +
-          `related to this task. Use the task title keywords as search terms. ` +
-          `Search from ${taskDate} onward. Include ALL replies, forwards, and ` +
-          `CC responses in the thread — not just the original message.\n\n` +
-          `For each message found, return a JSON object with:\n` +
-          `type ("email" or "teams"), from (sender name), to (recipient names), ` +
-          `date (ISO 8601), summary (1-2 sentence summary), ` +
-          `link (URL or null).\n\n` +
-          `Return ONLY a JSON array ordered by date (oldest first). No markdown.\n` +
-          `If nothing found, return [].`;
-      }
-
-      promptContext = `Task: "${taskContext.title}" | From: ${taskContext.from || 'unknown'} | Date: ${taskDate} | User: "${text.trim()}"`;
-
-      console.log(`[LOG] Sending prompt (${logPrompt.length} chars)`);
-
-      const response = await session.sendAndWait({ prompt: logPrompt }, 120000);
-      const elapsed = Date.now() - searchStartTime;
-      console.log(`[LOG] Response received in ${elapsed}ms`);
-      await session.destroy();
-
-      if (response) {
-        const rawContent = response.data.content;
-        rawResponseText = typeof rawContent === 'string' ? rawContent.substring(0, 2000) : JSON.stringify(rawContent).substring(0, 2000);
-        const parsed = parseJsonFromResponse(rawContent);
-        if (Array.isArray(parsed)) {
-          communications = parsed;
-          console.log(`[LOG] Parsed ${communications.length} communications`);
-        }
-      }
-    } catch (err) {
-      const elapsed = Date.now() - searchStartTime;
-      console.error(`[LOG] Copilot SDK search failed after ${elapsed}ms:`, err.message);
-      searchError = err.message;
-    } finally {
-      if (client) {
-        try { await client.dispose(); } catch {}
-      }
+  } catch (err) {
+    const elapsed = Date.now() - searchStartTime;
+    console.error(`[LOG] ${searchMethod} failed after ${elapsed}ms:`, err.message);
+    searchError = err.message;
+  } finally {
+    if (client) {
+      try { await client.dispose(); } catch {}
     }
   }
 
   const searchDurationMs = Date.now() - searchStartTime;
 
-  // Build a final agent response summary
+  // Build a final agent response summary (v2.2: 3-tier honest formatting)
   let agentResponse = '';
   if (searchError) {
     agentResponse = `❌ Search failed: ${searchError}`;
+  } else if (searchAnswer) {
+    // v2.2: Use the agent's own answer (it already evaluated relevance)
+    const confidenceIcon = { high: '✅', medium: '⚠️', low: '🔍', none: '❌' }[searchConfidence] || '🔍';
+    agentResponse = `${confidenceIcon} ${searchAnswer}`;
+    if (searchAmbiguities.length > 0) {
+      agentResponse += '\n\n⚠️ ' + searchAmbiguities.join('\n⚠️ ');
+    }
+    if (communications.length > 0) {
+      const summaries = communications.map((c, i) => {
+        const icon = c.type === 'teams' ? '💬' : '📧';
+        const date = c.date ? new Date(c.date).toLocaleDateString('de-CH') : '';
+        return `${i + 1}. ${icon} **${c.from || 'Unknown'}** → ${c.to || ''} (${date})${c.summary ? ': ' + c.summary : ''}`;
+      }).join('\n');
+      agentResponse += `\n\n📋 ${communications.length} communication(s):\n${summaries}`;
+    }
   } else if (communications.length > 0) {
+    // Legacy format: communications without answer
     const summaries = communications.map((c, i) => {
       const icon = c.type === 'teams' ? '💬' : '📧';
       const date = c.date ? new Date(c.date).toLocaleDateString('de-CH') : '';
       return `${i + 1}. ${icon} **${c.from || 'Unknown'}** → ${c.to || ''} (${date})${c.summary ? ': ' + c.summary : ''}`;
     }).join('\n');
-    agentResponse = `✅ ${communications.length} Kommunikation(en) gefunden:\n\n${summaries}`;
+    agentResponse = `✅ ${communications.length} communication(s) found:\n\n${summaries}`;
   } else if (rawResponseText) {
-    // Work IQ returned text but no structured results — show the natural language answer
+    // Agent returned text but no structured results — show the natural language answer
     agentResponse = rawResponseText;
   } else {
     agentResponse = `🔍 No results found. The search did not return any matching emails or Teams messages. Would you like to try again with different keywords or a broader time window?`;
@@ -1454,7 +1504,9 @@ app.post('/api/tasks/:id/log', async (req, res) => {
         agentResponse,
         agentPlan: plan ? {
           understanding: plan.understanding || '',
+          expectedAnswer: plan.expectedAnswer || '',
           keywords: plan.keywords || [],
+          keywordsEnglish: plan.keywordsEnglish || [],
           timeWindow: plan.timeWindow || {},
           searchTargets: plan.searchTargets || 'all',
           userConfirmed: true,
@@ -1464,6 +1516,10 @@ app.post('/api/tasks/:id/log', async (req, res) => {
           promptSent: promptContext,
           rawResponse: rawResponseText,
           parsedCount: communications.length,
+          confidence: searchConfidence,
+          answer: searchAnswer,
+          searchAttempts,
+          ambiguities: searchAmbiguities,
           error: searchError,
           durationMs: searchDurationMs,
           method: searchMethod

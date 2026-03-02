@@ -1,6 +1,6 @@
 # Agent Zero — Architecture
 
-> Version 2.1.0 · March 1, 2026 · Author: Martin Hämmerli
+> Version 2.2.0 · March 2, 2026 · Author: Martin Hämmerli
 
 Agent Zero is a personal action-item tracker that scans Microsoft 365 emails and Teams messages for tasks,
 extracts content summaries, and monitors threads for updates — all powered by AI.
@@ -230,7 +230,7 @@ Additionally, stuck statuses are reset: `enriching` → `pending`, `checking` �
 | `POST` | `/api/tasks/:id/enrich` | Phase 2: Extract content | 300s |
 | `POST` | `/api/tasks/:id/check-update` | Phase 3: Check for updates | 300s |
 | `POST` | `/api/tasks/:id/log/analyze` | AI intent analysis (no Work IQ) | 30s |
-| `POST` | `/api/tasks/:id/log` | Execute search + log result | 90s |
+| `POST` | `/api/tasks/:id/log` | Intelligent search via Copilot SDK + MCP + SEARCH_SKILL.md | 300s |
 | `POST` | `/api/cleanup` | Permanently delete done tasks older than `retentionDays` | — |
 
 ---
@@ -261,7 +261,7 @@ The entire frontend lives in `index.html` — a single-file dark-themed SPA.
 - **Auto-refresh**: `refreshSingleTask()` re-renders individual cards after agent work
 - **Server health check**: Polls `/api/tasks` every 5s when offline, green/red status dot + "Online"/"Offline" label
 - **Link opening**: Window or tab mode (user preference persisted in localStorage)
-- **Log work**: Two-phase agent (analyze intent → execute search)
+- **Log work**: Two-phase agent (analyze intent → intelligent search via SEARCH_SKILL.md with 3-attempt strategy, self-assessment, and confidence levels)
 - **Detail panel**: Expandable history with multi-line entries, icons per history type
 
 ### Key Functions
@@ -326,17 +326,36 @@ in Phase 1. This is where deep reading and temporal reasoning happens.
 - **Summary:** 2-4 sentences starting with the CURRENT situation, then historical context if relevant. Written in the **same language** as the original message.
 - **Output:** JSON with `summary`, `language`, `confidence` (high/medium/low/none), optional `ambiguities[]` (object format; legacy string arrays auto-normalized via `normalizeAmbiguities()`)
 
-### LOG_WORK_SKILL.md — Work Logging
+### LOG_WORK_SKILL.md — Work Logging (Legacy Fallback)
 
-**Used by:** `POST /api/tasks/:id/log` · **Lines:** 47 · **Timeout:** 90s
+**Used by:** `POST /api/tasks/:id/log` (fallback only, when no plan is available) · **Lines:** 47
 
-Searches for communications related to a task after the user describes what they did.
-Finds the full conversation thread, not just the original message.
+Legacy skill for basic communication search. Superseded by SEARCH_SKILL.md for primary search path.
+Kept as fallback for the Copilot SDK + MCP path when no analyze plan is available.
 
 - **Search scope:** Complete email threads (RE:, FW:, CC responses), related Teams messages, messages sent BY the user
 - **Thread reconstruction:** Follows the conversation chronologically — oldest first
 - **Summary per message:** 1-2 sentences capturing actions and decisions (not copy-paste)
 - **Output:** JSON array of communication objects with type, from, to, date, summary, link
+
+### SEARCH_SKILL.md — Intelligent Communication Search (v2.2.0)
+
+**Used by:** `POST /api/tasks/:id/log` (primary search path) · **Lines:** 127 · **Timeout:** 300s
+
+Executes user search requests with understanding, self-assessment, and iterative refinement.
+Replaces the single-shot `workiq ask` CLI approach with a Copilot SDK + MCP session where
+the agent controls the search strategy.
+
+- **Goal-oriented search:** Receives `expectedAnswer` (what KIND of answer the user needs) — not just keywords. The agent searches for communications that ANSWER the question, not just contain keywords.
+- **Three-attempt search strategy:** Same proven pattern as ENRICH_SKILL.md:
+  1. **Targeted search:** Bilingual keywords (DE + EN) in specified targets
+  2. **Broader search:** Fewer keywords, expanded time window, synonyms
+  3. **Sender/recipient search:** Search by people mentioned in context
+- **Self-assessment after each attempt:** Agent evaluates "Does this answer the user's question?" before deciding to try again or present results.
+- **Relevance evaluation:** Agent discards irrelevant results rather than returning keyword-matched noise. An honest "nothing found" beats irrelevant PO approvals.
+- **Language awareness:** Automatically translates search terms between German and English.
+- **Confidence levels:** `high` / `medium` / `low` / `none` — server uses these for response formatting.
+- **Output:** JSON with `answer`, `confidence`, `searchAttempts[]`, `communications[]`, optional `ambiguities[]`
 
 ### UPDATE_CHECK_SKILL.md — Phase 3: Detect New Activity
 
@@ -375,6 +394,7 @@ const response = await session.sendAndWait(prompt, { timeout: 180000 });
 | **Phase 1** | Subject lines, sender, date, link | "List messages requiring action from last N days" | Metadata only — no body content |
 | **Phase 2** | Full email body, all thread replies, Teams chat history | Keyword search from title (3 attempts), temporal classification | Keywords + link context + sender hint + discovery date |
 | **Phase 3** | New replies since last check | Keyword search (3 attempts), temporal filter on last-checked date | Keywords + link context + `lastUpdateCheck` anchor |
+| **Log Search** | Communications matching user query | Goal-oriented search (3 attempts), self-assessment, relevance filtering | Bilingual keywords + expectedAnswer + confidence levels |
 
 ### Search Strategy (Enrichment)
 
