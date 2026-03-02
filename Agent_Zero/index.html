@@ -1488,7 +1488,22 @@
       // For search intents: show agentResponse (final result) if available, otherwise understanding (plan)
       const agentText = (agentIntent === 'search' && entry.agentResponse) ? entry.agentResponse
         : entry.agentPlan ? (entry.agentPlan.understanding || '') : '';
-      if (agentText) {
+
+      // v2.2: If agentExecution has a direct answer, show it prominently (never collapsed)
+      const directAnswer = entry.agentExecution?.answer;
+      const directConfidence = entry.agentExecution?.confidence;
+
+      if (directAnswer && agentIntent === 'search') {
+        // v2.2: Prominent answer block — always visible, never collapsed
+        const confColors = { high: '#4ade80', medium: '#fbbf24', low: '#fb923c', none: '#f87171' };
+        const confIcons = { high: '✅', medium: '⚠️', low: '🔍', none: '❌' };
+        const confColor = confColors[directConfidence] || '#93c5fd';
+        const confIcon = confIcons[directConfidence] || '🤖';
+        html += `<div class="agent-msg-bot" style="border-left:3px solid ${confColor};padding-left:10px;margin-top:6px">`;
+        html += `<span style="color:${confColor};font-weight:bold;font-size:0.8em">${confIcon} Confidence: ${escHtml(directConfidence || 'unknown')}</span><br>`;
+        html += renderMarkdown(directAnswer);
+        html += `</div>`;
+      } else if (agentText) {
         const botIcon = agentIntent === 'summarize' ? '📋' : agentIntent === 'answer' ? '💬' : agentIntent === 'review' ? '✅' : '🤖';
         const agentPreview = previewText(agentText);
         const isLongAgent = agentText.length > 120;

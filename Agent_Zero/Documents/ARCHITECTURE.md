@@ -210,6 +210,7 @@ Search history entries include `agentPlan` with the analyze phase output:
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `intent` | string | `search`, `summarize`, or `answer` — determines rendering path |
 | `understanding` | string | Action plan: what the agent will search |
 | `expectedAnswer` | string | What KIND of answer the user needs (v2.2) |
 | `keywords` | string[] | Search terms in user's language |

@@ -1503,6 +1503,7 @@ app.post('/api/tasks/:id/log', async (req, res) => {
         communications,
         agentResponse,
         agentPlan: plan ? {
+          intent: plan.intent || 'search',
           understanding: plan.understanding || '',
           expectedAnswer: plan.expectedAnswer || '',
           keywords: plan.keywords || [],

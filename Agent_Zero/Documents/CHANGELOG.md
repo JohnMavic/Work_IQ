@@ -38,6 +38,11 @@ All notable changes to this project are documented here.
 - Communication relevance annotations (↳ why this message answers the question)
 - Communication summaries shown in conversation view with styling
 
+### Answer Rendering Fix
+- **Bug fix:** `agentPlan.intent` was not stored in history entries — `intent: 'search'` was always undefined, causing `agentResponse` to never be displayed (fell through to showing `understanding` instead)
+- **Prominent answer display:** When `agentExecution.answer` exists for search intents, the answer is rendered as a always-visible block with confidence badge and color-coded border — never collapsed
+- Communications (email listings) are shown BELOW the answer as supporting evidence
+
 ---
 
 ## v2.1.0 — March 1, 2026
