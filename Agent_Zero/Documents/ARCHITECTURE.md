@@ -147,7 +147,7 @@ Each task card shows three dots indicating pipeline progress:
 | State | Color | CSS Class |
 |-------|-------|-----------|
 | Pending | Gray | (default) |
-| Active | Amber, pulsing | `.step-active` |
+| Active | Neon cyan (#00d4ff), pulsing | `.step-active` |
 | Done | Green `#22c55e` | `.step-done` |
 | Error | Red `#ef4444` | `.step-error` |
 | Updated | Yellow `#fbbf24` | `.step-updated` |
@@ -201,8 +201,9 @@ Tasks are stored in `tasks.json` as `{ version: 3, tasks: [...] }`.
 }
 ```
 
-**History types:** `creation`, `status-change`, `scan-update`, `note`, `conversation`,
-`enriched`, `enrichment-error`, `thread-update`, `update-check-error`
+**History types:** `created`, `status-change`, `scan-update`, `note`, `update`,
+`enriched`, `enrich-error`, `thread-update`, `update-check`, `update-check-error`,
+`summary-update`, `review-response`
 
 ### Agent Plan (v2.2)
 
@@ -210,7 +211,7 @@ Search history entries include `agentPlan` with the analyze phase output:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `intent` | string | `search`, `summarize`, or `answer` — determines rendering path |
+| `intent` | string | `search`, `summarize`, `answer`, or `review` — determines rendering path |
 | `understanding` | string | Action plan: what the agent will search |
 | `expectedAnswer` | string | What KIND of answer the user needs (v2.2) |
 | `keywords` | string[] | Search terms in user's language |
@@ -253,9 +254,9 @@ Additionally, stuck statuses are reset: `enriching` → `pending`, `checking` �
 |--------|------|---------|---------|
 | `GET` | `/api/tasks` | List all tasks | — |
 | `POST` | `/api/tasks` | Create manual task | — |
-| `PATCH` | `/api/tasks/:id` | Update fields (status, notes, title, enrichmentStatus, updateCheckStatus) | — |
+| `PATCH` | `/api/tasks/:id` | Update fields (status, notes, title, summary, enrichmentStatus, updateCheckStatus) | — |
 | `DELETE` | `/api/tasks/:id` | Delete task | — |
-| `DELETE` | `/api/tasks/:id/history/:index` | Delete history entry (type `update` only) | — |
+| `DELETE` | `/api/tasks/:id/history/:index` | Delete history entry (type `update`, `note`, or `review-response`) | — |
 | `POST` | `/api/tasks/:id/note` | Save quick note | — |
 | `POST` | `/api/scan` | Phase 1: Discover new tasks | 180s |
 | `POST` | `/api/tasks/:id/enrich` | Phase 2: Extract content | 300s |
@@ -263,6 +264,7 @@ Additionally, stuck statuses are reset: `enriching` → `pending`, `checking` �
 | `POST` | `/api/tasks/:id/log/analyze` | AI intent analysis (no Work IQ) | 30s |
 | `POST` | `/api/tasks/:id/log` | Intelligent search via Copilot SDK + MCP + SEARCH_SKILL.md | 300s |
 | `POST` | `/api/cleanup` | Permanently delete done tasks older than `retentionDays` | — |
+| `POST` | `/api/tasks/:id/review` | Ambiguity resolution — user responds to agent's review questions | 30s |
 
 ---
 
@@ -278,7 +280,7 @@ The entire frontend lives in `index.html` — a single-file dark-themed SPA.
 | Text | `#e0e0e0` (light gray) |
 | Primary button | `#3b82f6` (blue) |
 | Freeze border | `#00d4ff` (neon cyan) |
-| Cards | `#141829` |
+| Cards | `#131627` |
 | Borders | `#1e2233` |
 
 ### Key Features
@@ -292,7 +294,7 @@ The entire frontend lives in `index.html` — a single-file dark-themed SPA.
 - **Auto-cleanup**: Done tasks are permanently deleted from `tasks.json` after configurable retention period (default 3 days, slider 1–30 days). Cleanup runs on server startup and before each scan.
 - **Auto-refresh**: `refreshSingleTask()` re-renders individual cards after agent work
 - **Server health check**: Polls `/api/tasks` every 5s when offline, green/red status dot + "Online"/"Offline" label
-- **Link opening**: Window or tab mode (user preference persisted in localStorage)
+- **Link opening**: Window or tab mode (user preference persisted in localStorage, defunct split/incognito modes auto-migrated to window)
 - **Log work**: Two-phase agent (analyze intent → intelligent search via SEARCH_SKILL.md with 3-attempt strategy, self-assessment, and confidence levels)
 - **Prominent answer display**: When agent returns a direct answer with confidence, it's shown as an always-visible block with color-coded border — never collapsed
 - **Detail panel**: Expandable history with multi-line entries, icons per history type, search attempt details, confidence badges, relevance annotations
@@ -312,7 +314,7 @@ The entire frontend lives in `index.html` — a single-file dark-themed SPA.
 | `updateStepIndicator(taskId, step, state)` | Update step dot color/animation |
 | `checkServerHealth()` | Poll server with 3s AbortController timeout |
 | `analyzeLog(taskId, message)` | Send message to AI for intent analysis |
-| `executeLog(taskId, plan)` | Execute agent plan via Work IQ |
+| `executeLog(taskId)` | Execute agent plan via Work IQ (reads plan from `pendingPlans`) |
 
 ---
 
@@ -323,7 +325,7 @@ for the AI agent — each file instructs the AI how to perform a specific task v
 
 ### SCAN_DISCOVERY_SKILL.md — Phase 1: Subject-Only Scan
 
-**Used by:** `POST /api/scan` · **Lines:** 52 · **Timeout:** 180s
+**Used by:** `POST /api/scan` · **Lines:** 66 · **Timeout:** 180s
 
 Scans the user's M365 inbox and Teams for messages that require action. Returns **metadata only**
 (subject, sender, date, link) — no email body content is read at this stage.
@@ -335,7 +337,7 @@ Scans the user's M365 inbox and Teams for messages that require action. Returns 
 
 ### SCAN_SKILL.md — Legacy Scan (Fallback)
 
-**Used by:** `POST /api/scan` (fallback if SCAN_DISCOVERY_SKILL.md is missing) · **Lines:** 81
+**Used by:** `POST /api/scan` (fallback if SCAN_DISCOVERY_SKILL.md is missing) · **Lines:** 106
 
 The original monolithic scan skill from v1.0. Unlike the discovery skill, this reads email **bodies**
 and generates summaries in a single pass. Kept as fallback — not used when SCAN_DISCOVERY_SKILL.md exists.
@@ -346,7 +348,7 @@ and generates summaries in a single pass. Kept as fallback — not used when SCA
 
 ### ENRICH_SKILL.md — Phase 2: Content Extraction
 
-**Used by:** `POST /api/tasks/:id/enrich` · **Lines:** 96 · **Timeout:** 300s
+**Used by:** `POST /api/tasks/:id/enrich` · **Lines:** 89 · **Timeout:** 300s
 
 Extracts and summarizes the full content of a specific email or Teams conversation identified
 in Phase 1. This is where deep reading and temporal reasoning happens.
@@ -363,7 +365,7 @@ in Phase 1. This is where deep reading and temporal reasoning happens.
 
 ### LOG_WORK_SKILL.md — Work Logging (Legacy Fallback)
 
-**Used by:** `POST /api/tasks/:id/log` (fallback only, when no plan is available) · **Lines:** 47
+**Used by:** `POST /api/tasks/:id/log` (fallback only, when no plan is available) · **Lines:** 67
 
 Legacy skill for basic communication search. Superseded by SEARCH_SKILL.md for primary search path.
 Kept as fallback for the Copilot SDK + MCP path when no analyze plan is available.
@@ -375,7 +377,7 @@ Kept as fallback for the Copilot SDK + MCP path when no analyze plan is availabl
 
 ### SEARCH_SKILL.md — Intelligent Communication Search (v2.2.0)
 
-**Used by:** `POST /api/tasks/:id/log` (primary search path) · **Lines:** 127 · **Timeout:** 300s
+**Used by:** `POST /api/tasks/:id/log` (primary search path) · **Lines:** 145 · **Timeout:** 300s
 
 Executes user search requests with understanding, self-assessment, and iterative refinement.
 Replaces the single-shot `workiq ask` CLI approach with a Copilot SDK + MCP session where
@@ -411,15 +413,17 @@ calendar events, and documents via the Microsoft Search API.
 ### Connection
 
 ```javascript
-import { CopilotSDK } from '@github/copilot-sdk';
+import { CopilotClient } from '@github/copilot-sdk';
 
-const session = sdk.createSession({
+const client = new CopilotClient();
+const session = await client.createSession({
   mcpServers: {
-    workiq: { command: 'npx', args: ['-y', '@microsoft/workiq', 'mcp'] }
+    workiq: { type: 'stdio', command: 'workiq', args: ['mcp'], tools: '*' }
   }
 });
 
-const response = await session.sendAndWait(prompt, { timeout: 180000 });
+const response = await session.sendAndWait({ prompt: searchPrompt }, 300000);
+await session.destroy();
 ```
 
 ### How Each Phase Reads M365 Data
@@ -471,8 +475,15 @@ Agent_Zero/
 │   ├── SCAN_SKILL.md           Legacy scan skill (fallback)
 │   ├── ENRICH_SKILL.md         Phase 2 skill instructions
 │   ├── UPDATE_CHECK_SKILL.md   Phase 3 skill instructions
-│   ├── LOG_WORK_SKILL.md       Work logging skill instructions
+│   ├── SEARCH_SKILL.md         Intelligent search skill (v2.2)
+│   ├── LOG_WORK_SKILL.md       Legacy work logging skill (fallback)
+│   ├── FEATURE_INVENTORY_Claude_Code_Codex_Analyse.md  Code review results
+│   ├── VIDEO_DESCRIPTION.md    Video script foundation
 │   └── archive/               Previous document versions
+├── Specifactions/
+│   └── DAILY_BRIEFING_APP_SPEC.md  Product specification
+├── Images/                Screenshots and diagrams
+├── Security report/       Security analysis
 └── node_modules/              (gitignored)
 ```
 
@@ -485,7 +496,7 @@ Agent_Zero/
 | Work IQ uses Search API, not Graph Messages API | Cannot read full email bodies directly; relies on search snippets | Keyword-based search + "find ALL messages" prompt |
 | Sent Items search returns hit count but no details | Cannot enumerate sent emails | GitHub Issue #55 on microsoft/work-iq-mcp |
 | Some emails not found by Work IQ | Graph API indexing delay or Focused Inbox filtering | Retry on next scan; keyword variation |
-| 180s timeout per enrichment | Long threads risk timeout | Sequential processing prevents cascade failures |
+| 300s timeout per enrichment | Long threads risk timeout | Sequential processing prevents cascade failures |
 | Task titles are AI-rephrased | Titles may not match original email subjects | Keyword search instead of exact match |
 | tasks.json is not concurrent-safe | Parallel writes could corrupt data | Sequential write queue with chain recovery (`.catch(() => {})` prevents permanent queue freeze) |
 | Conditional Access Policy blocks 3rd-party apps | Cannot use Graph PowerShell SDK or CLI for M365 | Work IQ (pre-authorized) or Graph Explorer |

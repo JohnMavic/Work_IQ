@@ -1,9 +1,9 @@
 # Agent Zero — Product Specification
 
-**Version:** 2.5
-**Date:** February 27, 2026
+**Version:** 2.2.0
+**Date:** March 2, 2026
 **Author:** Martin Hämmerli
-**Status:** v2.5 implemented (Multi-Phase Scan Architecture + Email Content Summary)
+**Status:** v2.2.0 implemented (Intelligent Search + Add Task Redesign)
 
 ---
 
@@ -46,8 +46,8 @@ Agent Zero is a local, single-page HTML application that helps the user stay on 
 
 | Method | Used By | How |
 |---|---|---|
-| Copilot SDK + MCP | Scan, Analyze (intent detection) | `CopilotClient` → `createSession()` with/without MCP servers |
-| Work IQ CLI (`workiq ask`) | Search execution | Direct `spawn('workiq', ['ask'])` via stdin — proven more reliable than wrapping Work IQ in another AI layer |
+| Copilot SDK + MCP | Scan, Enrich, Update Check, Analyze (intent detection), Intelligent Search, Ambiguity Review | `CopilotClient` → `createSession()` with/without MCP servers |
+| Work IQ CLI (`workiq ask`) | Legacy search fallback (unused in v2.2 primary path) | Direct `spawn('workiq', ['ask'])` via stdin — kept as legacy fallback |
 
 ---
 
@@ -82,9 +82,8 @@ First-time setup:
 |---|---|---|
 | `express` | ^5.2.1 | HTTP server and REST API |
 | `@github/copilot-sdk` | ^0.1.25 | AI reasoning engine (Copilot SDK) |
+| `@microsoft/workiq` | ^0.2.8 | M365 data access via MCP (also installed globally) |
 | `uuid` | ^13.0.0 | UUID generation for task IDs |
-
-**Note:** `@microsoft/workiq` is installed globally, not as a project dependency.
 
 ---
 
@@ -104,13 +103,13 @@ First-time setup:
   6. **Matched items without changes** → skipped
   7. **Items matching done tasks** → action `skip`, not re-created
   8. Returns updated counts to frontend
-- **Non-blocking scan banner:** inline bar below header (not fullscreen overlay) with:
-  - Spinner + animated progress steps (9 steps from "Connecting to AI engine..." to "Hang tight — finalizing...")
-  - Elapsed time counter (`⏱ MM:SS`)
-  - Timeout warning at 90 seconds (amber color)
+- **Non-blocking scan banner:** inline bar in header row 2 (replaces idle status) with:
+  - Spinner + phase text + elapsed time counter (`⏱ MM:SS`)
+  - Red "⏹ Stop" button to abort scan safely between tasks
+  - Button label changes per phase: "Scanning..." → "Enriching..." → "Checking updates..."
 - Scan button disabled during scan (text changes to "Scanning...")
 - After completion: notification toast with result summary
-- Scan prompt uses `SCAN_SKILL.md` if available, with fallback to inline prompt
+- Scan prompt uses `SCAN_DISCOVERY_SKILL.md` if available (fallback: `SCAN_SKILL.md`, then inline prompt)
 
 ### 4.2 Task List Display
 
@@ -145,16 +144,19 @@ Each task is displayed as a card with:
 
 ### 4.4 Manual Task Creation
 
-- Input form at the bottom of the page: title (required) + notes (optional)
-- Created with `source: 'manual'`, `status: 'new'`, `from: null`, `date: null`
+- "＋ Add Task" button in header row 3 opens a modal dialog
+- Modal has three fields: Title (required), Assignment (agent instruction, optional), Context (background info, optional)
+- Created with `source: 'manual'`, `status: 'new'`, `from: null`, `date: null`, `enrichmentStatus: 'n/a'`, `updateCheckStatus: 'n/a'`
 - History entry: `{ type: 'created', text: 'Task created manually' }`
+- If Assignment is provided, the agent **automatically starts working** on it after creation — no second step needed
+- Modal closes on ESC, click outside, or Cancel button
 - Add Task button disabled when server is offline
 
 ### 4.5 Task Deletion
 
 - Red ✕ button on each task card
 - `DELETE /api/tasks/:id` removes the task from `tasks.json`
-- If another task has an active agent (`busyTaskIds`), deletion uses minimal DOM update (removes card without full re-render)
+- If another task is frozen (`frozenTasks`), deletion uses minimal DOM update (removes card without full re-render)
 
 ### 4.6 Filter Bar
 
@@ -175,7 +177,7 @@ Each task is displayed as a card with:
 
 Each task card is clickable — clicking the title/meta area toggles an **Interaction Panel** below the card:
 
-- **Conversations:** Chat-like display of all `update` and `note` history entries (chronological order, oldest first)
+- **Conversations:** Chat-like display of all `update`, `note`, and `review-response` history entries (reverse-chronological order, newest first)
 - **Input form:** Text input + 3 buttons:
   - **📤 Send** — sends to AI agent for analysis (`analyzeLog`)
   - **📝 Note** — saves directly as note (no agent interaction)
@@ -186,7 +188,7 @@ Each task card is clickable — clicking the title/meta area toggles an **Intera
 
 **Visual indicators:**
 - **Neon-pink border** (`.has-content`): Task has conversation entries
-- **Green border + pulse animation** (`.agent-busy`): Task has active agent work
+- **Neon-cyan border + glowing badge** (`.frozen`): Task has active agent work (unified freeze mode for all AI operations)
 - **Green background** (`.active-panel`): Panel is currently open
 
 ### 4.9 Intent-Based Agent (3 Intents)
@@ -207,27 +209,30 @@ The agent uses a two-phase approach:
 
 **Phase 2 — Execute** (`POST /api/tasks/:id/log`):
 - Only for `search` intent, triggered by user clicking Execute
-- Uses **Work IQ CLI** (`workiq ask` via stdin) for M365 data access — direct spawn, not wrapped in Copilot SDK
-- Builds a natural language search question from the plan parameters (`buildSearchQuestion()`)
-- Timeout: 90 seconds for `workiq ask`
-- Parses response as JSON, or falls back to Markdown email parser (`parseMarkdownEmails()`)
-- Generates `agentResponse` summary server-side (see 4.13)
-- Falls back to Copilot SDK + MCP if no plan is provided
+- v2.2 primary path: **Copilot SDK + Work IQ MCP + SEARCH_SKILL.md** — goal-oriented 3-attempt search with self-assessment and confidence levels
+- Legacy fallback: Copilot SDK + Work IQ MCP + LOG_WORK_SKILL.md (when no plan or no SEARCH_SKILL.md)
+- Minimal fallback: inline prompt (when no skill files available)
+- Timeout: 300 seconds for Copilot SDK + MCP session
+- Parses response as JSON (SEARCH_SKILL format: `{ answer, confidence, searchAttempts, communications }` or legacy array format)
+- Falls back to Markdown email parser (`parseMarkdownEmails()`) if no JSON parsed
+- Search methods: `copilot-sdk-search-skill` (primary), `copilot-sdk-legacy`, `copilot-sdk-minimal`
 
 **Deterministic fallback:** If AI analysis fails, `extractKeywords()` generates a search plan from the task title (stop-word removal), with default time window from task date to today.
 
 ### 4.10 Auto-Cleanup
 
-- Done tasks older than 3 days (based on `doneAt` timestamp) are hidden from the UI during `renderTasks()`
-- Tasks are NOT deleted from `tasks.json` — only hidden from display
-- Filter badge counts use only visible tasks
+- Done tasks older than a configurable retention period are **permanently deleted** from `tasks.json`
+- Default: 3 days; configurable via slider in header (1–30 days), persisted in `localStorage` as `cleanupDays`
+- Server-side cleanup: `POST /api/cleanup` runs on startup and before each scan
+- Frontend also filters expired done tasks from display (immediate visual feedback when slider changes)
+- Only tasks with status `done` and a `doneAt` timestamp older than retention are deleted
 
 ### 4.11 Server Status Detection
 
 - `checkServerHealth()` with `AbortController` (3-second timeout) on `/api/tasks`
 - **Offline banner** (amber) with startup instructions:
   - Option 1: Double-click `START-DAILY-BRIEFING.bat`
-  - Option 2: Terminal command `cd E:\Work_IQ\Daily_Tasks && node server.js`
+  - Option 2: Terminal command `cd E:\Work_IQ\Agent_Zero && node server.js`
 - **Auto-reconnect polling** every 5 seconds when offline
 - **Reconnect notification:** "✅ Server verbunden" when connection is restored
 - **Status dot** in header (12px circle):
@@ -245,10 +250,17 @@ Each task has a `history[]` array with entries of different types:
 | `created` | Scan or manual creation | No | Initial creation event |
 | `status-change` | Status dropdown change | No | Records old → new status |
 | `scan-update` | Re-scan matching | No | Records field changes from scan |
+| `enriched` | Phase 2 enrichment | No | Enrichment success (duration, keywords, confidence, summary) |
+| `enrich-error` | Phase 2 failure | No | Enrichment failure (error details, duration) |
+| `thread-update` | Phase 3 (update found) | No | New messages detected (search keywords, message count, update text) |
+| `update-check` | Phase 3 (no update) | No | No new activity (search keywords, duration) |
+| `update-check-error` | Phase 3 failure | No | Update check failed (error details) |
+| `summary-update` | Summary change (PATCH, review, or agent) | No | Previous summary preserved in history |
 | `update` | Agent interaction (Send) | Yes | User message + agent response |
 | `note` | Note button | Yes | User-saved note (no agent) |
+| `review-response` | Ambiguity review response | Yes | User's clarification + agent evaluation |
 
-**History deletion:** `DELETE /api/tasks/:id/history/:index` — only `update` and `note` types can be deleted (system entries are protected with HTTP 403). Each conversation entry has a 🗑️ button (low opacity, visible on hover).
+**History deletion:** `DELETE /api/tasks/:id/history/:index` — only `update`, `note`, and `review-response` types can be deleted (system entries are protected with HTTP 403). Each conversation entry has a 🗑️ button (low opacity, visible on hover).
 
 ### 4.13 Agent Response (agentResponse)
 
@@ -256,12 +268,15 @@ The `agentResponse` field is generated **server-side** after search execution co
 
 | Condition | agentResponse Content |
 |---|---|
-| Search error | `❌ Die Suche ist fehlgeschlagen: <error>` |
-| Communications found | `✅ N Kommunikation(en) gefunden:\n\n` + numbered list with icons, senders, dates, summaries |
+| Search error | `❌ Search failed: <error>` |
+| v2.2 SEARCH_SKILL answer found | `<confidence icon> <agent's answer>` + optional ambiguities + optional communications list |
+| Legacy: Communications found | `✅ N communication(s) found:\n\n` + numbered list with icons, senders, dates, summaries |
 | Raw text but no structured data | The raw Work IQ response text (natural language) |
-| No results | `🔍 Keine Ergebnisse gefunden...` with suggestion to retry with different terms |
+| No results | `🔍 No results found...` with suggestion to retry with different terms |
 
-**Frontend display:** For search intents, `renderConversations()` shows `agentResponse` (final result) instead of `understanding` (plan). For summarize/answer intents, `understanding` contains the direct result.
+**Confidence icons:** ✅ (high), ⚠️ (medium), 🔍 (low), ❌ (none)
+
+**Frontend display:** For search intents, `renderConversations()` shows `agentResponse` (final result). When `agentExecution.answer` exists, the answer is rendered as an always-visible block with confidence badge and color-coded border. Communications are shown below as supporting evidence.
 
 ### 4.14 Execution Tracing
 
@@ -269,33 +284,31 @@ Every search execution saves an `agentExecution` object:
 
 ```json
 {
-  "promptSent": "<search question sent to Work IQ>",
-  "rawResponse": "<first 8000 chars of Work IQ response>",
+  "promptSent": "<context string sent to AI>",
+  "rawResponse": "<first 8000 chars of AI response>",
   "parsedCount": 3,
+  "confidence": "high",
+  "answer": "Agent's direct answer to the user's question",
+  "searchAttempts": [{ "attempt": 1, "strategy": "...", "found": "...", "relevant": true }],
+  "ambiguities": [],
   "error": null,
   "durationMs": 45200,
-  "method": "workiq-ask"
+  "method": "copilot-sdk-search-skill"
 }
 ```
 
-**Methods:** `workiq-ask` (direct CLI) or `copilot-sdk-mcp` (fallback via Copilot SDK).
-
-The Details panel renders execution trace in 4 numbered steps:
-1. **1️⃣ Auftrag** — Agent plan (understanding, keywords, time window, targets)
-2. **2️⃣ Gesendet an Work IQ** — The prompt/question sent, with method label
-3. **3️⃣ Antwort von Work IQ** — Raw response (truncated to 800 chars) with duration, or error
-4. **4️⃣ Ergebnis für Benutzer** — Parsed communications list, or natural language fallback
+**Methods:** `copilot-sdk-search-skill` (v2.2 primary), `copilot-sdk-legacy` (fallback with LOG_WORK_SKILL), or `copilot-sdk-minimal` (no skill file).
 
 ### 4.15 Link Open Mode
 
-Header selector with 4 modes (persisted in `localStorage`):
+Header selector with 2 modes (persisted in `localStorage`):
 
 | Mode | Icon | Behavior |
 |---|---|---|
 | `window` | 🪟 | Opens link in new browser window (default) |
 | `tab` | 📑 | Opens link in new tab |
-| `split` | ◧ | Moves Agent Zero to left half, opens link in right half (50/50) |
-| `incognito` | 🕶️ | Attempts private window (falls back to regular window with notification) |
+
+**Migration:** If localStorage contains defunct `split` or `incognito` values from earlier versions, they are auto-reset to `window`.
 
 ### 4.16 Collapsible Conversations
 
@@ -333,8 +346,9 @@ When the user clicks Execute, the plan UI shows live status updates:
 ### 4.19 Concurrency
 
 - **Write queue** (`safeWriteTasks()`): All mutations go through a sequential promise chain to prevent concurrent file writes
-- **Busy task tracking** (`busyTaskIds` Set): When an agent is working on a task:
-  - Card gets green border + pulse animation
+- **Freeze task tracking** (`frozenTasks` Set): When an agent is working on a task:
+  - Card gets neon cyan border + glowing "❄️ Agent working..." badge
+  - All interaction functions (delete, update, panel toggle, analyze) check `frozenTasks` Set and refuse action
   - Status changes on OTHER tasks use inline DOM updates (no full re-render)
   - Task deletion uses minimal DOM removal
 - **Multiple concurrent agents:** Multiple tasks can have active agent work simultaneously
@@ -405,8 +419,8 @@ The scan process is split into 3 sequential phases for faster initial feedback a
 | `notes` | string | Free-text notes |
 | `history` | HistoryEntry[] | Array of history entries |
 | `doneAt` | string \| null | ISO timestamp when status changed to done |
-| `enrichmentStatus` | string | `"pending"`, `"enriching"`, `"enriched"`, or `"error"` |
-| `updateCheckStatus` | string | `"pending"`, `"checking"`, `"checked"`, `"updated"`, or `"error"` |
+| `enrichmentStatus` | string | `"pending"`, `"enriching"`, `"enriched"`, `"needs-review"`, `"error"`, `"n/a"` |
+| `updateCheckStatus` | string | `"pending"`, `"checking"`, `"checked"`, `"updated"`, `"error"`, `"n/a"` |
 | `enrichedAt` | string \| null | ISO timestamp of last enrichment |
 | `lastUpdateCheck` | string \| null | ISO timestamp of last update check |
 | `createdAt` | string | ISO timestamp of creation |
@@ -417,7 +431,7 @@ The scan process is split into 3 sequential phases for faster initial feedback a
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `timestamp` | string | Yes | ISO 8601 timestamp |
-| `type` | string | Yes | `"created"`, `"status-change"`, `"scan-update"`, `"update"`, `"note"` |
+| `type` | string | Yes | `"created"`, `"status-change"`, `"scan-update"`, `"enriched"`, `"enrich-error"`, `"thread-update"`, `"update-check"`, `"update-check-error"`, `"summary-update"`, `"update"`, `"note"`, `"review-response"` |
 | `text` | string | Yes | User message or system description |
 | `communications` | Communication[] | No | Found emails/messages (search results) |
 | `agentPlan` | AgentPlan | No | AI analysis result |
@@ -428,10 +442,12 @@ The scan process is split into 3 sequential phases for faster initial feedback a
 
 | Field | Type | Description |
 |---|---|---|
-| `intent` | string | `"summarize"`, `"search"`, or `"answer"` |
+| `intent` | string | `"summarize"`, `"search"`, `"answer"`, or `"review"` |
 | `understanding` | string | For search: action plan description. For summarize/answer: the result text |
+| `expectedAnswer` | string \| null | What KIND of answer the user needs (v2.2, search only) |
 | `searchFrom` | string \| null | Person name, email domain, or null |
-| `keywords` | string[] | Search terms (only used if searchFrom is null) |
+| `keywords` | string[] | Search terms in user's language (only used if searchFrom is null) |
+| `keywordsEnglish` | string[] | English translations of keywords (v2.2) |
 | `timeWindow` | object | `{ from, to, reasoning }` |
 | `searchTargets` | string | `"inbox"`, `"sent"`, `"teams"`, or `"all"` |
 | `needsClarification` | boolean | Whether agent needs more info |
@@ -443,12 +459,16 @@ The scan process is split into 3 sequential phases for faster initial feedback a
 
 | Field | Type | Description |
 |---|---|---|
-| `promptSent` | string | Search question sent to Work IQ |
-| `rawResponse` | string | Raw Work IQ response (first 8000 chars for workiq-ask, 2000 for SDK) |
+| `promptSent` | string | Context string sent to AI |
+| `rawResponse` | string | Raw AI response (first 8000 chars) |
 | `parsedCount` | number | Number of communications parsed |
+| `confidence` | string \| null | `"high"` / `"medium"` / `"low"` / `"none"` (v2.2) |
+| `answer` | string \| null | Agent's direct answer to user's question (v2.2) |
+| `searchAttempts` | array | `[{ attempt, strategy, found, relevant }]` (v2.2) |
+| `ambiguities` | string[] | Questions for the user (v2.2) |
 | `error` | string \| null | Error message if search failed |
 | `durationMs` | number | Search duration in milliseconds |
-| `method` | string | `"workiq-ask"` or `"copilot-sdk-mcp"` |
+| `method` | string | `"copilot-sdk-search-skill"` (v2.2), `"copilot-sdk-legacy"`, or `"copilot-sdk-minimal"` |
 
 ### 5.6 Communication Object
 
@@ -473,7 +493,7 @@ The scan process is split into 3 sequential phases for faster initial feedback a
 |---|---|---|
 | `GET` | `/api/tasks` | Return all tasks + metadata |
 | `POST` | `/api/tasks` | Create manual task |
-| `PATCH` | `/api/tasks/:id` | Update task (status, notes, title) |
+| `PATCH` | `/api/tasks/:id` | Update task (status, notes, title, summary, enrichmentStatus, updateCheckStatus) |
 | `DELETE` | `/api/tasks/:id` | Delete a task |
 | `DELETE` | `/api/tasks/:id/history/:index` | Delete a history entry |
 | `POST` | `/api/tasks/:id/note` | Save a note (no agent) |
@@ -481,7 +501,9 @@ The scan process is split into 3 sequential phases for faster initial feedback a
 | `POST` | `/api/tasks/:id/enrich` | Phase 2: Content extraction + summary |
 | `POST` | `/api/tasks/:id/check-update` | Phase 3: Thread update check |
 | `POST` | `/api/tasks/:id/log/analyze` | AI intent analysis |
-| `POST` | `/api/tasks/:id/log` | Phase 2: Execute search |
+| `POST` | `/api/tasks/:id/log` | Phase 2: Execute intelligent search |
+| `POST` | `/api/cleanup` | Permanently delete done tasks older than `retentionDays` |
+| `POST` | `/api/tasks/:id/review` | Ambiguity resolution — user responds to review questions |
 
 ### 6.2 GET /api/tasks
 
@@ -495,7 +517,7 @@ The scan process is split into 3 sequential phases for faster initial feedback a
 
 ### 6.4 PATCH /api/tasks/:id
 
-**Request body:** `{ status?, notes?, title? }` (any subset)
+**Request body:** `{ status?, notes?, title?, summary?, enrichmentStatus?, updateCheckStatus? }` (any subset)
 **Valid statuses:** `new`, `needs-attention`, `escalated`, `in-progress`, `done`, `paused`
 **Side effects:**
 - Status change → history entry (`type: 'status-change'`)
@@ -510,8 +532,8 @@ The scan process is split into 3 sequential phases for faster initial feedback a
 
 **Validation:**
 - Index must be a valid non-negative integer
-- Only `update` and `note` types can be deleted
-- System types (`created`, `status-change`, `scan-update`) → HTTP 403
+- Only `update`, `note`, and `review-response` types can be deleted
+- System types (`created`, `status-change`, `scan-update`, `enriched`, `enrich-error`, `thread-update`, `update-check`, `update-check-error`, `summary-update`) → HTTP 403
 **Response:** Updated task object
 
 ### 6.7 POST /api/tasks/:id/note
@@ -541,7 +563,7 @@ The scan process is split into 3 sequential phases for faster initial feedback a
 - Sets `summary`, `enrichmentStatus: "enriched"`, `enrichedAt`
 - On failure: sets `enrichmentStatus: "error"`
 **Response:** `{ success, summary, language, confidence, enrichmentStatus }`
-**Timeout:** 120 seconds
+**Timeout:** 300 seconds
 
 ### 6.8b POST /api/tasks/:id/check-update
 
@@ -551,7 +573,7 @@ The scan process is split into 3 sequential phases for faster initial feedback a
 - If update found: appends "📌 Update:" to summary, sets `updateCheckStatus: "updated"`
 - If no update: sets `updateCheckStatus: "checked"`
 **Response:** `{ success, hasUpdate, updateCheckStatus }`
-**Timeout:** 90 seconds
+**Timeout:** 300 seconds
 
 ### 6.9 POST /api/tasks/:id/log/analyze
 
@@ -564,10 +586,11 @@ The scan process is split into 3 sequential phases for faster initial feedback a
 ### 6.10 POST /api/tasks/:id/log
 
 **Request body:** `{ text: string, plan?: AgentPlan }`
-**With plan:** Uses `workiq ask` CLI (direct stdin, 90s timeout). Builds search question from plan via `buildSearchQuestion()`
-**Without plan:** Falls back to Copilot SDK + Work IQ MCP session (120s timeout)
+**With plan + SEARCH_SKILL:** Uses Copilot SDK + Work IQ MCP + SEARCH_SKILL.md for intelligent goal-oriented search (v2.2 primary path, 300s timeout)
+**With plan, no SEARCH_SKILL:** Falls back to Copilot SDK + Work IQ MCP + LOG_WORK_SKILL.md (legacy path, 300s timeout)
+**Without plan:** Falls back to Copilot SDK + Work IQ MCP session with minimal inline prompt (300s timeout)
 **Side effects:** Adds history entry with `communications[]`, `agentPlan`, `agentResponse`, `agentExecution`
-**Response parsing:** JSON first, then Markdown email parser (`parseMarkdownEmails()`), then raw text
+**Response parsing:** SEARCH_SKILL JSON object first → legacy JSON array → Markdown email parser → raw text
 
 ---
 
@@ -579,6 +602,8 @@ External Markdown files loaded at server startup:
 |---|---|---|
 | `SCAN_DISCOVERY_SKILL.md` | `Documents/SCAN_DISCOVERY_SKILL.md` | Phase 1: Subject-only discovery scan prompt |
 | `ENRICH_SKILL.md` | `Documents/ENRICH_SKILL.md` | Phase 2: Content extraction + summary prompt |
+| `UPDATE_CHECK_SKILL.md` | `Documents/UPDATE_CHECK_SKILL.md` | Phase 3: Thread update check prompt |
+| `SEARCH_SKILL.md` | `Documents/SEARCH_SKILL.md` | Intelligent communication search prompt (v2.2) |
 | `SCAN_SKILL.md` | `Documents/SCAN_SKILL.md` | Legacy scan skill (backup/fallback) |
 | `LOG_WORK_SKILL.md` | `Documents/LOG_WORK_SKILL.md` | Communication search prompt template (fallback path) |
 
@@ -590,8 +615,8 @@ If a skill file is missing, a warning is logged and the server falls back to inl
 
 ```
 Agent_Zero/
-├── index.html                        (~1620 lines, frontend)
-├── server.js                         (~1090 lines, backend)
+├── index.html                        (~2256 lines, frontend)
+├── server.js                         (~1789 lines, backend)
 ├── package.json                      (project metadata + dependencies)
 ├── package-lock.json                 (dependency lock file)
 ├── tasks.json                        (task data, in .gitignore)
@@ -600,11 +625,20 @@ Agent_Zero/
 ├── README.md
 ├── Documents/
 │   ├── ARCHITECTURE.md               (technical architecture document)
-│   ├── SCAN_SKILL.md                 (scan prompt template)
-│   └── LOG_WORK_SKILL.md             (log work prompt template)
+│   ├── CHANGELOG.md                  (version history v1.0 → v2.2)
+│   ├── SCAN_DISCOVERY_SKILL.md       (Phase 1 scan prompt)
+│   ├── ENRICH_SKILL.md               (Phase 2 enrichment prompt)
+│   ├── UPDATE_CHECK_SKILL.md         (Phase 3 update check prompt)
+│   ├── SEARCH_SKILL.md               (intelligent search prompt, v2.2)
+│   ├── SCAN_SKILL.md                 (legacy scan prompt, fallback)
+│   ├── LOG_WORK_SKILL.md             (legacy log work prompt, fallback)
+│   ├── FEATURE_INVENTORY_Claude_Code_Codex_Analyse.md  (code review)
+│   ├── VIDEO_DESCRIPTION.md          (video script foundation)
+│   └── archive/                      (previous doc versions)
 ├── Specifactions/
 │   └── DAILY_BRIEFING_APP_SPEC.md    (this document)
-└── Images/                           (screenshots and diagrams)
+├── Images/                           (screenshots and diagrams)
+└── Security report/                  (security analysis)
 ```
 
 ---
@@ -614,6 +648,7 @@ Agent_Zero/
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `scanDays` | string (number) | `"4"` | Selected scan range (1–14) |
-| `linkMode` | string | `"window"` | Link open mode (window/tab/split/incognito) |
+| `cleanupDays` | string (number) | `"3"` | Done task retention in days (1–30) |
+| `linkMode` | string | `"window"` | Link open mode (window/tab; defunct split/incognito auto-migrated to window) |
 | `openPanels` | JSON array | `[]` | Task IDs with open interaction panels |
 | `collapsedEntries` | JSON array | `[]` | Collapse IDs for long conversation entries |
