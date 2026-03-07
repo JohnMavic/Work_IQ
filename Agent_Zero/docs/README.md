@@ -33,6 +33,30 @@ The core challenge: **email is designed for reading, not for acting.** There is 
 
 ---
 
+## Project Structure
+
+Agent Zero is a lightweight two-file application (`server.js` + `index.html`) — intentionally kept minimal to reduce complexity and make the codebase easy to audit. Rather than introducing a `/src` or `/app` directory for just two files, the application code lives directly in the project root alongside its configuration:
+
+```
+Agent_Zero/
+├── server.js              # Express backend — API, Copilot SDK, scan orchestration
+├── index.html             # Single-page frontend — dark-themed task dashboard
+├── package.json           # Dependencies (@github/copilot-sdk, express, @microsoft/workiq)
+├── AGENTS.md              # Custom agent instructions (4 agent roles)
+├── mcp.json               # MCP server configuration for Work IQ
+├── START-AGENT-ZERO.bat   # Windows launcher (auto-starts server + browser)
+├── docs/                  # Documentation, skill files, architecture
+│   ├── README.md          # This file — solution documentation
+│   ├── ARCHITECTURE.md    # Detailed technical architecture
+│   ├── CHANGELOG.md       # Version history (v1.0 → v2.2)
+│   └── *.md               # 6 skill files (scan, enrich, search, etc.)
+├── Specifactions/         # Product specification
+├── Images/                # Branding images
+└── presentations/         # Demo deck (PowerPoint)
+```
+
+---
+
 ## Architecture
 
 ```
@@ -83,7 +107,7 @@ The core challenge: **email is designed for reading, not for acting.** There is 
 ```bash
 # Clone the repository
 git clone https://github.com/JohnMavic/Work_IQ.git
-cd Agent_Zero
+cd Work_IQ/Agent_Zero
 
 # Install dependencies
 npm install
