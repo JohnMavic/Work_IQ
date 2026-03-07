@@ -2193,6 +2193,19 @@
   // --- Init ---
   checkServerHealth();
 
+  // Auto-trigger scan when opened with ?autoScan=true (used by scheduled task)
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('autoScan') === 'true') {
+    // Remove param from URL so refresh doesn't re-trigger
+    window.history.replaceState({}, '', window.location.pathname);
+    // Wait for server health check to complete, then trigger scan
+    setTimeout(() => {
+      if (document.getElementById('btnScan') && !document.getElementById('btnScan').disabled) {
+        triggerScan();
+      }
+    }, 3000);
+  }
+
   // Close modal on ESC or click outside
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') hideAddTaskModal();
