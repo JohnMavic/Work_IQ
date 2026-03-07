@@ -231,7 +231,7 @@ The agent uses a two-phase approach:
 
 - `checkServerHealth()` with `AbortController` (3-second timeout) on `/api/tasks`
 - **Offline banner** (amber) with startup instructions:
-  - Option 1: Double-click `START-DAILY-BRIEFING.bat`
+  - Option 1: Double-click `START-AGENT-ZERO.bat`
   - Option 2: Terminal command `cd E:\Work_IQ\Agent_Zero && node server.js`
 - **Auto-reconnect polling** every 5 seconds when offline
 - **Reconnect notification:** "✅ Server verbunden" when connection is restored
@@ -600,12 +600,12 @@ External Markdown files loaded at server startup:
 
 | File | Path | Purpose |
 |---|---|---|
-| `SCAN_DISCOVERY_SKILL.md` | `Documents/SCAN_DISCOVERY_SKILL.md` | Phase 1: Subject-only discovery scan prompt |
-| `ENRICH_SKILL.md` | `Documents/ENRICH_SKILL.md` | Phase 2: Content extraction + summary prompt |
-| `UPDATE_CHECK_SKILL.md` | `Documents/UPDATE_CHECK_SKILL.md` | Phase 3: Thread update check prompt |
-| `SEARCH_SKILL.md` | `Documents/SEARCH_SKILL.md` | Intelligent communication search prompt (v2.2) |
-| `SCAN_SKILL.md` | `Documents/SCAN_SKILL.md` | Legacy scan skill (backup/fallback) |
-| `LOG_WORK_SKILL.md` | `Documents/LOG_WORK_SKILL.md` | Communication search prompt template (fallback path) |
+| `SCAN_DISCOVERY_SKILL.md` | `docs/SCAN_DISCOVERY_SKILL.md` | Phase 1: Subject-only discovery scan prompt |
+| `ENRICH_SKILL.md` | `docs/ENRICH_SKILL.md` | Phase 2: Content extraction + summary prompt |
+| `UPDATE_CHECK_SKILL.md` | `docs/UPDATE_CHECK_SKILL.md` | Phase 3: Thread update check prompt |
+| `SEARCH_SKILL.md` | `docs/SEARCH_SKILL.md` | Intelligent communication search prompt (v2.2) |
+| `SCAN_SKILL.md` | `docs/SCAN_SKILL.md` | Legacy scan skill (backup/fallback) |
+| `LOG_WORK_SKILL.md` | `docs/LOG_WORK_SKILL.md` | Communication search prompt template (fallback path) |
 
 If a skill file is missing, a warning is logged and the server falls back to inline prompts.
 
@@ -621,9 +621,9 @@ Agent_Zero/
 ├── package-lock.json                 (dependency lock file)
 ├── tasks.json                        (task data, in .gitignore)
 ├── .gitignore
-├── START-DAILY-BRIEFING.bat          (launcher: port check, start server, open browser)
+├── START-AGENT-ZERO.bat                  (launcher: port check, start server, open browser)
 ├── README.md
-├── Documents/
+├── docs/
 │   ├── ARCHITECTURE.md               (technical architecture document)
 │   ├── CHANGELOG.md                  (version history v1.0 → v2.2)
 │   ├── SCAN_DISCOVERY_SKILL.md       (Phase 1 scan prompt)
@@ -636,7 +636,7 @@ Agent_Zero/
 │   ├── VIDEO_DESCRIPTION.md          (video script foundation)
 │   └── archive/                      (previous doc versions)
 ├── Specifactions/
-│   └── DAILY_BRIEFING_APP_SPEC.md    (this document)
+│   └── AGENT_ZERO_SPEC.md           (this document)
 ├── Images/                           (screenshots and diagrams)
 └── Security report/                  (security analysis)
 ```

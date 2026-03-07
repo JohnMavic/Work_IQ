@@ -15,13 +15,13 @@ const TASKS_FILE = path.join(__dirname, 'tasks.json');
 
 // --- Load Skill Files (v1.3) ---
 
-const SCAN_SKILL_PATH = path.join(__dirname, 'Documents', 'SCAN_SKILL.md');
-const LOG_WORK_SKILL_PATH = path.join(__dirname, 'Documents', 'LOG_WORK_SKILL.md');
+const SCAN_SKILL_PATH = path.join(__dirname, 'docs', 'SCAN_SKILL.md');
+const LOG_WORK_SKILL_PATH = path.join(__dirname, 'docs', 'LOG_WORK_SKILL.md');
 
-const SCAN_DISCOVERY_SKILL_PATH = path.join(__dirname, 'Documents', 'SCAN_DISCOVERY_SKILL.md');
-const ENRICH_SKILL_PATH = path.join(__dirname, 'Documents', 'ENRICH_SKILL.md');
-const UPDATE_CHECK_SKILL_PATH = path.join(__dirname, 'Documents', 'UPDATE_CHECK_SKILL.md');
-const SEARCH_SKILL_PATH = path.join(__dirname, 'Documents', 'SEARCH_SKILL.md');
+const SCAN_DISCOVERY_SKILL_PATH = path.join(__dirname, 'docs', 'SCAN_DISCOVERY_SKILL.md');
+const ENRICH_SKILL_PATH = path.join(__dirname, 'docs', 'ENRICH_SKILL.md');
+const UPDATE_CHECK_SKILL_PATH = path.join(__dirname, 'docs', 'UPDATE_CHECK_SKILL.md');
+const SEARCH_SKILL_PATH = path.join(__dirname, 'docs', 'SEARCH_SKILL.md');
 
 let SCAN_SKILL = '';
 let LOG_WORK_SKILL = '';

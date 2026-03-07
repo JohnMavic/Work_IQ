@@ -1,5 +1,5 @@
 @echo off
-title Daily Briefing Launcher
+title Agent Zero Launcher
 cd /d "%~dp0"
 
 REM Check if server already running on port 3000
@@ -11,8 +11,8 @@ if %errorlevel%==0 (
 )
 
 REM Start server in a separate minimized window
-echo Starting Daily Briefing server...
-start "Daily Briefing Server" /MIN node server.js
+echo Starting Agent Zero server...
+start "Agent Zero Server" /MIN node server.js
 
 REM Wait for server to be ready (max 15 seconds)
 set /a attempts=0

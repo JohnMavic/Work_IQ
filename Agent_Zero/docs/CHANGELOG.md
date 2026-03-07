@@ -189,13 +189,13 @@ The scan system was rebuilt from a monolithic single-pass scan into a three-phas
 - Auto-reconnect polling every 5s
 - Status dot in header (12px, green/red) with architecture tooltip
 - Scan/Add buttons disabled when offline
-- `START-DAILY-BRIEFING.bat` — port check, minimized server window, auto-browser
+- `START-AGENT-ZERO.bat` — port check, minimized server window, auto-browser
 
 ---
 
 ## v1.0 — February 23, 2026
 
-**Initial Release (Daily Briefing)**
+**Initial Release (originally "Daily Briefing")**
 
 - Express server with REST API (GET/POST/PATCH/DELETE)
 - `tasks.json` local file storage

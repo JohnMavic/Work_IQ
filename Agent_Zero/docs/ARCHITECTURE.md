@@ -465,10 +465,10 @@ Agent_Zero/
 ├── index.html             Single-file frontend (HTML + CSS + JS)
 ├── package.json           Dependencies and project metadata
 ├── tasks.json             Local task storage (gitignored)
-├── START-DAILY-BRIEFING.bat  Auto-launcher (port check + server + browser)
+├── START-AGENT-ZERO.bat         Auto-launcher (port check + server + browser)
 ├── .gitignore             Excludes tasks.json and node_modules
 ├── README.md              Quick-start guide
-├── Documents/
+├── docs/
 │   ├── ARCHITECTURE.md        This file
 │   ├── CHANGELOG.md           Version history
 │   ├── SCAN_DISCOVERY_SKILL.md  Phase 1 skill instructions
@@ -481,7 +481,7 @@ Agent_Zero/
 │   ├── VIDEO_DESCRIPTION.md    Video script foundation
 │   └── archive/               Previous document versions
 ├── Specifactions/
-│   └── DAILY_BRIEFING_APP_SPEC.md  Product specification
+│   └── AGENT_ZERO_SPEC.md         Product specification
 ├── Images/                Screenshots and diagrams
 ├── Security report/       Security analysis
 └── node_modules/              (gitignored)

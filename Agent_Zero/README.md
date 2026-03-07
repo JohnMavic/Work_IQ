@@ -6,7 +6,7 @@ Scans your emails and Teams messages, extracts content summaries, and monitors t
 
 ## Quick Start
 
-**Double-click** `START-DAILY-BRIEFING.bat` — starts the server and opens the browser.
+**Double-click** `START-AGENT-ZERO.bat` — starts the server and opens the browser.
 
 **Or manually:**
 ```powershell
@@ -80,9 +80,10 @@ Agent_Zero/
 ├── index.html                   Single-file frontend (HTML + CSS + JS)
 ├── package.json                 Dependencies (v2.2.0)
 ├── tasks.json                   Local task storage (gitignored)
-├── START-DAILY-BRIEFING.bat     Auto-launcher
+├── START-AGENT-ZERO.bat         Auto-launcher
 ├── README.md                    This file
-├── Documents/
+├── docs/
+│   ├── README.md                Challenge documentation (problem, solution, RAI)
 │   ├── ARCHITECTURE.md          System architecture (current state)
 │   ├── CHANGELOG.md             Version history (v1.0 → v2.2)
 │   ├── SCAN_DISCOVERY_SKILL.md  Phase 1 prompt template
@@ -92,12 +93,11 @@ Agent_Zero/
 │   ├── SCAN_SKILL.md            Legacy scan skill (fallback)
 │   ├── LOG_WORK_SKILL.md        Legacy work logging prompt (fallback)
 │   ├── FEATURE_INVENTORY_Claude_Code_Codex_Analyse.md  Code review results
-│   ├── VIDEO_DESCRIPTION.md     Video script foundation
-│   └── archive/                 Previous doc versions
+│   └── VIDEO_DESCRIPTION.md     Video script foundation
 ├── Specifactions/
-│   └── DAILY_BRIEFING_APP_SPEC.md  Product specification
+│   └── AGENT_ZERO_SPEC.md         Product specification
 ├── Images/                      Screenshots and diagrams
 └── Security report/             Security analysis
 ```
 
-For detailed architecture, see [Documents/ARCHITECTURE.md](Documents/ARCHITECTURE.md).
+For detailed architecture, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
