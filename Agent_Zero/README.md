@@ -2,6 +2,8 @@
 
 > Version 2.2.0 · A personal AI-powered action-item tracker for Microsoft 365
 
+**Author:** Martin Hämmerli · [martih@microsoft.com](mailto:martih@microsoft.com)
+
 Scans your emails and Teams messages, extracts content summaries, and monitors threads for updates — all locally, all AI-driven.
 
 ## Quick Start
