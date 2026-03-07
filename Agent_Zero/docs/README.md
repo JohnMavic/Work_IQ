@@ -149,11 +149,12 @@ Agent Zero runs **locally** by design. All data stays on the user's machine — 
 
 ## Responsible AI (RAI) Notes
 
-### Data Privacy
+### Data Privacy & Retention
 - All task data is stored locally in `tasks.json` — never uploaded to external services
 - Work IQ accesses only the authenticated user's own M365 data via Microsoft Search API
 - No data is shared with third parties beyond the Copilot SDK and Work IQ
 - `tasks.json` is gitignored to prevent accidental exposure of personal data
+- **Automatic data cleanup:** Completed tasks are automatically deleted from the local machine after a configurable retention period (default: 3 days). This ensures personal communication data does not accumulate indefinitely and minimizes the data footprint on the user's device
 
 ### Transparency & Explainability
 - Every agent action is logged in the task history with timestamps, search keywords, and duration
