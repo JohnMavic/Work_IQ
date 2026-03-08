@@ -1784,6 +1784,6 @@ migrateToV3();
 // Startup cleanup: delete done tasks older than default retention (3 days)
 cleanupDoneTasks(3);
 
-app.listen(PORT, () => {
+app.listen(PORT, 'localhost', () => {
   console.log(`Agent Zero running at http://localhost:${PORT}`);
 });
