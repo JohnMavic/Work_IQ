@@ -208,7 +208,52 @@
     .task-card.active-panel .task-summary {
       max-height: none;
     }
-    .task-summary .summary-icon { margin-right: 4px; }
+    .task-summary .summary-icon { margin-right: 4px; vertical-align: top; flex-shrink: 0; }
+    .task-summary { display: flex; align-items: flex-start; }
+    .task-summary .summary-text { flex: 1; min-width: 0; overflow-wrap: break-word; }
+    .task-summary.expanded { max-height: 600px; overflow-y: auto; }
+
+    /* Markdown elements inside summaries */
+    .task-summary h1, .task-summary h2, .task-summary h3, .task-summary h4 {
+      margin: 0.6em 0 0.3em 0; line-height: 1.3; color: #e2e8f0;
+    }
+    .task-summary h1 { font-size: 1.15em; border-bottom: 1px solid rgba(148,163,184,0.2); padding-bottom: 4px; }
+    .task-summary h2 { font-size: 1.05em; }
+    .task-summary h3 { font-size: 0.95em; color: #94a3b8; }
+    .task-summary h4 { font-size: 0.9em; color: #94a3b8; font-style: italic; }
+    .task-summary p { margin: 0.4em 0; }
+    .task-summary strong { color: #f1f5f9; }
+    .task-summary em { color: #94a3b8; }
+    .task-summary ul, .task-summary ol {
+      margin: 0.4em 0; padding-left: 1.4em;
+    }
+    .task-summary li { margin: 0.15em 0; }
+    .task-summary a {
+      color: #60a5fa; text-decoration: none; border-bottom: 1px dotted rgba(96,165,250,0.4);
+    }
+    .task-summary a:hover { text-decoration: underline; color: #93bbfc; }
+    .task-summary table {
+      width: 100%; border-collapse: collapse; margin: 0.5em 0; font-size: 0.95em;
+    }
+    .task-summary th {
+      background: rgba(51, 65, 85, 0.6); color: #e2e8f0; text-align: left;
+      padding: 5px 8px; border: 1px solid rgba(148,163,184,0.2); font-weight: 600;
+    }
+    .task-summary td {
+      padding: 4px 8px; border: 1px solid rgba(148,163,184,0.15); color: #cbd5e1;
+    }
+    .task-summary tr:nth-child(even) td { background: rgba(30,41,59,0.4); }
+    .task-summary code {
+      background: rgba(51,65,85,0.5); padding: 1px 5px; border-radius: 3px;
+      font-size: 0.9em; color: #fbbf24;
+    }
+    .task-summary blockquote {
+      border-left: 3px solid #f59e0b; margin: 0.5em 0; padding: 4px 10px;
+      color: #94a3b8; background: rgba(245,158,11,0.05); border-radius: 0 4px 4px 0;
+    }
+    .task-summary hr {
+      border: none; border-top: 1px solid rgba(148,163,184,0.2); margin: 0.6em 0;
+    }
 
     /* --- Ambiguity Review Panel --- */
     .ambiguity-panel {
@@ -1359,7 +1404,7 @@
         : '';
       const notesHtml = task.notes ? `<div class="task-notes">${escHtml(task.notes)}</div>` : '';
       const summaryHtml = task.summary
-        ? `<div class="task-summary" onclick="event.stopPropagation(); this.classList.toggle('expanded')"><span class="summary-icon">📋</span><span class="summary-text">${escHtml(task.summary)}</span></div>`
+        ? `<div class="task-summary" onclick="if(event.target.tagName==='A')return; event.stopPropagation(); this.classList.toggle('expanded')"><span class="summary-icon">📋</span><div class="summary-text">${renderMarkdown(task.summary)}</div></div>`
         : '';
 
       // Ambiguity: slim indicator for task-main, full panel for chat area
@@ -2153,32 +2198,104 @@
     }
   }
 
-  // Lightweight Markdown → HTML renderer for agent responses
+  // Lightweight Markdown → HTML renderer for agent responses and summaries
   function renderMarkdown(text) {
     if (!text) return '';
     let html = escHtml(text);
-    // Headers: ## and ###
+
+    // --- Block-level elements (order matters) ---
+
+    // Horizontal rules: --- or *** or ___ (standalone line)
+    html = html.replace(/^([-*_]){3,}\s*$/gm, '<hr>');
+
+    // Headers: # through #### (process most specific first)
+    html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
     html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
     html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+    // Tables: detect | col | col | patterns
+    html = html.replace(/((?:^\|.+\|[ \t]*$\n?)+)/gm, function(tableBlock) {
+      const rows = tableBlock.trim().split('\n').filter(r => r.trim());
+      if (rows.length < 2) return tableBlock;
+      // Check for separator row (|---|---|)
+      const sepIdx = rows.findIndex(r => /^\|[\s:]*[-]+/.test(r) && !/[^|\s:\-]/.test(r.replace(/\|/g, '').replace(/[\s:\-]/g, '')));
+      let headerRows, bodyRows;
+      if (sepIdx >= 0) {
+        headerRows = rows.slice(0, sepIdx);
+        bodyRows = rows.slice(sepIdx + 1);
+      } else {
+        headerRows = [];
+        bodyRows = rows;
+      }
+      const parseRow = (row, tag) => {
+        const cells = row.replace(/^\|/, '').replace(/\|$/, '').split('|');
+        return '<tr>' + cells.map(c => `<${tag}>${c.trim()}</${tag}>`).join('') + '</tr>';
+      };
+      let table = '<table>';
+      if (headerRows.length) {
+        table += '<thead>' + headerRows.map(r => parseRow(r, 'th')).join('') + '</thead>';
+      }
+      if (bodyRows.length) {
+        table += '<tbody>' + bodyRows.map(r => parseRow(r, 'td')).join('') + '</tbody>';
+      }
+      table += '</table>';
+      return table;
+    });
+
+    // Blockquotes: > text
+    html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+    // Merge consecutive blockquotes
+    html = html.replace(/<\/blockquote>\n<blockquote>/g, '<br>');
+
+    // --- Inline elements ---
+
     // Bold: **text**
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     // Italic: *text* (but not inside bold)
     html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
     // Inline code: `text`
     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    // URLs: make bare URLs and markdown links clickable (open in new tab)
+    // Markdown-style links: [text](url)
+    html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    // Bare URLs not already inside an href
+    html = html.replace(/(?<!href="|">)(https?:\/\/[^\s<)"]+)/g,
+      '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+
+    // --- List processing ---
+
+    // Ordered lists: 1. item, 2. item (number followed by dot and space)
+    html = html.replace(/^\d+\. (.+)$/gm, '<oli>$1</oli>');
+    html = html.replace(/((?:<oli>.*<\/oli>\n?)+)/g, function(match) {
+      return '<ol>' + match.replace(/<oli>/g, '<li>').replace(/<\/oli>/g, '</li>') + '</ol>';
+    });
+
     // Unordered lists: - item (with emoji support)
-    html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
-    html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
-    // Paragraphs: double newline
+    html = html.replace(/^- (.+)$/gm, '<uli>$1</uli>');
+    html = html.replace(/((?:<uli>.*<\/uli>\n?)+)/g, function(match) {
+      return '<ul>' + match.replace(/<uli>/g, '<li>').replace(/<\/uli>/g, '</li>') + '</ul>';
+    });
+
+    // --- Paragraph handling ---
+
+    // Double newlines → paragraph breaks
     html = html.replace(/\n\n/g, '</p><p>');
-    // Single newlines within paragraphs → <br>
+    // Single newlines → <br>
     html = html.replace(/\n/g, '<br>');
-    // Wrap in paragraph if not starting with block element
-    if (!html.startsWith('<h') && !html.startsWith('<ul') && !html.startsWith('<p>')) {
+    // Remove <br> between block-level elements (clean transitions)
+    html = html.replace(/<br>(<(h[1-4]|ul|ol|table|blockquote|hr))/g, '$1');
+    html = html.replace(/(<\/(h[1-4]|ul|ol|table|blockquote)>)<br>/g, '$1');
+
+    // Wrap in paragraph if not starting with a block element
+    if (!/^<(h[1-4]|ul|ol|table|blockquote|hr|p)/.test(html)) {
       html = '<p>' + html + '</p>';
     }
     // Clean up empty paragraphs
     html = html.replace(/<p>\s*<\/p>/g, '');
+
     return html;
   }
 
