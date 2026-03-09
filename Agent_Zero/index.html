@@ -105,6 +105,7 @@
     .btn:hover { opacity: 0.85; }
     .btn-primary { background: #3b82f6; color: #fff; }
     .btn-scan { background: #6366f1; color: #fff; font-size: 0.9rem; padding: 4px 20px; min-width: 180px; height: 38px; line-height: 1.1; }
+    .btn-sub { font-size: 0.7em; opacity: 0.75; font-weight: 400; }
     .btn-abort { background: #dc2626; color: #fff; font-size: 0.75rem; padding: 4px 10px; margin-left: auto; }
     .btn-danger { background: #ef4444; color: #fff; padding: 4px 10px; font-size: 0.75rem; }
     .btn-sm { padding: 4px 10px; font-size: 0.75rem; }
@@ -858,10 +859,10 @@
     <!-- Row 3: Actions -->
     <div class="header-row-3">
       <div style="display:flex;gap:10px;align-items:center">
-        <button class="btn btn-scan" id="btnScan" onclick="triggerScan()">Generate Action Items<br><span style="font-size:0.7em;opacity:0.75;font-weight:400">Scan Outlook &amp; Teams</span></button>
-        <button class="btn btn-add-task" id="btnAddTask" onclick="showAddTaskModal()">＋ Add Task</button>
+        <button class="btn btn-scan" id="btnScan" onclick="triggerScan()">Generate Action Items<br><span class="btn-sub">Scan Outlook &amp; Teams</span></button>
+        <button class="btn btn-add-task" id="btnAddTask" onclick="showAddTaskModal()">＋ Add Task<br><span class="btn-sub">&nbsp;</span></button>
         <div class="task-search-wrapper" id="searchWrapper">
-          <button class="btn btn-search-tasks" onclick="toggleTaskSearch()">🔍 Search</button>
+          <button class="btn btn-search-tasks" onclick="toggleTaskSearch()">🔍 Search<br><span class="btn-sub">&nbsp;</span></button>
           <input type="text" class="task-search-input" id="taskSearchInput" placeholder="Search tasks by keyword..." oninput="onTaskSearch(this.value)" onkeydown="onSearchKeydown(event)">
           <div class="task-search-results" id="taskSearchResults"></div>
         </div>
@@ -1203,7 +1204,7 @@
     const abortBtn = document.getElementById('btnAbort');
 
     btn.disabled = true;
-    btn.innerHTML = 'Scanning...<br><span style="font-size:0.7em;opacity:0.75;font-weight:400">Scan Outlook &amp; Teams</span>';
+    btn.innerHTML = 'Scanning...<br><span class="btn-sub">Scan Outlook &amp; Teams</span>';
     overlay.classList.add('visible');
 
     const days = document.getElementById('scanDays').value || '4';
@@ -1397,7 +1398,7 @@
       overlay.classList.remove('visible');
       loadingText.className = 'loading-text';
       btn.disabled = !serverOnline;
-      btn.innerHTML = 'Generate Action Items<br><span style="font-size:0.7em;opacity:0.75;font-weight:400">Scan Outlook &amp; Teams</span>';
+      btn.innerHTML = 'Generate Action Items<br><span class="btn-sub">Scan Outlook &amp; Teams</span>';
       scanAborted = false;
       if (abortBtn) { abortBtn.disabled = false; abortBtn.textContent = '⏹ Stop'; }
     }
