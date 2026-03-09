@@ -1029,6 +1029,17 @@
       setServerStatus(true);
       renderTasks();
 
+      // Detect tasks stuck in processing (e.g. after browser refresh mid-scan)
+      const stuckCount = tasks.filter(t =>
+        t.enrichmentStatus === 'enriching' || t.updateCheckStatus === 'checking'
+      ).length;
+      if (stuckCount > 0) {
+        showNotification(
+          `⚠️ ${stuckCount} task(s) were interrupted during processing. They will be automatically re-processed on the next scan.`,
+          'error'
+        );
+      }
+
       // Re-open all panels that were open before re-render
       for (const taskId of openPanelTaskIds) {
         const panel = document.getElementById('panel-' + taskId);
