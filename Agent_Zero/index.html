@@ -331,24 +331,56 @@
     /* --- Frozen Task Card --- */
     .task-card.frozen {
       border-color: #00d4ff !important;
+      border-width: 2px !important;
       background: linear-gradient(135deg, #0a1a38 0%, #0d2850 100%) !important;
-      box-shadow: 0 0 18px rgba(0, 212, 255, 0.3);
+      box-shadow: 0 0 24px rgba(0, 212, 255, 0.35), inset 0 0 30px rgba(0, 212, 255, 0.06);
+      animation: frozenBorderGlow 2.5s ease-in-out infinite;
+      position: relative;
+      overflow: hidden;
     }
-    .task-card.frozen .task-actions { pointer-events: none; opacity: 0.4; }
-    .task-card.frozen .task-main { pointer-events: none; }
+    .task-card.frozen::before {
+      content: '';
+      position: absolute;
+      top: 0; left: -100%; width: 60%; height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(0, 212, 255, 0.07), transparent);
+      animation: frozenShimmer 3s ease-in-out infinite;
+      pointer-events: none;
+      z-index: 1;
+    }
+    .task-card.frozen .task-actions { pointer-events: none; opacity: 0.35; }
+    .task-card.frozen .task-main { pointer-events: none; opacity: 0.7; }
+    .task-card.frozen .task-panel { pointer-events: none; opacity: 0.5; }
+    .task-card.frozen .task-panel input,
+    .task-card.frozen .task-panel textarea,
+    .task-card.frozen .task-panel select,
+    .task-card.frozen .task-panel button { cursor: not-allowed; }
     .frozen-badge {
       display: none;
-      font-size: 0.75rem;
-      font-weight: 600;
+      font-size: 0.82rem;
+      font-weight: 700;
       color: #00e5ff;
       white-space: nowrap;
-      text-shadow: 0 0 8px rgba(0, 229, 255, 0.6);
-      animation: frozenPulse 2s ease-in-out infinite;
+      text-shadow: 0 0 10px rgba(0, 229, 255, 0.7);
+      animation: frozenPulse 1.8s ease-in-out infinite;
+      letter-spacing: 0.03em;
+      padding: 2px 8px;
+      background: rgba(0, 212, 255, 0.1);
+      border-radius: 4px;
+      border: 1px solid rgba(0, 212, 255, 0.25);
     }
-    .task-card.frozen .frozen-badge { display: inline; }
+    .task-card.frozen .frozen-badge { display: inline-flex; align-items: center; gap: 4px; }
     @keyframes frozenPulse {
-      0%, 100% { opacity: 0.7; text-shadow: 0 0 8px rgba(0, 229, 255, 0.4); }
-      50% { opacity: 1; text-shadow: 0 0 14px rgba(0, 229, 255, 0.8); }
+      0%, 100% { opacity: 0.7; text-shadow: 0 0 8px rgba(0, 229, 255, 0.5); }
+      50% { opacity: 1; text-shadow: 0 0 18px rgba(0, 229, 255, 1); }
+    }
+    @keyframes frozenBorderGlow {
+      0%, 100% { box-shadow: 0 0 20px rgba(0, 212, 255, 0.3), inset 0 0 30px rgba(0, 212, 255, 0.05); }
+      50% { box-shadow: 0 0 35px rgba(0, 212, 255, 0.5), inset 0 0 40px rgba(0, 212, 255, 0.08); }
+    }
+    @keyframes frozenShimmer {
+      0% { left: -100%; }
+      50% { left: 200%; }
+      100% { left: 200%; }
     }
 
     /* --- Timestamp Row --- */
@@ -2157,13 +2189,23 @@
   function freezeTask(taskId) {
     frozenTasks.add(taskId);
     const card = document.getElementById('card-' + taskId);
-    if (card) card.classList.add('frozen');
+    if (card) {
+      card.classList.add('frozen');
+      card.querySelectorAll('.task-panel input, .task-panel textarea, .task-panel select, .task-panel button').forEach(el => {
+        el.disabled = true;
+      });
+    }
   }
 
   function unfreezeTask(taskId) {
     frozenTasks.delete(taskId);
     const card = document.getElementById('card-' + taskId);
-    if (card) card.classList.remove('frozen');
+    if (card) {
+      card.classList.remove('frozen');
+      card.querySelectorAll('.task-panel input, .task-panel textarea, .task-panel select, .task-panel button').forEach(el => {
+        el.disabled = false;
+      });
+    }
   }
 
   // Refresh a single task card from server without full page re-render
