@@ -1980,13 +1980,19 @@
 
       const intent = data.intent || 'search';
 
-      // --- Intent: summarize or answer → result is immediate, already saved ---
-      if ((intent === 'summarize' || intent === 'answer') && data.result) {
-        const icon = intent === 'summarize' ? '📋' : '💬';
-        planEl.innerHTML = `<div class="agent-msg-bot">${icon} ${renderMarkdown(data.result)}</div>`;
+      // --- Intent: summarize, answer, or rename → result is immediate, already saved ---
+      if ((intent === 'summarize' || intent === 'answer' || intent === 'rename') && data.result) {
+        const icons = { summarize: '📋', answer: '💬', rename: '📝' };
+        const icon = icons[intent] || '💬';
+        let displayText = data.result;
+        if (intent === 'rename' && data.previousTitle) {
+          displayText = `Title changed:\n"${data.previousTitle}" → "${data.result}"`;
+        }
+        planEl.innerHTML = `<div class="agent-msg-bot">${icon} ${renderMarkdown(displayText)}</div>`;
         planEl.classList.add('visible');
         input.value = '';
-        showNotification(intent === 'summarize' ? '✏️ Summary updated' : '💬 Answer saved', 'success');
+        const notifications = { summarize: '✏️ Summary updated', answer: '💬 Answer saved', rename: '📝 Title updated' };
+        showNotification(notifications[intent], 'success');
         // Re-render to show in conversation history
         await fetchTasks();
         // Hide plan after re-render (it's now in conversation)

@@ -1139,6 +1139,7 @@ STEP 1: Determine the INTENT. Choose exactly one:
 - "summarize" — user provided text/content and wants you to summarize or extract key points, OR user wants to correct/update/replace the existing task summary. The result becomes the new main task summary.
 - "search" — user wants you to FIND emails, Teams messages, or communications. Requires Work IQ search.
 - "answer" — user asks a question that you can answer from the task context, the provided text, or general knowledge. No search needed.
+- "rename" — user wants to CHANGE the task title. They may suggest a new title directly, or ask you to propose one based on the current context and conversation. Return the new title as result.
 
 STEP 2: Return JSON based on intent.
 
@@ -1152,6 +1153,12 @@ If intent is "answer":
 {
   "intent": "answer",
   "result": "Your direct answer to the user's question, based on task context and conversation history. Write in the same language as the user's message."
+}
+
+If intent is "rename":
+{
+  "intent": "rename",
+  "result": "The new task title — concise, clear, and reflecting the current state. Write in the same language as the user's message."
 }
 
 If intent is "search":
@@ -1182,6 +1189,8 @@ RULES:
 - For "search" intent: If the user writes in German but the emails are likely in English, provide keywordsEnglish with translated search terms (e.g. "Bestandsaufnahme" → "survey", "Konferenzraum" → "conference room", "MPR").
 - For "search" intent: keywords should contain the user's original language terms. keywordsEnglish should contain English equivalents.
 - For "summarize"/"answer": provide the result IMMEDIATELY — the user should not need to click Execute.
+- For "rename": provide the new title IMMEDIATELY. The title should be short (max ~15 words), factual, and reflect the current state of the action item. If the user explicitly provides a new title, use it. If they ask you to suggest one, derive it from the task context and conversation.
+- If the user says "ändere den Titel", "rename this", "passe den Titel an", "der Titel stimmt nicht", "update the title" → intent is "rename"
 - Write in the same language as the user's message (German → German, English → English)
 - If the search intent is unclear → set needsClarification to true
 
@@ -1235,6 +1244,38 @@ Return ONLY the JSON object. No markdown, no explanation.`;
             return t;
           });
           return res.json({ intent: result.intent, result: result.result, task: savedTask });
+        }
+
+        // For rename: update title immediately and log the change
+        if (result.intent === 'rename' && result.result) {
+          const newTitle = String(result.result).trim();
+          const savedTask = await safeWriteTasks((data) => {
+            const t = data.tasks.find(t => t.id === id);
+            if (!t) return null;
+            const now = new Date().toISOString();
+            if (!t.history) t.history = [];
+
+            const previousTitle = t.title;
+            t.title = newTitle;
+            t.history.push({
+              timestamp: now,
+              type: 'title-change',
+              text: `📝 Title changed:\n"${previousTitle}" → "${newTitle}"`
+            });
+            t.history.push({
+              timestamp: now,
+              type: 'update',
+              text: text.trim(),
+              agentPlan: {
+                intent: 'rename',
+                understanding: `Title renamed from "${previousTitle}" to "${newTitle}"`
+              }
+            });
+            t.updatedAt = now;
+            return t;
+          });
+          console.log(`[${new Date().toISOString()}] Title renamed for task (${id}): "${task.title}" → "${newTitle}"`);
+          return res.json({ intent: 'rename', result: newTitle, previousTitle: task.title, task: savedTask });
         }
 
         // For search: return plan as before
