@@ -65,6 +65,36 @@ one session per API call, no shared state between scan phases.
 | Data storage | JSON file (tasks.json) | — |
 | Module system | ES Modules (ESM) | — |
 
+### Component Roles and Authentication
+
+The Copilot SDK (`@github/copilot-sdk`) does not access AI models directly. It includes the
+**Copilot CLI** (`@github/copilot`) as a **bundled npm dependency** — no separate installation
+needed. When Agent Zero starts an AI session, the SDK spawns this bundled CLI as a subprocess
+and communicates via stdio. The CLI handles authentication, model routing, and API communication
+with GitHub's Copilot service.
+
+Similarly, Work IQ (`@microsoft/workiq`) is spawned as an MCP server subprocess. It authenticates
+independently via MSAL (Microsoft Entra ID) to access the user's Microsoft 365 data.
+
+```
+server.js
+  ├── new CopilotClient()
+  │     └── spawns: bundled CLI (node_modules/@github/copilot/index.js)
+  │           └── auth: GitHub OAuth (auto-login on first use, useLoggedInUser: true)
+  │           └── connects to: GitHub Copilot API (AI models)
+  │
+  └── createSession({ mcpServers: { workiq: { type: 'stdio', command: 'workiq', args: ['mcp'] }}})
+        └── spawns: workiq mcp (from PATH, requires global install)
+              └── auth: MSAL token (stored after `workiq accept-eula`)
+              └── connects to: Microsoft Graph / Microsoft Search API
+```
+
+| Component | Install | Role | Auth |
+|---|---|---|---|
+| Copilot SDK | `npm install` (project dep) | Node.js library — manages AI sessions and prompts | — |
+| Copilot CLI | Bundled with SDK (automatic) | AI runtime — spawned by SDK to talk to GitHub's API | GitHub OAuth (auto-login on first start) |
+| Work IQ | `npm install -g @microsoft/workiq` | MCP server for M365 email/Teams/calendar data | MSAL (`workiq accept-eula`) |
+
 ---
 
 ## 3. Three-Phase Scan Pipeline

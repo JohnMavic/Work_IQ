@@ -70,9 +70,12 @@ Return ONLY a JSON object:
   "summary": "2-4 sentence summary focusing on the current action item",
   "language": "en" or "de" or "fr" (detected language),
   "confidence": "high" or "medium" or "low" (how much content you extracted),
+  "link": "URL to open the original message (if found in search results), or null",
   "ambiguities": ["optional — list of items where you found older information that MIGHT relate to this task but you are not certain"]
 }
 ```
+
+The `link` field: If the search results include a direct URL to the Teams message or email thread, return it here. If the task already has a link, you do not need to return one. If no link was found in the search results, set to `null`. Do NOT invent or guess URLs.
 
 The `ambiguities` array is optional. Only include it when you genuinely found information that you cannot confidently classify as current or historical. Each entry should be a clear question the user can answer.
 

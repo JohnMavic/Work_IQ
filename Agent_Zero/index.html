@@ -137,6 +137,7 @@
     .status-in-progress { color: #fbbf24; }
     .status-done { color: #34d399; }
     .status-paused { color: #9ca3af; }
+    .status-on-radar { color: #ff6eb4; }
 
     /* --- Main Content --- */
     main { flex: 1; padding: 24px 32px; overflow-y: auto; }
@@ -860,7 +861,7 @@
     <div class="header-row-3">
       <div style="display:flex;gap:10px;align-items:center">
         <button class="btn btn-scan" id="btnScan" onclick="triggerScan()">Generate Action Items<br><span class="btn-sub">Scan Outlook &amp; Teams</span></button>
-        <button class="btn btn-add-task" id="btnAddTask" onclick="showAddTaskModal()">＋ Add Task<br><span class="btn-sub">&nbsp;</span></button>
+        <button class="btn btn-add-task" id="btnAddTask" onclick="showAddTaskModal()">＋ Add Action Item<br><span class="btn-sub">&nbsp;</span></button>
         <div class="task-search-wrapper" id="searchWrapper">
           <button class="btn btn-search-tasks" onclick="toggleTaskSearch()">🔍 Search<br><span class="btn-sub">&nbsp;</span></button>
           <input type="text" class="task-search-input" id="taskSearchInput" placeholder="Search tasks by keyword..." oninput="onTaskSearch(this.value)" onkeydown="onSearchKeydown(event)">
@@ -893,6 +894,7 @@
       <button class="btn btn-ghost btn-sm" data-filter="new" onclick="setFilter('new', this)">🆕 New</button>
       <button class="btn btn-ghost btn-sm" data-filter="escalated" onclick="setFilter('escalated', this)">🚨 Escalated</button>
       <button class="btn btn-ghost btn-sm" data-filter="in-progress" onclick="setFilter('in-progress', this)">🟡 In Progress</button>
+      <button class="btn btn-ghost btn-sm" data-filter="on-radar" onclick="setFilter('on-radar', this)">📡 On Radar</button>
       <button class="btn btn-ghost btn-sm" data-filter="paused" onclick="setFilter('paused', this)">⏸️ Paused</button>
       <button class="btn btn-ghost btn-sm" data-filter="done" onclick="setFilter('done', this)">✅ Done</button>
       <span class="task-count" id="taskCount"></span>
@@ -1047,10 +1049,15 @@
         const card = document.getElementById('card-' + taskId);
         if (card) card.classList.add('active-panel');
       }
-      // Re-apply frozen state
+      // Re-apply frozen state (CSS class + disabled inputs)
       for (const taskId of frozenTasks) {
         const card = document.getElementById('card-' + taskId);
-        if (card) card.classList.add('frozen');
+        if (card) {
+          card.classList.add('frozen');
+          card.querySelectorAll('.task-panel input, .task-panel textarea, .task-panel select, .task-panel button').forEach(el => {
+            el.disabled = true;
+          });
+        }
       }
       // Restore pending plan displays
       for (const [taskId, pending] of Object.entries(pendingPlans)) {
@@ -1140,25 +1147,11 @@
       const idx = tasks.findIndex(t => t.id === id);
       if (idx !== -1) tasks[idx] = updatedTask;
 
-      // If any task is frozen (agent working), do minimal DOM update instead of full re-render
-      if (frozenTasks.size > 0) {
-        // Update status select inline
-        const select = document.querySelector(`#card-${id} .status-select`);
-        if (select && updates.status) {
-          select.value = updates.status;
-          select.className = 'status-select status-' + updates.status;
-        }
-        // Update task count
-        updateTaskCount();
-        // Update done styling
-        const card = document.getElementById('card-' + id);
-        if (card) {
-          card.classList.toggle('done', updates.status === 'done');
-        }
+      // Always do full re-render to ensure correct sort order
+      // fetchTasks() already re-applies frozen state, open panels, and pending plans
+      await fetchTasks();
+      if (updates.status) {
         showNotification(`Status → ${updates.status}`, 'success');
-      } else {
-        // No busy agents — safe to do full re-render
-        await fetchTasks();
       }
     } catch (err) {
       console.error('Failed to update task:', err);
@@ -1458,16 +1451,16 @@
     );
 
     // Update filter badge counts (only visible tasks)
-    const counts = { all: visibleTasks.length, 'needs-attention': 0, 'new': 0, escalated: 0, 'in-progress': 0, done: 0, paused: 0 };
+    const counts = { all: visibleTasks.length, 'needs-attention': 0, 'new': 0, escalated: 0, 'in-progress': 0, 'on-radar': 0, done: 0, paused: 0 };
     visibleTasks.forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
     document.querySelectorAll('.filter-bar .btn-ghost').forEach(btn => {
       const f = btn.dataset.filter;
-      const labels = { all: 'All', 'needs-attention': '🔴 Attention', 'new': '🆕 New', escalated: '🚨 Escalated', 'in-progress': '🟡 In Progress', done: '✅ Done', paused: '⏸️ Paused' };
+      const labels = { all: 'All', 'needs-attention': '🔴 Attention', 'new': '🆕 New', escalated: '🚨 Escalated', 'in-progress': '🟡 In Progress', 'on-radar': '📡 On Radar', done: '✅ Done', paused: '⏸️ Paused' };
       btn.textContent = counts[f] ? `${labels[f]} (${counts[f]})` : labels[f];
     });
 
     // Sort: priority order, then by date (newest first)
-    const statusOrder = { 'needs-attention': 0, 'new': 1, 'escalated': 2, 'in-progress': 3, 'paused': 4, 'done': 5 };
+    const statusOrder = { 'needs-attention': 0, 'new': 1, 'escalated': 2, 'in-progress': 3, 'on-radar': 4, 'paused': 5, 'done': 6 };
     const sorted = [...visibleTasks].sort((a, b) => {
       // Pinned task always first
       if (pinnedTaskId) {
@@ -1632,6 +1625,7 @@
               <option value="new" ${task.status === 'new' ? 'selected' : ''}>🆕 New</option>
               <option value="escalated" ${task.status === 'escalated' ? 'selected' : ''}>🚨 Escalated</option>
               <option value="in-progress" ${task.status === 'in-progress' ? 'selected' : ''}>🟡 In Progress</option>
+              <option value="on-radar" ${task.status === 'on-radar' ? 'selected' : ''}>📡 On Radar</option>
               <option value="paused" ${task.status === 'paused' ? 'selected' : ''}>⏸️ Paused</option>
               <option value="done" ${task.status === 'done' ? 'selected' : ''}>✅ Done</option>
             </select>

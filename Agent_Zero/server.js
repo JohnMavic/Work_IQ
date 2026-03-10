@@ -365,7 +365,7 @@ app.patch('/api/tasks/:id', async (req, res) => {
     const { id } = req.params;
     const updates = req.body;
 
-    const validStatuses = ['new', 'needs-attention', 'escalated', 'in-progress', 'done', 'paused'];
+    const validStatuses = ['new', 'needs-attention', 'escalated', 'in-progress', 'on-radar', 'done', 'paused'];
     if (updates.status !== undefined && !validStatuses.includes(updates.status)) {
       return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
     }
@@ -864,6 +864,10 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
 
       if (result && result.summary) {
         t.summary = String(result.summary).trim();
+        // Update link if enrichment found one and task has no link yet
+        if (result.link && !t.link) {
+          t.link = String(result.link).trim();
+        }
         t.enrichmentStatus = result.ambiguities && result.ambiguities.length > 0
           ? 'needs-review' : 'enriched';
         t.enrichedAt = now;
