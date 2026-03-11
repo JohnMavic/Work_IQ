@@ -138,6 +138,17 @@
     .status-done { color: #34d399; }
     .status-paused { color: #9ca3af; }
     .status-on-radar { color: #ff6eb4; }
+    .status-updated { color: #22d3ee; }
+
+    /* Pulse animation for "Updated" status */
+    .status-select.status-updated {
+      border-color: rgba(34, 211, 238, 0.5);
+      animation: statusUpdatedPulse 2.2s ease-in-out infinite;
+    }
+    @keyframes statusUpdatedPulse {
+      0%, 100% { border-color: rgba(34, 211, 238, 0.35); box-shadow: 0 0 4px rgba(34, 211, 238, 0.15); }
+      50% { border-color: rgba(34, 211, 238, 0.8); box-shadow: 0 0 12px rgba(34, 211, 238, 0.35); }
+    }
 
     /* --- Main Content --- */
     main { flex: 1; padding: 24px 32px; overflow-y: auto; }
@@ -892,6 +903,7 @@
       <button class="btn btn-ghost btn-sm active" data-filter="all" onclick="setFilter('all', this)">All</button>
       <button class="btn btn-ghost btn-sm" data-filter="needs-attention" onclick="setFilter('needs-attention', this)">🔴 Attention</button>
       <button class="btn btn-ghost btn-sm" data-filter="new" onclick="setFilter('new', this)">🆕 New</button>
+      <button class="btn btn-ghost btn-sm" data-filter="updated" onclick="setFilter('updated', this)">🔄 Updated</button>
       <button class="btn btn-ghost btn-sm" data-filter="escalated" onclick="setFilter('escalated', this)">🚨 Escalated</button>
       <button class="btn btn-ghost btn-sm" data-filter="in-progress" onclick="setFilter('in-progress', this)">🟡 In Progress</button>
       <button class="btn btn-ghost btn-sm" data-filter="on-radar" onclick="setFilter('on-radar', this)">📡 On Radar</button>
@@ -1451,16 +1463,16 @@
     );
 
     // Update filter badge counts (only visible tasks)
-    const counts = { all: visibleTasks.length, 'needs-attention': 0, 'new': 0, escalated: 0, 'in-progress': 0, 'on-radar': 0, done: 0, paused: 0 };
+    const counts = { all: visibleTasks.length, 'needs-attention': 0, 'new': 0, updated: 0, escalated: 0, 'in-progress': 0, 'on-radar': 0, done: 0, paused: 0 };
     visibleTasks.forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
     document.querySelectorAll('.filter-bar .btn-ghost').forEach(btn => {
       const f = btn.dataset.filter;
-      const labels = { all: 'All', 'needs-attention': '🔴 Attention', 'new': '🆕 New', escalated: '🚨 Escalated', 'in-progress': '🟡 In Progress', 'on-radar': '📡 On Radar', done: '✅ Done', paused: '⏸️ Paused' };
+      const labels = { all: 'All', 'needs-attention': '🔴 Attention', 'new': '🆕 New', updated: '🔄 Updated', escalated: '🚨 Escalated', 'in-progress': '🟡 In Progress', 'on-radar': '📡 On Radar', done: '✅ Done', paused: '⏸️ Paused' };
       btn.textContent = counts[f] ? `${labels[f]} (${counts[f]})` : labels[f];
     });
 
     // Sort: priority order, then by date (newest first)
-    const statusOrder = { 'needs-attention': 0, 'new': 1, 'escalated': 2, 'in-progress': 3, 'on-radar': 4, 'paused': 5, 'done': 6 };
+    const statusOrder = { 'needs-attention': 0, 'updated': 1, 'new': 2, 'escalated': 3, 'in-progress': 4, 'on-radar': 5, 'paused': 6, 'done': 7 };
     const sorted = [...visibleTasks].sort((a, b) => {
       // Pinned task always first
       if (pinnedTaskId) {
@@ -1623,6 +1635,7 @@
             <select class="status-select ${statusClass}" onchange="updateTask('${task.id}', { status: this.value })">
               <option value="needs-attention" ${task.status === 'needs-attention' ? 'selected' : ''}>🔴 Attention</option>
               <option value="new" ${task.status === 'new' ? 'selected' : ''}>🆕 New</option>
+              <option value="updated" ${task.status === 'updated' ? 'selected' : ''}>🔄 Updated</option>
               <option value="escalated" ${task.status === 'escalated' ? 'selected' : ''}>🚨 Escalated</option>
               <option value="in-progress" ${task.status === 'in-progress' ? 'selected' : ''}>🟡 In Progress</option>
               <option value="on-radar" ${task.status === 'on-radar' ? 'selected' : ''}>📡 On Radar</option>

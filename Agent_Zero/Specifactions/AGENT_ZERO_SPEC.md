@@ -518,7 +518,7 @@ The scan process is split into 3 sequential phases for faster initial feedback a
 ### 6.4 PATCH /api/tasks/:id
 
 **Request body:** `{ status?, notes?, title?, summary?, enrichmentStatus?, updateCheckStatus? }` (any subset)
-**Valid statuses:** `new`, `needs-attention`, `escalated`, `in-progress`, `done`, `paused`
+**Valid statuses:** `new`, `needs-attention`, `escalated`, `in-progress`, `on-radar`, `updated`, `done`, `paused`
 **Side effects:**
 - Status change → history entry (`type: 'status-change'`)
 - Changing to `done` → sets `doneAt`
@@ -569,11 +569,12 @@ The scan process is split into 3 sequential phases for faster initial feedback a
 
 **Request body:** none
 **Side effects:**
-- Checks for thread replies since task creation
-- If update found: appends "📌 Update:" to summary, sets `updateCheckStatus: "updated"`
+- Checks for thread replies since last update check
+- If update found: sets `updateCheckStatus: "updated"`, sets `status: "updated"`, appends "📌 Update:" to summary as fallback
+- **Post-update evaluation:** After finding updates, runs a second AI call (pure reasoning, no Work IQ) to evaluate whether title and summary should be intelligently rewritten. If evaluation succeeds, overwrites the crude append with refined title/summary. Creates `title-change` / `summary-update` history entries.
 - If no update: sets `updateCheckStatus: "checked"`
-**Response:** `{ success, hasUpdate, updateCheckStatus }`
-**Timeout:** 300 seconds
+**Response:** `{ success, hasUpdate, updateCheckStatus, evaluation? }`
+**Timeout:** 300 seconds (search) + 30 seconds (evaluation)
 
 ### 6.9 POST /api/tasks/:id/log/analyze
 

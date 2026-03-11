@@ -8,6 +8,12 @@ All notable changes to this project are documented here.
 
 **Post-Search Evaluation & Title Rename Intent**
 
+### "Updated" Status
+- New status `🔄 Updated` — automatically set when Phase 3 (Update Check) detects new information
+- Tasks with "Updated" status sort right after "Attention" for maximum visibility
+- Subtle pulsing glow animation on the status dropdown draws attention to changed items
+- Users can manually change status away from "Updated" after reviewing
+
 ### Post-Search Evaluation
 - After intelligent search returns results, a second AI evaluation (pure reasoning, no Work IQ) automatically checks whether the task's **title** and **summary** should be updated based on new findings
 - Title is updated when the situation has evolved (e.g. slides submitted → awaiting review)
@@ -15,6 +21,12 @@ All notable changes to this project are documented here.
 - Creates `title-change` and `summary-update` history entries for full traceability
 - Evaluation is non-fatal — search results are always saved even if evaluation fails
 - Frontend shows toast notifications when title or summary is updated
+
+### Phase 3 Post-Update Evaluation
+- Phase 3 (Update Check) now also runs the post-search evaluation when new updates are found
+- Instead of just appending "📌 Update:" text, AI intelligently rewrites title and summary
+- Crude append remains as safe fallback if evaluation fails
+- Status automatically changes to `updated` when new information is detected
 
 ### Rename Intent
 - Agent can now change a task's title via conversation (intent: `rename`)

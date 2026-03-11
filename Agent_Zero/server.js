@@ -365,7 +365,7 @@ app.patch('/api/tasks/:id', async (req, res) => {
     const { id } = req.params;
     const updates = req.body;
 
-    const validStatuses = ['new', 'needs-attention', 'escalated', 'in-progress', 'on-radar', 'done', 'paused'];
+    const validStatuses = ['new', 'needs-attention', 'escalated', 'in-progress', 'on-radar', 'updated', 'done', 'paused'];
     if (updates.status !== undefined && !validStatuses.includes(updates.status)) {
       return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
     }
@@ -1008,6 +1008,10 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
     const rawContent = response.data.content;
     const result = parseJsonFromResponse(rawContent);
 
+    // Save original values before modification (for evaluation prompt)
+    const originalTitle = task.title;
+    const originalSummary = task.summary || '';
+
     const updated = await safeWriteTasks((data) => {
       const t = data.tasks.find(t => t.id === id);
       if (!t) return null;
@@ -1017,6 +1021,7 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
 
       if (result && result.hasUpdate && result.updateSummary) {
         t.updateCheckStatus = 'updated';
+        t.status = 'updated';
         if (!t.history) t.history = [];
         const checkDuration = ((Date.now() - checkStart) / 1000).toFixed(1);
         const historyLines = [
@@ -1031,7 +1036,7 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
           type: 'thread-update',
           text: historyLines.join('\n')
         });
-        // Append update to summary
+        // Append update to summary (fallback — may be refined by evaluation below)
         t.summary = (t.summary || '') + '\n\n📌 Update: ' + String(result.updateSummary).trim();
         t.updatedAt = now;
         return { hasUpdate: true, updateSummary: result.updateSummary };
@@ -1049,7 +1054,107 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
       }
     });
 
-    res.json({ success: true, ...updated });
+    // Post-search evaluation: intelligently update title/summary if Phase 3 found new info
+    let evaluation = null;
+    if (updated && updated.hasUpdate && updated.updateSummary) {
+      let evalClient;
+      try {
+        console.log(`[EVAL-P3] Starting post-update evaluation for task "${originalTitle}" (${id})`);
+        evalClient = new CopilotClient();
+        const evalSession = await evalClient.createSession({});
+
+        const evalPrompt = `You are evaluating whether a task's title and summary need updating based on new information from an update check.
+
+CURRENT TASK:
+Title: "${originalTitle}"
+Summary: ${originalSummary ? `"${originalSummary}"` : '(no summary)'}
+
+NEW UPDATE FOUND:
+"${updated.updateSummary}"
+
+INSTRUCTIONS:
+1. Compare the current title and summary with the new update information.
+
+2. TITLE evaluation:
+   - The title must help the user instantly understand what this action item is about RIGHT NOW.
+   - If the situation has evolved (new response received, status changed, deadline passed, request fulfilled), the title must reflect the CURRENT state.
+   - Example: "Please prepare slides by Friday" → after submitting → "Slides submitted — awaiting review from Jawad"
+   - Keep it concise: max 15 words, factual, no emojis.
+   - If the title still accurately reflects the current state, do NOT change it.
+
+3. SUMMARY evaluation:
+   - The summary should be a comprehensive overview of the action item's FULL history and current state.
+   - Integrate the new update seamlessly — do NOT just append with "📌 Update:" markers.
+   - Write a clean, professional paragraph that tells the complete story including the latest developments.
+   - Preserve ALL important existing details. Add new findings naturally into the narrative.
+   - If the update adds no meaningful new information beyond what's already covered, do NOT change the summary.
+
+4. Write in the SAME language as the existing title and summary.
+
+5. Only set *Changed to true when there is a GENUINE reason to update.
+
+Return ONLY valid JSON, no markdown:
+{
+  "titleChanged": true or false,
+  "newTitle": "new title text (only if titleChanged is true, otherwise omit)",
+  "summaryChanged": true or false,
+  "newSummary": "full updated summary text (only if summaryChanged is true, otherwise omit)",
+  "reasoning": "One sentence explaining why changes were or were not needed"
+}`;
+
+        const evalResponse = await evalSession.sendAndWait({ prompt: evalPrompt }, 30000);
+        await evalSession.destroy();
+
+        if (evalResponse) {
+          const evalResult = parseJsonFromResponse(evalResponse.data.content);
+          if (evalResult && typeof evalResult === 'object') {
+            evaluation = evalResult;
+            console.log(`[EVAL-P3] Result: titleChanged=${evalResult.titleChanged}, summaryChanged=${evalResult.summaryChanged}, reasoning="${evalResult.reasoning || ''}"`);
+
+            if (evalResult.titleChanged || evalResult.summaryChanged) {
+              await safeWriteTasks((data) => {
+                const t = data.tasks.find(t => t.id === id);
+                if (!t) return null;
+                const now = new Date().toISOString();
+                if (!t.history) t.history = [];
+
+                if (evalResult.titleChanged && evalResult.newTitle) {
+                  const prevTitle = t.title;
+                  t.title = String(evalResult.newTitle).trim();
+                  t.history.push({
+                    timestamp: now,
+                    type: 'title-change',
+                    text: `📝 Title updated after update check:\n"${prevTitle}" → "${t.title}"\nReason: ${evalResult.reasoning || 'New information from update check'}`
+                  });
+                  console.log(`[EVAL-P3] Title changed: "${prevTitle}" → "${t.title}"`);
+                }
+
+                if (evalResult.summaryChanged && evalResult.newSummary) {
+                  t.summary = String(evalResult.newSummary).trim();
+                  t.history.push({
+                    timestamp: now,
+                    type: 'summary-update',
+                    text: `📋 Summary refined after update check\nReason: ${evalResult.reasoning || 'New information from update check'}`
+                  });
+                  console.log(`[EVAL-P3] Summary refined (${t.summary.length} chars)`);
+                }
+
+                t.updatedAt = now;
+                return t;
+              });
+            }
+          }
+        }
+      } catch (evalErr) {
+        console.error(`[EVAL-P3] Post-update evaluation failed (non-fatal): ${evalErr.message}`);
+      } finally {
+        if (evalClient) {
+          try { await evalClient.dispose(); } catch {}
+        }
+      }
+    }
+
+    res.json({ success: true, ...updated, evaluation });
   } catch (err) {
     console.error(`[UPDATE-CHECK] Failed for task ${id}:`, err);
     await safeWriteTasks((data) => {

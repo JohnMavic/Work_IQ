@@ -160,9 +160,10 @@ Each task is frozen (neon cyan border) during processing, then auto-refreshed.
 3. Build link context (Teams Thread-ID, Outlook ItemID)
 4. Temporal anchor: `lastUpdateCheck || enrichedAt || createdAt` — only messages AFTER this date count
 5. Ask Work IQ via skill prompt: "Find conversation, check for messages after [last-checked date]"
-6. If update found: append to summary with `📌 Update:` prefix, set status `'updated'`
-7. If no update: set status `'checked'`, log "no new activity"
-8. Runs EVERY scan cycle (unlike enrichment which is one-time)
+6. If update found: append to summary with `📌 Update:` prefix, set `updateCheckStatus: 'updated'`, set `status: 'updated'`
+7. **Post-update evaluation:** Second AI call (pure reasoning, no Work IQ) evaluates whether title and summary should be intelligently rewritten based on the new findings. If yes, overwrites the crude append with a refined version. Non-fatal fallback: crude append remains if evaluation fails.
+8. If no update: set status `'checked'`, log "no new activity"
+9. Runs EVERY scan cycle (unlike enrichment which is one-time)
 
 **Frontend loop:** Iterates all tasks where `enrichmentStatus === 'enriched' || 'needs-review'` and `status !== 'done'`.
 
@@ -215,7 +216,7 @@ Tasks are stored in `tasks.json` as `{ version: 3, tasks: [...] }`.
 
 | Field | Type | Values |
 |-------|------|--------|
-| `status` | string | `new`, `in-progress`, `needs-attention`, `escalated`, `paused`, `done` |
+| `status` | string | `new`, `in-progress`, `needs-attention`, `escalated`, `updated`, `on-radar`, `paused`, `done` |
 | `source` | string | `email`, `teams` |
 | `enrichmentStatus` | string | `pending`, `enriching`, `enriched`, `needs-review`, `error`, `n/a` |
 | `updateCheckStatus` | string | `pending`, `checking`, `checked`, `updated`, `error`, `n/a` |
