@@ -1535,7 +1535,7 @@ app.post('/api/tasks/:id/log', async (req, res) => {
 
   // Write the history entry via queue
   try {
-    const task = await safeWriteTasks((data) => {
+    let task = await safeWriteTasks((data) => {
       const t = data.tasks.find(t => t.id === id);
       if (!t) return null;
       if (!t.history) t.history = [];
@@ -1578,7 +1578,121 @@ app.post('/api/tasks/:id/log', async (req, res) => {
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
     }
-    res.json(task);
+
+    // Post-search evaluation: check if title and summary need updating based on new information
+    let evaluation = null;
+    if (!searchError && (searchAnswer || communications.length > 0)) {
+      let evalClient;
+      try {
+        console.log(`[EVAL] Starting post-search evaluation for task "${task.title}" (${id})`);
+        evalClient = new CopilotClient();
+        const evalSession = await evalClient.createSession({});
+
+        const commSummaries = communications.slice(0, 10).map(c => {
+          const date = c.date ? new Date(c.date).toLocaleDateString('de-CH') : '';
+          return `- ${c.from || '?'} → ${c.to || '?'} (${date}): ${c.summary || c.subject || ''}`;
+        }).join('\n');
+
+        const evalPrompt = `You are evaluating whether a task's title and summary need updating based on new information from a search.
+
+CURRENT TASK:
+Title: "${task.title}"
+Summary: ${task.summary ? `"${task.summary}"` : '(no summary)'}
+
+USER'S QUESTION:
+"${text.trim()}"
+
+SEARCH RESULTS:
+Answer: ${searchAnswer || '(no structured answer)'}
+Confidence: ${searchConfidence || 'unknown'}
+Communications found: ${communications.length}
+${commSummaries ? `Details:\n${commSummaries}` : ''}
+
+INSTRUCTIONS:
+1. Compare the current title and summary with the new information from the search.
+
+2. TITLE evaluation:
+   - The title must help the user instantly understand what this action item is about RIGHT NOW.
+   - If the situation has evolved (new task, updated expectations, status change), the title must reflect the CURRENT state — not the original request.
+   - Example: Original "Please prepare slides by Friday" → after slides were submitted → "Slides submitted — awaiting review from Jawad"
+   - Keep it concise: max 15 words, factual, no emojis.
+   - If the title still accurately reflects the current state, do NOT change it.
+
+3. SUMMARY evaluation:
+   - The summary should be a comprehensive overview of the action item's FULL history and current state.
+   - When new information is found (new replies, status changes, decisions), EXTEND the summary with these details.
+   - Preserve ALL important existing details — do not drop information. Add new findings at the end.
+   - If the search found no meaningful new information beyond what's already in the summary, do NOT change it.
+
+4. Write in the SAME language as the existing title and summary. If they are in German, write in German. If in English, write in English.
+
+5. Only set *Changed to true when there is a GENUINE reason to update.
+
+Return ONLY valid JSON, no markdown:
+{
+  "titleChanged": true or false,
+  "newTitle": "new title text (only if titleChanged is true, otherwise omit)",
+  "summaryChanged": true or false,
+  "newSummary": "full updated summary text (only if summaryChanged is true, otherwise omit)",
+  "reasoning": "One sentence explaining why changes were or were not needed"
+}`;
+
+        const evalResponse = await evalSession.sendAndWait({ prompt: evalPrompt }, 30000);
+        await evalSession.destroy();
+
+        if (evalResponse) {
+          const evalResult = parseJsonFromResponse(evalResponse.data.content);
+          if (evalResult && typeof evalResult === 'object') {
+            evaluation = evalResult;
+            console.log(`[EVAL] Result: titleChanged=${evalResult.titleChanged}, summaryChanged=${evalResult.summaryChanged}, reasoning="${evalResult.reasoning || ''}"`);
+
+            if (evalResult.titleChanged || evalResult.summaryChanged) {
+              const updatedTask = await safeWriteTasks((data) => {
+                const t = data.tasks.find(t => t.id === id);
+                if (!t) return null;
+                const now = new Date().toISOString();
+                if (!t.history) t.history = [];
+
+                if (evalResult.titleChanged && evalResult.newTitle) {
+                  const prevTitle = t.title;
+                  t.title = String(evalResult.newTitle).trim();
+                  t.history.push({
+                    timestamp: now,
+                    type: 'title-change',
+                    text: `📝 Title updated after search:\n"${prevTitle}" → "${t.title}"\nReason: ${evalResult.reasoning || 'New information from search'}`
+                  });
+                  console.log(`[EVAL] Title changed: "${prevTitle}" → "${t.title}"`);
+                }
+
+                if (evalResult.summaryChanged && evalResult.newSummary) {
+                  const prevSummary = t.summary;
+                  t.summary = String(evalResult.newSummary).trim();
+                  t.history.push({
+                    timestamp: now,
+                    type: 'summary-update',
+                    text: `📋 Summary updated after search\nReason: ${evalResult.reasoning || 'New information from search'}` +
+                      (prevSummary ? `\nPrevious: ${prevSummary.length > 300 ? prevSummary.substring(0, 300) + '...' : prevSummary}` : '')
+                  });
+                  console.log(`[EVAL] Summary updated (${t.summary.length} chars)`);
+                }
+
+                t.updatedAt = now;
+                return t;
+              });
+              if (updatedTask) task = updatedTask;
+            }
+          }
+        }
+      } catch (evalErr) {
+        console.error(`[EVAL] Post-search evaluation failed (non-fatal): ${evalErr.message}`);
+      } finally {
+        if (evalClient) {
+          try { await evalClient.dispose(); } catch {}
+        }
+      }
+    }
+
+    res.json({ ...task, evaluation });
   } catch (err) {
     res.status(500).json({ error: 'Failed to log work', detail: err.message });
   }

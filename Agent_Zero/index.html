@@ -2096,6 +2096,13 @@
       if (logInput) logInput.value = '';
       showNotification('✅ Work logged', 'success');
 
+      // Post-search evaluation feedback
+      if (data.evaluation) {
+        const ev = data.evaluation;
+        if (ev.titleChanged) showNotification('📝 Title updated based on new findings', 'success');
+        if (ev.summaryChanged) showNotification('📋 Summary updated based on new findings', 'success');
+      }
+
       // Clear pending plan BEFORE re-render so showPlanUI() won't restore it
       delete pendingPlans[taskId];
 

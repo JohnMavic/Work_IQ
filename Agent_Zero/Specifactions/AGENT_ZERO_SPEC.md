@@ -431,7 +431,7 @@ The scan process is split into 3 sequential phases for faster initial feedback a
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `timestamp` | string | Yes | ISO 8601 timestamp |
-| `type` | string | Yes | `"created"`, `"status-change"`, `"scan-update"`, `"enriched"`, `"enrich-error"`, `"thread-update"`, `"update-check"`, `"update-check-error"`, `"summary-update"`, `"update"`, `"note"`, `"review-response"` |
+| `type` | string | Yes | `"created"`, `"status-change"`, `"scan-update"`, `"enriched"`, `"enrich-error"`, `"thread-update"`, `"update-check"`, `"update-check-error"`, `"summary-update"`, `"title-change"`, `"update"`, `"note"`, `"review-response"` |
 | `text` | string | Yes | User message or system description |
 | `communications` | Communication[] | No | Found emails/messages (search results) |
 | `agentPlan` | AgentPlan | No | AI analysis result |
@@ -442,7 +442,7 @@ The scan process is split into 3 sequential phases for faster initial feedback a
 
 | Field | Type | Description |
 |---|---|---|
-| `intent` | string | `"summarize"`, `"search"`, `"answer"`, or `"review"` |
+| `intent` | string | `"summarize"`, `"search"`, `"answer"`, `"review"`, or `"rename"` |
 | `understanding` | string | For search: action plan description. For summarize/answer: the result text |
 | `expectedAnswer` | string \| null | What KIND of answer the user needs (v2.2, search only) |
 | `searchFrom` | string \| null | Person name, email domain, or null |
@@ -590,6 +590,7 @@ The scan process is split into 3 sequential phases for faster initial feedback a
 **With plan, no SEARCH_SKILL:** Falls back to Copilot SDK + Work IQ MCP + LOG_WORK_SKILL.md (legacy path, 300s timeout)
 **Without plan:** Falls back to Copilot SDK + Work IQ MCP session with minimal inline prompt (300s timeout)
 **Side effects:** Adds history entry with `communications[]`, `agentPlan`, `agentResponse`, `agentExecution`
+**Post-search evaluation:** After search results are saved, a second AI call (pure reasoning, no Work IQ) evaluates whether title and summary should be updated. If so, creates additional `title-change` / `summary-update` history entries. Response includes `evaluation` field with `{ titleChanged, newTitle, summaryChanged, newSummary, reasoning }`.
 **Response parsing:** SEARCH_SKILL JSON object first → legacy JSON array → Markdown email parser → raw text
 
 ---

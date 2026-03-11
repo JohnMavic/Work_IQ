@@ -233,7 +233,7 @@ Tasks are stored in `tasks.json` as `{ version: 3, tasks: [...] }`.
 
 **History types:** `created`, `status-change`, `scan-update`, `note`, `update`,
 `enriched`, `enrich-error`, `thread-update`, `update-check`, `update-check-error`,
-`summary-update`, `review-response`
+`summary-update`, `title-change`, `review-response`
 
 ### Agent Plan (v2.2)
 
@@ -241,7 +241,7 @@ Search history entries include `agentPlan` with the analyze phase output:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `intent` | string | `search`, `summarize`, `answer`, or `review` — determines rendering path |
+| `intent` | string | `search`, `summarize`, `answer`, `review`, or `rename` — determines rendering path |
 | `understanding` | string | Action plan: what the agent will search |
 | `expectedAnswer` | string | What KIND of answer the user needs (v2.2) |
 | `keywords` | string[] | Search terms in user's language |
@@ -265,6 +265,22 @@ Search history entries include `agentExecution` with execution details:
 | `parsedCount` | number | Number of communications parsed |
 | `durationMs` | number | Total search duration |
 | `error` | string | Error message if search failed |
+
+### Post-Search Evaluation (v2.3)
+
+After a search returns results, a second AI evaluation (pure reasoning, no Work IQ) checks whether the task's title and summary should be updated based on the new findings. This step runs automatically and is non-blocking — if it fails, the search results are already saved.
+
+**Flow:** Search completes → history entry saved → evaluation prompt sent (CopilotClient session without MCP) → if title/summary changed: additional `title-change` / `summary-update` history entries created → response includes `evaluation` field.
+
+**Evaluation response field:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `titleChanged` | boolean | Whether the title was updated |
+| `newTitle` | string | New title text (only present if titleChanged) |
+| `summaryChanged` | boolean | Whether the summary was updated |
+| `newSummary` | string | Updated summary text (only present if summaryChanged) |
+| `reasoning` | string | Why changes were or were not needed |
 
 ### Schema Migrations
 

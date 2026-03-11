@@ -146,6 +146,8 @@ Beyond scanning, each task has an interactive agent panel where users can ask qu
 - **Three-phase scan** with visual progress indicators
 - **AI content extraction** via keyword-based Work IQ search
 - **Intelligent search** — goal-oriented 3-attempt search with self-assessment and confidence levels (SEARCH_SKILL.md)
+- **Post-search evaluation** — after search, AI evaluates whether task title and summary need updating based on new findings; applies changes automatically with full history traceability
+- **Rename via conversation** — agent can change task titles through natural discussion
 - **Add Task modal** — title, assignment, and optional context; agent auto-starts on assignment
 - **Configurable scan range** — slider to choose 1–14 days of email/Teams history to scan (default: 4 days)
 - **Scan abort** — stop scan safely between tasks with "⏹ Stop" button

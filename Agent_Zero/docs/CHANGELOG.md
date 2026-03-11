@@ -4,6 +4,25 @@ All notable changes to this project are documented here.
 
 ---
 
+## v2.3.0 — March 10, 2026
+
+**Post-Search Evaluation & Title Rename Intent**
+
+### Post-Search Evaluation
+- After intelligent search returns results, a second AI evaluation (pure reasoning, no Work IQ) automatically checks whether the task's **title** and **summary** should be updated based on new findings
+- Title is updated when the situation has evolved (e.g. slides submitted → awaiting review)
+- Summary is extended with new details while preserving existing information
+- Creates `title-change` and `summary-update` history entries for full traceability
+- Evaluation is non-fatal — search results are always saved even if evaluation fails
+- Frontend shows toast notifications when title or summary is updated
+
+### Rename Intent
+- Agent can now change a task's title via conversation (intent: `rename`)
+- User discusses with agent what the title should be → agent applies the change
+- Logs `title-change` history entry with old → new title
+
+---
+
 ## v2.2.0 — March 2, 2026
 
 **Intelligent Search — Log Work Redesign**
