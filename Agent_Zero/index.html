@@ -79,11 +79,11 @@
     }
     .last-scan { font-size: 0.8rem; color: #666; }
 
-    /* Row 3: Actions */
+    /* Row 3: Settings (buttons moved to sidebar) */
     .header-row-3 {
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content: flex-end;
     }
     .link-mode-group {
       display: flex;
@@ -104,7 +104,7 @@
     }
     .btn:hover { opacity: 0.85; }
     .btn-primary { background: #3b82f6; color: #fff; }
-    .btn-scan { background: #6366f1; color: #fff; font-size: 0.9rem; padding: 4px 20px; min-width: 180px; height: 38px; line-height: 1.1; }
+    .btn-scan { background: #6366f1; color: #fff; font-size: 0.82rem; padding: 6px 10px; height: 38px; line-height: 1.1; }
     .btn-sub { font-size: 0.7em; opacity: 0.75; font-weight: 400; }
     .btn-abort { background: #dc2626; color: #fff; font-size: 0.75rem; padding: 4px 10px; margin-left: auto; }
     .btn-danger { background: #ef4444; color: #fff; padding: 4px 10px; font-size: 0.75rem; }
@@ -150,56 +150,138 @@
       50% { border-color: rgba(34, 211, 238, 0.8); box-shadow: 0 0 12px rgba(34, 211, 238, 0.35); }
     }
 
-    /* --- Main Content --- */
-    main { flex: 1; padding: 24px 32px; overflow-y: auto; }
-    main::-webkit-scrollbar { width: 6px; }
-    main::-webkit-scrollbar-track { background: transparent; }
-    main::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
-    main::-webkit-scrollbar-thumb:hover { background: #475569; }
-    main { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+    /* --- 3-Column App Layout --- */
+    .app-layout {
+      flex: 1;
+      display: grid;
+      grid-template-columns: var(--col-left, 160px) 4px var(--col-middle, 340px) 4px 1fr;
+      overflow: hidden;
+      min-height: 0;
+    }
 
-    /* --- Filter Bar --- */
+    /* Left Sidebar */
+    .sidebar-left {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 16px 10px;
+      overflow: visible;
+      position: relative;
+      border-right: none;
+    }
+    .sidebar-left .btn { width: 100%; text-align: center; }
+
+    /* Resize Handles */
+    .resize-handle {
+      background: #1e2233;
+      cursor: col-resize;
+      transition: background 0.15s;
+      min-width: 4px;
+    }
+    .resize-handle:hover,
+    .resize-handle.dragging { background: #3b82f6; }
+
+    /* Middle Panel (task list) */
+    .panel-middle {
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      padding: 10px 12px;
+      min-height: 0;
+    }
+    .panel-middle::-webkit-scrollbar { width: 6px; }
+    .panel-middle::-webkit-scrollbar-track { background: transparent; }
+    .panel-middle::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    .panel-middle::-webkit-scrollbar-thumb:hover { background: #475569; }
+    .panel-middle { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+
+    /* Right Panel (task detail) */
+    .panel-right {
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      padding: 16px 20px;
+      min-height: 0;
+      border-left: none;
+    }
+    .panel-right::-webkit-scrollbar { width: 6px; }
+    .panel-right::-webkit-scrollbar-track { background: transparent; }
+    .panel-right::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    .panel-right::-webkit-scrollbar-thumb:hover { background: #475569; }
+    .panel-right { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+
+    /* --- Filter Bar (inside middle panel) --- */
     .filter-bar {
-      display: flex; align-items: center; gap: 8px;
-      margin-bottom: 20px; flex-wrap: wrap;
+      display: flex; align-items: center; gap: 5px;
+      margin-bottom: 10px; flex-wrap: wrap;
     }
     .task-count {
-      margin-left: auto; font-size: 0.8rem; color: #666;
+      margin-left: auto; font-size: 0.72rem; color: #666; white-space: nowrap;
     }
 
-    /* --- Task List --- */
-    .task-list { display: flex; flex-direction: column; gap: 8px; }
+    /* --- Task List (inside middle panel) --- */
+    .task-list { display: flex; flex-direction: column; gap: 6px; }
 
+    /* --- Task Card (compact list item in middle panel) --- */
     .task-card {
       background: #131627;
       border: 1px solid #1e2233;
-      border-radius: 8px;
-      padding: 16px 20px;
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 8px 16px;
-      align-items: start;
-      transition: border-color 0.2s;
+      border-radius: 6px;
+      padding: 10px 12px;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
     }
-    .task-card:hover { border-color: #2a3555; }
+    .task-card:hover { border-color: #2a3555; background: #161b30; }
+    .task-card.selected {
+      border-color: #3b82f6;
+      background: #0f1a2e;
+      box-shadow: inset 3px 0 0 #3b82f6;
+    }
     .task-card.done { opacity: 0.5; }
-    .task-card.has-content { border-color: #ec4899; }
-    .task-card.has-content:hover { border-color: #f472b6; }
-    .task-card.active-panel,
-    .task-card.active-panel:hover,
-    .task-card.active-panel.has-content,
-    .task-card.active-panel.has-content:hover { border-color: #22c55e; background: #0f1a14; }
-    .task-card.active-panel.done { opacity: 1; }
+    .task-card.done.selected { opacity: 0.85; }
 
-    .task-main { display: flex; flex-direction: column; gap: 6px; }
-    .task-title { font-size: 0.95rem; font-weight: 500; color: #fff; }
+    .task-main { display: flex; flex-direction: column; gap: 4px; }
+    .task-title { font-size: 0.88rem; font-weight: 500; color: #fff; line-height: 1.3; }
     .task-meta {
-      display: flex; align-items: center; gap: 10px;
-      font-size: 0.78rem; color: #666;
+      display: flex; align-items: center; gap: 8px;
+      font-size: 0.72rem; color: #666;
+      flex-wrap: wrap;
     }
-    .task-meta a { color: #60a5fa; text-decoration: none; }
+    .task-meta a { color: #60a5fa; text-decoration: none; font-size: 0.72rem; }
     .task-meta a:hover { text-decoration: underline; }
     .task-notes { font-size: 0.8rem; color: #888; font-style: italic; margin-top: 2px; }
+    .task-card-footer {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-top: 6px; gap: 6px;
+    }
+
+    /* --- Task Detail View (right panel) --- */
+    .task-detail-view {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .detail-header {
+      display: flex; flex-direction: column; gap: 6px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #1e2233;
+    }
+    .detail-header .task-title { font-size: 1.05rem; }
+    .detail-header .task-meta { font-size: 0.78rem; }
+    .detail-header .task-meta a { font-size: 0.78rem; }
+    .task-detail-view.frozen .panel-log-form input,
+    .task-detail-view.frozen .panel-log-form button,
+    .task-detail-view.frozen .ambiguity-response-form input,
+    .task-detail-view.frozen .ambiguity-response-form button {
+      pointer-events: none; opacity: 0.4; cursor: not-allowed;
+    }
+    .detail-empty-state {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; height: 100%; color: #4b5563;
+      gap: 8px; padding: 40px;
+    }
+    .detail-empty-state p { font-size: 0.95rem; }
+    .detail-empty-state .hint { font-size: 0.8rem; color: #374151; }
 
     .task-summary {
       font-size: 0.85em;
@@ -217,9 +299,6 @@
     }
     .task-summary.expanded {
       max-height: 400px;
-    }
-    .task-card.active-panel .task-summary {
-      max-height: none;
     }
     .task-summary .summary-icon { margin-right: 4px; vertical-align: top; flex-shrink: 0; }
     .task-summary { display: flex; align-items: flex-start; }
@@ -341,12 +420,12 @@
       50% { opacity: 1; box-shadow: 0 0 6px rgba(0, 212, 255, 0.6); }
     }
 
-    /* --- Frozen Task Card --- */
+    /* --- Frozen Task Card (compact list item) --- */
     .task-card.frozen {
       border-color: #00d4ff !important;
       border-width: 2px !important;
       background: linear-gradient(135deg, #0a1a38 0%, #0d2850 100%) !important;
-      box-shadow: 0 0 24px rgba(0, 212, 255, 0.35), inset 0 0 30px rgba(0, 212, 255, 0.06);
+      box-shadow: 0 0 12px rgba(0, 212, 255, 0.25);
       animation: frozenBorderGlow 2.5s ease-in-out infinite;
       position: relative;
       overflow: hidden;
@@ -361,12 +440,6 @@
       z-index: 1;
     }
     .task-card.frozen .task-actions { pointer-events: none; opacity: 0.35; }
-    .task-card.frozen .task-main { pointer-events: none; opacity: 0.7; }
-    .task-card.frozen .task-panel { pointer-events: none; opacity: 0.5; }
-    .task-card.frozen .task-panel input,
-    .task-card.frozen .task-panel textarea,
-    .task-card.frozen .task-panel select,
-    .task-card.frozen .task-panel button { cursor: not-allowed; }
     .frozen-badge {
       display: none;
       font-size: 0.82rem;
@@ -398,28 +471,24 @@
 
     /* --- Timestamp Row --- */
     .task-timestamps {
-      font-size: 0.7rem;
+      font-size: 0.68rem;
       color: #4b5563;
-      margin-top: 4px;
+      margin-top: 2px;
     }
 
     .task-actions {
-      display: flex; align-items: center; gap: 8px;
+      display: flex; align-items: center; gap: 6px;
+      margin-top: 4px;
     }
 
-    /* --- Task Interaction Panel (v1.4) --- */
+    /* --- Task Interaction Panel (now in right panel) --- */
     .task-card { cursor: pointer; }
     .task-card .task-main { cursor: pointer; }
     .task-actions { cursor: default; }
 
     .task-panel {
       display: none;
-      background: #0d1020;
-      border-top: 1px solid #1e2233;
-      padding: 16px 20px;
-      grid-column: 1 / -1;
     }
-    .task-panel.visible { display: block; }
 
     /* Agent conversations (chat-style) */
     .agent-conversation {
@@ -640,29 +709,29 @@
     .form-group textarea { resize: vertical; min-height: 60px; }
     .form-group .field-hint { font-size: 0.7rem; color: #555; margin-top: 2px; }
     .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
-    .btn-add-task { background: #10b981; color: #fff; font-size: 0.9rem; padding: 4px 20px; min-width: 140px; height: 38px; }
+    .btn-add-task { background: #10b981; color: #fff; font-size: 0.82rem; padding: 6px 10px; height: 38px; }
 
     /* --- Task Search --- */
     .task-search-wrapper {
       position: relative;
     }
     .btn-search-tasks {
-      background: #0ea5e9; color: #fff; font-size: 0.9rem; padding: 4px 20px; min-width: 120px; height: 38px;
+      background: #0ea5e9; color: #fff; font-size: 0.82rem; padding: 6px 10px; height: 38px;
     }
     .task-search-input {
       display: none;
-      position: absolute; top: 100%; left: 0; margin-top: 6px;
-      width: 340px; padding: 10px 14px; font-size: 0.9rem;
+      width: 100%; padding: 8px 10px; font-size: 0.82rem;
+      margin-top: 6px;
       background: #161929; color: #e0e0e0; border: 2px solid #0ea5e9;
-      border-radius: 8px; outline: none; z-index: 200;
+      border-radius: 6px; outline: none;
       box-shadow: 0 4px 20px rgba(14, 165, 233, 0.2);
     }
     .task-search-input::placeholder { color: #64748b; }
     .task-search-input.visible { display: block; }
     .task-search-results {
       display: none;
-      position: absolute; top: calc(100% + 48px); left: 0;
-      width: 400px; max-height: 320px; overflow-y: auto;
+      position: absolute; top: 100%; left: 0; margin-top: 4px;
+      width: 340px; max-height: 320px; overflow-y: auto;
       background: #1e2233; border: 1px solid #2a3045;
       border-radius: 8px; z-index: 200;
       box-shadow: 0 8px 30px rgba(0,0,0,0.5);
@@ -868,17 +937,8 @@
       </div>
     </div>
 
-    <!-- Row 3: Actions -->
+    <!-- Row 3: Settings -->
     <div class="header-row-3">
-      <div style="display:flex;gap:10px;align-items:center">
-        <button class="btn btn-scan" id="btnScan" onclick="triggerScan()">Generate Action Items<br><span class="btn-sub">Scan Outlook &amp; Teams</span></button>
-        <button class="btn btn-add-task" id="btnAddTask" onclick="showAddTaskModal()">＋ Add Action Item<br><span class="btn-sub">&nbsp;</span></button>
-        <div class="task-search-wrapper" id="searchWrapper">
-          <button class="btn btn-search-tasks" onclick="toggleTaskSearch()">🔍 Search<br><span class="btn-sub">&nbsp;</span></button>
-          <input type="text" class="task-search-input" id="taskSearchInput" placeholder="Search tasks by keyword..." oninput="onTaskSearch(this.value)" onkeydown="onSearchKeydown(event)">
-          <div class="task-search-results" id="taskSearchResults"></div>
-        </div>
-      </div>
       <div class="link-mode-group">
         <span class="link-mode-label">Open links in:</span>
         <button class="link-mode-btn" data-mode="window" title="New Window — Opens link in a separate browser window" onclick="setLinkMode('window')">🪟 Window</button>
@@ -887,32 +947,62 @@
     </div>
   </header>
 
-  <!-- Main Content -->
-  <main>
-    <!-- Server Offline Banner -->
-    <div class="server-offline-banner" id="offlineBanner" style="display: none;">
-      <h3>⚠️ Server unreachable</h3>
-      <p>The backend server is not running. Please start it:</p>
-      <p><strong>Option 1:</strong> Double-click <code>START-AGENT-ZERO.bat</code></p>
-      <p><strong>Option 2:</strong> Open a terminal and run:<br>
-        <code>cd E:\Work_IQ\Agent_Zero &amp;&amp; node server.js</code></p>
-      <div class="retry-hint">🔄 Connection will be checked automatically...</div>
+  <!-- 3-Column Layout -->
+  <div class="app-layout" id="appLayout">
+
+    <!-- Left Sidebar: Action Buttons -->
+    <div class="sidebar-left">
+      <button class="btn btn-scan" id="btnScan" onclick="triggerScan()">Generate Action Items<br><span class="btn-sub">Scan Outlook &amp; Teams</span></button>
+      <button class="btn btn-add-task" id="btnAddTask" onclick="showAddTaskModal()">＋ Add Action Item<br><span class="btn-sub">&nbsp;</span></button>
+      <div class="task-search-wrapper" id="searchWrapper">
+        <button class="btn btn-search-tasks" onclick="toggleTaskSearch()">🔍 Search<br><span class="btn-sub">&nbsp;</span></button>
+        <input type="text" class="task-search-input" id="taskSearchInput" placeholder="Search tasks..." oninput="onTaskSearch(this.value)" onkeydown="onSearchKeydown(event)">
+        <div class="task-search-results" id="taskSearchResults"></div>
+      </div>
     </div>
 
-    <div class="filter-bar">
-      <button class="btn btn-ghost btn-sm active" data-filter="all" onclick="setFilter('all', this)">All</button>
-      <button class="btn btn-ghost btn-sm" data-filter="needs-attention" onclick="setFilter('needs-attention', this)">🔴 Attention</button>
-      <button class="btn btn-ghost btn-sm" data-filter="new" onclick="setFilter('new', this)">🆕 New</button>
-      <button class="btn btn-ghost btn-sm" data-filter="updated" onclick="setFilter('updated', this)">🔄 Updated</button>
-      <button class="btn btn-ghost btn-sm" data-filter="escalated" onclick="setFilter('escalated', this)">🚨 Escalated</button>
-      <button class="btn btn-ghost btn-sm" data-filter="in-progress" onclick="setFilter('in-progress', this)">🟡 In Progress</button>
-      <button class="btn btn-ghost btn-sm" data-filter="on-radar" onclick="setFilter('on-radar', this)">📡 On Radar</button>
-      <button class="btn btn-ghost btn-sm" data-filter="paused" onclick="setFilter('paused', this)">⏸️ Paused</button>
-      <button class="btn btn-ghost btn-sm" data-filter="done" onclick="setFilter('done', this)">✅ Done</button>
-      <span class="task-count" id="taskCount"></span>
+    <!-- Resize Handle (left ↔ middle) -->
+    <div class="resize-handle" data-handle="left"></div>
+
+    <!-- Middle Panel: Task List -->
+    <div class="panel-middle" id="panelMiddle">
+      <!-- Server Offline Banner -->
+      <div class="server-offline-banner" id="offlineBanner" style="display: none;">
+        <h3>⚠️ Server unreachable</h3>
+        <p>The backend server is not running. Please start it:</p>
+        <p><strong>Option 1:</strong> Double-click <code>START-AGENT-ZERO.bat</code></p>
+        <p><strong>Option 2:</strong> Open a terminal and run:<br>
+          <code>cd E:\Work_IQ\Agent_Zero &amp;&amp; node server.js</code></p>
+        <div class="retry-hint">🔄 Connection will be checked automatically...</div>
+      </div>
+
+      <div class="filter-bar">
+        <button class="btn btn-ghost btn-sm active" data-filter="all" onclick="setFilter('all', this)">All</button>
+        <button class="btn btn-ghost btn-sm" data-filter="needs-attention" onclick="setFilter('needs-attention', this)">🔴</button>
+        <button class="btn btn-ghost btn-sm" data-filter="new" onclick="setFilter('new', this)">🆕</button>
+        <button class="btn btn-ghost btn-sm" data-filter="updated" onclick="setFilter('updated', this)">🔄</button>
+        <button class="btn btn-ghost btn-sm" data-filter="escalated" onclick="setFilter('escalated', this)">🚨</button>
+        <button class="btn btn-ghost btn-sm" data-filter="in-progress" onclick="setFilter('in-progress', this)">🟡</button>
+        <button class="btn btn-ghost btn-sm" data-filter="on-radar" onclick="setFilter('on-radar', this)">📡</button>
+        <button class="btn btn-ghost btn-sm" data-filter="paused" onclick="setFilter('paused', this)">⏸️</button>
+        <button class="btn btn-ghost btn-sm" data-filter="done" onclick="setFilter('done', this)">✅</button>
+        <span class="task-count" id="taskCount"></span>
+      </div>
+      <div class="task-list" id="taskList"></div>
     </div>
-    <div class="task-list" id="taskList"></div>
-  </main>
+
+    <!-- Resize Handle (middle ↔ right) -->
+    <div class="resize-handle" data-handle="right"></div>
+
+    <!-- Right Panel: Task Detail -->
+    <div class="panel-right" id="taskDetailPanel">
+      <div class="detail-empty-state">
+        <p>📋 Select an action item</p>
+        <div class="hint">Click a task on the left to view details</div>
+      </div>
+    </div>
+
+  </div>
 
   <!-- Add Task Modal -->
   <div class="modal-overlay" id="addTaskModal">
@@ -950,6 +1040,7 @@
   let reconnectTimer = null;
   const frozenTasks = new Set();
   let scanAborted = false;
+  let selectedTaskId = localStorage.getItem('selectedTaskId') || null;
 
   // --- Server Health Check ---
 
@@ -1054,28 +1145,14 @@
         );
       }
 
-      // Re-open all panels that were open before re-render
-      for (const taskId of openPanelTaskIds) {
-        const panel = document.getElementById('panel-' + taskId);
-        if (panel) panel.classList.add('visible');
-        const card = document.getElementById('card-' + taskId);
-        if (card) card.classList.add('active-panel');
-      }
-      // Re-apply frozen state (CSS class + disabled inputs)
+      // Re-apply frozen state (CSS class on list items)
       for (const taskId of frozenTasks) {
         const card = document.getElementById('card-' + taskId);
-        if (card) {
-          card.classList.add('frozen');
-          card.querySelectorAll('.task-panel input, .task-panel textarea, .task-panel select, .task-panel button').forEach(el => {
-            el.disabled = true;
-          });
-        }
+        if (card) card.classList.add('frozen');
       }
-      // Restore pending plan displays
-      for (const [taskId, pending] of Object.entries(pendingPlans)) {
-        if (openPanelTaskIds.has(taskId)) {
-          showPlanUI(taskId, pending.plan, pending.fallback);
-        }
+      // Restore pending plan displays for selected task
+      if (selectedTaskId && pendingPlans[selectedTaskId]) {
+        showPlanUI(selectedTaskId, pendingPlans[selectedTaskId].plan, pendingPlans[selectedTaskId].fallback);
       }
     } catch (err) {
       console.error('Failed to fetch tasks:', err);
@@ -1186,6 +1263,8 @@
       }
       tasks = tasks.filter(t => t.id !== id);
       openPanelTaskIds.delete(id);
+      // Clear selection if the deleted task was selected
+      if (selectedTaskId === id) selectedTaskId = null;
       // Clean up collapsed entries for deleted task
       collapsedEntries = new Set([...collapsedEntries].filter(e => !e.startsWith(id)));
       saveUIState();
@@ -1194,6 +1273,11 @@
         // Another task is frozen — remove card from DOM without full re-render
         const card = document.getElementById('card-' + id);
         if (card) card.remove();
+        // Clear detail panel if this was selected
+        if (!selectedTaskId) {
+          const detailPanel = document.getElementById('taskDetailPanel');
+          if (detailPanel) detailPanel.innerHTML = `<div class="detail-empty-state"><p>📋 Select an action item</p></div>`;
+        }
         updateTaskCount();
       } else {
         await fetchTasks();
@@ -1453,6 +1537,7 @@
 
   function renderTasks() {
     const list = document.getElementById('taskList');
+    const detailPanel = document.getElementById('taskDetailPanel');
     const countEl = document.getElementById('taskCount');
 
     // Auto-cleanup: hide done tasks older than retention period (actual deletion happens server-side)
@@ -1467,8 +1552,8 @@
     visibleTasks.forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
     document.querySelectorAll('.filter-bar .btn-ghost').forEach(btn => {
       const f = btn.dataset.filter;
-      const labels = { all: 'All', 'needs-attention': '🔴 Attention', 'new': '🆕 New', updated: '🔄 Updated', escalated: '🚨 Escalated', 'in-progress': '🟡 In Progress', 'on-radar': '📡 On Radar', done: '✅ Done', paused: '⏸️ Paused' };
-      btn.textContent = counts[f] ? `${labels[f]} (${counts[f]})` : labels[f];
+      const labels = { all: 'All', 'needs-attention': '🔴', 'new': '🆕', updated: '🔄', escalated: '🚨', 'in-progress': '🟡', 'on-radar': '📡', done: '✅', paused: '⏸️' };
+      btn.textContent = counts[f] ? `${labels[f]} ${counts[f]}` : labels[f];
     });
 
     // Sort: priority order, then by date (newest first)
@@ -1485,152 +1570,122 @@
     });
 
     const filtered = currentFilter === 'all' ? sorted : sorted.filter(t => t.status === currentFilter);
-    countEl.textContent = `${filtered.length} of ${visibleTasks.length} tasks`;
+    countEl.textContent = `${filtered.length} / ${visibleTasks.length}`;
 
     if (filtered.length === 0) {
       list.innerHTML = `
         <div class="empty-state">
           <p>No tasks found</p>
-          <div class="hint">${visibleTasks.length === 0 ? 'Add a task below or scan your emails to get started.' : 'Try a different filter.'}</div>
+          <div class="hint">${visibleTasks.length === 0 ? 'Scan your emails or add a task to get started.' : 'Try a different filter.'}</div>
         </div>`;
+      detailPanel.innerHTML = `<div class="detail-empty-state"><p>📋 No action items</p></div>`;
+      selectedTaskId = null;
       return;
     }
 
+    // Render compact list items in middle panel
     list.innerHTML = filtered.map(task => renderTaskCard(task)).join('');
+
+    // Render detail view in right panel
+    const selectedInList = filtered.find(t => t.id === selectedTaskId);
+    if (!selectedInList) {
+      selectedTaskId = filtered[0].id;
+    }
+    detailPanel.innerHTML = renderTaskDetail(tasks.find(t => t.id === selectedTaskId));
+    // Highlight selected item
+    document.getElementById('card-' + selectedTaskId)?.classList.add('selected');
+    saveUIState();
   }
 
-  function renderTaskCard(task) {
-      const sourceBadge = task.source === 'email' ? '<span class="badge badge-email">Email</span>'
-        : task.source === 'teams' ? '<span class="badge badge-teams">Teams</span>'
-        : '<span class="badge badge-manual">Manual</span>';
+  // Helper: build step indicator HTML
+  function buildStepIndicator(task) {
+    const isManualTask = task.enrichmentStatus === 'n/a';
+    if (isManualTask) return '';
+    const step2State = task.enrichmentStatus === 'enriched' ? 'done'
+                     : task.enrichmentStatus === 'needs-review' ? 'updated'
+                     : task.enrichmentStatus === 'enriching' ? 'active'
+                     : task.enrichmentStatus === 'error' ? 'error'
+                     : 'pending';
+    const step3State = task.updateCheckStatus === 'updated' ? 'updated'
+                     : task.updateCheckStatus === 'checked' ? 'done'
+                     : task.updateCheckStatus === 'checking' ? 'active'
+                     : task.updateCheckStatus === 'error' ? 'error'
+                     : 'pending';
+    const step1Tip = 'Phase 1: Discovery ✅';
+    const step2Tips = {
+      pending: 'Phase 2: Enrichment — Waiting',
+      active: 'Phase 2: Enrichment ⏳ — Searching...',
+      done: 'Phase 2: Enrichment ✅ — Summary created',
+      updated: 'Phase 2: Enrichment ⚠️ — Needs review',
+      error: 'Phase 2: Enrichment ❌ — Failed'
+    };
+    const step3Tips = {
+      pending: 'Phase 3: Update Check — Waiting',
+      active: 'Phase 3: Update Check ⏳ — Searching...',
+      done: 'Phase 3: Update Check ✅ — No new messages',
+      updated: 'Phase 3: Update Check 🔔 — New messages found',
+      error: 'Phase 3: Update Check ❌ — Failed'
+    };
+    return `<span class="step-indicators">` +
+      `<span class="step-dot step-done" data-step="1" title="${step1Tip}"></span>` +
+      `<span class="step-dot ${step2State !== 'pending' ? 'step-' + step2State : ''}" data-step="2" title="${step2Tips[step2State]}"></span>` +
+      `<span class="step-dot ${step3State !== 'pending' ? 'step-' + step3State : ''}" data-step="3" title="${step3Tips[step3State]}"></span>` +
+      `</span>`;
+  }
 
+  // Helper: build task meta HTML
+  function buildTaskMeta(task) {
+    const sourceBadge = task.source === 'email' ? '<span class="badge badge-email">Email</span>'
+      : task.source === 'teams' ? '<span class="badge badge-teams">Teams</span>'
+      : '<span class="badge badge-manual">Manual</span>';
+    const fromText = task.from ? `from ${escHtml(task.from)}` : '';
+    const dateText = task.date ? formatDate(task.date) : '';
+    const separator = fromText && dateText ? ' · ' : '';
+    const linkHtml = task.link
+      ? `<a href="${escHtml(task.link)}" onclick="return openLink(event)" rel="noopener">Open source ↗</a>`
+      : '';
+    return { sourceBadge, fromText, dateText, separator, linkHtml };
+  }
+
+  // Compact task card for middle panel (list item)
+  function renderTaskCard(task) {
+      const { sourceBadge, fromText, dateText, separator, linkHtml } = buildTaskMeta(task);
+      const stepIndicator = buildStepIndicator(task);
       const statusClass = `status-${task.status}`;
       const doneClass = task.status === 'done' ? ' done' : '';
+      const isFrozen = frozenTasks.has(task.id);
+      const selClass = task.id === selectedTaskId ? ' selected' : '';
 
-      const fromText = task.from ? `from ${escHtml(task.from)}` : '';
-      const dateText = task.date ? formatDate(task.date) : '';
-      const separator = fromText && dateText ? ' · ' : '';
-      const linkHtml = task.link
-        ? `<a href="${escHtml(task.link)}" onclick="return openLink(event)" rel="noopener">Open source ↗</a>`
-        : '';
-      const notesHtml = task.notes ? `<div class="task-notes">${escHtml(task.notes)}</div>` : '';
-      const summaryHtml = task.summary
-        ? `<div class="task-summary" onclick="if(event.target.tagName==='A')return; event.stopPropagation(); this.classList.toggle('expanded')"><span class="summary-icon">📋</span><div class="summary-text">${renderMarkdown(task.summary)}</div></div>`
-        : '';
-
-      // Ambiguity: slim indicator for task-main, full panel for chat area
-      const ambiguityItems = (() => {
-        if (!task.ambiguities || task.ambiguities.length === 0) return [];
-        return task.ambiguities.map(a =>
-          typeof a === 'string' ? { question: a, resolved: false } : a
-        );
-      })();
-      const ambiguityOpenCount = ambiguityItems.filter(a => !a.resolved).length;
-      const ambiguityAllResolved = ambiguityItems.length > 0 && ambiguityOpenCount === 0;
-
-      // Slim indicator in task-main (just one line)
-      const ambiguityIndicator = ambiguityItems.length > 0
-        ? `<div class="ambiguity-indicator" onclick="event.stopPropagation(); toggleTaskPanel('${task.id}')" style="font-size:0.82em;margin-top:4px;cursor:pointer;color:${ambiguityAllResolved ? '#86efac' : '#fbbf24'}">${ambiguityAllResolved ? '✅ All review items resolved' : `⚠️ ${ambiguityOpenCount} review item${ambiguityOpenCount !== 1 ? 's' : ''} — click to respond`}</div>`
-        : '';
-
-      // Full interactive panel for chat area
-      const ambiguityHtml = (() => {
-        if (ambiguityItems.length === 0) return '';
-        const panelClass = ambiguityAllResolved ? 'ambiguity-panel all-resolved' : 'ambiguity-panel';
-        const titleIcon = ambiguityAllResolved ? '✅' : '⚠️';
-        const titleText = ambiguityAllResolved
-          ? `${titleIcon} All review items resolved`
-          : `${titleIcon} Agent needs your review (${ambiguityOpenCount} open item${ambiguityOpenCount !== 1 ? 's' : ''}):`;
-        // Group: open items first, resolved items after
-        const openItems = ambiguityItems.filter(a => !a.resolved);
-        const resolvedItems = ambiguityItems.filter(a => a.resolved);
-        const sorted = [...openItems, ...resolvedItems];
-        const listHtml = sorted.map(a => {
-          const cls = a.resolved ? ' class="resolved"' : '';
-          return `<li${cls}>${escHtml(a.question)}</li>`;
-        }).join('');
-        return `<div class="${panelClass}" onclick="event.stopPropagation()">
-            <div class="ambiguity-title">${titleText}</div>
-            <ul>${listHtml}</ul>
-            <div class="ambiguity-response-form">
-              <input type="text" placeholder="Your clarification..." onkeydown="if(event.key==='Enter')respondToReview('${task.id}',this)">
-              <button class="btn btn-primary btn-sm" onclick="respondToReview('${task.id}',this.previousElementSibling)">📤 Respond</button>
-            </div>
-          </div>`;
-      })();
-
-      // Step indicators (3-phase pipeline) — hide for manual tasks
-      const isManualTask = task.enrichmentStatus === 'n/a';
-      let stepIndicator = '';
-      if (!isManualTask) {
-        const step2State = task.enrichmentStatus === 'enriched' ? 'done'
-                         : task.enrichmentStatus === 'needs-review' ? 'updated'
-                         : task.enrichmentStatus === 'enriching' ? 'active'
-                         : task.enrichmentStatus === 'error' ? 'error'
-                         : 'pending';
-        const step3State = task.updateCheckStatus === 'updated' ? 'updated'
-                         : task.updateCheckStatus === 'checked' ? 'done'
-                         : task.updateCheckStatus === 'checking' ? 'active'
-                         : task.updateCheckStatus === 'error' ? 'error'
-                         : 'pending';
-
-        const step1Tip = 'Phase 1: Discovery ✅ — Subject extracted from email/Teams';
-        const step2Tips = {
-          pending: 'Phase 2: Enrichment — Waiting to search for related messages',
-          active: 'Phase 2: Enrichment ⏳ — Searching Work IQ for related emails and Teams chats...',
-          done: 'Phase 2: Enrichment ✅ — Summary created from related messages',
-          updated: 'Phase 2: Enrichment ⚠️ — Needs your review (ambiguous information found)',
-          error: 'Phase 2: Enrichment ❌ — Search failed, will retry on next scan'
-        };
-        const step3Tips = {
-          pending: 'Phase 3: Update Check — Waiting to check for new messages',
-          active: 'Phase 3: Update Check ⏳ — Searching for messages since last check...',
-          done: 'Phase 3: Update Check ✅ — No new messages found',
-          updated: 'Phase 3: Update Check 🔔 — New messages found since last check',
-          error: 'Phase 3: Update Check ❌ — Check failed, will retry on next scan'
-        };
-
-        stepIndicator = `<span class="step-indicators">` +
-          `<span class="step-dot step-done" data-step="1" title="${step1Tip}"></span>` +
-          `<span class="step-dot ${step2State !== 'pending' ? 'step-' + step2State : ''}" data-step="2" title="${step2Tips[step2State]}"></span>` +
-          `<span class="step-dot ${step3State !== 'pending' ? 'step-' + step3State : ''}" data-step="3" title="${step3Tips[step3State]}"></span>` +
-          `</span>`;
-      }
-
-      // Timestamps
+      // Compact timestamps
       const createdText = task.createdAt ? formatDateTime(task.createdAt) : '';
       const updatedText = task.updatedAt && task.updatedAt !== task.createdAt
-        ? ` · 🔄 Last updated: ${formatDateTime(task.updatedAt)}`
+        ? ` · 🔄 ${formatDateTime(task.updatedAt)}`
         : '';
       const timestampHtml = createdText
-        ? `<div class="task-timestamps">📥 Discovered: ${createdText}${updatedText}</div>`
+        ? `<div class="task-timestamps">📥 ${createdText}${updatedText}</div>`
         : '';
 
-      const isFrozen = frozenTasks.has(task.id);
-
-      // Split history into conversations vs system events
-      const history = task.history || [];
-      const conversations = history
-        .map((entry, idx) => ({ ...entry, _historyIndex: idx }))
-        .filter(e => e.type === 'update' || e.type === 'note' || e.type === 'review-response');
-      const systemEvents = history.filter(e => e.type !== 'update' && e.type !== 'note' && e.type !== 'review-response');
-      const contentClass = conversations.length > 0 ? ' has-content' : '';
+      // Ambiguity indicator (slim)
+      const ambiguityItems = (task.ambiguities || []).map(a =>
+        typeof a === 'string' ? { question: a, resolved: false } : a
+      );
+      const ambiguityOpenCount = ambiguityItems.filter(a => !a.resolved).length;
+      const ambiguityBadge = ambiguityOpenCount > 0
+        ? `<span style="color:#fbbf24;font-size:0.72rem;margin-left:4px" title="${ambiguityOpenCount} review item(s)">⚠️ ${ambiguityOpenCount}</span>`
+        : '';
 
       return `
-        <div class="task-card${doneClass}${contentClass}${isFrozen ? ' frozen' : ''}" id="card-${task.id}">
-          <div class="task-main" onclick="toggleTaskPanel('${task.id}')">
-            <div class="task-title">${escHtml(task.title)} ${stepIndicator}${pinnedTaskId === task.id ? '<span class="pinned-indicator" onclick="event.stopPropagation(); unpinTask()" title="Unpin task">📌 ✕</span>' : ''}</div>
+        <div class="task-card${doneClass}${isFrozen ? ' frozen' : ''}${selClass}" id="card-${task.id}" onclick="selectTask('${task.id}')">
+          <div class="task-main">
+            <div class="task-title">${escHtml(task.title)} ${stepIndicator}${ambiguityBadge}${pinnedTaskId === task.id ? '<span class="pinned-indicator" onclick="event.stopPropagation(); unpinTask()" title="Unpin task">📌 ✕</span>' : ''}</div>
             <div class="task-meta">
               ${sourceBadge}
               <span>${fromText}${separator}${dateText}</span>
               ${linkHtml}
             </div>
             ${timestampHtml}
-            ${summaryHtml}
-            ${ambiguityIndicator}
-            ${notesHtml}
           </div>
-          <div class="task-actions" onclick="event.stopPropagation()">
+          <div class="task-card-footer" onclick="event.stopPropagation()">
             <span class="frozen-badge">❄️ Agent working...</span>
             <select class="status-select ${statusClass}" onchange="updateTask('${task.id}', { status: this.value })">
               <option value="needs-attention" ${task.status === 'needs-attention' ? 'selected' : ''}>🔴 Attention</option>
@@ -1644,22 +1699,100 @@
             </select>
             <button class="btn btn-danger" onclick="deleteTask('${task.id}')">✕</button>
           </div>
-          <div class="task-panel" id="panel-${task.id}">
-            <div class="panel-log-form">
-              <input type="text" placeholder="Message or update..." onkeydown="if(event.key==='Enter')analyzeLog('${task.id}',this)">
-              <button class="btn btn-primary btn-sm" onclick="analyzeLog('${task.id}',this.previousElementSibling)" title="Send to agent">📤 Send</button>
-              <button class="btn btn-ghost btn-sm" onclick="addNote('${task.id}',this.parentElement.querySelector('input'))" title="Save as note (no agent)">📝 Note</button>
-            </div>
-            <div class="log-plan" id="plan-${task.id}"></div>
-            <div class="log-clarification" id="clarify-${task.id}">
-              <input type="text" placeholder="Your answer..." onkeydown="if(event.key==='Enter')submitClarification('${task.id}',this)">
-              <button class="btn btn-primary btn-sm" onclick="submitClarification('${task.id}',this.previousElementSibling)">Send</button>
-            </div>
-            ${ambiguityHtml}
-            ${renderConversations(conversations, task.id)}
-            ${renderDetails(conversations, systemEvents, task.id)}
+        </div>`;
+  }
+
+  // Full detail view for right panel
+  function renderTaskDetail(task) {
+    if (!task) {
+      return `<div class="detail-empty-state"><p>📋 Select an action item</p><div class="hint">Click a task on the left to view details</div></div>`;
+    }
+
+    const { sourceBadge, fromText, dateText, separator, linkHtml } = buildTaskMeta(task);
+    const stepIndicator = buildStepIndicator(task);
+    const isFrozen = frozenTasks.has(task.id);
+
+    // Timestamps
+    const createdText = task.createdAt ? formatDateTime(task.createdAt) : '';
+    const updatedText = task.updatedAt && task.updatedAt !== task.createdAt
+      ? ` · 🔄 Last updated: ${formatDateTime(task.updatedAt)}`
+      : '';
+    const timestampHtml = createdText
+      ? `<div class="task-timestamps">📥 Discovered: ${createdText}${updatedText}</div>`
+      : '';
+
+    // Summary
+    const summaryHtml = task.summary
+      ? `<div class="task-summary" style="max-height:none;cursor:default"><span class="summary-icon">📋</span><div class="summary-text">${renderMarkdown(task.summary)}</div></div>`
+      : '';
+
+    // Notes
+    const notesHtml = task.notes ? `<div class="task-notes">${escHtml(task.notes)}</div>` : '';
+
+    // Ambiguity panel (full interactive)
+    const ambiguityItems = (task.ambiguities || []).map(a =>
+      typeof a === 'string' ? { question: a, resolved: false } : a
+    );
+    const ambiguityOpenCount = ambiguityItems.filter(a => !a.resolved).length;
+    const ambiguityAllResolved = ambiguityItems.length > 0 && ambiguityOpenCount === 0;
+    const ambiguityHtml = (() => {
+      if (ambiguityItems.length === 0) return '';
+      const panelClass = ambiguityAllResolved ? 'ambiguity-panel all-resolved' : 'ambiguity-panel';
+      const titleIcon = ambiguityAllResolved ? '✅' : '⚠️';
+      const titleText = ambiguityAllResolved
+        ? `${titleIcon} All review items resolved`
+        : `${titleIcon} Agent needs your review (${ambiguityOpenCount} open item${ambiguityOpenCount !== 1 ? 's' : ''}):`;
+      const openItems = ambiguityItems.filter(a => !a.resolved);
+      const resolvedItems = ambiguityItems.filter(a => a.resolved);
+      const sorted = [...openItems, ...resolvedItems];
+      const listHtml = sorted.map(a => {
+        const cls = a.resolved ? ' class="resolved"' : '';
+        return `<li${cls}>${escHtml(a.question)}</li>`;
+      }).join('');
+      return `<div class="${panelClass}">
+          <div class="ambiguity-title">${titleText}</div>
+          <ul>${listHtml}</ul>
+          <div class="ambiguity-response-form">
+            <input type="text" placeholder="Your clarification..." onkeydown="if(event.key==='Enter')respondToReview('${task.id}',this)">
+            <button class="btn btn-primary btn-sm" onclick="respondToReview('${task.id}',this.previousElementSibling)">📤 Respond</button>
           </div>
         </div>`;
+    })();
+
+    // Split history into conversations vs system events
+    const history = task.history || [];
+    const conversations = history
+      .map((entry, idx) => ({ ...entry, _historyIndex: idx }))
+      .filter(e => e.type === 'update' || e.type === 'note' || e.type === 'review-response');
+    const systemEvents = history.filter(e => e.type !== 'update' && e.type !== 'note' && e.type !== 'review-response');
+
+    return `
+      <div class="task-detail-view${isFrozen ? ' frozen' : ''}">
+        <div class="detail-header">
+          <div class="task-title">${escHtml(task.title)} ${stepIndicator}</div>
+          <div class="task-meta">
+            ${sourceBadge}
+            <span>${fromText}${separator}${dateText}</span>
+            ${linkHtml}
+          </div>
+          ${timestampHtml}
+        </div>
+        ${summaryHtml}
+        ${ambiguityHtml}
+        ${notesHtml}
+        <div class="panel-log-form">
+          <input type="text" placeholder="Message or update..." onkeydown="if(event.key==='Enter')analyzeLog('${task.id}',this)">
+          <button class="btn btn-primary btn-sm" onclick="analyzeLog('${task.id}',this.previousElementSibling)" title="Send to agent">📤 Send</button>
+          <button class="btn btn-ghost btn-sm" onclick="addNote('${task.id}',this.parentElement.querySelector('input'))" title="Save as note (no agent)">📝 Note</button>
+        </div>
+        <div class="log-plan" id="plan-${task.id}"></div>
+        <div class="log-clarification" id="clarify-${task.id}">
+          <input type="text" placeholder="Your answer..." onkeydown="if(event.key==='Enter')submitClarification('${task.id}',this)">
+          <button class="btn btn-primary btn-sm" onclick="submitClarification('${task.id}',this.previousElementSibling)">Send</button>
+        </div>
+        ${renderConversations(conversations, task.id)}
+        ${renderDetails(conversations, systemEvents, task.id)}
+      </div>`;
   }
 
   function renderConversations(conversations, taskId) {
@@ -1904,24 +2037,24 @@
       <div class="panel-details" id="details-${taskId}">${detailsHtml}</div>`;
   }
 
-  function toggleTaskPanel(taskId) {
-    if (frozenTasks.has(taskId)) return;
-    const panel = document.getElementById('panel-' + taskId);
-    if (!panel) return;
-    const card = document.getElementById('card-' + taskId);
-    const isVisible = panel.classList.contains('visible');
-
-    if (!isVisible) {
-      panel.classList.add('visible');
-      openPanelTaskIds.add(taskId);
-      if (card) card.classList.add('active-panel');
-      if (card) setTimeout(() => card.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
-    } else {
-      panel.classList.remove('visible');
-      openPanelTaskIds.delete(taskId);
-      if (card) card.classList.remove('active-panel');
+  function selectTask(taskId) {
+    // Deselect previous
+    if (selectedTaskId) {
+      document.getElementById('card-' + selectedTaskId)?.classList.remove('selected');
+    }
+    selectedTaskId = taskId;
+    // Highlight new selection
+    document.getElementById('card-' + taskId)?.classList.add('selected');
+    // Render detail in right panel
+    const task = tasks.find(t => t.id === taskId);
+    const detailPanel = document.getElementById('taskDetailPanel');
+    if (detailPanel && task) {
+      detailPanel.innerHTML = renderTaskDetail(task);
     }
     saveUIState();
+    // Scroll selected card into view in middle panel
+    const card = document.getElementById('card-' + taskId);
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
   function toggleDetails(taskId) {
@@ -1951,6 +2084,11 @@
   function saveUIState() {
     localStorage.setItem('openPanels', JSON.stringify([...openPanelTaskIds]));
     localStorage.setItem('collapsedEntries', JSON.stringify([...collapsedEntries]));
+    if (selectedTaskId) {
+      localStorage.setItem('selectedTaskId', selectedTaskId);
+    } else {
+      localStorage.removeItem('selectedTaskId');
+    }
   }
 
   async function analyzeLog(taskId, input) {
@@ -2319,6 +2457,7 @@
 
   function pinTask(taskId) {
     pinnedTaskId = taskId;
+    selectedTaskId = taskId;
     closeTaskSearch();
     renderTasks();
     const card = document.getElementById('card-' + taskId);
@@ -2368,23 +2507,19 @@
   function freezeTask(taskId) {
     frozenTasks.add(taskId);
     const card = document.getElementById('card-' + taskId);
-    if (card) {
-      card.classList.add('frozen');
-      card.querySelectorAll('.task-panel input, .task-panel textarea, .task-panel select, .task-panel button').forEach(el => {
-        el.disabled = true;
-      });
+    if (card) card.classList.add('frozen');
+    // If this is the selected task, re-render detail to show frozen state
+    if (taskId === selectedTaskId) {
+      const task = tasks.find(t => t.id === taskId);
+      const detailPanel = document.getElementById('taskDetailPanel');
+      if (detailPanel && task) detailPanel.innerHTML = renderTaskDetail(task);
     }
   }
 
   function unfreezeTask(taskId) {
     frozenTasks.delete(taskId);
     const card = document.getElementById('card-' + taskId);
-    if (card) {
-      card.classList.remove('frozen');
-      card.querySelectorAll('.task-panel input, .task-panel textarea, .task-panel select, .task-panel button').forEach(el => {
-        el.disabled = false;
-      });
-    }
+    if (card) card.classList.remove('frozen');
   }
 
   // Refresh a single task card from server without full page re-render
@@ -2393,13 +2528,22 @@
       const data = await (await fetch('/api/tasks')).json();
       const task = (data.tasks || []).find(t => t.id === taskId);
       if (!task) return;
+      // Update in tasks array
+      const idx = tasks.findIndex(t => t.id === taskId);
+      if (idx !== -1) tasks[idx] = task;
+      // Re-render list card
       const oldCard = document.getElementById('card-' + taskId);
-      if (!oldCard) return;
-      // Re-render just this card
-      const tempDiv = document.createElement('div');
-      tempDiv.innerHTML = renderTaskCard(task);
-      const newCard = tempDiv.firstElementChild;
-      oldCard.replaceWith(newCard);
+      if (oldCard) {
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = renderTaskCard(task);
+        const newCard = tempDiv.firstElementChild;
+        oldCard.replaceWith(newCard);
+      }
+      // If this is the selected task, refresh detail panel
+      if (taskId === selectedTaskId) {
+        const detailPanel = document.getElementById('taskDetailPanel');
+        if (detailPanel) detailPanel.innerHTML = renderTaskDetail(task);
+      }
     } catch (err) {
       console.error(`Failed to refresh task ${taskId}:`, err);
     }
@@ -2527,6 +2671,58 @@
     const clean = firstLine.replace(/\*\*/g, '').replace(/^#+\s*/, '').trim();
     return clean.length > maxLen ? clean.substring(0, maxLen) + '…' : clean;
   }
+
+  // --- Resize Handles ---
+  (function initResizeHandles() {
+    const layout = document.getElementById('appLayout');
+    const handles = document.querySelectorAll('.resize-handle');
+    const stored = JSON.parse(localStorage.getItem('columnWidths') || 'null');
+    if (stored && stored.left && stored.middle) {
+      layout.style.setProperty('--col-left', stored.left + 'px');
+      layout.style.setProperty('--col-middle', stored.middle + 'px');
+    }
+
+    handles.forEach(handle => {
+      let startX, startLeft, startMiddle;
+
+      handle.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        handle.classList.add('dragging');
+        startX = e.clientX;
+        const cs = getComputedStyle(layout);
+        const cols = cs.gridTemplateColumns.split(/\s+/);
+        startLeft = parseFloat(cols[0]);
+        startMiddle = parseFloat(cols[2]);
+
+        const onMove = (e) => {
+          const dx = e.clientX - startX;
+          const isLeftHandle = handle.dataset.handle === 'left';
+          let newLeft = isLeftHandle ? startLeft + dx : startLeft;
+          let newMiddle = isLeftHandle ? startMiddle - dx : startMiddle + dx;
+          // Enforce minimums
+          if (newLeft < 80) newLeft = 80;
+          if (newMiddle < 200) newMiddle = 200;
+          layout.style.setProperty('--col-left', newLeft + 'px');
+          layout.style.setProperty('--col-middle', newMiddle + 'px');
+        };
+
+        const onUp = () => {
+          handle.classList.remove('dragging');
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup', onUp);
+          const cs = getComputedStyle(layout);
+          const cols = cs.gridTemplateColumns.split(/\s+/);
+          localStorage.setItem('columnWidths', JSON.stringify({
+            left: parseFloat(cols[0]),
+            middle: parseFloat(cols[2])
+          }));
+        };
+
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+      });
+    });
+  })();
 
   // --- Init ---
   checkServerHealth();
