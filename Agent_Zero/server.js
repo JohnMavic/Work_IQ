@@ -159,6 +159,17 @@ function normalizeAmbiguities(arr) {
   });
 }
 
+// Format a timestamp for update markers in summaries (dd.MM.yyyy, HH:mm)
+function formatUpdateTimestamp(date) {
+  const d = date || new Date();
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  return `${day}.${month}.${year}, ${hours}:${minutes}`;
+}
+
 function extractKeywords(title) {
   const stopWords = new Set([
     'the','a','an','is','are','was','were','be','been','have','has','had',
@@ -1036,8 +1047,10 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
           type: 'thread-update',
           text: historyLines.join('\n')
         });
-        // Append update to summary (fallback — may be refined by evaluation below)
-        t.summary = (t.summary || '') + '\n\n📌 Update: ' + String(result.updateSummary).trim();
+        // Prepend update with timestamp (newest on top — may be refined by evaluation below)
+        const updateTs = formatUpdateTimestamp(new Date());
+        const updateLine = `📌 Update (${updateTs}): ${String(result.updateSummary).trim()}`;
+        t.summary = updateLine + '\n\n' + (t.summary || '');
         t.updatedAt = now;
         return { hasUpdate: true, updateSummary: result.updateSummary };
       } else {
@@ -1073,25 +1086,39 @@ NEW UPDATE FOUND:
 "${updated.updateSummary}"
 
 INSTRUCTIONS:
-1. Compare the current title and summary with the new update information.
 
-2. TITLE evaluation:
-   - The title must help the user instantly understand what this action item is about RIGHT NOW.
-   - If the situation has evolved (new response received, status changed, deadline passed, request fulfilled), the title must reflect the CURRENT state.
-   - Example: "Please prepare slides by Friday" → after submitting → "Slides submitted — awaiting review from Jawad"
+1. TITLE evaluation — be PROACTIVE about updating:
+   - The title must reflect the CURRENT state of this action item, not the original request.
+   - If the situation has evolved in ANY way (reply received, decision made, deadline passed, request fulfilled, meeting confirmed), UPDATE the title to reflect what is happening NOW.
+   - Example: "Please prepare slides by Friday" → "Slides submitted — awaiting review from Jawad"
+   - Example: "Harshitha asks for presentation topic" → "Learn & Grow session confirmed for April 17"
+   - Be decisive: if the latest update changes the situation, the title MUST change.
    - Keep it concise: max 15 words, factual, no emojis.
-   - If the title still accurately reflects the current state, do NOT change it.
 
-3. SUMMARY evaluation:
-   - The summary should be a comprehensive overview of the action item's FULL history and current state.
-   - Integrate the new update seamlessly — do NOT just append with "📌 Update:" markers.
-   - Write a clean, professional paragraph that tells the complete story including the latest developments.
-   - Preserve ALL important existing details. Add new findings naturally into the narrative.
-   - If the update adds no meaningful new information beyond what's already covered, do NOT change the summary.
+2. SUMMARY evaluation — maintain REVERSE CHRONOLOGICAL structure:
+   The summary MUST follow this structure:
+   - NEWEST updates at the TOP, each with a timestamp marker: "📌 Update (DD.MM.YYYY, HH:MM): ..."
+   - OLDER updates below, also with timestamp markers
+   - The ORIGINAL base summary at the BOTTOM
+   - Each update is separated by a blank line
 
-4. Write in the SAME language as the existing title and summary.
+   Example structure:
+   📌 Update (11.03.2026, 11:40): Session confirmed for April 17, Martin as co-organizer...
 
-5. Only set *Changed to true when there is a GENUINE reason to update.
+   📌 Update (10.03.2026, 14:22): Martin provided title and description...
+
+   📌 Update (09.03.2026, 08:15): Harshitha agreed to the proposal...
+
+   Harshitha Digumarthi hat Martin als Guest Speaker eingeladen...
+
+   Rules:
+   - Preserve ALL existing updates and the base summary — do NOT drop any information.
+   - You may MERGE or DEDUPLICATE genuinely redundant updates, but never silently remove information.
+   - If an existing update already has a timestamp, keep it. If it lacks one, leave it without rather than guessing.
+   - The new update has already been prepended with a timestamp. Ensure it stays at the top.
+   - Write in the SAME language as the existing content.
+
+3. Only set *Changed to true when there is a GENUINE reason to update.
 
 Return ONLY valid JSON, no markdown:
 {
@@ -1714,24 +1741,30 @@ Communications found: ${communications.length}
 ${commSummaries ? `Details:\n${commSummaries}` : ''}
 
 INSTRUCTIONS:
-1. Compare the current title and summary with the new information from the search.
 
-2. TITLE evaluation:
-   - The title must help the user instantly understand what this action item is about RIGHT NOW.
-   - If the situation has evolved (new task, updated expectations, status change), the title must reflect the CURRENT state — not the original request.
-   - Example: Original "Please prepare slides by Friday" → after slides were submitted → "Slides submitted — awaiting review from Jawad"
+1. TITLE evaluation — be PROACTIVE about updating:
+   - The title must reflect the CURRENT state of this action item, not the original request.
+   - If the search reveals that the situation has evolved (reply received, decision made, deadline passed, request fulfilled, meeting confirmed), UPDATE the title.
+   - Example: "Please prepare slides by Friday" → "Slides submitted — awaiting review from Jawad"
+   - Be decisive: if the search reveals a changed situation, the title MUST change.
    - Keep it concise: max 15 words, factual, no emojis.
-   - If the title still accurately reflects the current state, do NOT change it.
 
-3. SUMMARY evaluation:
-   - The summary should be a comprehensive overview of the action item's FULL history and current state.
-   - When new information is found (new replies, status changes, decisions), EXTEND the summary with these details.
-   - Preserve ALL important existing details — do not drop information. Add new findings at the end.
-   - If the search found no meaningful new information beyond what's already in the summary, do NOT change it.
+2. SUMMARY evaluation — maintain REVERSE CHRONOLOGICAL structure:
+   The summary MUST follow this structure:
+   - NEWEST updates at the TOP, each with a timestamp marker: "📌 Update (DD.MM.YYYY, HH:MM): ..."
+   - OLDER updates below, also with timestamp markers
+   - The ORIGINAL base summary at the BOTTOM
+   - Each update is separated by a blank line
 
-4. Write in the SAME language as the existing title and summary. If they are in German, write in German. If in English, write in English.
+   Rules:
+   - When NEW information is found (new replies, status changes, decisions), add it as a NEW update at the TOP with today's timestamp: "📌 Update (${formatUpdateTimestamp(new Date())}): ..."
+   - Preserve ALL existing updates and the base summary — do NOT drop any information.
+   - You may MERGE or DEDUPLICATE genuinely redundant updates, but never silently remove information.
+   - If existing updates already have timestamps, keep them. If they lack timestamps, leave them without rather than guessing.
+   - If the search found no meaningful new information, do NOT change the summary.
+   - Write in the SAME language as the existing content.
 
-5. Only set *Changed to true when there is a GENUINE reason to update.
+3. Only set *Changed to true when there is a GENUINE reason to update.
 
 Return ONLY valid JSON, no markdown:
 {

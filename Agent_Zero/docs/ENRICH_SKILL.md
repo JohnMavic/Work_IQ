@@ -8,7 +8,7 @@ You will receive KEYWORDS from the subject line, the SOURCE (email or teams), a 
 1. Find the specific message or conversation thread
 2. Extract the FULL conversation content — all messages from all participants
 3. Apply temporal reasoning to distinguish current from historical information
-4. Create a concise, accurate summary
+4. Create a concise, accurate **base summary** — this will serve as the foundation for future updates
 
 ## Search Strategy — Three Attempts
 
@@ -60,6 +60,7 @@ When you find the conversation:
 - Include specific details: names, dates, numbers, project names, invoice numbers, links mentioned
 - The summary must enable the user to understand the full situation WITHOUT opening the original message
 - Start with the CURRENT situation, then add historical context if relevant
+- This is the **base summary** — future updates will be prepended above it with "📌 Update (date, time):" markers. Do NOT use that marker format in the initial summary.
 
 ## Response Format
 
