@@ -79,12 +79,7 @@
     }
     .last-scan { font-size: 0.8rem; color: #666; }
 
-    /* Row 3: Settings (buttons moved to sidebar) */
-    .header-row-3 {
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-    }
+    /* Row 3: removed — link options merged into filter bar */
     .link-mode-group {
       display: flex;
       align-items: center;
@@ -226,6 +221,7 @@
       display: flex; align-items: center; gap: 5px;
       flex-wrap: wrap;
     }
+    .filter-bar .link-mode-group { margin-left: auto; }
     .task-count {
       margin-left: auto; font-size: 0.72rem; color: #666; white-space: nowrap;
     }
@@ -948,7 +944,7 @@
       </div>
     </div>
 
-    <!-- Row 2b: Filter Bar (action item type summary) -->
+    <!-- Row 2b: Filter Bar + Link Options (combined) -->
     <div class="filter-bar" id="filterBar">
       <button class="btn btn-ghost btn-sm active" data-filter="all" onclick="setFilter('all', this)">All</button>
       <button class="btn btn-ghost btn-sm" data-filter="needs-attention" onclick="setFilter('needs-attention', this)">🔴</button>
@@ -960,10 +956,6 @@
       <button class="btn btn-ghost btn-sm" data-filter="paused" onclick="setFilter('paused', this)">⏸️</button>
       <button class="btn btn-ghost btn-sm" data-filter="done" onclick="setFilter('done', this)">✅</button>
       <span class="task-count" id="taskCount"></span>
-    </div>
-
-    <!-- Row 3: Settings -->
-    <div class="header-row-3">
       <div class="link-mode-group">
         <span class="link-mode-label">Open links in:</span>
         <button class="link-mode-btn" data-mode="window" title="New Window — Opens link in a separate browser window" onclick="setLinkMode('window')">🪟 Window</button>
