@@ -946,15 +946,15 @@
 
     <!-- Row 2b: Filter Bar + Link Options (combined) -->
     <div class="filter-bar" id="filterBar">
-      <button class="btn btn-ghost btn-sm active" data-filter="all" onclick="setFilter('all', this)">All</button>
-      <button class="btn btn-ghost btn-sm" data-filter="needs-attention" onclick="setFilter('needs-attention', this)">🔴</button>
-      <button class="btn btn-ghost btn-sm" data-filter="new" onclick="setFilter('new', this)">🆕</button>
-      <button class="btn btn-ghost btn-sm" data-filter="updated" onclick="setFilter('updated', this)">🔄</button>
-      <button class="btn btn-ghost btn-sm" data-filter="escalated" onclick="setFilter('escalated', this)">🚨</button>
-      <button class="btn btn-ghost btn-sm" data-filter="in-progress" onclick="setFilter('in-progress', this)">🟡</button>
-      <button class="btn btn-ghost btn-sm" data-filter="on-radar" onclick="setFilter('on-radar', this)">📡</button>
-      <button class="btn btn-ghost btn-sm" data-filter="paused" onclick="setFilter('paused', this)">⏸️</button>
-      <button class="btn btn-ghost btn-sm" data-filter="done" onclick="setFilter('done', this)">✅</button>
+      <button class="btn btn-ghost btn-sm active" data-filter="all" title="All action items" onclick="setFilter('all', this)">All</button>
+      <button class="btn btn-ghost btn-sm" data-filter="needs-attention" title="Needs Attention" onclick="setFilter('needs-attention', this)">🔴</button>
+      <button class="btn btn-ghost btn-sm" data-filter="new" title="New" onclick="setFilter('new', this)">🆕</button>
+      <button class="btn btn-ghost btn-sm" data-filter="updated" title="Updated" onclick="setFilter('updated', this)">🔄</button>
+      <button class="btn btn-ghost btn-sm" data-filter="escalated" title="Escalated" onclick="setFilter('escalated', this)">🚨</button>
+      <button class="btn btn-ghost btn-sm" data-filter="in-progress" title="In Progress" onclick="setFilter('in-progress', this)">🟡</button>
+      <button class="btn btn-ghost btn-sm" data-filter="on-radar" title="On Radar" onclick="setFilter('on-radar', this)">📡</button>
+      <button class="btn btn-ghost btn-sm" data-filter="paused" title="Paused" onclick="setFilter('paused', this)">⏸️</button>
+      <button class="btn btn-ghost btn-sm" data-filter="done" title="Done" onclick="setFilter('done', this)">✅</button>
       <span class="task-count" id="taskCount"></span>
       <div class="link-mode-group">
         <span class="link-mode-label">Open links in:</span>
