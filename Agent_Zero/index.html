@@ -154,7 +154,7 @@
     .app-layout {
       flex: 1;
       display: grid;
-      grid-template-columns: var(--col-left, 160px) 4px var(--col-middle, 340px) 4px 1fr;
+      grid-template-columns: var(--col-left, 200px) 4px var(--col-middle, 340px) 4px 1fr;
       overflow: hidden;
       min-height: 0;
     }
@@ -169,7 +169,7 @@
       position: relative;
       border-right: none;
     }
-    .sidebar-left .btn { width: 100%; text-align: center; }
+    .sidebar-left .btn { width: 100%; text-align: left; white-space: nowrap; }
 
     /* Resize Handles */
     .resize-handle {
@@ -952,7 +952,7 @@
 
     <!-- Left Sidebar: Action Buttons -->
     <div class="sidebar-left">
-      <button class="btn btn-scan" id="btnScan" onclick="triggerScan()">Generate Action Items<br><span class="btn-sub">Scan Outlook &amp; Teams</span></button>
+      <button class="btn btn-scan" id="btnScan" onclick="triggerScan()">📡 Generate Action Items<br><span class="btn-sub">Scan Outlook &amp; Teams</span></button>
       <button class="btn btn-add-task" id="btnAddTask" onclick="showAddTaskModal()">＋ Add Action Item<br><span class="btn-sub">&nbsp;</span></button>
       <div class="task-search-wrapper" id="searchWrapper">
         <button class="btn btn-search-tasks" onclick="toggleTaskSearch()">🔍 Search<br><span class="btn-sub">&nbsp;</span></button>
@@ -2700,7 +2700,7 @@
           let newLeft = isLeftHandle ? startLeft + dx : startLeft;
           let newMiddle = isLeftHandle ? startMiddle - dx : startMiddle + dx;
           // Enforce minimums
-          if (newLeft < 80) newLeft = 80;
+          if (newLeft < 180) newLeft = 180;
           if (newMiddle < 200) newMiddle = 200;
           layout.style.setProperty('--col-left', newLeft + 'px');
           layout.style.setProperty('--col-middle', newMiddle + 'px');
