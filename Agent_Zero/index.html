@@ -172,16 +172,25 @@
     .sidebar-left .btn { width: 100%; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .sidebar-left { min-width: 200px; }
 
-    /* Resize Handles */
+    /* Resize Handles — visually 1px, grab zone 12px via pseudo-element */
     .resize-handle {
       background: #1a1d2e;
       cursor: col-resize;
       transition: background 0.15s;
       min-width: 1px;
       max-width: 1px;
+      position: relative;
+    }
+    .resize-handle::before {
+      content: '';
+      position: absolute;
+      top: 0; bottom: 0;
+      left: -6px;
+      width: 13px;
+      z-index: 10;
     }
     .resize-handle:hover,
-    .resize-handle.dragging { background: #3b82f6; max-width: 2px; }
+    .resize-handle.dragging { background: #3b82f6; }
 
     /* Middle Panel (task list) */
     .panel-middle {
