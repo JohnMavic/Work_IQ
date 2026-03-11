@@ -104,8 +104,8 @@
     }
     .btn:hover { opacity: 0.85; }
     .btn-primary { background: #3b82f6; color: #fff; }
-    .btn-scan { background: #6366f1; color: #fff; font-size: 0.82rem; padding: 6px 10px; height: 38px; line-height: 1.1; }
-    .btn-sub { font-size: 0.7em; opacity: 0.75; font-weight: 400; }
+    .btn-scan { background: #6366f1; color: #fff; font-size: 0.82rem; padding: 6px 10px; height: auto; line-height: 1.1; }
+    .btn-sub { font-size: 0.7em; opacity: 0.75; font-weight: 400; display: block; }
     .btn-abort { background: #dc2626; color: #fff; font-size: 0.75rem; padding: 4px 10px; margin-left: auto; }
     .btn-danger { background: #ef4444; color: #fff; padding: 4px 10px; font-size: 0.75rem; }
     .btn-sm { padding: 4px 10px; font-size: 0.75rem; }
@@ -154,7 +154,7 @@
     .app-layout {
       flex: 1;
       display: grid;
-      grid-template-columns: var(--col-left, 200px) 4px var(--col-middle, 340px) 4px 1fr;
+      grid-template-columns: var(--col-left, 200px) 1px var(--col-middle, 340px) 1px 1fr;
       overflow: hidden;
       min-height: 0;
     }
@@ -169,17 +169,19 @@
       position: relative;
       border-right: none;
     }
-    .sidebar-left .btn { width: 100%; text-align: left; white-space: nowrap; }
+    .sidebar-left .btn { width: 100%; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sidebar-left { min-width: 200px; }
 
     /* Resize Handles */
     .resize-handle {
-      background: #1e2233;
+      background: #1a1d2e;
       cursor: col-resize;
       transition: background 0.15s;
-      min-width: 4px;
+      min-width: 1px;
+      max-width: 1px;
     }
     .resize-handle:hover,
-    .resize-handle.dragging { background: #3b82f6; }
+    .resize-handle.dragging { background: #3b82f6; max-width: 2px; }
 
     /* Middle Panel (task list) */
     .panel-middle {
@@ -189,11 +191,11 @@
       padding: 10px 12px;
       min-height: 0;
     }
-    .panel-middle::-webkit-scrollbar { width: 6px; }
+    .panel-middle::-webkit-scrollbar { width: 4px; }
     .panel-middle::-webkit-scrollbar-track { background: transparent; }
-    .panel-middle::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
-    .panel-middle::-webkit-scrollbar-thumb:hover { background: #475569; }
-    .panel-middle { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+    .panel-middle::-webkit-scrollbar-thumb { background: #262d40; border-radius: 2px; }
+    .panel-middle::-webkit-scrollbar-thumb:hover { background: #3a4358; }
+    .panel-middle { scrollbar-width: thin; scrollbar-color: #262d40 transparent; }
 
     /* Right Panel (task detail) */
     .panel-right {
@@ -204,16 +206,16 @@
       min-height: 0;
       border-left: none;
     }
-    .panel-right::-webkit-scrollbar { width: 6px; }
+    .panel-right::-webkit-scrollbar { width: 4px; }
     .panel-right::-webkit-scrollbar-track { background: transparent; }
-    .panel-right::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
-    .panel-right::-webkit-scrollbar-thumb:hover { background: #475569; }
-    .panel-right { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+    .panel-right::-webkit-scrollbar-thumb { background: #262d40; border-radius: 2px; }
+    .panel-right::-webkit-scrollbar-thumb:hover { background: #3a4358; }
+    .panel-right { scrollbar-width: thin; scrollbar-color: #262d40 transparent; }
 
-    /* --- Filter Bar (inside middle panel) --- */
+    /* --- Filter Bar (inside header) --- */
     .filter-bar {
       display: flex; align-items: center; gap: 5px;
-      margin-bottom: 10px; flex-wrap: wrap;
+      flex-wrap: wrap;
     }
     .task-count {
       margin-left: auto; font-size: 0.72rem; color: #666; white-space: nowrap;
@@ -709,14 +711,14 @@
     .form-group textarea { resize: vertical; min-height: 60px; }
     .form-group .field-hint { font-size: 0.7rem; color: #555; margin-top: 2px; }
     .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
-    .btn-add-task { background: #10b981; color: #fff; font-size: 0.82rem; padding: 6px 10px; height: 38px; }
+    .btn-add-task { background: #10b981; color: #fff; font-size: 0.82rem; padding: 8px 10px; }
 
     /* --- Task Search --- */
     .task-search-wrapper {
       position: relative;
     }
     .btn-search-tasks {
-      background: #0ea5e9; color: #fff; font-size: 0.82rem; padding: 6px 10px; height: 38px;
+      background: #0ea5e9; color: #fff; font-size: 0.82rem; padding: 8px 10px;
     }
     .task-search-input {
       display: none;
@@ -937,6 +939,20 @@
       </div>
     </div>
 
+    <!-- Row 2b: Filter Bar (action item type summary) -->
+    <div class="filter-bar" id="filterBar">
+      <button class="btn btn-ghost btn-sm active" data-filter="all" onclick="setFilter('all', this)">All</button>
+      <button class="btn btn-ghost btn-sm" data-filter="needs-attention" onclick="setFilter('needs-attention', this)">🔴</button>
+      <button class="btn btn-ghost btn-sm" data-filter="new" onclick="setFilter('new', this)">🆕</button>
+      <button class="btn btn-ghost btn-sm" data-filter="updated" onclick="setFilter('updated', this)">🔄</button>
+      <button class="btn btn-ghost btn-sm" data-filter="escalated" onclick="setFilter('escalated', this)">🚨</button>
+      <button class="btn btn-ghost btn-sm" data-filter="in-progress" onclick="setFilter('in-progress', this)">🟡</button>
+      <button class="btn btn-ghost btn-sm" data-filter="on-radar" onclick="setFilter('on-radar', this)">📡</button>
+      <button class="btn btn-ghost btn-sm" data-filter="paused" onclick="setFilter('paused', this)">⏸️</button>
+      <button class="btn btn-ghost btn-sm" data-filter="done" onclick="setFilter('done', this)">✅</button>
+      <span class="task-count" id="taskCount"></span>
+    </div>
+
     <!-- Row 3: Settings -->
     <div class="header-row-3">
       <div class="link-mode-group">
@@ -952,10 +968,10 @@
 
     <!-- Left Sidebar: Action Buttons -->
     <div class="sidebar-left">
-      <button class="btn btn-scan" id="btnScan" onclick="triggerScan()">📡 Generate Action Items<br><span class="btn-sub">Scan Outlook &amp; Teams</span></button>
-      <button class="btn btn-add-task" id="btnAddTask" onclick="showAddTaskModal()">＋ Add Action Item<br><span class="btn-sub">&nbsp;</span></button>
+      <button class="btn btn-scan" id="btnScan" onclick="triggerScan()">📡 Generate Action Items<span class="btn-sub">Scan Outlook &amp; Teams</span></button>
+      <button class="btn btn-add-task" id="btnAddTask" onclick="showAddTaskModal()">＋ Add Action Item</button>
       <div class="task-search-wrapper" id="searchWrapper">
-        <button class="btn btn-search-tasks" onclick="toggleTaskSearch()">🔍 Search<br><span class="btn-sub">&nbsp;</span></button>
+        <button class="btn btn-search-tasks" onclick="toggleTaskSearch()">🔍 Search</button>
         <input type="text" class="task-search-input" id="taskSearchInput" placeholder="Search tasks..." oninput="onTaskSearch(this.value)" onkeydown="onSearchKeydown(event)">
         <div class="task-search-results" id="taskSearchResults"></div>
       </div>
@@ -976,18 +992,6 @@
         <div class="retry-hint">🔄 Connection will be checked automatically...</div>
       </div>
 
-      <div class="filter-bar">
-        <button class="btn btn-ghost btn-sm active" data-filter="all" onclick="setFilter('all', this)">All</button>
-        <button class="btn btn-ghost btn-sm" data-filter="needs-attention" onclick="setFilter('needs-attention', this)">🔴</button>
-        <button class="btn btn-ghost btn-sm" data-filter="new" onclick="setFilter('new', this)">🆕</button>
-        <button class="btn btn-ghost btn-sm" data-filter="updated" onclick="setFilter('updated', this)">🔄</button>
-        <button class="btn btn-ghost btn-sm" data-filter="escalated" onclick="setFilter('escalated', this)">🚨</button>
-        <button class="btn btn-ghost btn-sm" data-filter="in-progress" onclick="setFilter('in-progress', this)">🟡</button>
-        <button class="btn btn-ghost btn-sm" data-filter="on-radar" onclick="setFilter('on-radar', this)">📡</button>
-        <button class="btn btn-ghost btn-sm" data-filter="paused" onclick="setFilter('paused', this)">⏸️</button>
-        <button class="btn btn-ghost btn-sm" data-filter="done" onclick="setFilter('done', this)">✅</button>
-        <span class="task-count" id="taskCount"></span>
-      </div>
       <div class="task-list" id="taskList"></div>
     </div>
 
@@ -1304,7 +1308,7 @@
     const abortBtn = document.getElementById('btnAbort');
 
     btn.disabled = true;
-    btn.innerHTML = 'Scanning...<br><span class="btn-sub">Scan Outlook &amp; Teams</span>';
+    btn.innerHTML = '📡 Scanning...<span class="btn-sub">Scan Outlook &amp; Teams</span>';
     overlay.classList.add('visible');
 
     const days = document.getElementById('scanDays').value || '4';
@@ -1498,7 +1502,7 @@
       overlay.classList.remove('visible');
       loadingText.className = 'loading-text';
       btn.disabled = !serverOnline;
-      btn.innerHTML = 'Generate Action Items<br><span class="btn-sub">Scan Outlook &amp; Teams</span>';
+      btn.innerHTML = '📡 Generate Action Items<span class="btn-sub">Scan Outlook &amp; Teams</span>';
       scanAborted = false;
       if (abortBtn) { abortBtn.disabled = false; abortBtn.textContent = '⏹ Stop'; }
     }
@@ -2700,7 +2704,7 @@
           let newLeft = isLeftHandle ? startLeft + dx : startLeft;
           let newMiddle = isLeftHandle ? startMiddle - dx : startMiddle + dx;
           // Enforce minimums
-          if (newLeft < 180) newLeft = 180;
+          if (newLeft < 200) newLeft = 200;
           if (newMiddle < 200) newMiddle = 200;
           layout.style.setProperty('--col-left', newLeft + 'px');
           layout.style.setProperty('--col-middle', newMiddle + 'px');
