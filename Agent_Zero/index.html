@@ -461,7 +461,7 @@
       border-radius: 4px;
       border: 1px solid rgba(0, 212, 255, 0.25);
     }
-    .task-card.frozen .frozen-badge { display: inline-flex; align-items: center; gap: 4px; }
+    .task-card.frozen .frozen-badge { display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex: 1; }
     @keyframes frozenPulse {
       0%, 100% { opacity: 0.7; text-shadow: 0 0 8px rgba(0, 229, 255, 0.5); }
       50% { opacity: 1; text-shadow: 0 0 18px rgba(0, 229, 255, 1); }
@@ -1691,7 +1691,6 @@
             ${timestampHtml}
           </div>
           <div class="task-card-footer" onclick="event.stopPropagation()">
-            <span class="frozen-badge">❄️ Agent working...</span>
             <select class="status-select ${statusClass}" onchange="updateTask('${task.id}', { status: this.value })">
               <option value="needs-attention" ${task.status === 'needs-attention' ? 'selected' : ''}>🔴 Attention</option>
               <option value="new" ${task.status === 'new' ? 'selected' : ''}>🆕 New</option>
@@ -1702,6 +1701,7 @@
               <option value="paused" ${task.status === 'paused' ? 'selected' : ''}>⏸️ Paused</option>
               <option value="done" ${task.status === 'done' ? 'selected' : ''}>✅ Done</option>
             </select>
+            <span class="frozen-badge">❄️ Agent working...</span>
             <button class="btn btn-danger" onclick="deleteTask('${task.id}')">✕</button>
           </div>
         </div>`;
