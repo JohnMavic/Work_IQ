@@ -1968,14 +1968,37 @@
     }
 
     // Render compact list items in middle panel
-    list.innerHTML = filtered.map(task => renderTaskCard(task)).join('');
+    // IMPORTANT: Preserve frozen task cards — they are being processed by an agent
+    // and must not be overwritten with stale server data mid-operation.
+    if (frozenTasks.size > 0) {
+      const newHtml = document.createElement('div');
+      filtered.forEach(task => {
+        if (frozenTasks.has(task.id)) {
+          const existing = document.getElementById('card-' + task.id);
+          if (existing) {
+            newHtml.appendChild(existing);
+            return;
+          }
+        }
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = renderTaskCard(task);
+        if (wrapper.firstElementChild) newHtml.appendChild(wrapper.firstElementChild);
+      });
+      list.innerHTML = '';
+      while (newHtml.firstChild) list.appendChild(newHtml.firstChild);
+    } else {
+      list.innerHTML = filtered.map(task => renderTaskCard(task)).join('');
+    }
 
     // Render detail view in right panel
     const selectedInList = filtered.find(t => t.id === selectedTaskId);
     if (!selectedInList) {
       selectedTaskId = filtered[0].id;
     }
-    detailPanel.innerHTML = renderTaskDetail(tasks.find(t => t.id === selectedTaskId));
+    // Don't overwrite detail panel if selected task is frozen (agent working)
+    if (!frozenTasks.has(selectedTaskId)) {
+      detailPanel.innerHTML = renderTaskDetail(tasks.find(t => t.id === selectedTaskId));
+    }
     // Highlight selected item
     document.getElementById('card-' + selectedTaskId)?.classList.add('selected');
     saveUIState();
