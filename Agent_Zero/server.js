@@ -1548,9 +1548,9 @@ app.post('/api/tasks/:id/log/analyze', async (req, res) => {
     client = new CopilotClient();
     const session = await client.createSession({});  // No MCP servers → AI reasoning only
 
-    const analyzePrompt = `You are an intelligent assistant for a task management app. Analyze the user's message and determine the correct intent.
+    const analyzePrompt = `You are an intelligent assistant managing a task tracker. The user sends you messages about a specific task. Your job is to UNDERSTAND what the user wants and act accordingly.
 
-TASK:
+TASK CONTEXT:
 Title: "${task.title}"
 Summary: ${task.summary || '(no summary available)'}
 From: ${task.from || 'unknown'}
@@ -1563,42 +1563,72 @@ ${recentHistory || '(no prior conversation)'}
 USER'S MESSAGE:
 "${text.trim()}"
 
-STEP 1: Determine the INTENT. Choose exactly one:
-- "summarize" — user provided text/content and wants you to summarize or extract key points, OR user wants to correct/update/replace the existing task summary. The result becomes the new main task summary.
-- "search" — user wants you to FIND emails, Teams messages, or communications. Requires Work IQ search.
-- "answer" — user asks a question that you can answer from the task context, the provided text, or general knowledge. No search needed.
-- "rename" — user wants to CHANGE the task title. They may suggest a new title directly, or ask you to propose one based on the current context and conversation. Return the new title as result.
+## HOW TO THINK ABOUT THIS
 
-STEP 2: Return JSON based on intent.
+Ask yourself ONE question: **Is the user GIVING me information, or ASKING me to FIND information?**
 
-If intent is "summarize":
+- If the user is TELLING you something ("I did X", "the meeting happened", "here's an update", "I edited the file"), they are **giving you information**. Use it to update the task. This is NEVER a search.
+- If the user is ASKING you to look something up in their emails, Teams, or calendar ("find emails from X", "check what Y wrote", "was hat Z geschrieben"), they need you to **find information**. This is a search.
+- If the user asks a question you can answer from the task context or general knowledge, just answer it directly.
+
+## INTENTS
+
+Choose the intent that best matches what the user actually wants:
+
+**"update"** — The user provides new information AND wants the task updated (title, summary, or both). Use this when:
+  - User reports an action they took ("I edited...", "I sent...", "I talked to...")
+  - User provides new context with a link or reference
+  - User asks to update BOTH title and summary
+  - User describes what changed and wants the task to reflect it
+  This is the most common intent when a user interacts with a task to keep it current.
+
+**"summarize"** — The user provides text/content to summarize, OR wants ONLY the summary corrected/replaced (not the title).
+
+**"rename"** — The user wants ONLY the title changed (not the summary).
+
+**"answer"** — The user asks a question answerable from the task context, conversation history, or general knowledge. No external search needed.
+
+**"search"** — The user explicitly wants you to FIND communications in their M365 environment (emails, Teams, calendar). This requires Work IQ search and is the ONLY intent that triggers an external search.
+  ONLY use "search" when the user clearly asks you to look up, find, search, or check something in their communications.
+
+## RESPONSE FORMAT
+
+For "update":
+{
+  "intent": "update",
+  "newTitle": "Short, factual title reflecting the current state of the action item (max ~15 words). If the user doesn't ask for a title change, keep the original: ${JSON.stringify(task.title)}",
+  "newSummary": "Updated summary incorporating the new information the user provided. Merge with existing context where relevant.",
+  "changeDescription": "Brief human-readable description of what you changed and why"
+}
+
+For "summarize":
 {
   "intent": "summarize",
-  "result": "Your clear, structured summary of the content the user provided. Use bullet points for action items. Write in the same language as the user's message."
+  "result": "The complete updated summary. Write in the same language as the user's message."
 }
 
-If intent is "answer":
-{
-  "intent": "answer",
-  "result": "Your direct answer to the user's question, based on task context and conversation history. Write in the same language as the user's message."
-}
-
-If intent is "rename":
+For "rename":
 {
   "intent": "rename",
-  "result": "The new task title — concise, clear, and reflecting the current state. Write in the same language as the user's message."
+  "result": "The new task title — concise, clear, max ~15 words."
 }
 
-If intent is "search":
+For "answer":
+{
+  "intent": "answer",
+  "result": "Your direct answer to the user's question."
+}
+
+For "search":
 {
   "intent": "search",
-  "understanding": "A clear action plan: what you will search, where, and what you expect to find. Be specific: 'I will search for emails from Mark Higgins (WWT) about the MPR survey at Zurich The Circle, looking for the name of the tech performing the survey on March 3.' Use 'I will...' or 'Ich werde...'",
-  "expectedAnswer": "What KIND of answer the user needs. Examples: 'A person name — the tech doing the survey', 'A date — when the delivery arrives', 'A status update — current state of the approval'. This helps evaluate whether search results actually answer the question.",
+  "understanding": "A clear action plan: what you will search, where, and what you expect to find. Use 'I will...' or 'Ich werde...'",
+  "expectedAnswer": "What KIND of answer the user needs. Examples: 'A person name', 'A date', 'A status update'.",
   "searchFrom": "WHO to search for — a person name, email domain, or null if searching by topic only",
-  "keywords": ["primary", "search", "terms"],
-  "keywordsEnglish": ["English", "translations", "of", "keywords — if user writes in German, translate key terms to English for searching English emails"],
+  "keywords": ["primary", "search", "terms", "in the user's language"],
+  "keywordsEnglish": ["English", "translations", "if user writes in German"],
   "timeWindow": {
-    "from": "ISO date string",
+    "from": "ISO date string — use task date as default start",
     "to": "ISO date string or 'now'",
     "reasoning": "why this time window"
   },
@@ -1607,28 +1637,12 @@ If intent is "search":
   "clarificationQuestion": null
 }
 
-RULES:
-- If the user pastes a long email/text and says "fasse zusammen", "summarize", "was steht da", "key points" → intent is "summarize"
-- If the user corrects or updates the task summary (e.g. "die Summary stimmt nicht", "update the summary", "die Zusammenfassung ist falsch", "ändere die Summary", "das Thema ist eigentlich...") → intent is "summarize". Return the COMPLETE corrected summary as result — no meta-commentary, just the factual summary text.
-- If the user asks "was hat X geschrieben", "find emails from", "check my inbox" → intent is "search"
-- If the user asks "bis wann muss ich", "what's the deadline", "who is responsible" and the answer is in the task context → intent is "answer"
-- For "search" intent: ALWAYS include the task date as start date.
-- For "search" intent: ALWAYS provide expectedAnswer — think about what the user actually wants to KNOW.
-- For "search" intent: If the user writes in German but the emails are likely in English, provide keywordsEnglish with translated search terms (e.g. "Bestandsaufnahme" → "survey", "Konferenzraum" → "conference room", "MPR").
-- For "search" intent: keywords should contain the user's original language terms. keywordsEnglish should contain English equivalents.
-- For "summarize"/"answer": provide the result IMMEDIATELY — the user should not need to click Execute.
-- For "rename": provide the new title IMMEDIATELY. The title should be short (max ~15 words), factual, and reflect the current state of the action item. If the user explicitly provides a new title, use it. If they ask you to suggest one, derive it from the task context and conversation.
-- If the user says "ändere den Titel", "rename this", "passe den Titel an", "der Titel stimmt nicht", "update the title" → intent is "rename"
-- Write in the same language as the user's message (German → German, English → English)
-- If the search intent is unclear → set needsClarification to true
+## GUIDELINES
 
-CRITICAL RULES FOR searchFrom:
-- Think about WHO sends the relevant emails. The task "from" field and the user's message give you clues.
-- If the task is from a company (e.g. "zones.com", "Wipro", "Cyviz") → set searchFrom to the company domain (e.g. "zones.com", "wipro.com", "cyviz.com")
-- If the task mentions a specific person → set searchFrom to that person's name
-- If the user says "search for emails from zones" or "von zones.com" → set searchFrom to "zones.com"
-- If neither a person nor company is identifiable → set searchFrom to null and use keywords instead
-- NEVER put company names or domains in the keywords array — they belong in searchFrom
+- For "update", "summarize", "answer", "rename": provide the result IMMEDIATELY — the user should not need to click Execute.
+- For "search": think about WHO sends the relevant emails (person name or company domain → searchFrom). If the user writes in German but emails may be in English, provide keywordsEnglish with translated terms.
+- Write in the same language as the user's message (German → German, English → English).
+- When unsure between "update" and "search": if the user's message contains information they are GIVING you (a link, a status report, a completed action), it's "update" — not "search".
 
 Return ONLY the JSON object. No markdown, no explanation.`;
 
@@ -1704,6 +1718,66 @@ Return ONLY the JSON object. No markdown, no explanation.`;
           });
           console.log(`[${new Date().toISOString()}] Title renamed for task (${id}): "${task.title}" → "${newTitle}"`);
           return res.json({ intent: 'rename', result: newTitle, previousTitle: task.title, task: savedTask });
+        }
+
+        // For update: update both title and summary, log changes
+        if (result.intent === 'update') {
+          const newTitle = result.newTitle ? String(result.newTitle).trim() : null;
+          const newSummary = result.newSummary ? String(result.newSummary).trim() : null;
+          const changeDescription = result.changeDescription || '';
+
+          const savedTask = await safeWriteTasks((data) => {
+            const t = data.tasks.find(t => t.id === id);
+            if (!t) return null;
+            const now = new Date().toISOString();
+            if (!t.history) t.history = [];
+
+            const changes = [];
+
+            if (newTitle && newTitle !== t.title) {
+              const previousTitle = t.title;
+              t.title = newTitle;
+              t.history.push({
+                timestamp: now,
+                type: 'title-change',
+                text: `📝 Title changed:\n"${previousTitle}" → "${newTitle}"`
+              });
+              changes.push(`Title: "${previousTitle}" → "${newTitle}"`);
+            }
+
+            if (newSummary) {
+              const previousSummary = t.summary;
+              t.summary = newSummary;
+              t.history.push({
+                timestamp: now,
+                type: 'summary-update',
+                text: `✏️ Summary updated via user interaction` +
+                  (previousSummary ? `\nPrevious: ${previousSummary.length > 300 ? previousSummary.substring(0, 300) + '...' : previousSummary}` : '')
+              });
+              changes.push('Summary updated');
+            }
+
+            t.history.push({
+              timestamp: now,
+              type: 'update',
+              text: text.trim(),
+              agentPlan: {
+                intent: 'update',
+                understanding: changeDescription || changes.join(', ')
+              }
+            });
+            t.updatedAt = now;
+            return t;
+          });
+          console.log(`[${new Date().toISOString()}] Task updated (${id}): ${changeDescription}`);
+          return res.json({
+            intent: 'update',
+            result: changeDescription || 'Task updated',
+            newTitle: newTitle,
+            newSummary: newSummary,
+            previousTitle: newTitle ? task.title : undefined,
+            task: savedTask
+          });
         }
 
         // For search: return plan as before

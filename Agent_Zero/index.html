@@ -2545,18 +2545,31 @@
 
       const intent = data.intent || 'search';
 
-      // --- Intent: summarize, answer, or rename → result is immediate, already saved ---
-      if ((intent === 'summarize' || intent === 'answer' || intent === 'rename') && data.result) {
-        const icons = { summarize: '📋', answer: '💬', rename: '📝' };
+      // --- Intent: summarize, answer, rename, or update → result is immediate, already saved ---
+      if ((intent === 'summarize' || intent === 'answer' || intent === 'rename' || intent === 'update') && (data.result || intent === 'update')) {
+        const icons = { summarize: '📋', answer: '💬', rename: '📝', update: '🔄' };
         const icon = icons[intent] || '💬';
         let displayText = data.result;
         if (intent === 'rename' && data.previousTitle) {
           displayText = `Title changed:\n"${data.previousTitle}" → "${data.result}"`;
         }
+        if (intent === 'update') {
+          const parts = [];
+          if (data.newTitle && data.previousTitle) {
+            parts.push(`**Title:** "${data.previousTitle}" → "${data.newTitle}"`);
+          }
+          if (data.newSummary) {
+            parts.push('**Summary** updated');
+          }
+          if (data.result && data.result !== 'Task updated') {
+            parts.push(data.result);
+          }
+          displayText = parts.length > 0 ? parts.join('\n') : 'Task updated';
+        }
         planEl.innerHTML = `<div class="agent-msg-bot">${icon} ${renderMarkdown(displayText)}</div>`;
         planEl.classList.add('visible');
         input.value = '';
-        const notifications = { summarize: '✏️ Summary updated', answer: '💬 Answer saved', rename: '📝 Title updated' };
+        const notifications = { summarize: '✏️ Summary updated', answer: '💬 Answer saved', rename: '📝 Title updated', update: '🔄 Task updated' };
         showNotification(notifications[intent], 'success');
         // Re-render to show in conversation history
         await fetchTasks();
