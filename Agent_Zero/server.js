@@ -2379,4 +2379,13 @@ cleanupDoneTasks(3);
 
 app.listen(PORT, 'localhost', () => {
   console.log(`Agent Zero running at http://localhost:${PORT}`);
+}).on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`\n❌ Port ${PORT} is already in use.`);
+    console.error(`   Another Agent Zero instance is likely running.`);
+    console.error(`   → Close the other instance first, or use START-AGENT-ZERO.bat which handles this automatically.\n`);
+  } else {
+    console.error(`\n❌ Server failed to start: ${err.message}\n`);
+  }
+  process.exit(1);
 });
