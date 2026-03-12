@@ -1472,9 +1472,13 @@
           } catch (err) {
             console.error(`Enrichment failed for ${task.id}:`, err);
             updateStepIndicator(task.id, 2, 'error');
+            if (err.name === 'TypeError' && err.message.includes('fetch')) {
+              setServerStatus(false);
+              scanAborted = true;
+            }
           } finally {
             unfreezeTask(task.id);
-            await refreshSingleTask(task.id);
+            try { await refreshSingleTask(task.id); } catch {}
           }
         }
         clearInterval(phase2Timer);
@@ -1527,9 +1531,13 @@
           } catch (err) {
             console.error(`Update check failed for ${task.id}:`, err);
             updateStepIndicator(task.id, 3, 'error');
+            if (err.name === 'TypeError' && err.message.includes('fetch')) {
+              setServerStatus(false);
+              scanAborted = true;
+            }
           } finally {
             unfreezeTask(task.id);
-            await refreshSingleTask(task.id);
+            try { await refreshSingleTask(task.id); } catch {}
           }
         }
         clearInterval(phase3Timer);
@@ -1562,6 +1570,9 @@
           }
         } catch (err) {
           console.error('Phase 4 consolidation failed (non-fatal):', err);
+          if (err.name === 'TypeError' && err.message.includes('fetch')) {
+            setServerStatus(false);
+          }
         }
       }
 
@@ -1572,7 +1583,7 @@
 
     } catch (err) {
       if (err.name === 'TypeError' && err.message.includes('fetch')) {
-        showNotification('Cannot reach the server. Is it still running?', 'error');
+        setServerStatus(false);
       } else {
         showNotification('Scan failed: ' + err.message, 'error');
       }
@@ -1614,7 +1625,11 @@
         showNotification('No duplicates found — all action items are unique', 'success');
       }
     } catch (err) {
-      showNotification('Duplicate check failed: ' + err.message, 'error');
+      if (err.name === 'TypeError' && err.message.includes('fetch')) {
+        setServerStatus(false);
+      } else {
+        showNotification('Duplicate check failed: ' + err.message, 'error');
+      }
     } finally {
       btn.disabled = false;
       btn.textContent = origText;
