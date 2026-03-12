@@ -31,6 +31,15 @@ All notable changes to this project are documented here.
 - Phase 2, 3, 4 catch blocks now call `setServerStatus(false)` on connection errors
 - Offline banner appears immediately when the server crashes mid-scan, with guidance to restart
 
+### Duplicate Instance Prevention
+- `app.listen()` now handles `EADDRINUSE` errors — if port 3000 is already in use, the server shows a clear error message and exits with code 1 instead of crashing silently
+- `START-AGENT-ZERO.bat` already had a pre-check via `netstat`; server.js now has its own safeguard
+
+### Header Progress for All AI Actions
+- Find Duplicates and manual Merge now show the same header progress bar (purple gradient, spinner, timer) as scan phases
+- New `showHeaderProgress(text)` / `hideHeaderProgress()` helper functions for consistent progress display
+- Stop button is hidden for non-abortable operations
+
 ---
 
 ## v2.4.0 — March 12, 2026

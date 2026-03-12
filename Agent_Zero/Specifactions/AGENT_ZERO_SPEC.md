@@ -499,6 +499,8 @@ The scan process is split into 4 sequential phases for faster initial feedback a
 
 **Base URL:** `http://localhost:3000`
 
+**Duplicate Instance Prevention:** `app.listen()` handles `EADDRINUSE` — if port 3000 is already in use, the server logs a clear error message and exits with code 1. `START-AGENT-ZERO.bat` also pre-checks via `netstat`.
+
 ### 6.1 Endpoints
 
 | Method | Route | Description |

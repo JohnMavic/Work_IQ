@@ -166,6 +166,7 @@ Beyond scanning, each task has an interactive agent panel where users can ask qu
 - **Task history** — every change, agent action, and error is logged with timestamps
 - **Smart deduplication** — AI compares against existing tasks during scan
 - **Server health check** — auto-reconnect with offline banner
+- **Duplicate instance prevention** — server detects port conflicts (`EADDRINUSE`) and exits with a clear error message instead of crashing silently
 
 ## API Endpoints
 

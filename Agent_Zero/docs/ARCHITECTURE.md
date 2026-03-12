@@ -397,6 +397,7 @@ The entire frontend lives in `index.html` — a single-file dark-themed SPA.
 - **Auto-cleanup**: Done tasks are permanently deleted from `tasks.json` after configurable retention period (default 3 days, slider 1–30 days). Cleanup runs on server startup and before each scan.
 - **Auto-refresh**: `refreshSingleTask()` re-renders individual cards after agent work
 - **Server health check**: Polls `/api/tasks` every 5s when offline, green/red status dot + "Online"/"Offline" label
+- **Duplicate instance prevention**: `app.listen()` catches `EADDRINUSE` — if port 3000 is taken, shows clear error and exits with code 1. `START-AGENT-ZERO.bat` also pre-checks via `netstat`.
 - **Link opening**: Window or tab mode (user preference persisted in localStorage, defunct split/incognito modes auto-migrated to window)
 - **Log work**: Two-phase agent (analyze intent → intelligent search via SEARCH_SKILL.md with 3-attempt strategy, self-assessment, and confidence levels)
 - **Merge Mode**: "🔗 Merge Tasks" button activates multi-select mode — checkboxes appear on all task cards, floating merge bar at bottom with selected count, titles, and Merge/Cancel buttons. ESC exits. Merged tasks preserve all source links via `additionalLinks[]`.
