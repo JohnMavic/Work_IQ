@@ -1,6 +1,6 @@
 # Agent Zero — Architecture
 
-> Version 2.2.0 · March 2, 2026 · Author: Martin Hämmerli
+> Version 2.4.0 · March 12, 2026 · Author: Martin Hämmerli
 
 Agent Zero is a personal action-item tracker that scans Microsoft 365 emails and Teams messages for tasks,
 extracts content summaries, and monitors threads for updates — all powered by AI.
@@ -11,7 +11,7 @@ extracts content summaries, and monitors threads for updates — all powered by 
 
 1. [System Overview](#1-system-overview)
 2. [Technology Stack](#2-technology-stack)
-3. [Three-Phase Scan Pipeline](#3-three-phase-scan-pipeline)
+3. [Four-Phase Scan Pipeline](#3-four-phase-scan-pipeline)
 4. [Data Schema (v3)](#4-data-schema-v3)
 5. [API Reference](#5-api-reference)
 6. [Frontend Architecture](#6-frontend-architecture)
@@ -97,25 +97,26 @@ server.js
 
 ---
 
-## 3. Three-Phase Scan Pipeline
+## 3. Four-Phase Scan Pipeline
 
-The scan runs three sequential phases when the user clicks "Scan". Each phase processes tasks
+The scan runs four sequential phases when the user clicks "Scan". Phase 4 can also be
+triggered independently via the "🔗 Find Duplicates" button. Each phase processes tasks
 one-by-one to avoid Work IQ timeouts.
 
 ```
-Phase 1: Discovery          Phase 2: Enrichment         Phase 3: Update Check
-─────────────────────       ─────────────────────       ─────────────────────
-Scan subjects only          Extract full content        Check for new replies
-~30-60s total               ~60-180s per task           ~30-90s per task
+Phase 1: Discovery          Phase 2: Enrichment         Phase 3: Update Check        Phase 4: Consolidation
+─────────────────────       ─────────────────────       ─────────────────────        ─────────────────────
+Scan subjects only          Extract full content        Check for new replies        Find related tasks
+~30-60s total               ~60-180s per task           ~30-90s per task             ~5-15s total
 
-  ┌──────────┐               ┌──────────┐               ┌──────────┐
-  │ Work IQ  │               │ Work IQ  │               │ Work IQ  │
-  │ "List    │               │ "Find ALL│               │ "Any new │
-  │ subjects"│               │ messages │               │ replies  │
-  │          │               │ about X" │               │ since Y?"│
-  └────┬─────┘               └────┬─────┘               └────┬─────┘
-       │                          │                          │
-  New/Update/Skip            Summary + Confidence       Update or No-change
+  ┌──────────┐               ┌──────────┐               ┌──────────┐                ┌──────────┐
+  │ Work IQ  │               │ Work IQ  │               │ Work IQ  │                │ No MCP   │
+  │ "List    │               │ "Find ALL│               │ "Any new │                │ "Compare │
+  │ subjects"│               │ messages │               │ replies  │                │ all task │
+  │          │               │ about X" │               │ since Y?"│                │ summaries│
+  └────┬─────┘               └────┬─────┘               └────┬─────┘                └────┬─────┘
+       │                          │                          │                            │
+  New/Update/Skip            Summary + Confidence       Update or No-change          Merge suggestions
 ```
 
 ### Phase 1: Discovery
@@ -166,6 +167,27 @@ Each task is frozen (neon cyan border) during processing, then auto-refreshed.
 9. Runs EVERY scan cycle (unlike enrichment which is one-time)
 
 **Frontend loop:** Iterates all tasks where `enrichmentStatus === 'enriched' || 'needs-review'` and `status !== 'done'`.
+
+### Phase 4: Task Consolidation
+
+**Endpoint:** `POST /api/consolidate`
+**Skill:** `CONSOLIDATE_SKILL.md`
+**Timeout:** 30s
+**Trigger:** Automatically after Phase 3, or manually via "🔗 Find Duplicates" button
+
+1. Collect all active tasks (status ≠ done) with existing summaries
+2. Create a Copilot SDK session **without MCP** (pure reasoning, no Work IQ needed)
+3. Send all task titles and summaries to AI for semantic comparison
+4. AI identifies groups of tasks that cover the same topic
+5. Filter out previously dismissed pairs (bidirectional `noMergeWith` arrays)
+6. Enrich suggestions with task details (titles) for frontend display
+7. Return merge suggestions to user
+
+**User actions on each suggestion:**
+- **Merge** (`POST /api/tasks/merge`): AI generates a combined title and summary via Copilot SDK session. Histories are merged chronologically. Secondary task is deleted.
+- **Keep Separate** (`POST /api/tasks/:id/dismiss-merge`): Adds bidirectional `noMergeWith` entries on both tasks — this pair will never be suggested again.
+
+**Non-fatal:** Phase 4 failures are silently caught — the scan still completes successfully.
 
 ### Visual Step Indicators
 
@@ -234,7 +256,20 @@ Tasks are stored in `tasks.json` as `{ version: 3, tasks: [...] }`.
 
 **History types:** `created`, `status-change`, `scan-update`, `note`, `update`,
 `enriched`, `enrich-error`, `thread-update`, `update-check`, `update-check-error`,
-`summary-update`, `title-change`, `review-response`
+`summary-update`, `title-change`, `review-response`, `merge`
+
+### Merge Dismissal
+
+Tasks that a user has chosen to "Keep Separate" store a `noMergeWith` array:
+
+```json
+{
+  "noMergeWith": ["uuid-of-other-task"]
+}
+```
+
+This is **bidirectional** — both tasks in a dismissed pair reference each other. Phase 4
+checks this field before suggesting a merge.
 
 ### Agent Plan (v2.2)
 
@@ -308,6 +343,9 @@ Additionally, stuck statuses are reset: `enriching` → `pending`, `checking` �
 | `POST` | `/api/scan` | Phase 1: Discover new tasks | 180s |
 | `POST` | `/api/tasks/:id/enrich` | Phase 2: Extract content | 300s |
 | `POST` | `/api/tasks/:id/check-update` | Phase 3: Check for updates | 300s |
+| `POST` | `/api/consolidate` | Phase 4: Find duplicate/related tasks | 30s |
+| `POST` | `/api/tasks/merge` | Merge two or more tasks into one | 30s |
+| `POST` | `/api/tasks/:id/dismiss-merge` | Dismiss a merge suggestion (bidirectional) | — |
 | `POST` | `/api/tasks/:id/log/analyze` | AI intent analysis (no Work IQ) | 30s |
 | `POST` | `/api/tasks/:id/log` | Intelligent search via Copilot SDK + MCP + SEARCH_SKILL.md | 300s |
 | `POST` | `/api/cleanup` | Permanently delete done tasks older than `retentionDays` | — |
@@ -447,8 +485,21 @@ the agent controls the search strategy.
 - **Three-attempt search:** Same keyword-based strategy as Phase 2 (keyword → broader → sender)
 - **Temporal anchor:** Uses `lastUpdateCheck` (or `enrichedAt`/`createdAt` on first check)
 - **Strict temporal filter:** Only messages AFTER the last-checked date count as updates
+- **Perspective attribution:** When different people express different expectations, the update makes the difference explicitly visible
 - **Output:** `{ hasUpdate, updateSummary, newMessageCount, latestMessageDate }`
 - **Key difference from enrichment:** Enrichment summarizes ALL relevant content; update check reports ONLY what is new since last check
+
+### CONSOLIDATE_SKILL.md — Phase 4: Task Consolidation
+
+**Used by:** `POST /api/consolidate` · **Timeout:** 30s
+
+Analyzes all active tasks semantically and identifies groups that cover the same topic.
+This is a pure reasoning task — no Work IQ MCP is needed.
+
+- **Conservative matching:** Only suggests merges for tasks that clearly cover the same project, conversation, or work item. Different tasks from the same person are NOT automatically related.
+- **Semantic analysis:** Compares titles and summaries, not just keywords. Two tasks about "EMS video" and "EMS feedback" may be the same project.
+- **Group suggestions:** Returns task ID groups with reasoning and a suggested merged title.
+- **Output:** JSON array of `{ taskIds[], reason, suggestedTitle }`
 
 ---
 
@@ -480,6 +531,7 @@ await session.destroy();
 | **Phase 1** | Subject lines, sender, date, link | "List messages requiring action from last N days" | Metadata only — no body content |
 | **Phase 2** | Full email body, all thread replies, Teams chat history | Keyword search from title (3 attempts), temporal classification | Keywords + link context + sender hint + discovery date |
 | **Phase 3** | New replies since last check | Keyword search (3 attempts), temporal filter on last-checked date | Keywords + link context + `lastUpdateCheck` anchor |
+| **Phase 4** | *No Work IQ access* | Semantic comparison of all task titles + summaries | Pure reasoning — analyzes existing data only |
 | **Log Search** | Communications matching user query | Goal-oriented search (3 attempts), self-assessment, relevance filtering | Bilingual keywords + expectedAnswer + confidence levels |
 
 ### Search Strategy (Enrichment)
@@ -522,6 +574,7 @@ Agent_Zero/
 │   ├── SCAN_SKILL.md           Legacy scan skill (fallback)
 │   ├── ENRICH_SKILL.md         Phase 2 skill instructions
 │   ├── UPDATE_CHECK_SKILL.md   Phase 3 skill instructions
+│   ├── CONSOLIDATE_SKILL.md   Phase 4 skill instructions
 │   ├── SEARCH_SKILL.md         Intelligent search skill (v2.2)
 │   ├── LOG_WORK_SKILL.md       Legacy work logging skill (fallback)
 │   ├── FEATURE_INVENTORY_Claude_Code_Codex_Analyse.md  Code review results

@@ -61,6 +61,7 @@ Return ONLY a JSON object:
 The `updateSummary` field:
 - Summarize ONLY the NEW information, not the full conversation
 - Be specific: mention names, dates, decisions, confirmations
+- **Attribute differing perspectives:** When different people express different expectations or commitments, make each person's position explicitly visible (e.g., "Nicola defined the next step as X. Martin has not yet committed to Y."). Do NOT blend conflicting positions into one neutral statement.
 - Write in the SAME LANGUAGE as the existing summary
 - This text will be displayed as a timestamped update (e.g. "📌 Update (28.02.2026, 10:30): ...")
 - Do NOT include the timestamp yourself — the system adds it automatically

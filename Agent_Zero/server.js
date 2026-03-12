@@ -22,6 +22,7 @@ const SCAN_DISCOVERY_SKILL_PATH = path.join(__dirname, 'docs', 'SCAN_DISCOVERY_S
 const ENRICH_SKILL_PATH = path.join(__dirname, 'docs', 'ENRICH_SKILL.md');
 const UPDATE_CHECK_SKILL_PATH = path.join(__dirname, 'docs', 'UPDATE_CHECK_SKILL.md');
 const SEARCH_SKILL_PATH = path.join(__dirname, 'docs', 'SEARCH_SKILL.md');
+const CONSOLIDATE_SKILL_PATH = path.join(__dirname, 'docs', 'CONSOLIDATE_SKILL.md');
 
 let SCAN_SKILL = '';
 let LOG_WORK_SKILL = '';
@@ -29,6 +30,7 @@ let SCAN_DISCOVERY_SKILL = '';
 let ENRICH_SKILL = '';
 let UPDATE_CHECK_SKILL = '';
 let SEARCH_SKILL = '';
+let CONSOLIDATE_SKILL = '';
 
 try {
   SCAN_SKILL = fs.readFileSync(SCAN_SKILL_PATH, 'utf-8');
@@ -70,6 +72,13 @@ try {
   console.log(`Loaded SEARCH_SKILL.md (${SEARCH_SKILL.length} chars)`);
 } catch (err) {
   console.warn('Warning: SEARCH_SKILL.md not found');
+}
+
+try {
+  CONSOLIDATE_SKILL = fs.readFileSync(CONSOLIDATE_SKILL_PATH, 'utf-8');
+  console.log(`Loaded CONSOLIDATE_SKILL.md (${CONSOLIDATE_SKILL.length} chars)`);
+} catch (err) {
+  console.warn('Warning: CONSOLIDATE_SKILL.md not found');
 }
 
 app.use(express.json());
@@ -1203,6 +1212,258 @@ Return ONLY valid JSON, no markdown:
     if (client) {
       try { await client.dispose(); } catch {}
     }
+  }
+});
+
+// POST /api/consolidate — Phase 4: suggest merging semantically related tasks
+app.post('/api/consolidate', async (req, res) => {
+  let client;
+  try {
+    const data = readTasks();
+    const activeTasks = data.tasks.filter(t =>
+      t.status !== 'done' &&
+      t.enrichmentStatus !== 'n/a' &&
+      (t.enrichmentStatus === 'enriched' || t.enrichmentStatus === 'needs-review') &&
+      t.summary
+    );
+
+    if (activeTasks.length < 2) {
+      return res.json({ success: true, suggestions: [], reason: 'Not enough enriched tasks to compare' });
+    }
+
+    // Build task summaries for the AI, filtering out dismissed pairs
+    const taskContext = activeTasks.map(t => ({
+      id: t.id,
+      title: t.title,
+      summary: (t.summary || '').substring(0, 500),
+      from: t.from,
+      source: t.source
+    }));
+
+    // Build list of dismissed pairs to exclude
+    const dismissedPairs = new Set();
+    for (const t of activeTasks) {
+      if (t.noMergeWith && Array.isArray(t.noMergeWith)) {
+        for (const otherId of t.noMergeWith) {
+          const pair = [t.id, otherId].sort().join('|');
+          dismissedPairs.add(pair);
+        }
+      }
+    }
+
+    const consolidateSkill = CONSOLIDATE_SKILL || '';
+    const prompt = consolidateSkill + '\n\n' +
+      `Here are the active tasks to analyze:\n` +
+      JSON.stringify(taskContext, null, 2) +
+      (dismissedPairs.size > 0
+        ? `\n\nIMPORTANT: The user has already decided to keep the following task pairs SEPARATE. Do NOT suggest merging them:\n` +
+          [...dismissedPairs].map(p => p.replace('|', ' and ')).join('\n')
+        : '');
+
+    client = new CopilotClient();
+    const session = await client.createSession({});
+
+    const startTime = Date.now();
+    console.log(`[CONSOLIDATE] Analyzing ${activeTasks.length} tasks for merge suggestions (prompt: ${prompt.length} chars)`);
+    const response = await session.sendAndWait({ prompt }, 30000);
+    console.log(`[CONSOLIDATE] Response in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
+    await session.destroy();
+
+    if (!response) {
+      return res.json({ success: true, suggestions: [], reason: 'No response from AI' });
+    }
+
+    const suggestions = parseJsonFromResponse(response.data.content);
+    if (!Array.isArray(suggestions)) {
+      return res.json({ success: true, suggestions: [], reason: 'AI returned unexpected format' });
+    }
+
+    // Filter out dismissed pairs from suggestions
+    const filteredSuggestions = suggestions.filter(s => {
+      if (!s.taskIds || s.taskIds.length < 2) return false;
+      // Check if any pair in this group was dismissed
+      for (let i = 0; i < s.taskIds.length; i++) {
+        for (let j = i + 1; j < s.taskIds.length; j++) {
+          const pair = [s.taskIds[i], s.taskIds[j]].sort().join('|');
+          if (dismissedPairs.has(pair)) return false;
+        }
+      }
+      // Verify all task IDs actually exist
+      return s.taskIds.every(id => activeTasks.some(t => t.id === id));
+    });
+
+    // Enrich suggestions with task titles for the frontend
+    const enrichedSuggestions = filteredSuggestions.map(s => ({
+      ...s,
+      tasks: s.taskIds.map(id => {
+        const t = activeTasks.find(t => t.id === id);
+        return { id: t.id, title: t.title };
+      })
+    }));
+
+    console.log(`[CONSOLIDATE] ${enrichedSuggestions.length} merge suggestion(s) found`);
+    res.json({ success: true, suggestions: enrichedSuggestions });
+  } catch (err) {
+    console.error('[CONSOLIDATE] Failed:', err);
+    res.json({ success: true, suggestions: [], reason: err.message });
+  } finally {
+    if (client) {
+      try { await client.dispose(); } catch {}
+    }
+  }
+});
+
+// POST /api/tasks/merge — merge two or more tasks into one
+app.post('/api/tasks/merge', async (req, res) => {
+  const { taskIds, suggestedTitle } = req.body;
+  if (!taskIds || !Array.isArray(taskIds) || taskIds.length < 2) {
+    return res.status(400).json({ error: 'At least 2 task IDs required' });
+  }
+
+  let client;
+  try {
+    const data = readTasks();
+    const tasksToMerge = taskIds.map(id => data.tasks.find(t => t.id === id)).filter(Boolean);
+    if (tasksToMerge.length < 2) {
+      return res.status(404).json({ error: 'Could not find enough tasks to merge' });
+    }
+
+    // Generate merged summary via AI (no MCP needed)
+    client = new CopilotClient();
+    const session = await client.createSession({});
+
+    const mergePrompt = `You are merging multiple action items into one unified summary.
+
+TASKS TO MERGE:
+${tasksToMerge.map((t, i) => `\n--- Task ${i + 1}: "${t.title}" ---\nSummary: ${t.summary || '(no summary)'}\nFrom: ${t.from || 'unknown'}\nSource: ${t.source}`).join('\n')}
+
+INSTRUCTIONS:
+1. Create a UNIFIED SUMMARY that combines all information from all tasks.
+2. Preserve ALL important details: names, dates, decisions, action items, updates.
+3. Maintain reverse chronological order: newest updates at top with "📌 Update" markers.
+4. Write in the SAME LANGUAGE as the original summaries.
+5. Do NOT lose any information from any task.
+6. If different people have different perspectives, attribute them clearly.
+
+Return ONLY valid JSON:
+{
+  "mergedSummary": "The complete unified summary text",
+  "mergedTitle": "A concise title (max 15 words) for the merged task"
+}`;
+
+    const startTime = Date.now();
+    console.log(`[MERGE] Merging ${tasksToMerge.length} tasks`);
+    const response = await session.sendAndWait({ prompt: mergePrompt }, 30000);
+    console.log(`[MERGE] Response in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
+    await session.destroy();
+
+    let mergedTitle = suggestedTitle || tasksToMerge[0].title;
+    let mergedSummary = tasksToMerge.map(t => t.summary || '').filter(Boolean).join('\n\n---\n\n');
+
+    if (response) {
+      const result = parseJsonFromResponse(response.data.content);
+      if (result) {
+        if (result.mergedSummary) mergedSummary = String(result.mergedSummary).trim();
+        if (result.mergedTitle) mergedTitle = String(result.mergedTitle).trim();
+      }
+    }
+
+    // Perform the merge
+    const primaryId = taskIds[0];
+    const secondaryIds = taskIds.slice(1);
+
+    const mergedTask = await safeWriteTasks((data) => {
+      const primary = data.tasks.find(t => t.id === primaryId);
+      if (!primary) return null;
+
+      const now = new Date().toISOString();
+      if (!primary.history) primary.history = [];
+
+      // Merge history from all secondary tasks
+      const allHistoryEntries = [];
+      for (const secId of secondaryIds) {
+        const sec = data.tasks.find(t => t.id === secId);
+        if (sec && sec.history) {
+          allHistoryEntries.push(...sec.history);
+        }
+      }
+      // Sort all histories chronologically and prepend to primary
+      allHistoryEntries.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+      primary.history = [...allHistoryEntries, ...primary.history];
+
+      // Add merge event to history
+      const mergedTitles = secondaryIds.map(id => {
+        const t = data.tasks.find(t => t.id === id);
+        return t ? `"${t.title}"` : id;
+      }).join(', ');
+      primary.history.push({
+        timestamp: now,
+        type: 'merge',
+        text: `🔗 Merged with: ${mergedTitles}`
+      });
+
+      // Update primary task
+      primary.title = mergedTitle;
+      primary.summary = mergedSummary;
+      primary.updatedAt = now;
+
+      // Remove noMergeWith entries for merged tasks
+      if (primary.noMergeWith) {
+        primary.noMergeWith = primary.noMergeWith.filter(id => !secondaryIds.includes(id));
+      }
+
+      // Delete secondary tasks
+      data.tasks = data.tasks.filter(t => !secondaryIds.includes(t.id));
+
+      return primary;
+    });
+
+    if (!mergedTask) {
+      return res.status(404).json({ error: 'Primary task not found' });
+    }
+
+    console.log(`[MERGE] Successfully merged ${taskIds.length} tasks into "${mergedTitle}"`);
+    res.json({ success: true, task: mergedTask });
+  } catch (err) {
+    console.error('[MERGE] Failed:', err);
+    res.status(500).json({ error: 'Merge failed', detail: err.message });
+  } finally {
+    if (client) {
+      try { await client.dispose(); } catch {}
+    }
+  }
+});
+
+// POST /api/tasks/:id/dismiss-merge — dismiss a merge suggestion for a pair of tasks
+app.post('/api/tasks/:id/dismiss-merge', async (req, res) => {
+  const { id } = req.params;
+  const { dismissedTaskIds } = req.body;
+
+  if (!dismissedTaskIds || !Array.isArray(dismissedTaskIds) || dismissedTaskIds.length === 0) {
+    return res.status(400).json({ error: 'dismissedTaskIds array required' });
+  }
+
+  try {
+    const result = await safeWriteTasks((data) => {
+      // Add noMergeWith on ALL tasks in the group (bidirectional)
+      const allIds = [id, ...dismissedTaskIds];
+      for (const taskId of allIds) {
+        const t = data.tasks.find(t => t.id === taskId);
+        if (!t) continue;
+        if (!t.noMergeWith) t.noMergeWith = [];
+        for (const otherId of allIds) {
+          if (otherId !== taskId && !t.noMergeWith.includes(otherId)) {
+            t.noMergeWith.push(otherId);
+          }
+        }
+      }
+      return true;
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[DISMISS-MERGE] Failed:', err);
+    res.status(500).json({ error: 'Failed to dismiss merge', detail: err.message });
   }
 });
 

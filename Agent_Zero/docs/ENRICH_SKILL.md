@@ -62,6 +62,15 @@ When you find the conversation:
 - Start with the CURRENT situation, then add historical context if relevant
 - This is the **base summary** — future updates will be prepended above it with "📌 Update (date, time):" markers. Do NOT use that marker format in the initial summary.
 
+### Perspective Attribution — IMPORTANT
+
+When a conversation involves **multiple people with different expectations, opinions, or commitments**, make each person's position explicitly visible and clearly attributed. Do NOT blend different perspectives into a single neutral narrative.
+
+- **Good:** "Nicola expects the team to jointly develop the first Agent release. Martin has not yet decided how much time he can invest in the project."
+- **Bad:** "The next step is to develop the Agent release, but it's unclear how much time can be invested."
+
+The second version hides WHO expects what and WHO is uncertain — making it impossible for the user to understand the dynamics. Always attribute positions to specific people when they differ.
+
 ## Response Format
 
 Return ONLY a JSON object:

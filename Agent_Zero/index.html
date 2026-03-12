@@ -717,6 +717,8 @@
     .form-group .field-hint { font-size: 0.7rem; color: #555; margin-top: 2px; }
     .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
     .btn-add-task { background: #10b981; color: #fff; font-size: 0.82rem; padding: 8px 10px; }
+    .btn-find-duplicates { background: #8b5cf6; color: #fff; font-size: 0.82rem; padding: 8px 10px; }
+    .btn-find-duplicates:disabled { opacity: 0.5; cursor: not-allowed; }
 
     /* --- Task Search --- */
     .task-search-wrapper {
@@ -904,6 +906,52 @@
     .notification-error { background: #2a0f0f; color: #f87171; border: 1px solid #7f1d1d; }
     @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
+    /* Phase 4: Consolidation banner */
+    .consolidation-banner {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 180;
+      background: #1a1a2e; border-top: 2px solid #4f46e5;
+      padding: 16px 24px; max-height: 40vh; overflow-y: auto;
+      animation: slideUp 0.3s ease;
+    }
+    .consolidation-banner h3 {
+      margin: 0 0 12px 0; color: #a5b4fc; font-size: 0.9rem;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .consolidation-banner .close-banner {
+      margin-left: auto; background: none; border: none; color: #94a3b8;
+      cursor: pointer; font-size: 1.1rem; padding: 0;
+    }
+    .consolidation-banner .close-banner:hover { color: #fff; }
+    .merge-suggestion {
+      background: #0f172a; border: 1px solid #334155; border-radius: 8px;
+      padding: 12px 16px; margin-bottom: 10px;
+    }
+    .merge-suggestion .merge-tasks {
+      font-size: 0.82rem; color: #e2e8f0; margin-bottom: 6px;
+    }
+    .merge-suggestion .merge-tasks .task-title {
+      color: #93c5fd; font-weight: 500;
+    }
+    .merge-suggestion .merge-reason {
+      font-size: 0.78rem; color: #94a3b8; margin-bottom: 10px; font-style: italic;
+    }
+    .merge-suggestion .merge-actions {
+      display: flex; gap: 8px;
+    }
+    .merge-suggestion .merge-actions button {
+      padding: 5px 14px; border-radius: 6px; font-size: 0.78rem;
+      cursor: pointer; border: none; font-weight: 500;
+    }
+    .merge-suggestion .btn-merge {
+      background: #4f46e5; color: #fff;
+    }
+    .merge-suggestion .btn-merge:hover { background: #6366f1; }
+    .merge-suggestion .btn-keep-separate {
+      background: transparent; color: #94a3b8; border: 1px solid #475569 !important;
+    }
+    .merge-suggestion .btn-keep-separate:hover { color: #e2e8f0; border-color: #94a3b8 !important; }
+    @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
   </style>
 </head>
 <body>
@@ -969,10 +1017,11 @@
 
     <!-- Left Sidebar: Action Buttons -->
     <div class="sidebar-left">
-      <button class="btn btn-scan" id="btnScan" onclick="triggerScan()">📡 Generate Action Items<span class="btn-sub">Scan Outlook &amp; Teams</span></button>
-      <button class="btn btn-add-task" id="btnAddTask" onclick="showAddTaskModal()">＋ Add Action Item</button>
+      <button class="btn btn-scan" id="btnScan" onclick="triggerScan()" title="Scans your Outlook emails and Teams messages for new action items, enriches them with AI summaries, and checks for updates.">📡 Generate Action Items<span class="btn-sub">Scan Outlook &amp; Teams</span></button>
+      <button class="btn btn-add-task" id="btnAddTask" onclick="showAddTaskModal()" title="Manually create a new action item. You can optionally assign an AI search question to find related information in your emails and Teams chats.">＋ Add Action Item</button>
+      <button class="btn btn-find-duplicates" id="btnFindDuplicates" onclick="triggerFindDuplicates()" title="AI analyzes all your action items and suggests merging those that cover the same topic. You decide for each suggestion.">🔗 Find Duplicates</button>
       <div class="task-search-wrapper" id="searchWrapper">
-        <button class="btn btn-search-tasks" onclick="toggleTaskSearch()">🔍 Search</button>
+        <button class="btn btn-search-tasks" onclick="toggleTaskSearch()" title="Filter and search through your existing action items by title, summary, sender, or source.">🔍 Search</button>
         <input type="text" class="task-search-input" id="taskSearchInput" placeholder="Search tasks..." oninput="onTaskSearch(this.value)" onkeydown="onSearchKeydown(event)">
         <div class="task-search-results" id="taskSearchResults"></div>
       </div>
@@ -1487,6 +1536,35 @@
       }
       } // end if (!scanAborted)
 
+      // ═══════════════════════════════════════════════
+      // PHASE 4: Consolidation — suggest merging related tasks
+      // Runs AFTER all enrichments and update checks are complete
+      // ═══════════════════════════════════════════════
+      if (!scanAborted) {
+        try {
+          loadingText.textContent = 'Phase 4: Analyzing task relationships...';
+          overlay.classList.add('visible');
+          loadingTimer.textContent = '⏱ 00:00';
+          let phase4Elapsed = 0;
+          const phase4Timer = setInterval(() => {
+            phase4Elapsed++;
+            const mm = String(Math.floor(phase4Elapsed / 60)).padStart(2, '0');
+            const ss = String(phase4Elapsed % 60).padStart(2, '0');
+            loadingTimer.textContent = `⏱ ${mm}:${ss}`;
+          }, 1000);
+
+          const consolidateRes = await fetch('/api/consolidate', { method: 'POST' });
+          const consolidateData = await consolidateRes.json();
+          clearInterval(phase4Timer);
+
+          if (consolidateData.suggestions && consolidateData.suggestions.length > 0) {
+            showConsolidationBanner(consolidateData.suggestions);
+          }
+        } catch (err) {
+          console.error('Phase 4 consolidation failed (non-fatal):', err);
+        }
+      }
+
       overlay.classList.remove('visible');
 
       // Final refresh to update counts and filters
@@ -1518,6 +1596,112 @@
     document.body.appendChild(el);
 
     setTimeout(() => { if (el.parentElement) el.remove(); }, 5000);
+  }
+
+  async function triggerFindDuplicates() {
+    const btn = document.getElementById('btnFindDuplicates');
+    const origText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '🔗 Analyzing...';
+
+    try {
+      const res = await fetch('/api/consolidate', { method: 'POST' });
+      const data = await res.json();
+      if (data.suggestions && data.suggestions.length > 0) {
+        showConsolidationBanner(data.suggestions);
+        showNotification(`${data.suggestions.length} potential duplicate(s) found`, 'success');
+      } else {
+        showNotification('No duplicates found — all action items are unique', 'success');
+      }
+    } catch (err) {
+      showNotification('Duplicate check failed: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = origText;
+    }
+  }
+
+  function showConsolidationBanner(suggestions) {
+    // Remove existing banner if any
+    document.querySelector('.consolidation-banner')?.remove();
+
+    const banner = document.createElement('div');
+    banner.className = 'consolidation-banner';
+
+    let html = `<h3>🔗 Phase 4: Consolidation Suggestions (${suggestions.length})` +
+      `<button class="close-banner" onclick="this.closest('.consolidation-banner').remove()" title="Dismiss all">✕</button></h3>`;
+
+    for (const suggestion of suggestions) {
+      const taskList = suggestion.tasks.map(t =>
+        `<span class="task-title">${escHtml(t.title)}</span>`
+      ).join(' + ');
+
+      html += `<div class="merge-suggestion" data-task-ids='${JSON.stringify(suggestion.taskIds)}'>` +
+        `<div class="merge-tasks">📋 ${taskList}</div>` +
+        `<div class="merge-reason">${escHtml(suggestion.reason)}</div>` +
+        (suggestion.suggestedTitle ? `<div style="font-size:0.78rem;color:#a5b4fc;margin-bottom:8px">→ Vorgeschlagener Titel: <strong>${escHtml(suggestion.suggestedTitle)}</strong></div>` : '') +
+        `<div class="merge-actions">` +
+        `<button class="btn-merge" onclick="handleMerge(this)">🔗 Merge</button>` +
+        `<button class="btn-keep-separate" onclick="handleKeepSeparate(this)">Keep Separate</button>` +
+        `</div></div>`;
+    }
+
+    banner.innerHTML = html;
+    document.body.appendChild(banner);
+  }
+
+  async function handleMerge(btn) {
+    const card = btn.closest('.merge-suggestion');
+    const taskIds = JSON.parse(card.dataset.taskIds);
+    btn.disabled = true;
+    btn.textContent = '⏳ Merging...';
+
+    try {
+      const res = await fetch('/api/tasks/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskIds })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        card.remove();
+        showNotification(`Tasks merged into: "${data.task.title}"`, 'success');
+        await fetchTasks();
+        // Remove banner if no suggestions left
+        const banner = document.querySelector('.consolidation-banner');
+        if (banner && !banner.querySelector('.merge-suggestion')) banner.remove();
+      } else {
+        showNotification('Merge failed: ' + (data.error || 'Unknown error'), 'error');
+        btn.disabled = false;
+        btn.textContent = '🔗 Merge';
+      }
+    } catch (err) {
+      showNotification('Merge failed: ' + err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = '🔗 Merge';
+    }
+  }
+
+  async function handleKeepSeparate(btn) {
+    const card = btn.closest('.merge-suggestion');
+    const taskIds = JSON.parse(card.dataset.taskIds);
+    btn.disabled = true;
+
+    try {
+      // Dismiss on the first task, with all other task IDs
+      await fetch(`/api/tasks/${taskIds[0]}/dismiss-merge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dismissedTaskIds: taskIds.slice(1) })
+      });
+      card.remove();
+      // Remove banner if no suggestions left
+      const banner = document.querySelector('.consolidation-banner');
+      if (banner && !banner.querySelector('.merge-suggestion')) banner.remove();
+    } catch (err) {
+      console.error('Dismiss merge failed:', err);
+      btn.disabled = false;
+    }
   }
 
   function friendlyError(data) {

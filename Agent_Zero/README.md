@@ -1,6 +1,6 @@
 # Agent Zero
 
-> Version 2.2.0 · A personal AI-powered action-item tracker for Microsoft 365
+> Version 2.4.0 · A personal AI-powered action-item tracker for Microsoft 365
 
 **Author:** Martin Hämmerli · [martih@microsoft.com](mailto:martih@microsoft.com)
 
@@ -124,13 +124,16 @@ Every AI operation follows the same pattern in `server.js`:
 
 Sessions that need M365 data (scan, enrich, update-check, search) include the Work IQ MCP server. Sessions that only need AI reasoning (intent analysis via `/api/tasks/:id/log/analyze`, ambiguity review via `/api/tasks/:id/review`) create sessions without MCP servers.
 
-### Three-Phase Scan Pipeline
+### Four-Phase Scan Pipeline
 
-Clicking **Scan** triggers a three-phase pipeline:
+Clicking **Scan** triggers a four-phase pipeline:
 
 1. **Discovery** (`POST /api/scan`) — scans email/Teams subjects from the last N days (configurable 1–14, default 4), creates task cards. Uses `SCAN_DISCOVERY_SKILL.md` as prompt template. Includes existing tasks (active + recent done) for AI-powered deduplication, plus a Jaccard word-similarity safety net.
 2. **Enrichment** (`POST /api/tasks/:id/enrich`) — for each task, searches the original thread via Work IQ using keyword extraction from the title, retrieves full content, and generates a structured summary. Uses `ENRICH_SKILL.md`. Can flag ambiguities for user review.
 3. **Update Check** (`POST /api/tasks/:id/check-update`) — detects new replies since the last enrichment by comparing against `lastUpdateCheck` or `enrichedAt` timestamps. Uses `UPDATE_CHECK_SKILL.md`. Appends updates to the existing summary.
+4. **Task Consolidation** (`POST /api/consolidate`) — AI analyzes all active tasks semantically and suggests merging those covering the same topic. Uses `CONSOLIDATE_SKILL.md`. No Work IQ needed (pure reasoning). User decides per suggestion: Merge or Keep Separate.
+
+Phase 4 can also be triggered independently via the **🔗 Find Duplicates** button.
 
 Each task shows three step dots (● ● ●) indicating pipeline progress. Tasks glow neon cyan while an agent is working on them.
 
@@ -144,6 +147,7 @@ Beyond scanning, each task has an interactive agent panel where users can ask qu
 ## Features
 
 - **Three-phase scan** with visual progress indicators
+- **Phase 4: Task consolidation** — AI finds duplicate/related tasks and suggests merging. Also available as standalone "🔗 Find Duplicates" button.
 - **AI content extraction** via keyword-based Work IQ search
 - **Intelligent search** — goal-oriented 3-attempt search with self-assessment and confidence levels (SEARCH_SKILL.md)
 - **Post-search evaluation** — after search, AI evaluates whether task title and summary need updating based on new findings; applies changes automatically with full history traceability
@@ -175,6 +179,9 @@ Beyond scanning, each task has an interactive agent panel where users can ask qu
 | `/api/scan` | POST | Phase 1: Discovery scan (accepts `scanDays` parameter) |
 | `/api/tasks/:id/enrich` | POST | Phase 2: Content enrichment |
 | `/api/tasks/:id/check-update` | POST | Phase 3: Update check |
+| `/api/consolidate` | POST | Phase 4: Find duplicate/related tasks |
+| `/api/tasks/merge` | POST | Merge two or more tasks into one |
+| `/api/tasks/:id/dismiss-merge` | POST | Dismiss a merge suggestion (bidirectional) |
 | `/api/tasks/:id/log/analyze` | POST | Intent analysis (summarize/answer/search) — no MCP |
 | `/api/tasks/:id/log` | POST | Execute search with Work IQ MCP |
 | `/api/tasks/:id/review` | POST | Ambiguity review resolution — no MCP |
@@ -182,7 +189,7 @@ Beyond scanning, each task has an interactive agent panel where users can ask qu
 
 ## Data Storage
 
-All tasks are stored locally in `tasks.json` (schema version 3). The server runs three migrations on startup: v1→v2 (adds history, doneAt), status migration (active→new), and v2→v3 (adds enrichmentStatus, updateCheckStatus, enrichedAt, lastUpdateCheck). Stuck transitional statuses (enriching, checking) are reset to pending on startup.
+All tasks are stored locally in `tasks.json` (schema version 3). The server runs three migrations on startup: v1→v2 (adds history, doneAt), status migration (active→new), and v2→v3 (adds enrichmentStatus, updateCheckStatus, enrichedAt, lastUpdateCheck). Tasks may also contain a `noMergeWith[]` array for dismissed merge suggestions. Stuck transitional statuses (enriching, checking) are reset to pending on startup.
 
 No data is sent to external services beyond the Copilot SDK (GitHub Copilot API) and Work IQ (which queries your own M365 tenant).
 
@@ -190,7 +197,7 @@ No data is sent to external services beyond the Copilot SDK (GitHub Copilot API)
 
 > **Note:** This is a prototype feature. The scheduling files contain hardcoded values that must be adapted to your environment before use.
 
-Agent Zero can automatically scan your emails and Teams messages twice a day (default: 07:00 and 11:00) using Windows Task Scheduler. The scan runs all three phases (Discovery, Enrichment, Update Check) with full UI visibility in the browser.
+Agent Zero can automatically scan your emails and Teams messages twice a day (default: 07:00 and 11:00) using Windows Task Scheduler. The scan runs all four phases (Discovery, Enrichment, Update Check, Consolidation) with full UI visibility in the browser.
 
 ### How it works
 

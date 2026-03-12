@@ -4,6 +4,41 @@ All notable changes to this project are documented here.
 
 ---
 
+## v2.4.0 — March 12, 2026
+
+**Phase 4: Task Consolidation & Perspective Attribution**
+
+### Phase 4: Task Consolidation
+- New **Phase 4** added to the scan pipeline — after Phases 1-3, AI semantically analyzes all active tasks and suggests merging those covering the same topic
+- New `CONSOLIDATE_SKILL.md` skill file for conservative, semantic task grouping
+- **Consolidation banner** appears at the bottom of the screen with merge suggestions, each showing the tasks involved, AI reasoning, and a suggested merged title
+- **Merge** button: AI generates a combined title and summary, merges histories chronologically, deletes the secondary task
+- **Keep Separate** button: Bidirectional `noMergeWith` persisted on both tasks — the pair is never suggested again
+- Phase 4 is non-fatal: timeouts or failures are silently caught, scan completes normally
+
+### Find Duplicates Button
+- New **🔗 Find Duplicates** button in the sidebar allows triggering Phase 4 independently, without running a full scan
+- Useful when the Copilot SDK times out during scan, or after manually adding multiple tasks
+
+### Tooltip Hover Descriptions
+- All four sidebar buttons (Generate Action Items, Add Action Item, Find Duplicates, Search) now show descriptive tooltips on mouse hover
+- Tooltips explain what each button does in plain language
+
+### Perspective Attribution
+- `ENRICH_SKILL.md` now includes a "Perspective Attribution" section: when different people express different expectations, the agent makes the difference explicitly visible (e.g. "Nicola expects X — Martin is considering Y")
+- `UPDATE_CHECK_SKILL.md` updated with attribution instruction for update summaries
+
+### API Endpoints (New)
+- `POST /api/consolidate` — Phase 4: Analyze all tasks for merge suggestions (30s timeout, no MCP)
+- `POST /api/tasks/merge` — Merge two or more tasks into one (AI-generated combined summary)
+- `POST /api/tasks/:id/dismiss-merge` — Dismiss a merge suggestion (bidirectional `noMergeWith`)
+
+### Data Schema
+- New `noMergeWith[]` field on tasks — stores IDs of tasks the user has explicitly chosen to keep separate
+- New `merge` history entry type — logged when tasks are merged
+
+---
+
 ## v2.3.0 — March 10, 2026
 
 **Post-Search Evaluation & Title Rename Intent**

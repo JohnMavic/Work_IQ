@@ -1,7 +1,7 @@
 # Agent Zero — Product Specification
 
-**Version:** 2.2.0
-**Date:** March 2, 2026
+**Version:** 2.4.0
+**Date:** March 12, 2026
 **Author:** Martin Hämmerli
 **Status:** v2.2.0 implemented (Intelligent Search + Add Task Redesign)
 
@@ -367,7 +367,7 @@ Each scanned task includes an optional `summary` field — a 2-4 sentence briefi
 
 ### 4.21 Multi-Phase Scan Architecture
 
-The scan process is split into 3 sequential phases for faster initial feedback and progressive content loading:
+The scan process is split into 4 sequential phases for faster initial feedback and progressive content loading:
 
 **Phase 1 — Discovery (Subject-Only):**
 - Uses `SCAN_DISCOVERY_SKILL.md` — extracts only subject line, sender, date
@@ -387,6 +387,16 @@ The scan process is split into 3 sequential phases for faster initial feedback a
 - Checks for new replies in email thread since task creation
 - If update found: appends "📌 Update:" to summary, sets `updateCheckStatus: "updated"`
 - Step 3 indicator turns green ✅ or yellow (updated)
+
+**Phase 4 — Task Consolidation (Duplicate Detection):**
+- `POST /api/consolidate` — single AI call for all active tasks
+- Uses `CONSOLIDATE_SKILL.md` — pure reasoning, no Work IQ MCP needed
+- AI compares all task titles and summaries semantically
+- Returns merge suggestions with reasoning and suggested merged titles
+- Previously dismissed pairs (stored in `noMergeWith[]`) are filtered out
+- User actions: **Merge** (combines tasks) or **Keep Separate** (prevents future suggestion)
+- Non-fatal: failures are silently caught, scan completes normally
+- Also available as standalone action via **🔗 Find Duplicates** button
 
 **Freeze Mode:** During Phase 2/3, the task being processed is frozen — neon blue border/glow, pulse animation, `pointer-events: none`, "❄️ Agent working..." badge. All interaction functions (delete, update, panel toggle, analyze) check `frozenTasks` Set and refuse action.
 
@@ -425,13 +435,14 @@ The scan process is split into 3 sequential phases for faster initial feedback a
 | `lastUpdateCheck` | string \| null | ISO timestamp of last update check |
 | `createdAt` | string | ISO timestamp of creation |
 | `updatedAt` | string | ISO timestamp of last modification |
+| `noMergeWith` | string[] | IDs of tasks the user chose to keep separate (bidirectional) |
 
 ### 5.3 HistoryEntry Object
 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `timestamp` | string | Yes | ISO 8601 timestamp |
-| `type` | string | Yes | `"created"`, `"status-change"`, `"scan-update"`, `"enriched"`, `"enrich-error"`, `"thread-update"`, `"update-check"`, `"update-check-error"`, `"summary-update"`, `"title-change"`, `"update"`, `"note"`, `"review-response"` |
+| `type` | string | Yes | `"created"`, `"status-change"`, `"scan-update"`, `"enriched"`, `"enrich-error"`, `"thread-update"`, `"update-check"`, `"update-check-error"`, `"summary-update"`, `"title-change"`, `"update"`, `"note"`, `"review-response"`, `"merge"` |
 | `text` | string | Yes | User message or system description |
 | `communications` | Communication[] | No | Found emails/messages (search results) |
 | `agentPlan` | AgentPlan | No | AI analysis result |
@@ -500,6 +511,9 @@ The scan process is split into 3 sequential phases for faster initial feedback a
 | `POST` | `/api/scan` | Phase 1: Discovery scan (subjects only) |
 | `POST` | `/api/tasks/:id/enrich` | Phase 2: Content extraction + summary |
 | `POST` | `/api/tasks/:id/check-update` | Phase 3: Thread update check |
+| `POST` | `/api/consolidate` | Phase 4: Find duplicate/related tasks |
+| `POST` | `/api/tasks/merge` | Merge two or more tasks into one |
+| `POST` | `/api/tasks/:id/dismiss-merge` | Dismiss a merge suggestion (bidirectional) |
 | `POST` | `/api/tasks/:id/log/analyze` | AI intent analysis |
 | `POST` | `/api/tasks/:id/log` | Phase 2: Execute intelligent search |
 | `POST` | `/api/cleanup` | Permanently delete done tasks older than `retentionDays` |
@@ -605,6 +619,7 @@ External Markdown files loaded at server startup:
 | `SCAN_DISCOVERY_SKILL.md` | `docs/SCAN_DISCOVERY_SKILL.md` | Phase 1: Subject-only discovery scan prompt |
 | `ENRICH_SKILL.md` | `docs/ENRICH_SKILL.md` | Phase 2: Content extraction + summary prompt |
 | `UPDATE_CHECK_SKILL.md` | `docs/UPDATE_CHECK_SKILL.md` | Phase 3: Thread update check prompt |
+| `CONSOLIDATE_SKILL.md` | `docs/CONSOLIDATE_SKILL.md` | Phase 4: Task consolidation / duplicate detection prompt |
 | `SEARCH_SKILL.md` | `docs/SEARCH_SKILL.md` | Intelligent communication search prompt (v2.2) |
 | `SCAN_SKILL.md` | `docs/SCAN_SKILL.md` | Legacy scan skill (backup/fallback) |
 | `LOG_WORK_SKILL.md` | `docs/LOG_WORK_SKILL.md` | Communication search prompt template (fallback path) |
@@ -631,6 +646,7 @@ Agent_Zero/
 │   ├── SCAN_DISCOVERY_SKILL.md       (Phase 1 scan prompt)
 │   ├── ENRICH_SKILL.md               (Phase 2 enrichment prompt)
 │   ├── UPDATE_CHECK_SKILL.md         (Phase 3 update check prompt)
+│   ├── CONSOLIDATE_SKILL.md         (Phase 4 task consolidation prompt)
 │   ├── SEARCH_SKILL.md               (intelligent search prompt, v2.2)
 │   ├── SCAN_SKILL.md                 (legacy scan prompt, fallback)
 │   ├── LOG_WORK_SKILL.md             (legacy log work prompt, fallback)
