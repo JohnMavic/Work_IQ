@@ -1652,11 +1652,42 @@
     setTimeout(() => { if (el.parentElement) el.remove(); }, 5000);
   }
 
+  // --- Header Progress Helpers ---
+  let headerProgressTimer = null;
+
+  function showHeaderProgress(text) {
+    const overlay = document.getElementById('loadingOverlay');
+    const loadingText = document.getElementById('loadingText');
+    const loadingTimer = document.getElementById('loadingTimer');
+    const abortBtn = document.getElementById('btnAbort');
+    overlay.classList.add('visible');
+    loadingText.textContent = text;
+    loadingTimer.textContent = '⏱ 00:00';
+    if (abortBtn) abortBtn.style.display = 'none';
+    let elapsed = 0;
+    headerProgressTimer = setInterval(() => {
+      elapsed++;
+      const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+      const ss = String(elapsed % 60).padStart(2, '0');
+      loadingTimer.textContent = `⏱ ${mm}:${ss}`;
+    }, 1000);
+  }
+
+  function hideHeaderProgress() {
+    clearInterval(headerProgressTimer);
+    headerProgressTimer = null;
+    const overlay = document.getElementById('loadingOverlay');
+    const abortBtn = document.getElementById('btnAbort');
+    overlay.classList.remove('visible');
+    if (abortBtn) abortBtn.style.display = '';
+  }
+
   async function triggerFindDuplicates() {
     const btn = document.getElementById('btnFindDuplicates');
     const origText = btn.textContent;
     btn.disabled = true;
     btn.textContent = '🔗 Analyzing...';
+    showHeaderProgress('Finding duplicates — analyzing task relationships...');
 
     try {
       const res = await fetch('/api/consolidate', { method: 'POST' });
@@ -1674,6 +1705,7 @@
         showNotification('Duplicate check failed: ' + err.message, 'error');
       }
     } finally {
+      hideHeaderProgress();
       btn.disabled = false;
       btn.textContent = origText;
     }
@@ -1754,6 +1786,7 @@
     const taskIds = [...selectedForMerge];
     const mergeBtn = document.querySelector('.btn-do-merge');
     if (mergeBtn) { mergeBtn.disabled = true; mergeBtn.textContent = '⏳ Merging...'; }
+    showHeaderProgress(`Merging ${taskIds.length} tasks — generating combined summary...`);
 
     try {
       const res = await fetch('/api/tasks/merge', {
@@ -1778,6 +1811,8 @@
         showNotification('Merge failed: ' + err.message, 'error');
       }
       if (mergeBtn) { mergeBtn.disabled = false; mergeBtn.textContent = `🔗 Merge ${taskIds.length} Tasks`; }
+    } finally {
+      hideHeaderProgress();
     }
   }
 
