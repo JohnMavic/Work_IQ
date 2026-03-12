@@ -1,6 +1,6 @@
 # Agent Zero
 
-> Version 2.4.0 · A personal AI-powered action-item tracker for Microsoft 365
+> Version 2.5.0 · A personal AI-powered action-item tracker for Microsoft 365
 
 **Author:** Martin Hämmerli · [martih@microsoft.com](mailto:martih@microsoft.com)
 
@@ -148,6 +148,7 @@ Beyond scanning, each task has an interactive agent panel where users can ask qu
 
 - **Three-phase scan** with visual progress indicators
 - **Phase 4: Task consolidation** — AI finds duplicate/related tasks and suggests merging. Also available as standalone "🔗 Find Duplicates" button.
+- **Manual Merge Mode** — "🔗 Merge Tasks" button activates multi-select merge with checkboxes, floating merge bar, and full link preservation
 - **AI content extraction** via keyword-based Work IQ search
 - **Intelligent search** — goal-oriented 3-attempt search with self-assessment and confidence levels (SEARCH_SKILL.md)
 - **Post-search evaluation** — after search, AI evaluates whether task title and summary need updating based on new findings; applies changes automatically with full history traceability
@@ -189,7 +190,7 @@ Beyond scanning, each task has an interactive agent panel where users can ask qu
 
 ## Data Storage
 
-All tasks are stored locally in `tasks.json` (schema version 3). The server runs three migrations on startup: v1→v2 (adds history, doneAt), status migration (active→new), and v2→v3 (adds enrichmentStatus, updateCheckStatus, enrichedAt, lastUpdateCheck). Tasks may also contain a `noMergeWith[]` array for dismissed merge suggestions. Stuck transitional statuses (enriching, checking) are reset to pending on startup.
+All tasks are stored locally in `tasks.json` (schema version 3). The server runs three migrations on startup: v1→v2 (adds history, doneAt), status migration (active→new), and v2→v3 (adds enrichmentStatus, updateCheckStatus, enrichedAt, lastUpdateCheck). Tasks may also contain a `noMergeWith[]` array for dismissed merge suggestions and an `additionalLinks[]` array for links preserved from merged tasks. Stuck transitional statuses (enriching, checking) are reset to pending on startup.
 
 No data is sent to external services beyond the Copilot SDK (GitHub Copilot API) and Work IQ (which queries your own M365 tenant).
 

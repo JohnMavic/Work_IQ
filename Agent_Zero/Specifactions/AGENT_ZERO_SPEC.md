@@ -1,6 +1,6 @@
 # Agent Zero — Product Specification
 
-**Version:** 2.4.0
+**Version:** 2.5.0
 **Date:** March 12, 2026
 **Author:** Martin Hämmerli
 **Status:** v2.2.0 implemented (Intelligent Search + Add Task Redesign)
@@ -436,6 +436,7 @@ The scan process is split into 4 sequential phases for faster initial feedback a
 | `createdAt` | string | ISO timestamp of creation |
 | `updatedAt` | string | ISO timestamp of last modification |
 | `noMergeWith` | string[] | IDs of tasks the user chose to keep separate (bidirectional) |
+| `additionalLinks` | object[] | Links from secondary tasks after a merge: `[{ url, source, from }]` |
 
 ### 5.3 HistoryEntry Object
 

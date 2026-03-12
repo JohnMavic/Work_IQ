@@ -1407,6 +1407,41 @@ Return ONLY valid JSON:
       primary.summary = mergedSummary;
       primary.updatedAt = now;
 
+      // Collect ALL links from all tasks being merged
+      const allLinks = [];
+      for (const t of [primary, ...secondaryIds.map(id => data.tasks.find(t => t.id === id)).filter(Boolean)]) {
+        if (t.link) {
+          allLinks.push({ url: t.link, source: t.source || 'unknown', from: t.from || null });
+        }
+        if (t.additionalLinks) {
+          allLinks.push(...t.additionalLinks);
+        }
+      }
+      // Deduplicate by URL
+      const seenUrls = new Set();
+      const uniqueLinks = allLinks.filter(l => {
+        if (seenUrls.has(l.url)) return false;
+        seenUrls.add(l.url);
+        return true;
+      });
+      // Primary keeps its own link, rest go to additionalLinks
+      if (uniqueLinks.length > 1) {
+        primary.additionalLinks = uniqueLinks.filter(l => l.url !== primary.link);
+      } else if (uniqueLinks.length === 1 && !primary.link) {
+        primary.link = uniqueLinks[0].url;
+        primary.source = uniqueLinks[0].source;
+        primary.from = primary.from || uniqueLinks[0].from;
+      }
+
+      // Merge notes from secondary tasks
+      const allNotes = [primary.notes || '', ...secondaryIds.map(id => {
+        const t = data.tasks.find(t => t.id === id);
+        return t?.notes || '';
+      })].filter(Boolean);
+      if (allNotes.length > 1) {
+        primary.notes = allNotes.join('\n\n');
+      }
+
       // Remove noMergeWith entries for merged tasks
       if (primary.noMergeWith) {
         primary.noMergeWith = primary.noMergeWith.filter(id => !secondaryIds.includes(id));

@@ -719,6 +719,46 @@
     .btn-add-task { background: #10b981; color: #fff; font-size: 0.82rem; padding: 8px 10px; }
     .btn-find-duplicates { background: #8b5cf6; color: #fff; font-size: 0.82rem; padding: 8px 10px; }
     .btn-find-duplicates:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-merge-tasks { background: #f59e0b; color: #000; font-size: 0.82rem; padding: 8px 10px; font-weight: 600; }
+    .btn-merge-tasks.active { background: #d97706; box-shadow: 0 0 10px rgba(245, 158, 11, 0.4); }
+
+    /* --- Merge Mode --- */
+    .merge-mode .task-card { cursor: pointer; position: relative; padding-left: 36px; }
+    .merge-checkbox {
+      display: none;
+      position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+      width: 18px; height: 18px; accent-color: #f59e0b;
+      cursor: pointer; z-index: 5;
+    }
+    .merge-mode .merge-checkbox { display: block; }
+    .merge-mode .task-card.merge-selected {
+      border-color: #f59e0b !important;
+      box-shadow: 0 0 12px rgba(245, 158, 11, 0.3);
+    }
+
+    /* --- Floating Merge Bar --- */
+    .merge-action-bar {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: linear-gradient(135deg, #1a1206, #2a1a0a);
+      border-top: 2px solid #f59e0b;
+      padding: 12px 24px; display: flex; align-items: center; gap: 16px;
+      z-index: 1000; animation: slideUp 0.3s ease-out;
+    }
+    .merge-action-bar .merge-count { color: #f59e0b; font-weight: 600; font-size: 0.9rem; white-space: nowrap; }
+    .merge-action-bar .merge-titles { color: #ccc; font-size: 0.78rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .merge-action-bar .merge-titles span { color: #fbbf24; }
+    .merge-action-bar .btn-do-merge {
+      background: #f59e0b; color: #000; border: none; border-radius: 6px;
+      padding: 8px 20px; font-weight: 700; font-size: 0.85rem; cursor: pointer;
+      transition: background 0.2s;
+    }
+    .merge-action-bar .btn-do-merge:hover { background: #d97706; }
+    .merge-action-bar .btn-do-merge:disabled { opacity: 0.4; cursor: not-allowed; }
+    .merge-action-bar .btn-cancel-merge {
+      background: transparent; color: #aaa; border: 1px solid #444; border-radius: 6px;
+      padding: 8px 16px; font-size: 0.82rem; cursor: pointer;
+    }
+    .merge-action-bar .btn-cancel-merge:hover { color: #fff; border-color: #888; }
 
     /* --- Task Search --- */
     .task-search-wrapper {
@@ -1020,6 +1060,7 @@
       <button class="btn btn-scan" id="btnScan" onclick="triggerScan()" title="Scans your Outlook emails and Teams messages for new action items, enriches them with AI summaries, and checks for updates.">📡 Generate Action Items<span class="btn-sub">Scan Outlook &amp; Teams</span></button>
       <button class="btn btn-add-task" id="btnAddTask" onclick="showAddTaskModal()" title="Manually create a new action item. You can optionally assign an AI search question to find related information in your emails and Teams chats.">＋ Add Action Item</button>
       <button class="btn btn-find-duplicates" id="btnFindDuplicates" onclick="triggerFindDuplicates()" title="AI analyzes all your action items and suggests merging those that cover the same topic. You decide for each suggestion.">🔗 Find Duplicates</button>
+      <button class="btn btn-merge-tasks" id="btnMergeTasks" onclick="toggleMergeMode()" title="Select two or more action items to merge into one. All source links, notes, and history are preserved.">🔗 Merge Tasks</button>
       <div class="task-search-wrapper" id="searchWrapper">
         <button class="btn btn-search-tasks" onclick="toggleTaskSearch()" title="Filter and search through your existing action items by title, summary, sender, or source.">🔍 Search</button>
         <input type="text" class="task-search-input" id="taskSearchInput" placeholder="Search tasks..." oninput="onTaskSearch(this.value)" onkeydown="onSearchKeydown(event)">
@@ -1095,6 +1136,8 @@
   const frozenTasks = new Set();
   let scanAborted = false;
   let selectedTaskId = localStorage.getItem('selectedTaskId') || null;
+  let mergeMode = false;
+  const selectedForMerge = new Set();
 
   // --- Server Health Check ---
 
@@ -1636,6 +1679,108 @@
     }
   }
 
+  // --- Merge Mode ---
+
+  function toggleMergeMode() {
+    mergeMode = !mergeMode;
+    const btn = document.getElementById('btnMergeTasks');
+    const taskList = document.getElementById('taskList');
+
+    if (mergeMode) {
+      btn.classList.add('active');
+      btn.textContent = '🔗 Merge Mode ON';
+      taskList.classList.add('merge-mode');
+      selectedForMerge.clear();
+      updateMergeBar();
+      document.addEventListener('keydown', mergeModeEscHandler);
+    } else {
+      btn.classList.remove('active');
+      btn.textContent = '🔗 Merge Tasks';
+      taskList.classList.remove('merge-mode');
+      selectedForMerge.clear();
+      document.querySelector('.merge-action-bar')?.remove();
+      document.removeEventListener('keydown', mergeModeEscHandler);
+      // Uncheck all checkboxes and remove selection highlighting
+      document.querySelectorAll('.merge-checkbox').forEach(cb => cb.checked = false);
+      document.querySelectorAll('.task-card.merge-selected').forEach(c => c.classList.remove('merge-selected'));
+    }
+  }
+
+  function mergeModeEscHandler(e) {
+    if (e.key === 'Escape' && mergeMode) toggleMergeMode();
+  }
+
+  function toggleMergeSelect(taskId) {
+    if (!mergeMode) return;
+    const card = document.getElementById('card-' + taskId);
+    const cb = card?.querySelector('.merge-checkbox');
+
+    if (selectedForMerge.has(taskId)) {
+      selectedForMerge.delete(taskId);
+      card?.classList.remove('merge-selected');
+      if (cb) cb.checked = false;
+    } else {
+      selectedForMerge.add(taskId);
+      card?.classList.add('merge-selected');
+      if (cb) cb.checked = true;
+    }
+    updateMergeBar();
+  }
+
+  function updateMergeBar() {
+    document.querySelector('.merge-action-bar')?.remove();
+    if (!mergeMode) return;
+
+    const count = selectedForMerge.size;
+    const bar = document.createElement('div');
+    bar.className = 'merge-action-bar';
+
+    const selectedTasks = [...selectedForMerge].map(id => tasks.find(t => t.id === id)).filter(Boolean);
+    const titleList = selectedTasks.map(t =>
+      `<span>${escHtml(t.title.length > 40 ? t.title.substring(0, 37) + '...' : t.title)}</span>`
+    ).join(' + ');
+
+    bar.innerHTML =
+      `<div class="merge-count">${count} selected</div>` +
+      `<div class="merge-titles">${count > 0 ? titleList : 'Click action items to select them for merging'}</div>` +
+      `<button class="btn-do-merge" onclick="executeMergeFromBar()" ${count < 2 ? 'disabled' : ''}>🔗 Merge${count >= 2 ? ` ${count} Tasks` : ''}</button>` +
+      `<button class="btn-cancel-merge" onclick="toggleMergeMode()">✕ Cancel</button>`;
+
+    document.body.appendChild(bar);
+  }
+
+  async function executeMergeFromBar() {
+    if (selectedForMerge.size < 2) return;
+    const taskIds = [...selectedForMerge];
+    const mergeBtn = document.querySelector('.btn-do-merge');
+    if (mergeBtn) { mergeBtn.disabled = true; mergeBtn.textContent = '⏳ Merging...'; }
+
+    try {
+      const res = await fetch('/api/tasks/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskIds })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toggleMergeMode();
+        showNotification(`✅ ${taskIds.length} tasks merged into: "${data.task.title}"`, 'success');
+        await fetchTasks();
+        selectTask(data.task.id);
+      } else {
+        showNotification('Merge failed: ' + (data.error || 'Unknown error'), 'error');
+        if (mergeBtn) { mergeBtn.disabled = false; mergeBtn.textContent = `🔗 Merge ${taskIds.length} Tasks`; }
+      }
+    } catch (err) {
+      if (err.name === 'TypeError' && err.message.includes('fetch')) {
+        setServerStatus(false);
+      } else {
+        showNotification('Merge failed: ' + err.message, 'error');
+      }
+      if (mergeBtn) { mergeBtn.disabled = false; mergeBtn.textContent = `🔗 Merge ${taskIds.length} Tasks`; }
+    }
+  }
+
   function showConsolidationBanner(suggestions) {
     // Remove existing banner if any
     document.querySelector('.consolidation-banner')?.remove();
@@ -1845,9 +1990,15 @@
     const fromText = task.from ? `from ${escHtml(task.from)}` : '';
     const dateText = task.date ? formatDate(task.date) : '';
     const separator = fromText && dateText ? ' · ' : '';
-    const linkHtml = task.link
+    let linkHtml = task.link
       ? `<a href="${escHtml(task.link)}" onclick="return openLink(event)" rel="noopener">Open source ↗</a>`
       : '';
+    if (task.additionalLinks && task.additionalLinks.length > 0) {
+      for (const al of task.additionalLinks) {
+        const label = al.from ? `${al.source === 'email' ? 'Email' : 'Teams'} · ${escHtml(al.from)}` : `Source`;
+        linkHtml += ` <a href="${escHtml(al.url)}" onclick="return openLink(event)" rel="noopener" title="${label}">${label} ↗</a>`;
+      }
+    }
     return { sourceBadge, fromText, dateText, separator, linkHtml };
   }
 
@@ -1879,7 +2030,8 @@
         : '';
 
       return `
-        <div class="task-card${doneClass}${isFrozen ? ' frozen' : ''}${selClass}" id="card-${task.id}" onclick="selectTask('${task.id}')">
+        <div class="task-card${doneClass}${isFrozen ? ' frozen' : ''}${selClass}${mergeMode && selectedForMerge.has(task.id) ? ' merge-selected' : ''}" id="card-${task.id}" onclick="${mergeMode ? `toggleMergeSelect('${task.id}')` : `selectTask('${task.id}')`}">
+          <input type="checkbox" class="merge-checkbox" ${selectedForMerge.has(task.id) ? 'checked' : ''} onclick="event.stopPropagation(); toggleMergeSelect('${task.id}')">
           <div class="task-main">
             <div class="task-title">${escHtml(task.title)} ${stepIndicator}${ambiguityBadge}${pinnedTaskId === task.id ? '<span class="pinned-indicator" onclick="event.stopPropagation(); unpinTask()" title="Unpin task">📌 ✕</span>' : ''}</div>
             <div class="task-meta">

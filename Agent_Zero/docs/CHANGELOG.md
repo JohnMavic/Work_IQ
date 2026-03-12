@@ -4,6 +4,35 @@ All notable changes to this project are documented here.
 
 ---
 
+## v2.5.0 — March 12, 2026
+
+**Manual Merge Mode & Link Preservation**
+
+### Manual Merge Mode
+- New **🔗 Merge Tasks** button in the sidebar activates Merge Mode
+- In Merge Mode, all task cards show checkboxes — click to select 2+ tasks for merging
+- **Floating merge bar** at the bottom shows: selected count, abbreviated titles, "🔗 Merge N Tasks" button, and "✕ Cancel" button
+- **ESC key** exits Merge Mode
+- On merge: AI generates a combined title and summary, histories are merged chronologically, secondary tasks are deleted
+- Merge Mode button text toggles to "🔗 Merge Mode ON" when active
+
+### Link Preservation on Merge
+- New `additionalLinks[]` field on tasks — stores links from secondary tasks after a merge
+- Primary task keeps its `link` field unchanged (backward compatible)
+- Each additional link stores: `url`, `source` (email/teams), and `from` (sender name)
+- Links are deduplicated by URL during merge
+- Notes from all merged tasks are combined with `\n\n` separators
+- **buildTaskMeta()** renders all links with source labels: "📧 Email · Sender ↗", "💬 Teams · Sender ↗"
+
+### Tooltip Hover Descriptions
+- All five sidebar buttons now show descriptive tooltips on hover: Generate Action Items, Add Action Item, Find Duplicates, Merge Tasks, Search
+
+### Server Crash Detection During Scans
+- Phase 2, 3, 4 catch blocks now call `setServerStatus(false)` on connection errors
+- Offline banner appears immediately when the server crashes mid-scan, with guidance to restart
+
+---
+
 ## v2.4.0 — March 12, 2026
 
 **Phase 4: Task Consolidation & Perspective Attribution**

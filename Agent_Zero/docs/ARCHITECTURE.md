@@ -1,6 +1,6 @@
 # Agent Zero — Architecture
 
-> Version 2.4.0 · March 12, 2026 · Author: Martin Hämmerli
+> Version 2.5.0 · March 12, 2026 · Author: Martin Hämmerli
 
 Agent Zero is a personal action-item tracker that scans Microsoft 365 emails and Teams messages for tasks,
 extracts content summaries, and monitors threads for updates — all powered by AI.
@@ -230,7 +230,10 @@ Tasks are stored in `tasks.json` as `{ version: 3, tasks: [...] }`.
   "enrichedAt": "2026-02-27T16:30:00Z",
   "lastUpdateCheck": "2026-02-27T17:00:00Z",
   "createdAt": "2026-02-27T15:00:00Z",
-  "updatedAt": "2026-02-27T17:00:00Z"
+  "updatedAt": "2026-02-27T17:00:00Z",
+  "additionalLinks": [
+    { "url": "https://teams.microsoft.com/...", "source": "teams", "from": "Nicola Pettinato" }
+  ]
 }
 ```
 
@@ -270,6 +273,21 @@ Tasks that a user has chosen to "Keep Separate" store a `noMergeWith` array:
 
 This is **bidirectional** — both tasks in a dismissed pair reference each other. Phase 4
 checks this field before suggesting a merge.
+
+### Additional Links (Merge Preservation)
+
+When tasks are merged manually or via Phase 4, the secondary tasks' source links are preserved:
+
+```json
+{
+  "additionalLinks": [
+    { "url": "https://teams.microsoft.com/...", "source": "teams", "from": "Nicola Pettinato" },
+    { "url": "https://outlook.office365.com/...", "source": "email", "from": "Jeff Duffield" }
+  ]
+}
+```
+
+The primary task keeps its own `link` field (backward compatible). Links are deduplicated by URL.
 
 ### Agent Plan (v2.2)
 
@@ -381,6 +399,7 @@ The entire frontend lives in `index.html` — a single-file dark-themed SPA.
 - **Server health check**: Polls `/api/tasks` every 5s when offline, green/red status dot + "Online"/"Offline" label
 - **Link opening**: Window or tab mode (user preference persisted in localStorage, defunct split/incognito modes auto-migrated to window)
 - **Log work**: Two-phase agent (analyze intent → intelligent search via SEARCH_SKILL.md with 3-attempt strategy, self-assessment, and confidence levels)
+- **Merge Mode**: "🔗 Merge Tasks" button activates multi-select mode — checkboxes appear on all task cards, floating merge bar at bottom with selected count, titles, and Merge/Cancel buttons. ESC exits. Merged tasks preserve all source links via `additionalLinks[]`.
 - **Prominent answer display**: When agent returns a direct answer with confidence, it's shown as an always-visible block with color-coded border — never collapsed
 - **Detail panel**: Expandable history with multi-line entries, icons per history type, search attempt details, confidence badges, relevance annotations
 
@@ -400,6 +419,10 @@ The entire frontend lives in `index.html` — a single-file dark-themed SPA.
 | `checkServerHealth()` | Poll server with 3s AbortController timeout |
 | `analyzeLog(taskId, message)` | Send message to AI for intent analysis |
 | `executeLog(taskId)` | Execute agent plan via Work IQ (reads plan from `pendingPlans`) |
+| `toggleMergeMode()` | Activate/deactivate merge mode (checkboxes, floating bar) |
+| `toggleMergeSelect(taskId)` | Toggle task selection in merge mode |
+| `executeMergeFromBar()` | Execute merge of selected tasks via API |
+| `triggerFindDuplicates()` | Trigger Phase 4 consolidation independently |
 
 ---
 
