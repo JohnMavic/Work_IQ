@@ -367,7 +367,7 @@ Additionally, stuck statuses are reset: `enriching` → `pending`, `checking` �
 | `POST` | `/api/tasks/:id/log/analyze` | AI intent analysis (no Work IQ) | 30s |
 | `POST` | `/api/tasks/:id/log` | Intelligent search via Copilot SDK + MCP + SEARCH_SKILL.md | 300s |
 | `POST` | `/api/cleanup` | Permanently delete done tasks older than `retentionDays` | — |
-| `POST` | `/api/tasks/:id/review` | Ambiguity resolution — user responds to agent's review questions | 30s |
+| `POST` | `/api/tasks/:id/review` | Ambiguity resolution — user responds to agent's review questions (with MCP research) | 180s |
 
 ---
 

@@ -8,6 +8,11 @@ All notable changes to this project are documented here.
 
 **Manual Merge Mode & Link Preservation**
 
+### Review Endpoint with Research Capability
+- `POST /api/tasks/:id/review` now uses **MCP/Work IQ** — when the user asks the agent to verify, analyze, or research something, the agent actually searches emails and Teams messages instead of just accepting the user's assumptions
+- Timeout increased from 30s to 180s to allow for MCP-based research
+- New prompt instructs AI to distinguish between simple answers (resolve directly) and research requests (search first, then resolve with evidence)
+
 ### Manual Merge Mode
 - New **🔗 Merge Tasks** button in the sidebar activates Merge Mode
 - In Merge Mode, all task cards show checkboxes — click to select 2+ tasks for merging

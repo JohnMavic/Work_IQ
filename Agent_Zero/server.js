@@ -2162,7 +2162,16 @@ app.post('/api/tasks/:id/review', async (req, res) => {
   let client;
   try {
     client = new CopilotClient();
-    const session = await client.createSession({});
+    const session = await client.createSession({
+      mcpServers: {
+        workiq: {
+          type: 'stdio',
+          command: 'workiq',
+          args: ['mcp'],
+          tools: '*'
+        }
+      }
+    });
 
     const reviewPrompt = `You are an intelligent assistant for a task management app. The user is responding to review questions that the agent flagged as uncertain during content enrichment.
 
@@ -2178,30 +2187,33 @@ ${openItems.map((a, i) => `${i}: "${a.question}"`).join('\n')}
 USER'S RESPONSE:
 "${response.trim()}"
 
-INSTRUCTIONS:
-1. Analyze which review questions are sufficiently answered by the user's response.
-2. If the user's response provides enough information, provide an updated summary incorporating the new facts.
-3. If some questions remain unanswered or new uncertainties arise, formulate them as remaining questions.
+CRITICAL INSTRUCTIONS — RESEARCH BEFORE ANSWERING:
+1. Read the user's response carefully. If the user asks you to VERIFY, CHECK, ANALYZE, RESEARCH, or INVESTIGATE something — you MUST use your search tools to find the actual information in emails and Teams messages. Do NOT simply accept the user's assumptions as fact.
+2. Even if the user states an opinion (e.g. "I don't think X is related to Y"), you must independently verify this by searching for the relevant communications. Then either CONFIRM the user's view with evidence, or PRESENT COUNTER-EVIDENCE if you find a connection.
+3. Only after you have done your own research (when the user's response warrants it), decide which review questions are resolved.
+4. If the user's response is a simple factual answer (e.g. "Yes, the deadline was extended" or "No, that's a different project"), you can resolve the question directly without additional search.
 
-Return ONLY this JSON:
+After your analysis, return ONLY this JSON:
 {
   "resolvedIndices": [0, 2],
-  "updatedSummary": "The complete updated summary incorporating the user's clarifications. Write in the same language as the current summary. If no changes needed, return null.",
+  "updatedSummary": "The complete updated summary incorporating the user's clarifications AND your research findings. Write in the same language as the current summary. If no changes needed, return null.",
   "remainingQuestions": ["Any new or still-open question — only if truly unresolved"],
-  "allResolved": true
+  "allResolved": true,
+  "researchPerformed": true
 }
 
 RULES:
-- resolvedIndices: array of indices (0-based) from the OPEN REVIEW QUESTIONS list that the user answered
-- updatedSummary: must be a COMPLETE replacement summary (not a diff), or null if no update needed
+- resolvedIndices: array of indices (0-based) from the OPEN REVIEW QUESTIONS list that are now answered
+- updatedSummary: must be a COMPLETE replacement summary (not a diff), or null if no update needed. If you performed research, incorporate your findings.
 - remainingQuestions: empty array [] if all resolved, otherwise new/reformulated open questions
 - allResolved: true if all open questions are answered, false otherwise
-- Be generous — if the user clearly addresses a question, mark it as resolved
+- researchPerformed: true if you used search tools to verify, false if direct answer was sufficient
+- Be thorough — if the user asks you to verify something, actually verify it before resolving
 - Write in the same language as the user's response
 
 Return ONLY the JSON object. No markdown, no explanation.`;
 
-    const aiResponse = await session.sendAndWait({ prompt: reviewPrompt }, 30000);
+    const aiResponse = await session.sendAndWait({ prompt: reviewPrompt }, 180000);
     await session.destroy();
 
     if (!aiResponse) {
