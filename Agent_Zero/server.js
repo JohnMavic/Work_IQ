@@ -1546,6 +1546,71 @@ app.post('/api/tasks/:id/log/analyze', async (req, res) => {
   let client;
   try {
     client = new CopilotClient();
+
+    // Pre-filter: if user explicitly reports an action ("Ich habe X bestätigt/mitgeteilt/..."),
+    // skip intent classification entirely and use a dedicated update-only prompt.
+    // This prevents the LLM from misclassifying user action reports as search requests.
+    const lowerText = text.toLowerCase().trim();
+    const ichHabeAction = /\bich habe\b/.test(lowerText) && 
+      /\b(bestätigt|gesendet|editiert|mitgeteilt|erledigt|geschickt|gemacht|aktualisiert|abgeschlossen|eingereicht|gespeichert|geändert|übermittelt|informiert|kommuniziert|fertiggestellt|verschickt|weitergeleitet|submitted|confirmed)\b/.test(lowerText);
+    const iDidAction = /\bi (did|sent|edited|confirmed|completed|finished|told|communicated|submitted|forwarded)\b/i.test(lowerText);
+    
+    if (ichHabeAction || iDidAction) {
+      console.log(`[ANALYZE] Pre-filter: detected "Ich habe..." action report → forcing update-only prompt`);
+      const preSession = await client.createSession({});
+      try {
+        const updateOnlyPrompt = `You are updating a task tracker based on the user's action report. The user is telling you what they DID. Generate an appropriate update.
+
+TASK:
+Title: "${task.title}"
+Summary: ${task.summary || '(none)'}
+${recentHistory ? `\nHistory:\n${recentHistory}\n` : ''}
+USER'S MESSAGE:
+"${text.trim()}"
+
+Return ONLY this JSON (no markdown, no explanation):
+{
+  "intent": "update",
+  "newTitle": "Updated title reflecting current state (max ~15 words). Keep the original title if it still fits: ${JSON.stringify(task.title)}",
+  "newSummary": "Updated summary incorporating the user's new information. Merge with existing summary context if available.",
+  "changeDescription": "Brief description of what changed based on the user's action"
+}`;
+        const updateResponse = await preSession.sendAndWait({ prompt: updateOnlyPrompt }, 30000);
+        await preSession.destroy();
+        if (updateResponse) {
+          const updateResult = parseJsonFromResponse(updateResponse.data.content);
+          if (updateResult && updateResult.intent === 'update') {
+            const newTitle = updateResult.newTitle ? String(updateResult.newTitle).trim() : null;
+            const newSummary = updateResult.newSummary ? String(updateResult.newSummary).trim() : null;
+            const changeDescription = updateResult.changeDescription || '';
+
+            const savedTask = await safeWriteTasks((data) => {
+              const t = data.tasks.find(t => t.id === id);
+              if (!t) return null;
+              const now = new Date().toISOString();
+              if (!t.history) t.history = [];
+              if (newTitle && newTitle !== t.title) {
+                const previousTitle = t.title;
+                t.title = newTitle;
+                t.history.push({ timestamp: now, type: 'title-change', text: `📝 Title changed:\n"${previousTitle}" → "${newTitle}"` });
+              }
+              if (newSummary) {
+                const previousSummary = t.summary;
+                t.summary = newSummary;
+                t.history.push({ timestamp: now, type: 'summary-update', text: `✏️ Summary updated via user interaction` + (previousSummary ? `\nPrevious: ${previousSummary.length > 300 ? previousSummary.substring(0, 300) + '...' : previousSummary}` : '') });
+              }
+              t.history.push({ timestamp: now, type: 'user-update', text: `💬 User: ${text.trim()}${changeDescription ? `\n→ ${changeDescription}` : ''}` });
+              return t;
+            });
+            return res.json({ intent: 'update', result: updateResult.changeDescription || 'Task updated', newTitle, newSummary, changeDescription, task: savedTask });
+          }
+        }
+      } catch (preErr) {
+        console.log(`[ANALYZE] Pre-filter update failed: ${preErr.message}, falling through to normal classification`);
+        try { await preSession.destroy(); } catch (e) {}
+      }
+    }
+
     const session = await client.createSession({});  // No MCP servers → AI reasoning only
 
     const analyzePrompt = `You are an intelligent assistant managing a task tracker. The user sends you messages about a specific task. Your job is to UNDERSTAND what the user wants and act accordingly.
@@ -1565,11 +1630,38 @@ USER'S MESSAGE:
 
 ## HOW TO THINK ABOUT THIS
 
-Ask yourself ONE question: **Is the user GIVING me information, or ASKING me to FIND information?**
+Follow this decision tree IN ORDER. Stop at the first match:
 
-- If the user is TELLING you something ("I did X", "the meeting happened", "here's an update", "I edited the file"), they are **giving you information**. Use it to update the task. This is NEVER a search.
-- If the user is ASKING you to look something up in their emails, Teams, or calendar ("find emails from X", "check what Y wrote", "was hat Z geschrieben"), they need you to **find information**. This is a search.
-- If the user asks a question you can answer from the task context or general knowledge, just answer it directly.
+### Step 1: Is the user REPORTING something they did?
+Look for patterns like: "Ich habe...", "I did...", "I sent...", "I edited...", "I confirmed...", "I told X...", "Ich habe X mitgeteilt", "Ich habe X bestätigt", "Ich habe X editiert", "Ich habe X gesendet"
+→ If YES: this is **"update"**. The user is GIVING you information about an action they took. Record it in the task.
+⚠️ Even if the message mentions "E-Mail", "Teams", "Chat" — these describe HOW the user communicated. They are NOT requests to search!
+
+### Step 2: Does the user ask to ONLY rename the title?
+Look for: "nenne es...", "ändere den Titel zu...", "rename to..."
+→ If YES and only the title should change: **"rename"**
+
+### Step 3: Does the user explicitly ask for a summary?
+Look for: "fasse zusammen", "summarize", "Zusammenfassung"
+→ If YES: **"summarize"**
+
+### Step 4: Does the user ask a question answerable from the task context?
+Look for questions about dates, people, status, next steps — where the answer is in the summary/context
+→ If YES: **"answer"**
+
+### Step 5: Does the user explicitly ask to FIND or CHECK communications?
+Look for: "gibt es neue Nachrichten", "suche nach", "check what X wrote", "find emails from", "was hat X geschrieben"
+→ If YES: **"search"**
+
+### Step 6: Default
+If the user provides ANY new information (a link, a date, a status update, a quote from someone) and none of the above matched clearly → **"update"**
+If truly nothing matches → **"search"** as last resort
+
+## KEY ANTI-PATTERNS (NEVER do these):
+- "Ich habe X per E-Mail bestätigt" → This is UPDATE, not search! The user is telling you they sent something.
+- "Ich habe Harshitha mein Thema mitgeteilt" → This is UPDATE, not search! The user is telling you they communicated something.
+- "Ich habe das Slide Deck editiert. [link]. Aktualisiere..." → This is UPDATE, not search! The user edited something and wants the task updated.
+- The word "E-Mail" in a user's OWN action report is NEVER a trigger to search emails.
 
 ## INTENTS
 
@@ -1593,8 +1685,11 @@ Choose the intent that best matches what the user actually wants:
 
 ## RESPONSE FORMAT
 
+EVERY response MUST start with a "_reasoning" field. Think through this BEFORE choosing an intent.
+
 For "update":
 {
+  "_reasoning": "The user says 'Ich habe...' / reports an action / provides new information → update",
   "intent": "update",
   "newTitle": "Short, factual title reflecting the current state of the action item (max ~15 words). If the user doesn't ask for a title change, keep the original: ${JSON.stringify(task.title)}",
   "newSummary": "Updated summary incorporating the new information the user provided. Merge with existing context where relevant.",
@@ -1603,24 +1698,28 @@ For "update":
 
 For "summarize":
 {
+  "_reasoning": "The user explicitly asks for a summary / 'fasse zusammen'",
   "intent": "summarize",
   "result": "The complete updated summary. Write in the same language as the user's message."
 }
 
 For "rename":
 {
+  "_reasoning": "The user wants only the title changed",
   "intent": "rename",
   "result": "The new task title — concise, clear, max ~15 words."
 }
 
 For "answer":
 {
+  "_reasoning": "The user asks a question I can answer from context",
   "intent": "answer",
   "result": "Your direct answer to the user's question."
 }
 
 For "search":
 {
+  "_reasoning": "The user explicitly asks me to FIND/LOOK UP/CHECK communications — they are NOT reporting their own action",
   "intent": "search",
   "understanding": "A clear action plan: what you will search, where, and what you expect to find. Use 'I will...' or 'Ich werde...'",
   "expectedAnswer": "What KIND of answer the user needs. Examples: 'A person name', 'A date', 'A status update'.",
@@ -1642,7 +1741,30 @@ For "search":
 - For "update", "summarize", "answer", "rename": provide the result IMMEDIATELY — the user should not need to click Execute.
 - For "search": think about WHO sends the relevant emails (person name or company domain → searchFrom). If the user writes in German but emails may be in English, provide keywordsEnglish with translated terms.
 - Write in the same language as the user's message (German → German, English → English).
-- When unsure between "update" and "search": if the user's message contains information they are GIVING you (a link, a status report, a completed action), it's "update" — not "search".
+- When unsure between "update" and "search": if the user's message starts with "Ich habe..." or "I did..." or contains information they are GIVING you (a link, a status report, a completed action), it's ALWAYS "update" — NEVER "search".
+- NEVER interpret "per E-Mail", "per Teams", "per Chat" as a signal to search. These describe the user's OWN actions, not a request to find communications.
+- "search" should ONLY be used when the user explicitly asks you to LOOK FOR or FIND something in their communications.
+
+## FINAL CHECK (do this before responding)
+Before you output your JSON, ask yourself: "Does the user's message contain 'Ich habe' or 'I did/sent/edited/confirmed'?"
+If YES → your intent MUST be "update". Do NOT choose "search". The user is telling you what THEY did — not asking you to find something.
+
+## CLASSIFICATION EXAMPLES (follow these exactly)
+
+User: "Ich habe das ATP an Jamie per E-Mail bestätigt. Er kann jetzt die Rechnung stellen."
+→ {"_reasoning": "User says 'Ich habe bestätigt' — reporting own action", "intent": "update", ...}
+
+User: "Ich habe Harshitha mein Thema mitgeteilt: Agent Zero Demo"
+→ {"_reasoning": "User says 'Ich habe mitgeteilt' — reporting own action", "intent": "update", ...}
+
+User: "Ich habe das Slide Deck editiert. https://sharepoint.com/... Aktualisiere die Zusammenfassung."
+→ {"_reasoning": "User says 'Ich habe editiert' + wants update", "intent": "update", ...}
+
+User: "Gibt es neue Nachrichten von Sebastian wegen der SSD?"
+→ {"_reasoning": "User asks to FIND communications", "intent": "search", ...}
+
+User: "Was ist der nächste Schritt?"
+→ {"_reasoning": "Question answerable from context", "intent": "answer", ...}
 
 Return ONLY the JSON object. No markdown, no explanation.`;
 
