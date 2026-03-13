@@ -1755,7 +1755,7 @@ Return ONLY this JSON (no markdown, no explanation):
       }
     }
 
-    session = trackSession(await client.createSession({ model: 'claude-opus-4-6' }));  // Opus 4.6 for superior intent classification (especially correction detection)
+    session = trackSession(await client.createSession({}));
 
     const analyzePrompt = `You are an intelligent assistant managing a task tracker. The user sends you messages about a specific task. Your job is to UNDERSTAND what the user wants and act accordingly.
 
@@ -2743,7 +2743,6 @@ app.post('/api/tasks/:id/correct', async (req, res) => {
   try {
     client = new CopilotClient();
     session = trackSession(await client.createSession({
-      model: 'claude-opus-4-6',  // Opus 4.6 for nuanced evidence evaluation
       mcpServers: {
         workiq: {
           type: 'stdio',
