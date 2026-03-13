@@ -2413,7 +2413,7 @@ CURRENT TASK:
 Title: "${task.title}"
 Summary: ${task.summary ? `"${task.summary}"` : '(no summary)'}
 
-USER'S QUESTION:
+USER'S REQUEST:
 "${text.trim()}"
 
 SEARCH RESULTS:
@@ -2424,9 +2424,12 @@ ${commSummaries ? `Details:\n${commSummaries}` : ''}
 
 INSTRUCTIONS:
 
+CRITICAL RULE: If the user EXPLICITLY asks you to update the title and/or summary (e.g. "aktualisiere die Zusammenfassung", "update the title", "ändere den Titel"), you MUST do so using the search results. The user's request is an ORDER, not a suggestion. Only skip updating if the search returned zero results.
+
 1. TITLE evaluation — be PROACTIVE about updating:
    - The title must reflect the CURRENT state of this action item, not the original request.
    - If the search reveals that the situation has evolved (reply received, decision made, deadline passed, request fulfilled, meeting confirmed), UPDATE the title.
+   - If the user explicitly asked to update the title, you MUST update it to reflect the latest findings.
    - Example: "Please prepare slides by Friday" → "Slides submitted — awaiting review from Jawad"
    - Be decisive: if the search reveals a changed situation, the title MUST change.
    - Keep it concise: max 15 words, factual, no emojis.
@@ -2440,13 +2443,14 @@ INSTRUCTIONS:
 
    Rules:
    - When NEW information is found (new replies, status changes, decisions), add it as a NEW update at the TOP with today's timestamp: "📌 Update (${formatUpdateTimestamp(new Date())}): ..."
+   - If the user explicitly asked to update the summary, integrate the search results even if some information already exists — add timestamps, new details, or restructure.
    - Preserve ALL existing updates and the base summary — do NOT drop any information.
    - You may MERGE or DEDUPLICATE genuinely redundant updates, but never silently remove information.
    - If existing updates already have timestamps, keep them. If they lack timestamps, leave them without rather than guessing.
-   - If the search found no meaningful new information, do NOT change the summary.
+   - Only skip summary changes if the search returned zero results AND the user did NOT explicitly request an update.
    - Write in the SAME language as the existing content.
 
-3. Only set *Changed to true when there is a GENUINE reason to update.
+3. Only set *Changed to true when there is a GENUINE reason to update. An explicit user request to update IS a genuine reason.
 
 Return ONLY valid JSON, no markdown:
 {
