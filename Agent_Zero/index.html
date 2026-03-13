@@ -77,7 +77,42 @@
       font-size: 0.75rem;
       min-width: 38px;
     }
-    .last-scan { font-size: 0.8rem; color: #666; }
+    .last-scan { font-size: 0.8rem; color: #666; cursor: pointer; position: relative; }
+    .last-scan:hover { color: #93c5fd; }
+    .scan-report-panel {
+      display: none;
+      position: absolute;
+      top: 100%;
+      left: 0;
+      z-index: 1000;
+      background: #1a1f33;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 12px 16px;
+      min-width: 380px;
+      max-width: 500px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      font-size: 0.82rem;
+      color: #cbd5e1;
+      line-height: 1.5;
+    }
+    .scan-report-panel.visible { display: block; }
+    .scan-report-panel h4 { margin: 0 0 8px; color: #e2e8f0; font-size: 0.9rem; }
+    .scan-report-phase {
+      padding: 6px 0;
+      border-bottom: 1px solid #1e293b;
+    }
+    .scan-report-phase:last-child { border-bottom: none; }
+    .scan-report-phase .phase-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .scan-report-phase .phase-name { font-weight: 600; }
+    .scan-report-phase .phase-time { color: #64748b; font-size: 0.75rem; }
+    .scan-report-phase .phase-detail { color: #94a3b8; font-size: 0.78rem; margin-top: 2px; }
+    .scan-report-phase .phase-error { color: #f87171; font-size: 0.78rem; margin-top: 2px; }
+    .scan-report-phase .phase-retry { color: #fbbf24; font-size: 0.78rem; }
 
     /* Row 3: removed — link options merged into filter bar */
     .link-mode-group {
@@ -1016,7 +1051,8 @@
         </span>
         <span class="server-status-label" id="serverStatusLabel">Offline</span>
         <span class="status-divider">·</span>
-        <span class="last-scan" id="lastScan"></span>
+        <span class="last-scan" id="lastScan" onclick="toggleScanReport()"></span>
+        <div class="scan-report-panel" id="scanReportPanel"></div>
         <span class="status-divider">·</span>
         <span class="scan-range-group">
           <label for="scanDays">Scan range:</label>
@@ -1415,6 +1451,7 @@
     btn.disabled = true;
     btn.innerHTML = '📡 Scanning...<span class="btn-sub">Scan Outlook &amp; Teams</span>';
     overlay.classList.add('visible');
+    initScanReport();
 
     const days = document.getElementById('scanDays').value || '4';
     let elapsed = 0;
@@ -1450,6 +1487,8 @@
       // ═══════════════════════════════════════════════
       loadingText.textContent = `Phase 1: Scanning subjects (last ${days} days)...`;
       let phase1Success = false;
+      const p1Start = Date.now();
+      updatePhaseStatus('phase1', { status: 'running', startedAt: new Date().toISOString() });
       try {
         const scanRes = await fetch('/api/scan', {
           method: 'POST',
@@ -1460,6 +1499,8 @@
 
         if (scanRes.ok) {
           phase1Success = true;
+          const detail = `${scanData.added || 0} new, ${scanData.updated || 0} updated, ${scanData.skipped || 0} skipped`;
+          updatePhaseStatus('phase1', { status: 'success', completedAt: new Date().toISOString(), durationMs: Date.now() - p1Start, detail });
           await fetchTasks();
 
           if (scanData.added > 0) {
@@ -1477,10 +1518,12 @@
           }
         } else {
           console.error('[SCAN] Phase 1 failed:', scanData);
+          updatePhaseStatus('phase1', { status: 'failed', completedAt: new Date().toISOString(), durationMs: Date.now() - p1Start, error: friendlyError(scanData) });
           showNotification(`⚠️ Phase 1 scan failed: ${friendlyError(scanData)}. Continuing with existing tasks...`, 'error');
         }
       } catch (phase1Err) {
         console.error('[SCAN] Phase 1 error:', phase1Err);
+        updatePhaseStatus('phase1', { status: 'failed', completedAt: new Date().toISOString(), durationMs: Date.now() - p1Start, error: phase1Err.message });
         if (phase1Err.name === 'TypeError' && phase1Err.message.includes('fetch')) {
           setServerStatus(false);
           showNotification('⚠️ Server unreachable during scan. Waiting for reconnection...', 'error');
@@ -1515,6 +1558,8 @@
         .filter(t => t.enrichmentStatus === 'pending' && t.status !== 'done');
 
       if (tasksToEnrich.length > 0) {
+        const p2Start = Date.now();
+        updatePhaseStatus('phase2', { status: 'running', startedAt: new Date().toISOString(), total: tasksToEnrich.length });
         btn.textContent = 'Enriching...';
         overlay.classList.add('visible');
         let phase2Elapsed = 0;
@@ -1549,18 +1594,21 @@
                   updateStepIndicator(task.id, 2, 'done');
                 }
                 success = true;
+                scanReport.phases.phase2.success++;
+                if (attempt > 1) scanReport.phases.phase2.retried++;
               } else if (attempt < 2) {
                 console.warn(`[SCAN] Enrichment attempt ${attempt} failed for ${task.id}, retrying in 3s...`);
                 updateFrozenStatus(task.id, '🔄 Retrying enrichment...');
                 await new Promise(r => setTimeout(r, 3000));
               } else {
                 updateStepIndicator(task.id, 2, 'error');
+                scanReport.phases.phase2.failed++;
+                scanReport.phases.phase2.errors.push(`${task.title.substring(0, 40)}: server error`);
               }
             } catch (err) {
               console.error(`[SCAN] Enrichment attempt ${attempt} error for ${task.id}:`, err);
               if (err.name === 'TypeError' && err.message.includes('fetch')) {
                 setServerStatus(false);
-                // Wait for server recovery before retrying
                 updateFrozenStatus(task.id, '⏳ Waiting for server...');
                 await new Promise(r => setTimeout(r, 5000));
                 try {
@@ -1568,11 +1616,15 @@
                   if (h.ok) setServerStatus(true);
                 } catch {}
                 if (!serverOnline && attempt >= 2) {
+                  scanReport.phases.phase2.failed++;
+                  scanReport.phases.phase2.errors.push(`${task.title.substring(0, 40)}: server unreachable`);
                   scanAborted = true;
                   break;
                 }
               } else if (attempt >= 2) {
                 updateStepIndicator(task.id, 2, 'error');
+                scanReport.phases.phase2.failed++;
+                scanReport.phases.phase2.errors.push(`${task.title.substring(0, 40)}: ${err.message}`);
               } else {
                 await new Promise(r => setTimeout(r, 3000));
               }
@@ -1580,8 +1632,13 @@
           }
           unfreezeTask(task.id);
           try { await refreshSingleTask(task.id); } catch {}
+          saveScanReport();
         }
         clearInterval(phase2Timer);
+        const p2Status = scanReport.phases.phase2.failed > 0 ? (scanReport.phases.phase2.success > 0 ? 'partial' : 'failed') : 'success';
+        updatePhaseStatus('phase2', { status: p2Status, completedAt: new Date().toISOString(), durationMs: Date.now() - p2Start });
+      } else {
+        updatePhaseStatus('phase2', { status: 'skipped', detail: 'No pending tasks' });
       }
 
       // ═══════════════════════════════════════════════
@@ -1595,6 +1652,8 @@
         .filter(t => (t.enrichmentStatus === 'enriched' || t.enrichmentStatus === 'needs-review') && t.status !== 'done');
 
       if (tasksToCheck.length > 0) {
+        const p3Start = Date.now();
+        updatePhaseStatus('phase3', { status: 'running', startedAt: new Date().toISOString(), total: tasksToCheck.length });
         btn.textContent = 'Checking updates...';
         overlay.classList.add('visible');
         let phase3Elapsed = 0;
@@ -1628,12 +1687,16 @@
                   showNotification(`Task updated: ${task.title.substring(0, 40)}...`, 'success');
                 }
                 success = true;
+                scanReport.phases.phase3.success++;
+                if (attempt > 1) scanReport.phases.phase3.retried++;
               } else if (attempt < 2) {
                 console.warn(`[SCAN] Update check attempt ${attempt} failed for ${task.id}, retrying in 3s...`);
                 updateFrozenStatus(task.id, '🔄 Retrying update check...');
                 await new Promise(r => setTimeout(r, 3000));
               } else {
                 updateStepIndicator(task.id, 3, 'error');
+                scanReport.phases.phase3.failed++;
+                scanReport.phases.phase3.errors.push(`${task.title.substring(0, 40)}: server error`);
               }
             } catch (err) {
               console.error(`[SCAN] Update check attempt ${attempt} error for ${task.id}:`, err);
@@ -1646,11 +1709,15 @@
                   if (h.ok) setServerStatus(true);
                 } catch {}
                 if (!serverOnline && attempt >= 2) {
+                  scanReport.phases.phase3.failed++;
+                  scanReport.phases.phase3.errors.push(`${task.title.substring(0, 40)}: server unreachable`);
                   scanAborted = true;
                   break;
                 }
               } else if (attempt >= 2) {
                 updateStepIndicator(task.id, 3, 'error');
+                scanReport.phases.phase3.failed++;
+                scanReport.phases.phase3.errors.push(`${task.title.substring(0, 40)}: ${err.message}`);
               } else {
                 await new Promise(r => setTimeout(r, 3000));
               }
@@ -1658,8 +1725,13 @@
           }
           unfreezeTask(task.id);
           try { await refreshSingleTask(task.id); } catch {}
+          saveScanReport();
         }
         clearInterval(phase3Timer);
+        const p3Status = scanReport.phases.phase3.failed > 0 ? (scanReport.phases.phase3.success > 0 ? 'partial' : 'failed') : 'success';
+        updatePhaseStatus('phase3', { status: p3Status, completedAt: new Date().toISOString(), durationMs: Date.now() - p3Start });
+      } else {
+        updatePhaseStatus('phase3', { status: 'skipped', detail: 'No enriched tasks to check' });
       }
       } // end if (!scanAborted)
 
@@ -1668,6 +1740,8 @@
       // Already non-fatal (has its own try-catch)
       // ═══════════════════════════════════════════════
       if (!scanAborted) {
+        const p4Start = Date.now();
+        updatePhaseStatus('phase4', { status: 'running', startedAt: new Date().toISOString() });
         try {
           loadingText.textContent = 'Phase 4: Analyzing task relationships...';
           overlay.classList.add('visible');
@@ -1684,15 +1758,28 @@
           const consolidateData = await consolidateRes.json();
           clearInterval(phase4Timer);
 
-          if (consolidateData.suggestions && consolidateData.suggestions.length > 0) {
+          const sugCount = consolidateData.suggestions?.length || 0;
+          updatePhaseStatus('phase4', { status: 'success', completedAt: new Date().toISOString(), durationMs: Date.now() - p4Start, detail: `${sugCount} merge suggestion(s)` });
+
+          if (sugCount > 0) {
             showConsolidationBanner(consolidateData.suggestions);
           }
         } catch (err) {
           console.error('Phase 4 consolidation failed (non-fatal):', err);
+          updatePhaseStatus('phase4', { status: 'failed', completedAt: new Date().toISOString(), durationMs: Date.now() - p4Start, error: err.message });
           if (err.name === 'TypeError' && err.message.includes('fetch')) {
             setServerStatus(false);
           }
         }
+      } else {
+        updatePhaseStatus('phase4', { status: 'skipped', detail: 'Scan was aborted' });
+      }
+
+      // Finalize scan report
+      if (scanReport) {
+        scanReport.completedAt = new Date().toISOString();
+        scanReport.aborted = scanAborted;
+        saveScanReport();
       }
 
       overlay.classList.remove('visible');
@@ -3166,9 +3253,122 @@
 
   // --- Helpers ---
 
+  // --- Scan Report ---
+
+  let scanReport = JSON.parse(localStorage.getItem('scanReport') || 'null');
+
+  function saveScanReport() {
+    localStorage.setItem('scanReport', JSON.stringify(scanReport));
+  }
+
+  function initScanReport() {
+    scanReport = {
+      startedAt: new Date().toISOString(),
+      completedAt: null,
+      aborted: false,
+      phases: {
+        phase1: { status: 'pending', startedAt: null, completedAt: null, durationMs: null, detail: null, error: null },
+        phase2: { status: 'pending', startedAt: null, completedAt: null, durationMs: null, total: 0, success: 0, failed: 0, retried: 0, errors: [] },
+        phase3: { status: 'pending', startedAt: null, completedAt: null, durationMs: null, total: 0, success: 0, failed: 0, retried: 0, errors: [] },
+        phase4: { status: 'pending', startedAt: null, completedAt: null, durationMs: null, detail: null, error: null }
+      }
+    };
+    saveScanReport();
+  }
+
+  function updatePhaseStatus(phase, updates) {
+    if (!scanReport) return;
+    Object.assign(scanReport.phases[phase], updates);
+    saveScanReport();
+  }
+
+  function toggleScanReport() {
+    const panel = document.getElementById('scanReportPanel');
+    if (panel.classList.contains('visible')) {
+      panel.classList.remove('visible');
+      return;
+    }
+    renderScanReport();
+    panel.classList.add('visible');
+    // Close on click outside
+    setTimeout(() => {
+      const close = (e) => {
+        if (!panel.contains(e.target) && e.target.id !== 'lastScan') {
+          panel.classList.remove('visible');
+          document.removeEventListener('click', close);
+        }
+      };
+      document.addEventListener('click', close);
+    }, 100);
+  }
+
+  function renderScanReport() {
+    const panel = document.getElementById('scanReportPanel');
+    if (!scanReport) {
+      panel.innerHTML = '<h4>📊 Scan Report</h4><p style="color:#64748b">No scan data available yet.</p>';
+      return;
+    }
+
+    const r = scanReport;
+    const startTime = r.startedAt ? formatDate(r.startedAt) : '—';
+    const endTime = r.completedAt ? formatDate(r.completedAt) : (r.aborted ? 'Aborted' : 'In progress...');
+    const totalMs = r.completedAt && r.startedAt ? new Date(r.completedAt) - new Date(r.startedAt) : null;
+    const totalTime = totalMs ? `${(totalMs / 1000).toFixed(0)}s` : '—';
+
+    let html = `<h4>📊 Last Scan Report</h4>`;
+    html += `<div style="color:#64748b;font-size:0.78rem;margin-bottom:8px">Started: ${startTime} · Duration: ${totalTime}</div>`;
+
+    const phaseNames = {
+      phase1: { name: 'Phase 1: Discovery', icon: '📡' },
+      phase2: { name: 'Phase 2: Enrichment', icon: '📋' },
+      phase3: { name: 'Phase 3: Update Check', icon: '🔍' },
+      phase4: { name: 'Phase 4: Consolidation', icon: '🔗' }
+    };
+
+    for (const [key, meta] of Object.entries(phaseNames)) {
+      const p = r.phases[key];
+      const statusIcon = p.status === 'success' ? '✅' : p.status === 'partial' ? '⚠️' : p.status === 'failed' ? '❌' : p.status === 'skipped' ? '⏭️' : p.status === 'running' ? '🔄' : '⏳';
+      const duration = p.durationMs ? `${(p.durationMs / 1000).toFixed(1)}s` : '—';
+
+      html += `<div class="scan-report-phase">`;
+      html += `<div class="phase-header"><span class="phase-name">${statusIcon} ${meta.icon} ${meta.name}</span><span class="phase-time">${duration}</span></div>`;
+
+      if (p.detail) {
+        html += `<div class="phase-detail">${escHtml(p.detail)}</div>`;
+      }
+
+      // Phase 2/3 task-level details
+      if (p.total > 0) {
+        html += `<div class="phase-detail">${p.success}/${p.total} tasks OK`;
+        if (p.retried > 0) html += ` · <span class="phase-retry">${p.retried} retried</span>`;
+        if (p.failed > 0) html += ` · <span style="color:#f87171">${p.failed} failed</span>`;
+        html += `</div>`;
+      }
+
+      if (p.error) {
+        html += `<div class="phase-error">⚠️ ${escHtml(p.error)}</div>`;
+      }
+      if (p.errors && p.errors.length > 0) {
+        for (const err of p.errors.slice(0, 5)) {
+          html += `<div class="phase-error">· ${escHtml(err)}</div>`;
+        }
+        if (p.errors.length > 5) html += `<div class="phase-error">... and ${p.errors.length - 5} more</div>`;
+      }
+
+      html += `</div>`;
+    }
+
+    panel.innerHTML = html;
+  }
+
   function updateLastScan(ts) {
     const el = document.getElementById('lastScan');
     el.textContent = ts ? `Last scan: ${formatDate(ts)}` : 'Never scanned';
+    // Add indicator if there were issues
+    if (scanReport && scanReport.completedAt) {
+      const hasErrors = Object.values(scanReport.phases).some(p => p.status === 'failed' || p.status === 'partial');
+      if (hasErrors) el.textContent += ' ⚠️';
+    }
   }
 
   function formatDate(iso) {
