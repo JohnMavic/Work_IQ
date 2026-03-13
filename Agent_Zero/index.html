@@ -1051,8 +1051,9 @@
         </span>
         <span class="server-status-label" id="serverStatusLabel">Offline</span>
         <span class="status-divider">·</span>
-        <span class="last-scan" id="lastScan" onclick="toggleScanReport()"></span>
-        <div class="scan-report-panel" id="scanReportPanel"></div>
+        <span class="last-scan" id="lastScan" onclick="toggleScanReport(event)">
+          <div class="scan-report-panel" id="scanReportPanel"></div>
+        </span>
         <span class="status-divider">·</span>
         <span class="scan-range-group">
           <label for="scanDays">Scan range:</label>
@@ -3282,7 +3283,8 @@
     saveScanReport();
   }
 
-  function toggleScanReport() {
+  function toggleScanReport(event) {
+    if (event) event.stopPropagation();
     const panel = document.getElementById('scanReportPanel');
     if (panel.classList.contains('visible')) {
       panel.classList.remove('visible');
@@ -3292,8 +3294,9 @@
     panel.classList.add('visible');
     // Close on click outside
     setTimeout(() => {
+      const lastScanEl = document.getElementById('lastScan');
       const close = (e) => {
-        if (!panel.contains(e.target) && e.target.id !== 'lastScan') {
+        if (!lastScanEl.contains(e.target)) {
           panel.classList.remove('visible');
           document.removeEventListener('click', close);
         }

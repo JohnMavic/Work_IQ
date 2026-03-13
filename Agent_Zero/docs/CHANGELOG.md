@@ -4,6 +4,24 @@ All notable changes to this project are documented here.
 
 ---
 
+## v2.9.1 — March 13, 2026
+
+**Scan Report Panel Fix + Scan Retry on Timeout**
+
+### Scan Report Panel
+- Fixed: Panel was not clickable — DOM structure corrected (panel now nested inside last-scan span)
+- Fixed: Click propagation issue with `event.stopPropagation()`
+- Fixed: Close-on-click-outside now properly checks parent container
+
+### Scan Timeout Retry
+- Phase 1 scan now retries once on timeout with reduced context:
+  - Reduces context from 80 tasks to 20
+  - Reduces scan range from N days to min(N, 2) days
+  - Creates a fresh Copilot SDK session for the retry
+- Logs both attempts with timing for diagnostics
+
+---
+
 ## v2.9.0 — March 13, 2026
 
 **Scan Process Resilience — Phase-Independent Recovery**

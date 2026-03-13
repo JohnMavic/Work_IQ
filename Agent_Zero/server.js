@@ -730,13 +730,50 @@ app.post('/api/scan', async (req, res) => {
     }
 
     const scanStart = Date.now();
-    console.log(`[SCAN] Prompt size: ${scanPrompt.length} chars, timeout: 180s, scanDays: ${scanDays}`);
-    const response = await session.sendAndWait({ prompt: scanPrompt }, 180000);
-    console.log(`[SCAN] Response received in ${((Date.now() - scanStart) / 1000).toFixed(1)}s`);
+    let response = null;
+    let lastError = null;
+
+    // Attempt 1: full context
+    console.log(`[SCAN] Attempt 1: Prompt size: ${scanPrompt.length} chars, timeout: 180s, scanDays: ${scanDays}`);
+    try {
+      response = await session.sendAndWait({ prompt: scanPrompt }, 180000);
+      console.log(`[SCAN] Response received in ${((Date.now() - scanStart) / 1000).toFixed(1)}s`);
+    } catch (err1) {
+      lastError = err1;
+      console.warn(`[SCAN] Attempt 1 failed: ${err1.message}`);
+      await destroySession(session);
+
+      // Attempt 2: reduced context (fewer existing tasks, shorter scan range)
+      const reducedDays = Math.min(scanDays, 2);
+      const reducedTasks = allContextTasks.slice(0, 20);
+      const reducedPrompt = discoverySkill
+        ? discoverySkill + `\n\n` +
+          (reducedTasks.length > 0
+            ? `EXISTING TASKS (do NOT re-create):\n${JSON.stringify(reducedTasks)}\n\n`
+            : '') +
+          `Scan my emails and Teams messages from the last ${reducedDays} day${reducedDays === 1 ? '' : 's'}.\n` +
+          `For each action item found, decide: action "update" (with existingId) or "new".\n` +
+          `If a found item matches a DONE task, use action "skip".`
+        : scanPrompt;
+
+      console.log(`[SCAN] Attempt 2: Reduced prompt ${reducedPrompt.length} chars, ${reducedDays} days, ${reducedTasks.length} context tasks`);
+      try {
+        client = new CopilotClient();
+        session = trackSession(await client.createSession({
+          mcpServers: { workiq: { type: 'stdio', command: 'workiq', args: ['mcp'], tools: '*' } }
+        }));
+        response = await session.sendAndWait({ prompt: reducedPrompt }, 180000);
+        console.log(`[SCAN] Attempt 2 succeeded in ${((Date.now() - scanStart) / 1000).toFixed(1)}s`);
+      } catch (err2) {
+        lastError = err2;
+        console.error(`[SCAN] Attempt 2 also failed: ${err2.message}`);
+      }
+    }
+
     await destroySession(session);
 
     if (!response) {
-      return res.status(502).json({ error: 'No response from AI engine' });
+      return res.status(502).json({ error: `Scan timed out after 2 attempts: ${lastError?.message || 'No response'}` });
     }
 
     const rawContent = response.data.content;
