@@ -1,9 +1,9 @@
 # Agent Zero — Product Specification
 
-**Version:** 2.5.0
-**Date:** March 12, 2026
+**Version:** 2.6.0
+**Date:** March 13, 2026
 **Author:** Martin Hämmerli
-**Status:** v2.2.0 implemented (Intelligent Search + Add Task Redesign)
+**Status:** v2.6.0 implemented (Correction Verification + Claude Opus 4.6)
 
 ---
 
@@ -191,23 +191,28 @@ Each task card is clickable — clicking the title/meta area toggles an **Intera
 - **Neon-cyan border + glowing badge** (`.frozen`): Task has active agent work (unified freeze mode for all AI operations)
 - **Green background** (`.active-panel`): Panel is currently open
 
-### 4.9 Intent-Based Agent (3 Intents)
+### 4.9 Intent-Based Agent (6 Intents)
 
 The agent uses a two-phase approach:
 
 **Phase 1 — Analyze** (`POST /api/tasks/:id/log/analyze`):
-- Uses Copilot SDK **without** Work IQ MCP (fast, AI reasoning only, ~5–15s)
-- Determines one of 3 intents based on user message + task context + conversation history
+- Uses Copilot SDK with **Claude Opus 4.6** model, **without** Work IQ MCP (fast, AI reasoning only, ~5–15s)
+- Determines one of 6 intents based on user message + task context + conversation history
 
 | Intent | Trigger Examples | Behavior | Requires Execute? |
 |---|---|---|---|
+| `update` | "Ich habe X bestätigt", "I sent...", "I edited..." | AI updates title and/or summary with new information | No — result saved immediately |
 | `summarize` | "fasse zusammen", "summarize this", "key points" | AI summarizes the content provided in the message | No — result saved immediately |
+| `rename` | "nenne es...", "ändere den Titel zu...", "rename to..." | AI changes only the title | No — result saved immediately |
 | `answer` | "bis wann?", "what's the deadline?", "who is responsible?" | AI answers from task context + conversation history | No — result saved immediately |
+| `correct` | "Das stimmt nicht", "SSD wurde nie bestellt", "Der Titel ist falsch" | AI returns a correction plan for M365 verification | Yes — user must click Verify |
 | `search` | "find emails from", "was hat X geschrieben?", "check inbox" | AI returns a search plan with parameters | Yes — user must click Execute |
+
+**Pre-filter:** Messages matching "Ich habe [action verb]" (without negation) bypass intent classification and go directly to the update-only prompt. Negation patterns ("Ich habe NICHT bestätigt") are excluded from the pre-filter and proceed to full classification, where they are typically classified as `correct`.
 
 **Conversation context:** Last 8 history entries of type `update` or `note` are included in the analyze prompt, with full details (user text, agent intent, understanding, communications).
 
-**Phase 2 — Execute** (`POST /api/tasks/:id/log`):
+**Phase 2a — Execute Search** (`POST /api/tasks/:id/log`):
 - Only for `search` intent, triggered by user clicking Execute
 - v2.2 primary path: **Copilot SDK + Work IQ MCP + SEARCH_SKILL.md** — goal-oriented 3-attempt search with self-assessment and confidence levels
 - Legacy fallback: Copilot SDK + Work IQ MCP + LOG_WORK_SKILL.md (when no plan or no SEARCH_SKILL.md)
@@ -216,6 +221,18 @@ The agent uses a two-phase approach:
 - Parses response as JSON (SEARCH_SKILL format: `{ answer, confidence, searchAttempts, communications }` or legacy array format)
 - Falls back to Markdown email parser (`parseMarkdownEmails()`) if no JSON parsed
 - Search methods: `copilot-sdk-search-skill` (primary), `copilot-sdk-legacy`, `copilot-sdk-minimal`
+
+**Phase 2b — Correction Verification** (`POST /api/tasks/:id/correct`):
+- Only for `correct` intent, triggered by user clicking Verify
+- Uses **Claude Opus 4.6 + Work IQ MCP + CORRECT_SKILL.md** — evidence-based verification with truth hierarchy
+- Searches M365 for evidence supporting or contradicting the user's correction claim
+- **Truth hierarchy:** newest M365 messages > older messages > task history > user claims
+- Returns one of three verdicts:
+  - `user_correct` → correction applied automatically
+  - `current_correct` → evidence shown to user, with Accept or Veto option
+  - `inconclusive` → insufficient evidence, user can veto to override
+- Timeout: 300 seconds
+- **User veto** (`POST /api/tasks/:id/correct/resolve`): absolute override right — user can always force their correction regardless of evidence
 
 **Deterministic fallback:** If AI analysis fails, `extractKeywords()` generates a search plan from the task title (stop-word removal), with default time window from task date to today.
 
@@ -259,6 +276,9 @@ Each task has a `history[]` array with entries of different types:
 | `update` | Agent interaction (Send) | Yes | User message + agent response |
 | `note` | Note button | Yes | User-saved note (no agent) |
 | `review-response` | Ambiguity review response | Yes | User's clarification + agent evaluation |
+| `correction` | Correction verification | No | Verification result (verdict, confidence, evidence summary) |
+| `correction-veto` | User overrides verification | No | User exercised veto right despite contrary evidence |
+| `correction-dismissed` | User accepts verification | No | User confirmed current information is correct |
 
 **History deletion:** `DELETE /api/tasks/:id/history/:index` — only `update`, `note`, and `review-response` types can be deleted (system entries are protected with HTTP 403). Each conversation entry has a 🗑️ button (low opacity, visible on hover).
 
@@ -443,7 +463,7 @@ The scan process is split into 4 sequential phases for faster initial feedback a
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `timestamp` | string | Yes | ISO 8601 timestamp |
-| `type` | string | Yes | `"created"`, `"status-change"`, `"scan-update"`, `"enriched"`, `"enrich-error"`, `"thread-update"`, `"update-check"`, `"update-check-error"`, `"summary-update"`, `"title-change"`, `"update"`, `"note"`, `"review-response"`, `"merge"` |
+| `type` | string | Yes | `"created"`, `"status-change"`, `"scan-update"`, `"enriched"`, `"enrich-error"`, `"thread-update"`, `"update-check"`, `"update-check-error"`, `"summary-update"`, `"title-change"`, `"update"`, `"note"`, `"review-response"`, `"merge"`, `"correction"`, `"correction-veto"`, `"correction-dismissed"` |
 | `text` | string | Yes | User message or system description |
 | `communications` | Communication[] | No | Found emails/messages (search results) |
 | `agentPlan` | AgentPlan | No | AI analysis result |
@@ -454,7 +474,7 @@ The scan process is split into 4 sequential phases for faster initial feedback a
 
 | Field | Type | Description |
 |---|---|---|
-| `intent` | string | `"summarize"`, `"search"`, `"answer"`, `"review"`, or `"rename"` |
+| `intent` | string | `"update"`, `"summarize"`, `"search"`, `"answer"`, `"rename"`, `"correct"`, or `"review"` |
 | `understanding` | string | For search: action plan description. For summarize/answer: the result text |
 | `expectedAnswer` | string \| null | What KIND of answer the user needs (v2.2, search only) |
 | `searchFrom` | string \| null | Person name, email domain, or null |
@@ -517,8 +537,10 @@ The scan process is split into 4 sequential phases for faster initial feedback a
 | `POST` | `/api/consolidate` | Phase 4: Find duplicate/related tasks |
 | `POST` | `/api/tasks/merge` | Merge two or more tasks into one |
 | `POST` | `/api/tasks/:id/dismiss-merge` | Dismiss a merge suggestion (bidirectional) |
-| `POST` | `/api/tasks/:id/log/analyze` | AI intent analysis |
-| `POST` | `/api/tasks/:id/log` | Phase 2: Execute intelligent search |
+| `POST` | `/api/tasks/:id/log/analyze` | AI intent analysis (Claude Opus 4.6) |
+| `POST` | `/api/tasks/:id/log` | Execute intelligent search |
+| `POST` | `/api/tasks/:id/correct` | Correction verification (Claude Opus 4.6 + Work IQ MCP) |
+| `POST` | `/api/tasks/:id/correct/resolve` | Resolve correction discussion (accept or veto) |
 | `POST` | `/api/cleanup` | Permanently delete done tasks older than `retentionDays` |
 | `POST` | `/api/tasks/:id/review` | Ambiguity resolution — user responds to review questions |
 
@@ -597,8 +619,10 @@ The scan process is split into 4 sequential phases for faster initial feedback a
 
 **Request body:** `{ text: string }`
 **Response (summarize/answer):** `{ intent, result, task }` — result saved to history immediately
+**Response (correct):** `{ intent: 'correct', plan: { disputedClaim, userAssertion, affectedFields, keywords, keywordsEnglish, verificationQuestion } }` — correction plan returned for verification
 **Response (search):** `{ intent: 'search', plan: AgentPlan, fallback? }` — plan returned for user confirmation
 **AI prompt includes:** Task context (title, from, source, date) + last 8 conversation entries
+**Model:** Claude Opus 4.6 (for superior intent classification, especially correction detection)
 **Timeout:** 30 seconds for Copilot SDK analysis
 
 ### 6.10 POST /api/tasks/:id/log
@@ -610,6 +634,27 @@ The scan process is split into 4 sequential phases for faster initial feedback a
 **Side effects:** Adds history entry with `communications[]`, `agentPlan`, `agentResponse`, `agentExecution`
 **Post-search evaluation:** After search results are saved, a second AI call (pure reasoning, no Work IQ) evaluates whether title and summary should be updated. If so, creates additional `title-change` / `summary-update` history entries. Response includes `evaluation` field with `{ titleChanged, newTitle, summaryChanged, newSummary, reasoning }`.
 **Response parsing:** SEARCH_SKILL JSON object first → legacy JSON array → Markdown email parser → raw text
+
+### 6.11 POST /api/tasks/:id/correct
+
+**Request body:** `{ plan: { disputedClaim, userAssertion, affectedFields, keywords, keywordsEnglish, verificationQuestion } }`
+**Model:** Claude Opus 4.6 (for nuanced evidence evaluation)
+**MCP:** Work IQ (email, Teams, calendar search)
+**Skill:** CORRECT_SKILL.md (3-attempt search, truth hierarchy, evidence-based verdict)
+**Timeout:** 300 seconds
+**Verdicts:**
+- `user_correct` → correction applied automatically (title/summary updated, `correction` history entry)
+- `current_correct` → no changes made, evidence returned for user review
+- `inconclusive` → no changes made, user offered Accept or Veto option
+**Response:** `{ verdict, confidence, explanation, evidence[], searchAttempts[], applied, suggestedTitle?, suggestedSummary?, task }`
+
+### 6.12 POST /api/tasks/:id/correct/resolve
+
+**Request body:** `{ action: 'accept' | 'veto', correctedTitle?: string, correctedSummary?: string }`
+**Purpose:** Resolves a correction discussion after `current_correct` or `inconclusive` verdict
+- `accept` → user confirms current information is correct. Logs `correction-dismissed` history entry.
+- `veto` → user overrides. Applies `correctedTitle`/`correctedSummary`. Logs `correction-veto` + `title-change`/`summary-update` history entries.
+**Response:** `{ success, action, task }`
 
 ---
 
@@ -624,6 +669,7 @@ External Markdown files loaded at server startup:
 | `UPDATE_CHECK_SKILL.md` | `docs/UPDATE_CHECK_SKILL.md` | Phase 3: Thread update check prompt |
 | `CONSOLIDATE_SKILL.md` | `docs/CONSOLIDATE_SKILL.md` | Phase 4: Task consolidation / duplicate detection prompt |
 | `SEARCH_SKILL.md` | `docs/SEARCH_SKILL.md` | Intelligent communication search prompt (v2.2) |
+| `CORRECT_SKILL.md` | `docs/CORRECT_SKILL.md` | Correction verification prompt (v2.6, Claude Opus 4.6) |
 | `SCAN_SKILL.md` | `docs/SCAN_SKILL.md` | Legacy scan skill (backup/fallback) |
 | `LOG_WORK_SKILL.md` | `docs/LOG_WORK_SKILL.md` | Communication search prompt template (fallback path) |
 
@@ -651,6 +697,7 @@ Agent_Zero/
 │   ├── UPDATE_CHECK_SKILL.md         (Phase 3 update check prompt)
 │   ├── CONSOLIDATE_SKILL.md         (Phase 4 task consolidation prompt)
 │   ├── SEARCH_SKILL.md               (intelligent search prompt, v2.2)
+│   ├── CORRECT_SKILL.md              (correction verification prompt, v2.6)
 │   ├── SCAN_SKILL.md                 (legacy scan prompt, fallback)
 │   ├── LOG_WORK_SKILL.md             (legacy log work prompt, fallback)
 │   ├── FEATURE_INVENTORY_Claude_Code_Codex_Analyse.md  (code review)

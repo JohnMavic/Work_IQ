@@ -1,0 +1,9 @@
+# Test results - do not publish
+tests/
+
+# Node modules
+node_modules/
+
+# Local data
+tasks.json
+scan-log.txt

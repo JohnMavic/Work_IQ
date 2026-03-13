@@ -1,6 +1,6 @@
 # Agent Zero
 
-> Version 2.5.0 · A personal AI-powered action-item tracker for Microsoft 365
+> Version 2.6.0 · A personal AI-powered action-item tracker for Microsoft 365
 
 **Author:** Martin Hämmerli · [martih@microsoft.com](mailto:martih@microsoft.com)
 
@@ -122,7 +122,7 @@ Every AI operation follows the same pattern in `server.js`:
 4. The JSON response is parsed and stored in `tasks.json`
 5. The session and client are destroyed
 
-Sessions that need M365 data (scan, enrich, update-check, search) include the Work IQ MCP server. Sessions that only need AI reasoning (intent analysis via `/api/tasks/:id/log/analyze`, ambiguity review via `/api/tasks/:id/review`) create sessions without MCP servers.
+Sessions that need M365 data (scan, enrich, update-check, search, correction verification) include the Work IQ MCP server. Sessions that only need AI reasoning (intent analysis via `/api/tasks/:id/log/analyze`) create sessions without MCP servers. Intent analysis and correction verification use Claude Opus 4.6 for superior understanding (`model: 'claude-opus-4-6'` in `createSession()`).
 
 ### Four-Phase Scan Pipeline
 
@@ -141,8 +141,9 @@ Each task shows three step dots (● ● ●) indicating pipeline progress. Task
 
 Beyond scanning, each task has an interactive agent panel where users can ask questions or give instructions. This uses a two-phase flow:
 
-1. **Analyze** (`POST /api/tasks/:id/log/analyze`) — AI determines intent (summarize, answer, or search) without MCP. For summarize/answer, the result is returned immediately. For search, a plan is returned for user confirmation.
-2. **Execute** (`POST /api/tasks/:id/log`) — if intent was search, the confirmed plan is executed with Work IQ MCP using `SEARCH_SKILL.md` (3-attempt intelligent search with self-assessment and confidence levels).
+1. **Analyze** (`POST /api/tasks/:id/log/analyze`) — AI (Claude Opus 4.6) determines intent (update, summarize, rename, answer, correct, or search) without MCP. For update/summarize/answer/rename, the result is returned immediately. For correct, a verification plan is returned. For search, a search plan is returned.
+2. **Execute Search** (`POST /api/tasks/:id/log`) — if intent was search, the confirmed plan is executed with Work IQ MCP using `SEARCH_SKILL.md` (3-attempt intelligent search with self-assessment and confidence levels).
+3. **Verify Correction** (`POST /api/tasks/:id/correct`) — if intent was correct, AI (Claude Opus 4.6) searches M365 for evidence using `CORRECT_SKILL.md`. Returns verdict with evidence. User can accept or veto the result.
 
 ## Features
 
@@ -153,6 +154,7 @@ Beyond scanning, each task has an interactive agent panel where users can ask qu
 - **Intelligent search** — goal-oriented 3-attempt search with self-assessment and confidence levels (SEARCH_SKILL.md)
 - **Post-search evaluation** — after search, AI evaluates whether task title and summary need updating based on new findings; applies changes automatically with full history traceability
 - **"Updated" status** — tasks automatically marked 🔄 Updated when Phase 3 detects new information; pulsing glow for visibility
+- **Evidence-based corrections** — when users say information is wrong, AI verifies against M365 evidence (Claude Opus 4.6). Truth hierarchy: newest messages > older > history. User retains absolute veto right.
 - **Rename via conversation** — agent can change task titles through natural discussion
 - **Add Task modal** — title, assignment, and optional context; agent auto-starts on assignment
 - **Configurable scan range** — slider to choose 1–14 days of email/Teams history to scan (default: 4 days)
@@ -184,9 +186,11 @@ Beyond scanning, each task has an interactive agent panel where users can ask qu
 | `/api/consolidate` | POST | Phase 4: Find duplicate/related tasks |
 | `/api/tasks/merge` | POST | Merge two or more tasks into one |
 | `/api/tasks/:id/dismiss-merge` | POST | Dismiss a merge suggestion (bidirectional) |
-| `/api/tasks/:id/log/analyze` | POST | Intent analysis (summarize/answer/search) — no MCP |
+| `/api/tasks/:id/log/analyze` | POST | Intent analysis (Claude Opus 4.6, 6 intents) — no MCP |
 | `/api/tasks/:id/log` | POST | Execute search with Work IQ MCP |
-| `/api/tasks/:id/review` | POST | Ambiguity review resolution — no MCP |
+| `/api/tasks/:id/correct` | POST | Correction verification (Claude Opus 4.6 + Work IQ MCP) |
+| `/api/tasks/:id/correct/resolve` | POST | Resolve correction (accept or veto) |
+| `/api/tasks/:id/review` | POST | Ambiguity review resolution — with MCP research |
 | `/api/cleanup` | POST | Permanently delete done tasks older than `retentionDays` |
 
 ## Data Storage
@@ -287,11 +291,12 @@ Agent_Zero/
 ├── docs/
 │   ├── README.md                Challenge documentation (problem, solution, RAI)
 │   ├── ARCHITECTURE.md          System architecture (current state)
-│   ├── CHANGELOG.md             Version history (v1.0 → v2.2)
+│   ├── CHANGELOG.md             Version history (v1.0 → v2.6)
 │   ├── SCAN_DISCOVERY_SKILL.md  Phase 1 prompt template
 │   ├── ENRICH_SKILL.md          Phase 2 prompt template
 │   ├── UPDATE_CHECK_SKILL.md    Phase 3 prompt template
 │   ├── SEARCH_SKILL.md          Intelligent search prompt template (v2.2)
+│   ├── CORRECT_SKILL.md         Correction verification prompt (v2.6)
 │   ├── SCAN_SKILL.md            Legacy scan skill (fallback)
 │   ├── LOG_WORK_SKILL.md        Legacy work logging prompt (fallback)
 │   ├── FEATURE_INVENTORY_Claude_Code_Codex_Analyse.md  Code review results

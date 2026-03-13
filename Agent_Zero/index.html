@@ -1249,7 +1249,12 @@
       }
       // Restore pending plan displays for selected task
       if (selectedTaskId && pendingPlans[selectedTaskId]) {
-        showPlanUI(selectedTaskId, pendingPlans[selectedTaskId].plan, pendingPlans[selectedTaskId].fallback);
+        const pending = pendingPlans[selectedTaskId];
+        if (pending.intent === 'correct') {
+          showCorrectionPlanUI(selectedTaskId, pending.plan);
+        } else {
+          showPlanUI(selectedTaskId, pending.plan, pending.fallback);
+        }
       }
     } catch (err) {
       console.error('Failed to fetch tasks:', err);
@@ -2437,6 +2442,9 @@
                    : entry.type === 'enrich-error' ? '⚠️'
                    : entry.type === 'update-check' ? '🔍'
                    : entry.type === 'update-check-error' ? '⚠️'
+                   : entry.type === 'correction' ? '🔍'
+                   : entry.type === 'correction-veto' ? '⚡'
+                   : entry.type === 'correction-dismissed' ? '✅'
                    : '📌';
         const entryText = escHtml(entry.text).replace(/\n/g, '<br>');
         detailsHtml += `<div class="detail-entry" style="white-space:normal"><span style="color:#444">${formatDate(entry.timestamp)}</span> ${icon} ${entryText}</div>`;
@@ -2576,6 +2584,13 @@
         // Hide plan after re-render (it's now in conversation)
         const freshPlanEl = document.getElementById('plan-' + taskId);
         if (freshPlanEl) { freshPlanEl.classList.remove('visible'); freshPlanEl.innerHTML = ''; }
+        return;
+      }
+
+      // --- Intent: correct → show correction plan with Verify button ---
+      if (intent === 'correct' && data.plan) {
+        pendingPlans[taskId] = { plan: data.plan, originalText: text, intent: 'correct' };
+        showCorrectionPlanUI(taskId, data.plan);
         return;
       }
 
@@ -2759,6 +2774,170 @@
         <button class="btn btn-ghost btn-sm" onclick="cancelPlan('${taskId}')">✕ Cancel</button>
       </div>`;
     planEl.classList.add('visible');
+  }
+
+  function showCorrectionPlanUI(taskId, plan) {
+    const planEl = document.getElementById('plan-' + taskId);
+    if (!planEl) return;
+    const kwText = [...(plan.keywords || []), ...(plan.keywordsEnglish || [])].filter(k => k).join(', ');
+    planEl.innerHTML = `
+      <div class="log-plan-understanding" style="border-left: 3px solid #f59e0b; padding-left: 12px;">
+        <strong>🔍 Correction Verification</strong><br>
+        <span style="color: #f59e0b;">Disputed:</span> ${escHtml(plan.disputedClaim)}<br>
+        <span style="color: #22c55e;">User says:</span> ${escHtml(plan.userAssertion)}
+      </div>
+      <div class="log-plan-details">
+        <span><strong>Verification:</strong> ${escHtml(plan.verificationQuestion || 'Checking M365 for evidence...')}</span>
+        ${kwText ? `<span><strong>Keywords:</strong> ${escHtml(kwText)}</span>` : ''}
+      </div>
+      <div class="log-plan-actions">
+        <button class="btn btn-primary btn-sm" onclick="executeCorrectionVerify('${taskId}')" style="background: #f59e0b; border-color: #f59e0b;">🔍 Verify</button>
+        <button class="btn btn-ghost btn-sm" onclick="cancelPlan('${taskId}')">✕ Cancel</button>
+      </div>`;
+    planEl.classList.add('visible');
+  }
+
+  async function executeCorrectionVerify(taskId) {
+    const pending = pendingPlans[taskId];
+    if (!pending || pending.intent !== 'correct') return;
+
+    freezeTask(taskId);
+    const planEl = document.getElementById('plan-' + taskId);
+    if (planEl) {
+      planEl.innerHTML = '<div class="log-plan-understanding">🔍 Verifying against M365 communications... (this may take a moment)</div>';
+    }
+
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/correct`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: pending.plan })
+      });
+      const data = await res.json();
+
+      const freshPlanEl = document.getElementById('plan-' + taskId);
+      if (!freshPlanEl) return;
+
+      if (!res.ok) {
+        showNotification(data.error || 'Verification failed', 'error');
+        freshPlanEl.classList.remove('visible');
+        return;
+      }
+
+      if (data.verdict === 'user_correct' && data.applied) {
+        // Correction was applied automatically
+        freshPlanEl.innerHTML = `
+          <div class="agent-msg-bot" style="border-left: 3px solid #22c55e;">
+            <strong>✅ Correction verified and applied</strong> (${escHtml(data.confidence)} confidence)<br>
+            ${renderMarkdown(data.explanation)}
+            ${data.evidence && data.evidence.length > 0 ? '<details style="margin-top: 8px;"><summary style="cursor:pointer; color: #888;">Evidence (' + data.evidence.length + ' messages)</summary>' + data.evidence.map(e => `<div style="margin: 4px 0; padding: 4px 8px; border-left: 2px solid ${e.supports === 'user' ? '#22c55e' : e.supports === 'current' ? '#ef4444' : '#888'}; font-size: 0.85em;"><strong>${escHtml(e.from)}</strong> (${escHtml(e.date?.substring(0, 10) || '?')}): ${escHtml(e.summary)}</div>`).join('') + '</details>' : ''}
+          </div>`;
+        freshPlanEl.classList.add('visible');
+        showNotification('✅ Correction verified and applied', 'success');
+        delete pendingPlans[taskId];
+        await fetchTasks();
+        return;
+      }
+
+      // Verdict is current_correct or inconclusive → show evidence + veto option
+      const verdictColor = data.verdict === 'current_correct' ? '#ef4444' : '#f59e0b';
+      const verdictIcon = data.verdict === 'current_correct' ? '⚠️' : '❓';
+      const verdictText = data.verdict === 'current_correct'
+        ? 'Evidence suggests current information is correct'
+        : 'Could not find conclusive evidence';
+
+      // Store evidence data for veto
+      pendingPlans[taskId] = { ...pending, verificationResult: data };
+
+      freshPlanEl.innerHTML = `
+        <div class="agent-msg-bot" style="border-left: 3px solid ${verdictColor};">
+          <strong>${verdictIcon} ${verdictText}</strong> (${escHtml(data.confidence)} confidence)<br>
+          ${renderMarkdown(data.explanation)}
+          ${data.evidence && data.evidence.length > 0 ? '<details style="margin-top: 8px;" open><summary style="cursor:pointer; color: #888;">Evidence (' + data.evidence.length + ' messages)</summary>' + data.evidence.map(e => `<div style="margin: 4px 0; padding: 4px 8px; border-left: 2px solid ${e.supports === 'user' ? '#22c55e' : e.supports === 'current' ? '#ef4444' : '#888'}; font-size: 0.85em;"><strong>${escHtml(e.from)}</strong> (${escHtml(e.date?.substring(0, 10) || '?')}): ${escHtml(e.summary)}</div>`).join('') + '</details>' : ''}
+        </div>
+        <div class="log-plan-actions" style="margin-top: 8px;">
+          <button class="btn btn-ghost btn-sm" onclick="resolveCorrectionAccept('${taskId}')">✅ Accept — current info is correct</button>
+          <button class="btn btn-primary btn-sm" onclick="resolveCorrectionVeto('${taskId}')" style="background: #f59e0b; border-color: #f59e0b;">⚡ Override — apply my correction anyway</button>
+        </div>`;
+      freshPlanEl.classList.add('visible');
+    } catch (err) {
+      showNotification('Verification failed: ' + err.message, 'error');
+      const el = document.getElementById('plan-' + taskId);
+      if (el) el.classList.remove('visible');
+    } finally {
+      unfreezeTask(taskId);
+    }
+  }
+
+  async function resolveCorrectionAccept(taskId) {
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/correct/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'accept' })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showNotification(data.error || 'Failed', 'error');
+        return;
+      }
+      showNotification('✅ Current information confirmed', 'success');
+      delete pendingPlans[taskId];
+      const planEl = document.getElementById('plan-' + taskId);
+      if (planEl) { planEl.classList.remove('visible'); planEl.innerHTML = ''; }
+      await fetchTasks();
+    } catch (err) {
+      showNotification('Failed: ' + err.message, 'error');
+    }
+  }
+
+  async function resolveCorrectionVeto(taskId) {
+    const pending = pendingPlans[taskId];
+    if (!pending) return;
+
+    const plan = pending.plan;
+    const verResult = pending.verificationResult;
+
+    // Use suggested corrections if available, otherwise use user's assertion
+    const correctedTitle = verResult?.suggestedTitle || undefined;
+    const correctedSummary = plan.userAssertion || undefined;
+
+    // Ask user to confirm/edit the correction
+    const userInput = prompt(
+      'Your correction will be applied. Edit if needed:\n\n' +
+      (correctedTitle ? `Title: ${correctedTitle}\n` : '') +
+      `Correction: ${correctedSummary || '(no change)'}`,
+      correctedSummary || ''
+    );
+
+    if (userInput === null) return; // User cancelled
+
+    freezeTask(taskId);
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/correct/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'veto',
+          correctedTitle: correctedTitle,
+          correctedSummary: userInput.trim() || correctedSummary
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showNotification(data.error || 'Failed', 'error');
+        return;
+      }
+      showNotification('⚡ Correction applied (user override)', 'success');
+      delete pendingPlans[taskId];
+      const planEl = document.getElementById('plan-' + taskId);
+      if (planEl) { planEl.classList.remove('visible'); planEl.innerHTML = ''; }
+      await fetchTasks();
+    } catch (err) {
+      showNotification('Failed: ' + err.message, 'error');
+    } finally {
+      unfreezeTask(taskId);
+    }
   }
 
   async function deleteHistoryEntry(taskId, historyIndex) {
@@ -2958,8 +3137,9 @@
         }
       }
     }
-    // Re-render detail panel if this is the selected task
-    if (taskId === selectedTaskId) {
+    // Re-render detail panel if this is the selected task — BUT skip if a plan is pending
+    // (re-rendering would destroy the plan/correction UI that was just shown)
+    if (taskId === selectedTaskId && !pendingPlans[taskId]) {
       const task = tasks.find(t => t.id === taskId);
       const detailPanel = document.getElementById('taskDetailPanel');
       if (detailPanel && task) detailPanel.innerHTML = renderTaskDetail(task);

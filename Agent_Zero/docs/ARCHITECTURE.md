@@ -1,6 +1,6 @@
 # Agent Zero — Architecture
 
-> Version 2.5.0 · March 12, 2026 · Author: Martin Hämmerli
+> Version 2.6.0 · March 13, 2026 · Author: Martin Hämmerli
 
 Agent Zero is a personal action-item tracker that scans Microsoft 365 emails and Teams messages for tasks,
 extracts content summaries, and monitors threads for updates — all powered by AI.
@@ -48,7 +48,9 @@ extracts content summaries, and monitors threads for updates — all powered by 
 **Data flow:** Browser → Express → Copilot SDK → Work IQ MCP → Microsoft 365 → back up the chain.
 
 Each scan creates a fresh Copilot SDK session with Work IQ as MCP server. Sessions are independent —
-one session per API call, no shared state between scan phases.
+one session per API call, no shared state between scan phases. All sessions are tracked in a global
+`activeSessions` Set and guaranteed to be destroyed via `destroySession()` in finally blocks, graceful
+shutdown handlers (SIGINT/SIGTERM), and a startup orphan reaper.
 
 ---
 
@@ -259,7 +261,8 @@ Tasks are stored in `tasks.json` as `{ version: 3, tasks: [...] }`.
 
 **History types:** `created`, `status-change`, `scan-update`, `note`, `update`,
 `enriched`, `enrich-error`, `thread-update`, `update-check`, `update-check-error`,
-`summary-update`, `title-change`, `review-response`, `merge`
+`summary-update`, `title-change`, `review-response`, `merge`, `correction`,
+`correction-veto`, `correction-dismissed`
 
 ### Merge Dismissal
 
@@ -295,7 +298,7 @@ Search history entries include `agentPlan` with the analyze phase output:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `intent` | string | `search`, `summarize`, `answer`, `review`, or `rename` — determines rendering path |
+| `intent` | string | `update`, `search`, `summarize`, `answer`, `rename`, `correct`, or `review` — determines rendering path |
 | `understanding` | string | Action plan: what the agent will search |
 | `expectedAnswer` | string | What KIND of answer the user needs (v2.2) |
 | `keywords` | string[] | Search terms in user's language |
@@ -364,8 +367,10 @@ Additionally, stuck statuses are reset: `enriching` → `pending`, `checking` �
 | `POST` | `/api/consolidate` | Phase 4: Find duplicate/related tasks | 30s |
 | `POST` | `/api/tasks/merge` | Merge two or more tasks into one | 30s |
 | `POST` | `/api/tasks/:id/dismiss-merge` | Dismiss a merge suggestion (bidirectional) | — |
-| `POST` | `/api/tasks/:id/log/analyze` | AI intent analysis (no Work IQ) | 30s |
+| `POST` | `/api/tasks/:id/log/analyze` | AI intent analysis (Claude Opus 4.6, no Work IQ) | 30s |
 | `POST` | `/api/tasks/:id/log` | Intelligent search via Copilot SDK + MCP + SEARCH_SKILL.md | 300s |
+| `POST` | `/api/tasks/:id/correct` | Correction verification (Claude Opus 4.6 + Work IQ MCP + CORRECT_SKILL.md) | 300s |
+| `POST` | `/api/tasks/:id/correct/resolve` | Resolve correction discussion (accept or veto) | — |
 | `POST` | `/api/cleanup` | Permanently delete done tasks older than `retentionDays` | — |
 | `POST` | `/api/tasks/:id/review` | Ambiguity resolution — user responds to agent's review questions (with MCP research) | 180s |
 
@@ -399,7 +404,7 @@ The entire frontend lives in `index.html` — a single-file dark-themed SPA.
 - **Server health check**: Polls `/api/tasks` every 5s when offline, green/red status dot + "Online"/"Offline" label
 - **Duplicate instance prevention**: `app.listen()` catches `EADDRINUSE` — if port 3000 is taken, shows clear error and exits with code 1. `START-AGENT-ZERO.bat` also pre-checks via `netstat`.
 - **Link opening**: Window or tab mode (user preference persisted in localStorage, defunct split/incognito modes auto-migrated to window)
-- **Log work**: Two-phase agent (analyze intent → intelligent search via SEARCH_SKILL.md with 3-attempt strategy, self-assessment, and confidence levels)
+- **Log work**: Two-phase agent (analyze intent via Claude Opus 4.6 → intelligent search via SEARCH_SKILL.md or correction verification via CORRECT_SKILL.md with 3-attempt strategy, self-assessment, and confidence levels)
 - **Merge Mode**: "🔗 Merge Tasks" button activates multi-select mode — checkboxes appear on all task cards, floating merge bar at bottom with selected count, titles, and Merge/Cancel buttons. ESC exits. Merged tasks preserve all source links via `additionalLinks[]`.
 - **Prominent answer display**: When agent returns a direct answer with confidence, it's shown as an always-visible block with color-coded border — never collapsed
 - **Detail panel**: Expandable history with multi-line entries, icons per history type, search attempt details, confidence badges, relevance annotations
@@ -420,6 +425,10 @@ The entire frontend lives in `index.html` — a single-file dark-themed SPA.
 | `checkServerHealth()` | Poll server with 3s AbortController timeout |
 | `analyzeLog(taskId, message)` | Send message to AI for intent analysis |
 | `executeLog(taskId)` | Execute agent plan via Work IQ (reads plan from `pendingPlans`) |
+| `showCorrectionPlanUI(taskId, plan)` | Display correction verification plan with Verify button |
+| `executeCorrectionVerify(taskId)` | Execute correction verification via Work IQ + Opus 4.6 |
+| `resolveCorrectionAccept(taskId)` | Accept verification result (current info confirmed) |
+| `resolveCorrectionVeto(taskId)` | Override verification with user's correction (absolute veto) |
 | `toggleMergeMode()` | Activate/deactivate merge mode (checkboxes, floating bar) |
 | `toggleMergeSelect(taskId)` | Toggle task selection in merge mode |
 | `executeMergeFromBar()` | Execute merge of selected tasks via API |
@@ -503,6 +512,21 @@ the agent controls the search strategy.
 - **Confidence levels:** `high` / `medium` / `low` / `none` — server uses these for response formatting.
 - **Output:** JSON with `answer`, `confidence`, `searchAttempts[]`, `communications[]`, optional `ambiguities[]`
 
+### CORRECT_SKILL.md — Evidence-Based Correction Verification (v2.6.0)
+
+**Used by:** `POST /api/tasks/:id/correct` · **Lines:** 119 · **Timeout:** 300s
+
+Verifies user correction claims against M365 communications. The user says information in the task is wrong — this skill searches for evidence and determines the truth.
+
+- **Evidence-based verification:** Searches M365 for communications that prove or disprove the disputed claim — not blind trust in either direction.
+- **Truth hierarchy:** newest M365 messages (most weight) > older messages > task history > user claims.
+- **Three-attempt search:** Same pattern as SEARCH_SKILL.md: targeted → broader → sender/thread search.
+- **Three verdicts:** `user_correct` (apply correction), `current_correct` (evidence supports stored info), `inconclusive` (insufficient evidence).
+- **User veto:** Even when evidence contradicts the user, they have absolute override right via the resolve endpoint.
+- **Language awareness:** Bilingual keyword search (German + English).
+- **Model:** Claude Opus 4.6 for nuanced evidence evaluation.
+- **Output:** JSON with `verdict`, `confidence`, `explanation`, `evidence[]`, `searchAttempts[]`, `suggestedTitle`, `suggestedSummary`
+
 ### UPDATE_CHECK_SKILL.md — Phase 3: Detect New Activity
 
 - **Purpose:** Check if a conversation thread has new messages since the last check
@@ -538,14 +562,14 @@ calendar events, and documents via the Microsoft Search API.
 import { CopilotClient } from '@github/copilot-sdk';
 
 const client = new CopilotClient();
-const session = await client.createSession({
+const session = trackSession(await client.createSession({
   mcpServers: {
     workiq: { type: 'stdio', command: 'workiq', args: ['mcp'], tools: '*' }
   }
-});
+}));
 
 const response = await session.sendAndWait({ prompt: searchPrompt }, 300000);
-await session.destroy();
+await destroySession(session);  // guaranteed cleanup via finally block + graceful shutdown
 ```
 
 ### How Each Phase Reads M365 Data
@@ -600,6 +624,7 @@ Agent_Zero/
 │   ├── UPDATE_CHECK_SKILL.md   Phase 3 skill instructions
 │   ├── CONSOLIDATE_SKILL.md   Phase 4 skill instructions
 │   ├── SEARCH_SKILL.md         Intelligent search skill (v2.2)
+│   ├── CORRECT_SKILL.md        Correction verification skill (v2.6)
 │   ├── LOG_WORK_SKILL.md       Legacy work logging skill (fallback)
 │   ├── FEATURE_INVENTORY_Claude_Code_Codex_Analyse.md  Code review results
 │   ├── VIDEO_DESCRIPTION.md    Video script foundation

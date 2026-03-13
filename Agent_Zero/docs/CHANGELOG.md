@@ -4,6 +4,69 @@ All notable changes to this project are documented here.
 
 ---
 
+## v2.7.0 — March 13, 2026
+
+**Session Lifecycle Management — Orphaned Subprocess Prevention**
+
+### Session Tracking & Guaranteed Cleanup
+- New global `activeSessions` Set tracks all Copilot SDK sessions from creation to destruction
+- `trackSession()` / `destroySession()` helpers replace raw `session.destroy()` calls
+- All 12 `createSession()` calls across 8 endpoints now use `trackSession()`
+- `session.destroy()` moved from happy-path-only to **finally blocks** — sessions are destroyed even on timeout or error
+- Previously, a timeout in `sendAndWait()` would skip `session.destroy()`, leaking the child process
+
+### Graceful Shutdown
+- New SIGINT/SIGTERM/SIGHUP handlers call `destroyAllSessions()` before process exit
+- Prevents orphaned subprocesses when the server is stopped with Ctrl+C or killed
+
+### Startup Orphan Reaper
+- On server start, detects and kills leftover Copilot SDK child processes from previous runs
+- Uses PowerShell `Get-CimInstance` on Windows, `pkill` on Unix
+- Non-fatal: if detection fails, the server starts normally with a warning
+
+### Impact
+- Eliminates the accumulation of orphaned `node.exe` processes (previously up to 74 observed during development)
+- Three layers of defense: guaranteed finally-block cleanup, graceful shutdown, startup reaper
+
+---
+
+## v2.6.0 — March 13, 2026
+
+**Correction Verification & Claude Opus 4.6 Integration**
+
+### Evidence-Based Correction ("correct" Intent)
+- New **"correct" intent** in the agent's decision tree — detects when users dispute or deny existing information (e.g. "Das stimmt nicht", "SSD wurde nie bestellt", "Der Titel ist falsch")
+- **Not keyword-based** — the agent uses Claude Opus 4.6 reasoning to understand whether the user is correcting vs. updating vs. searching
+- New `CORRECT_SKILL.md` skill file: 3-attempt M365 search with evidence evaluation and truth hierarchy
+- **Truth hierarchy** (most authoritative first): newest M365 messages > older messages > task history > user claims
+- Three verdicts: `user_correct` (auto-apply), `current_correct` (show evidence, offer Accept/Veto), `inconclusive` (offer Veto)
+- **Absolute user veto right** — user can always override the agent's verdict, regardless of evidence
+
+### Claude Opus 4.6 Model Selection
+- Intent classification (`POST /api/tasks/:id/log/analyze`) now uses **Claude Opus 4.6** for superior understanding of user intent — especially correction vs. update distinction
+- Correction verification (`POST /api/tasks/:id/correct`) also uses **Claude Opus 4.6** for nuanced evidence evaluation
+- All other endpoints continue using the default Copilot SDK model
+
+### Pre-Filter Negation Fix
+- Fixed: "Ich habe das NICHT bestätigt" was incorrectly matched by the "Ich habe..." pre-filter, forcing the update-only path
+- Negation words (nicht, never, not, nie, kein...) now exclude messages from the pre-filter, allowing them to reach full intent classification
+
+### API Endpoints (New)
+- `POST /api/tasks/:id/correct` — Evidence-based correction verification (Claude Opus 4.6 + Work IQ MCP, 300s timeout)
+- `POST /api/tasks/:id/correct/resolve` — Resolve correction discussion: `accept` (confirm current info) or `veto` (override with user's correction)
+
+### Frontend
+- Correction plan UI: shows disputed claim vs. user assertion with color-coded display and "Verify" button
+- Evidence display: expandable list of M365 messages with color-coded support indicators (green = supports user, red = supports current, gray = neutral)
+- Discussion panel: "Accept" and "Override" buttons when verdict is `current_correct` or `inconclusive`
+- Veto flow: user can edit their correction before applying via `prompt()` dialog
+- New history entry icons: 🔍 correction, ⚡ correction-veto, ✅ correction-dismissed
+
+### Data Schema
+- New history entry types: `correction`, `correction-veto`, `correction-dismissed`
+
+---
+
 ## v2.5.0 — March 12, 2026
 
 **Manual Merge Mode & Link Preservation**

@@ -22,11 +22,14 @@ The core challenge: **email is designed for reading, not for acting.** There is 
 2. **Enrichment** — AI extracts full conversation content via Work IQ, generates summaries with temporal awareness
 3. **Update Check** — AI detects new replies since the last check, updates summaries with only new information
 4. **Intelligent Search** — Users can ask specific questions about their communications; AI searches with self-assessment and confidence levels
+5. **Correction Verification** — When users dispute stored information, AI verifies claims against M365 evidence before applying changes
 
 ### Key Differentiators
 
 - **Goal-oriented search** — Agents evaluate whether results actually answer the question, not just match keywords
 - **Temporal awareness** — Agents distinguish current from historical information using discovery dates
+- **Evidence-based corrections** — When users say information is wrong, AI searches M365 for evidence before changing anything. Truth hierarchy: newest messages > older messages > history > user claims. Users retain absolute veto right.
+- **Claude Opus 4.6 for intent classification** — The most capable model handles nuanced intent detection, especially distinguishing corrections from updates
 - **Ambiguity handling** — When uncertain, agents ask clarifying questions instead of guessing
 - **Hallucination prevention** — Agents are instructed to report failure honestly rather than fabricate information
 - **Three-attempt strategy** — Progressively broader search approaches before giving up
@@ -48,8 +51,8 @@ Agent_Zero/
 ├── docs/                  # Documentation, skill files, architecture
 │   ├── README.md          # This file — solution documentation
 │   ├── ARCHITECTURE.md    # Detailed technical architecture
-│   ├── CHANGELOG.md       # Version history (v1.0 → v2.2)
-│   └── *.md               # 6 skill files (scan, enrich, search, etc.)
+│   ├── CHANGELOG.md       # Version history (v1.0 → v2.6)
+│   └── *.md               # 7 skill files (scan, enrich, search, correct, etc.)
 ├── Specifactions/         # Product specification
 ├── Images/                # Branding images
 └── presentations/         # Demo deck (PowerPoint)
@@ -170,6 +173,7 @@ Agent Zero runs **locally** by design. All data stays on the user's machine — 
 ### Human Oversight
 - Users can review, edit, and override all AI-generated content
 - Ambiguity panel presents agent questions for user resolution
+- **Correction verification:** when users dispute stored information, AI verifies against M365 evidence before changing anything. Users retain absolute veto right to override the agent's verdict.
 - No automated actions are taken without user initiation (scan must be triggered manually)
 - All task status changes require explicit user interaction
 
