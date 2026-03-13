@@ -4,6 +4,30 @@ All notable changes to this project are documented here.
 
 ---
 
+## v2.8.0 — March 13, 2026
+
+**UX Improvements — Live Agent Status & Reverse-Chronological Details**
+
+### Live Agent Status on Task Cards
+- Frozen task cards now show **context-specific status** instead of static "Agent working..."
+- Status updates dynamically as the agent progresses through phases:
+  - `🤔 Analyzing request...` → `🔄 Updating task...` / `🔍 Preparing search...`
+  - `📤 Searching emails & Teams...` → `⏳ Searching M365...` → `✅ 3 result(s) found`
+  - `📋 Analyzing content...` (enrichment), `🔍 Checking for updates...` (update check)
+  - `⚡ Verifying in M365...` (correction), `✏️ Applying correction...`
+- New `updateFrozenStatus(taskId, text)` function for live badge updates without re-render
+- `freezeTask()` now accepts optional `statusText` parameter
+
+### Reverse-Chronological Details Panel
+- `renderDetails()` now shows newest entries first (matching `renderConversations()` behavior)
+- System events section already used reverse order — now consistent throughout
+
+### Performance: Default Model
+- Switched from Claude Opus 4.6 to default model for intent classification and correction verification
+- Response time improvement: ~26-39s → ~12-19s per classification
+
+---
+
 ## v2.7.0 — March 13, 2026
 
 **Session Lifecycle Management — Orphaned Subprocess Prevention**

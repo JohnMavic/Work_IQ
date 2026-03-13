@@ -1503,7 +1503,7 @@
           }
           const task = tasksToEnrich[i];
           loadingText.textContent = `Phase 2: Enriching content (${i + 1}/${tasksToEnrich.length})...`;
-          freezeTask(task.id);
+          freezeTask(task.id, '📋 Analyzing content...');
           updateStepIndicator(task.id, 2, 'active');
           try {
             const enrichRes = await fetch(`/api/tasks/${task.id}/enrich`, { method: 'POST' });
@@ -1563,7 +1563,7 @@
           }
           const task = tasksToCheck[i];
           loadingText.textContent = `Phase 3: Checking for updates (${i + 1}/${tasksToCheck.length})...`;
-          freezeTask(task.id);
+          freezeTask(task.id, '🔍 Checking for updates...');
           updateStepIndicator(task.id, 3, 'active');
           try {
             const checkRes = await fetch(`/api/tasks/${task.id}/check-update`, { method: 'POST' });
@@ -2115,7 +2115,7 @@
               <option value="paused" ${task.status === 'paused' ? 'selected' : ''}>⏸️ Paused</option>
               <option value="done" ${task.status === 'done' ? 'selected' : ''}>✅ Done</option>
             </select>
-            <span class="frozen-badge">❄️ Agent working...</span>
+            <span class="frozen-badge">⏳ Agent working...</span>
             <button class="btn btn-danger" onclick="deleteTask('${task.id}')">✕</button>
           </div>
         </div>`;
@@ -2305,7 +2305,10 @@
   function renderDetails(conversations, systemEvents, taskId) {
     let detailsHtml = '';
 
-    for (const conv of conversations) {
+    // Reverse-chronological order (newest first)
+    const reversedConvs = [...conversations].reverse();
+
+    for (const conv of reversedConvs) {
       const ts = formatDate(conv.timestamp);
       detailsHtml += `<div class="detail-entry" style="color:#94a3b8;margin-top:8px"><strong>📝 ${ts}</strong></div>`;
 
@@ -2526,7 +2529,7 @@
     input.disabled = true;
 
     // Mark task as frozen (neon cyan highlight — same visual as scan phases)
-    freezeTask(taskId);
+    freezeTask(taskId, '🤔 Analyzing request...');
 
     planEl.innerHTML = '<div class="log-plan-understanding">🤔 Agent is analyzing your request...</div>';
     planEl.classList.add('visible');
@@ -2552,6 +2555,10 @@
       }
 
       const intent = data.intent || 'search';
+
+      // Update frozen badge with intent-specific status
+      const statusLabels = { summarize: '📋 Updating summary...', answer: '💬 Preparing answer...', rename: '📝 Renaming...', update: '🔄 Updating task...', search: '🔍 Preparing search...', correct: '⚡ Verifying claim...' };
+      updateFrozenStatus(taskId, statusLabels[intent] || '⏳ Processing...');
 
       // --- Intent: summarize, answer, rename, or update → result is immediate, already saved ---
       if ((intent === 'summarize' || intent === 'answer' || intent === 'rename' || intent === 'update') && (data.result || intent === 'update')) {
@@ -2646,7 +2653,7 @@
     let planEl = document.getElementById('plan-' + taskId);
 
     // Mark task as frozen (neon cyan highlight — same visual as scan phases)
-    freezeTask(taskId);
+    freezeTask(taskId, '📤 Searching emails & Teams...');
 
     // Step 1: Show sending status
     if (planEl) planEl.innerHTML = '<div class="log-plan-understanding">📤 Sending search to Work IQ...</div>';
@@ -2654,7 +2661,8 @@
     // Step 2: After 10s, upgrade to "waiting" if still running
     const waitTimer = setTimeout(() => {
       const el = document.getElementById('plan-' + taskId);
-      if (el) el.innerHTML = '<div class="log-plan-understanding">⏳ Waiting for system response... this may take up to 90 seconds</div>';
+      if (el) el.innerHTML = '<div class="log-plan-understanding">⏳ Searching M365... this may take up to 90 seconds</div>';
+      updateFrozenStatus(taskId, '⏳ Searching M365...');
     }, 10000);
 
     try {
@@ -2679,6 +2687,7 @@
 
       // Step 3: Response received
       const commCount = data.history?.[data.history.length - 1]?.communications?.length || 0;
+      updateFrozenStatus(taskId, commCount > 0 ? `✅ ${commCount} result(s) found` : '🔍 No results');
       if (planEl) {
         planEl.innerHTML = commCount > 0
           ? `<div class="log-plan-understanding">✅ Done — ${commCount} communication(s) found</div>`
@@ -2801,7 +2810,7 @@
     const pending = pendingPlans[taskId];
     if (!pending || pending.intent !== 'correct') return;
 
-    freezeTask(taskId);
+    freezeTask(taskId, '⚡ Verifying in M365...');
     const planEl = document.getElementById('plan-' + taskId);
     if (planEl) {
       planEl.innerHTML = '<div class="log-plan-understanding">🔍 Verifying against M365 communications... (this may take a moment)</div>';
@@ -2912,7 +2921,7 @@
 
     if (userInput === null) return; // User cancelled
 
-    freezeTask(taskId);
+    freezeTask(taskId, '✏️ Applying correction...');
     try {
       const res = await fetch(`/api/tasks/${taskId}/correct/resolve`, {
         method: 'POST',
@@ -3110,15 +3119,28 @@
     return `${months[d.getMonth()]} ${d.getDate()}, ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
   }
 
-  function freezeTask(taskId) {
+  function freezeTask(taskId, statusText) {
     frozenTasks.add(taskId);
     const card = document.getElementById('card-' + taskId);
-    if (card) card.classList.add('frozen');
+    if (card) {
+      card.classList.add('frozen');
+      const badge = card.querySelector('.frozen-badge');
+      if (badge) badge.textContent = statusText || '⏳ Agent working...';
+    }
     // If this is the selected task, re-render detail to show frozen state
     if (taskId === selectedTaskId) {
       const task = tasks.find(t => t.id === taskId);
       const detailPanel = document.getElementById('taskDetailPanel');
       if (detailPanel && task) detailPanel.innerHTML = renderTaskDetail(task);
+    }
+  }
+
+  // Update the live status text on a frozen task card (no re-render needed)
+  function updateFrozenStatus(taskId, statusText) {
+    const card = document.getElementById('card-' + taskId);
+    if (card) {
+      const badge = card.querySelector('.frozen-badge');
+      if (badge) badge.textContent = statusText;
     }
   }
 
