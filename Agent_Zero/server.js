@@ -1696,7 +1696,7 @@ app.post('/api/tasks/:id/log/analyze', async (req, res) => {
       console.log(`[ANALYZE] Pre-filter: detected "Ich habe..." action report → forcing update-only prompt`);
       preSession = trackSession(await client.createSession({}));
       try {
-        const updateOnlyPrompt = `You are updating a task tracker based on the user's action report. The user is telling you what they DID. Generate an appropriate update.
+        const updateOnlyPrompt = `You are updating a task tracker. The user is providing information and wants the task updated. Generate an appropriate update that MERGES the new information with the existing content.
 
 TASK:
 Title: "${task.title}"
@@ -1705,12 +1705,19 @@ ${recentHistory ? `\nHistory:\n${recentHistory}\n` : ''}
 USER'S MESSAGE:
 "${text.trim()}"
 
+RULES FOR THE SUMMARY:
+- You MUST keep ALL existing summary content intact
+- ADD the new information at the TOP with a timestamp: "📌 Update (DD.MM.YYYY, HH:MM): [new info]"
+- Then include ALL existing content below unchanged
+- The new summary MUST be LONGER than the original (you are adding, not replacing)
+- Write in the same language as the existing content
+
 Return ONLY this JSON (no markdown, no explanation):
 {
   "intent": "update",
   "newTitle": "Updated title reflecting current state (max ~15 words). Keep the original title if it still fits: ${JSON.stringify(task.title)}",
-  "newSummary": "Updated summary incorporating the user's new information. Merge with existing summary context if available.",
-  "changeDescription": "Brief description of what changed based on the user's action"
+  "newSummary": "The COMPLETE updated summary with new info at top + ALL existing content below",
+  "changeDescription": "Brief description of what changed based on the user's message"
 }`;
         const updateResponse = await preSession.sendAndWait({ prompt: updateOnlyPrompt }, 30000);
         await destroySession(preSession);
@@ -1767,20 +1774,29 @@ USER'S MESSAGE:
 
 ## HOW TO THINK ABOUT THIS
 
+FUNDAMENTAL PRINCIPLE — ask yourself ONE question first:
+**"Does the user's message CONTAIN the information, or is the user asking me to GO FIND it?"**
+- If the information is IN the message → the intent is **"update"** (or summarize/rename/answer)
+- If the user asks you to SEARCH for information they don't have → the intent is **"search"**
+This distinction overrides everything else. A message that contains concrete details (dates, names, meeting info, status updates) is NEVER a search request, even if those details look like they came from an email or calendar.
+
 Follow this decision tree IN ORDER. Stop at the first match:
 
-### Step 1: Is the user REPORTING something they did?
-Look for patterns like: "Ich habe...", "I did...", "I sent...", "I edited...", "I confirmed...", "I told X...", "Ich habe X mitgeteilt", "Ich habe X bestätigt", "Ich habe X editiert", "Ich habe X gesendet"
-→ If YES: this is **"update"**. The user is GIVING you information about an action they took. Record it in the task.
+### Step 1: Is the user PROVIDING information or asking you to UPDATE the task?
+The user gives you concrete data — meeting details, dates, names, decisions, quotes, status changes, links — and wants the task updated.
+Examples: "Aktualisiere mit diesen Infos: Dry-Run am 16.3...", "Hier ist das Ergebnis: ...", "Das Meeting ist am Montag um 14 Uhr bestätigt."
+→ If the user GIVES you concrete information in their message: this is **"update"**.
+
+### Step 1.5: Is the user REPORTING something they did?
+Patterns: "Ich habe...", "I did...", "I sent...", "I edited...", "I confirmed..."
+→ If YES: this is **"update"**.
 ⚠️ Even if the message mentions "E-Mail", "Teams", "Chat" — these describe HOW the user communicated. They are NOT requests to search!
 
-### Step 1.5: Is the user CORRECTING or DISPUTING existing information?
+### Step 1.7: Is the user CORRECTING or DISPUTING existing information?
 The user says something currently stored in the title or summary is WRONG, inaccurate, or did not happen. Look for:
 - Explicit denial: "Das stimmt nicht", "That's wrong", "Das ist falsch", "Nein, das war anders"
 - Contradiction of stored facts: "SSD wurde nie bestellt", "I never confirmed that", "Ich habe das NICHT bestätigt"
 - Correction request: "Der Titel ist falsch", "Die Summary stimmt nicht", "Das muss korrigiert werden"
-- Disputing what happened: "Das wurde nicht bestellt", "That was never ordered", "Wir haben das nicht gemacht"
-⚠️ This is NOT the same as "update" — the user is NOT adding new information, they are saying EXISTING information is WRONG.
 ⚠️ The key difference: "update" = user adds/changes info. "correct" = user says current info is factually incorrect and needs verification.
 → If YES: this is **"correct"**. The existing data must be VERIFIED against M365 communications before being changed.
 
@@ -1789,7 +1805,7 @@ Look for: "nenne es...", "ändere den Titel zu...", "rename to..."
 → If YES and only the title should change: **"rename"**
 
 ### Step 3: Does the user explicitly ask for a summary?
-Look for: "fasse zusammen", "summarize", "Zusammenfassung"
+Look for: "fasse zusammen", "summarize" — AND the user is NOT providing information to incorporate
 → If YES: **"summarize"**
 
 ### Step 4: Does the user ask a question answerable from the task context?
@@ -1797,17 +1813,19 @@ Look for questions about dates, people, status, next steps — where the answer 
 → If YES: **"answer"**
 
 ### Step 5: Does the user explicitly ask to FIND or CHECK communications?
-Look for: "gibt es neue Nachrichten", "suche nach", "check what X wrote", "find emails from", "was hat X geschrieben"
-→ If YES: **"search"**
+The user does NOT have the information and wants you to GO LOOK for it.
+Look for: "gibt es neue Nachrichten", "suche nach", "check my inbox", "find emails from", "was hat X geschrieben", "schau in meiner Inbox nach"
+⚠️ CRITICAL CHECK: Re-read the user's message. Does it already CONTAIN specific details (dates, times, participants, decisions)? If YES → go back to Step 1, this is "update". The user is NOT asking you to search — they already have the information!
+→ If the user genuinely asks you to find something they don't know: **"search"**
 
 ### Step 6: Default
-If the user provides ANY new information (a link, a date, a status update, a quote from someone) and none of the above matched clearly → **"update"**
+If the user provides ANY new information (a link, a date, a status update, a quote from someone) → **"update"**
 If truly nothing matches → **"search"** as last resort
 
 ## KEY ANTI-PATTERNS (NEVER do these):
-- "Ich habe X per E-Mail bestätigt" → This is UPDATE, not search! The user is telling you they sent something.
-- "Ich habe Harshitha mein Thema mitgeteilt" → This is UPDATE, not search! The user is telling you they communicated something.
-- "Ich habe das Slide Deck editiert. [link]. Aktualisiere..." → This is UPDATE, not search! The user edited something and wants the task updated.
+- "Aktualisiere die Zusammenfassung mit diesen Informationen: [details]" → **UPDATE**. The user GAVE you the information. Do NOT search for it.
+- "Ich habe X per E-Mail bestätigt" → **UPDATE**. The user told you what they did.
+- "Hier ist Jawads Antwort: ..." → **UPDATE**. The user pasted the answer. Do NOT search.
 - The word "E-Mail" in a user's OWN action report is NEVER a trigger to search emails.
 
 ## INTENTS
@@ -1842,7 +1860,7 @@ For "update":
   "_reasoning": "The user says 'Ich habe...' / reports an action / provides new information → update",
   "intent": "update",
   "newTitle": "Short, factual title reflecting the current state of the action item (max ~15 words). If the user doesn't ask for a title change, keep the original: ${JSON.stringify(task.title)}",
-  "newSummary": "Updated summary incorporating the new information the user provided. Merge with existing context where relevant.",
+  "newSummary": "IMPORTANT: You MUST keep ALL existing summary content and ADD the new information. Use the reverse-chronological format: newest update at top with '📌 Update (DD.MM.YYYY, HH:MM): ...' followed by all existing content below. NEVER replace or drop existing information. The result must be LONGER than the original, not shorter.",
   "changeDescription": "Brief human-readable description of what you changed and why"
 }
 
@@ -1942,7 +1960,7 @@ User: "Was ist der nächste Schritt?"
 
 Return ONLY the JSON object. No markdown, no explanation.`;
 
-    const response = await session.sendAndWait({ prompt: analyzePrompt }, 30000);
+    const response = await session.sendAndWait({ prompt: analyzePrompt }, 60000);
     await destroySession(session);
 
     if (response) {
