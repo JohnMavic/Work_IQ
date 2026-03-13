@@ -1397,7 +1397,14 @@
     if (loadingText) loadingText.textContent += ' — Stopping after current task...';
   }
 
+  let scanInProgress = false;
+
   async function triggerScan() {
+    if (scanInProgress) {
+      showNotification('A scan is already in progress. Please wait.', 'error');
+      return;
+    }
+    scanInProgress = true;
     scanAborted = false;
     const btn = document.getElementById('btnScan');
     const overlay = document.getElementById('loadingOverlay');
@@ -1439,51 +1446,75 @@
 
       // ═══════════════════════════════════════════════
       // PHASE 1: Discovery — subjects only
+      // NON-FATAL: if this fails, Phase 2/3 still process existing pending tasks
       // ═══════════════════════════════════════════════
       loadingText.textContent = `Phase 1: Scanning subjects (last ${days} days)...`;
-      const scanRes = await fetch('/api/scan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scanDays: parseInt(days) || 4 })
-      });
-      const scanData = await scanRes.json();
+      let phase1Success = false;
+      try {
+        const scanRes = await fetch('/api/scan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scanDays: parseInt(days) || 4 })
+        });
+        const scanData = await scanRes.json();
 
-      if (!scanRes.ok) {
-        showNotification(friendlyError(scanData), 'error');
-        return;
+        if (scanRes.ok) {
+          phase1Success = true;
+          await fetchTasks();
+
+          if (scanData.added > 0) {
+            showNotification(
+              `Phase 1 complete: ${scanData.added} new task${scanData.added !== 1 ? 's' : ''} found` +
+              (scanData.updated ? `, ${scanData.updated} updated` : '') + '. Enriching content...',
+              'success'
+            );
+          } else {
+            showNotification(
+              'Phase 1 complete: no new action items found.' +
+              (scanData.updated ? ` ${scanData.updated} task${scanData.updated !== 1 ? 's' : ''} updated.` : ''),
+              'success'
+            );
+          }
+        } else {
+          console.error('[SCAN] Phase 1 failed:', scanData);
+          showNotification(`⚠️ Phase 1 scan failed: ${friendlyError(scanData)}. Continuing with existing tasks...`, 'error');
+        }
+      } catch (phase1Err) {
+        console.error('[SCAN] Phase 1 error:', phase1Err);
+        if (phase1Err.name === 'TypeError' && phase1Err.message.includes('fetch')) {
+          setServerStatus(false);
+          showNotification('⚠️ Server unreachable during scan. Waiting for reconnection...', 'error');
+          // Wait up to 30s for server to come back
+          for (let w = 0; w < 10 && !serverOnline; w++) {
+            await new Promise(r => setTimeout(r, 3000));
+            try {
+              const healthCheck = await fetch('/api/tasks', { signal: AbortSignal.timeout(3000) });
+              if (healthCheck.ok) { setServerStatus(true); break; }
+            } catch {}
+          }
+          if (!serverOnline) {
+            showNotification('❌ Server did not recover. Scan aborted.', 'error');
+            return;
+          }
+          showNotification('✅ Server reconnected. Continuing scan...', 'success');
+        } else {
+          showNotification(`⚠️ Phase 1 failed: ${phase1Err.message}. Continuing with existing tasks...`, 'error');
+        }
       }
 
-      // Show Phase 1 results immediately
-      await fetchTasks();
-      const newIds = scanData.newTaskIds || [];
-
-      if (scanData.added > 0) {
-        showNotification(
-          `Phase 1 complete: ${scanData.added} new task${scanData.added !== 1 ? 's' : ''} found` +
-          (scanData.updated ? `, ${scanData.updated} updated` : '') + '. Enriching content...',
-          'success'
-        );
-      } else {
-        showNotification(
-          'Scan complete: no new action items found.' +
-          (scanData.updated ? ` ${scanData.updated} task${scanData.updated !== 1 ? 's' : ''} updated.` : ''),
-          'success'
-        );
-      }
-
-      // Close the scan banner — phases 2 & 3 use the same banner
       clearInterval(timerInterval);
+      if (scanAborted) return;
 
       // ═══════════════════════════════════════════════
       // PHASE 2: Enrichment — ALL tasks without summary
-      // Per Spec 6.1: "For each task with enrichmentStatus: pending"
+      // Independent of Phase 1 — works on server-side task status
+      // Per-task retry: 1 retry after 3s on failure
       // ═══════════════════════════════════════════════
       const phase2Tasks = await (await fetch('/api/tasks')).json();
       const tasksToEnrich = (phase2Tasks.tasks || [])
         .filter(t => t.enrichmentStatus === 'pending' && t.status !== 'done');
 
       if (tasksToEnrich.length > 0) {
-        // Show Phase 2 banner with timer
         btn.textContent = 'Enriching...';
         overlay.classList.add('visible');
         let phase2Elapsed = 0;
@@ -1505,37 +1536,58 @@
           loadingText.textContent = `Phase 2: Enriching content (${i + 1}/${tasksToEnrich.length})...`;
           freezeTask(task.id, '📋 Analyzing content...');
           updateStepIndicator(task.id, 2, 'active');
-          try {
-            const enrichRes = await fetch(`/api/tasks/${task.id}/enrich`, { method: 'POST' });
-            const enrichData = await enrichRes.json();
-            if (enrichRes.ok && (enrichData.summary || enrichData.alreadyEnriched)) {
-              if (enrichData.ambiguities && enrichData.ambiguities.length > 0) {
-                updateStepIndicator(task.id, 2, 'updated'); // amber — needs review
+
+          let success = false;
+          for (let attempt = 1; attempt <= 2 && !success; attempt++) {
+            try {
+              const enrichRes = await fetch(`/api/tasks/${task.id}/enrich`, { method: 'POST' });
+              const enrichData = await enrichRes.json();
+              if (enrichRes.ok && (enrichData.summary || enrichData.alreadyEnriched)) {
+                if (enrichData.ambiguities && enrichData.ambiguities.length > 0) {
+                  updateStepIndicator(task.id, 2, 'updated');
+                } else {
+                  updateStepIndicator(task.id, 2, 'done');
+                }
+                success = true;
+              } else if (attempt < 2) {
+                console.warn(`[SCAN] Enrichment attempt ${attempt} failed for ${task.id}, retrying in 3s...`);
+                updateFrozenStatus(task.id, '🔄 Retrying enrichment...');
+                await new Promise(r => setTimeout(r, 3000));
               } else {
-                updateStepIndicator(task.id, 2, 'done');
+                updateStepIndicator(task.id, 2, 'error');
               }
-            } else {
-              updateStepIndicator(task.id, 2, 'error');
+            } catch (err) {
+              console.error(`[SCAN] Enrichment attempt ${attempt} error for ${task.id}:`, err);
+              if (err.name === 'TypeError' && err.message.includes('fetch')) {
+                setServerStatus(false);
+                // Wait for server recovery before retrying
+                updateFrozenStatus(task.id, '⏳ Waiting for server...');
+                await new Promise(r => setTimeout(r, 5000));
+                try {
+                  const h = await fetch('/api/tasks', { signal: AbortSignal.timeout(3000) });
+                  if (h.ok) setServerStatus(true);
+                } catch {}
+                if (!serverOnline && attempt >= 2) {
+                  scanAborted = true;
+                  break;
+                }
+              } else if (attempt >= 2) {
+                updateStepIndicator(task.id, 2, 'error');
+              } else {
+                await new Promise(r => setTimeout(r, 3000));
+              }
             }
-          } catch (err) {
-            console.error(`Enrichment failed for ${task.id}:`, err);
-            updateStepIndicator(task.id, 2, 'error');
-            if (err.name === 'TypeError' && err.message.includes('fetch')) {
-              setServerStatus(false);
-              scanAborted = true;
-            }
-          } finally {
-            unfreezeTask(task.id);
-            try { await refreshSingleTask(task.id); } catch {}
           }
+          unfreezeTask(task.id);
+          try { await refreshSingleTask(task.id); } catch {}
         }
         clearInterval(phase2Timer);
       }
 
       // ═══════════════════════════════════════════════
       // PHASE 3: Update Check — ALL enriched/needs-review, non-done tasks
-      // Runs EVERY scan cycle regardless of updateCheckStatus
-      // (enrichment is one-time, but update checks repeat every scan)
+      // Independent of Phase 1/2 — works on server-side task status
+      // Per-task retry: 1 retry after 3s on failure
       // ═══════════════════════════════════════════════
       if (!scanAborted) {
       const phase3Tasks = await (await fetch('/api/tasks')).json();
@@ -1543,7 +1595,6 @@
         .filter(t => (t.enrichmentStatus === 'enriched' || t.enrichmentStatus === 'needs-review') && t.status !== 'done');
 
       if (tasksToCheck.length > 0) {
-        // Show Phase 3 banner with timer
         btn.textContent = 'Checking updates...';
         overlay.classList.add('visible');
         let phase3Elapsed = 0;
@@ -1565,28 +1616,48 @@
           loadingText.textContent = `Phase 3: Checking for updates (${i + 1}/${tasksToCheck.length})...`;
           freezeTask(task.id, '🔍 Checking for updates...');
           updateStepIndicator(task.id, 3, 'active');
-          try {
-            const checkRes = await fetch(`/api/tasks/${task.id}/check-update`, { method: 'POST' });
-            const checkData = await checkRes.json();
-            if (checkRes.ok) {
-              updateStepIndicator(task.id, 3, checkData.hasUpdate ? 'updated' : 'done');
-              if (checkData.hasUpdate) {
-                showNotification(`Task updated: ${task.title.substring(0, 40)}...`, 'success');
+
+          let success = false;
+          for (let attempt = 1; attempt <= 2 && !success; attempt++) {
+            try {
+              const checkRes = await fetch(`/api/tasks/${task.id}/check-update`, { method: 'POST' });
+              const checkData = await checkRes.json();
+              if (checkRes.ok) {
+                updateStepIndicator(task.id, 3, checkData.hasUpdate ? 'updated' : 'done');
+                if (checkData.hasUpdate) {
+                  showNotification(`Task updated: ${task.title.substring(0, 40)}...`, 'success');
+                }
+                success = true;
+              } else if (attempt < 2) {
+                console.warn(`[SCAN] Update check attempt ${attempt} failed for ${task.id}, retrying in 3s...`);
+                updateFrozenStatus(task.id, '🔄 Retrying update check...');
+                await new Promise(r => setTimeout(r, 3000));
+              } else {
+                updateStepIndicator(task.id, 3, 'error');
               }
-            } else {
-              updateStepIndicator(task.id, 3, 'error');
+            } catch (err) {
+              console.error(`[SCAN] Update check attempt ${attempt} error for ${task.id}:`, err);
+              if (err.name === 'TypeError' && err.message.includes('fetch')) {
+                setServerStatus(false);
+                updateFrozenStatus(task.id, '⏳ Waiting for server...');
+                await new Promise(r => setTimeout(r, 5000));
+                try {
+                  const h = await fetch('/api/tasks', { signal: AbortSignal.timeout(3000) });
+                  if (h.ok) setServerStatus(true);
+                } catch {}
+                if (!serverOnline && attempt >= 2) {
+                  scanAborted = true;
+                  break;
+                }
+              } else if (attempt >= 2) {
+                updateStepIndicator(task.id, 3, 'error');
+              } else {
+                await new Promise(r => setTimeout(r, 3000));
+              }
             }
-          } catch (err) {
-            console.error(`Update check failed for ${task.id}:`, err);
-            updateStepIndicator(task.id, 3, 'error');
-            if (err.name === 'TypeError' && err.message.includes('fetch')) {
-              setServerStatus(false);
-              scanAborted = true;
-            }
-          } finally {
-            unfreezeTask(task.id);
-            try { await refreshSingleTask(task.id); } catch {}
           }
+          unfreezeTask(task.id);
+          try { await refreshSingleTask(task.id); } catch {}
         }
         clearInterval(phase3Timer);
       }
@@ -1594,7 +1665,7 @@
 
       // ═══════════════════════════════════════════════
       // PHASE 4: Consolidation — suggest merging related tasks
-      // Runs AFTER all enrichments and update checks are complete
+      // Already non-fatal (has its own try-catch)
       // ═══════════════════════════════════════════════
       if (!scanAborted) {
         try {
@@ -1625,8 +1696,6 @@
       }
 
       overlay.classList.remove('visible');
-
-      // Final refresh to update counts and filters
       await fetchTasks();
 
     } catch (err) {
@@ -1636,6 +1705,7 @@
         showNotification('Scan failed: ' + err.message, 'error');
       }
     } finally {
+      scanInProgress = false;
       clearInterval(timerInterval);
       overlay.classList.remove('visible');
       loadingText.className = 'loading-text';

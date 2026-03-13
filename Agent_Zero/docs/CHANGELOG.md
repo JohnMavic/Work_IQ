@@ -4,6 +4,33 @@ All notable changes to this project are documented here.
 
 ---
 
+## v2.9.0 — March 13, 2026
+
+**Scan Process Resilience — Phase-Independent Recovery**
+
+### Phase 1 Non-Fatal
+- Phase 1 (subject scan) failure no longer terminates the entire process
+- If Phase 1 fails (timeout, 500 error), Phase 2/3 continue with existing pending tasks
+- Server-unreachable detection with automatic reconnection wait (up to 30s)
+
+### Per-Task Retry Logic
+- Phase 2 (enrichment) and Phase 3 (update check) now retry each failed task once after 3s
+- Live status shows retry progress: `🔄 Retrying enrichment...`
+- Network errors trigger 5s server recovery wait before retry
+- Only aborts the full scan if server remains unreachable after 2 attempts
+
+### Scan Lock
+- New `scanInProgress` flag prevents duplicate concurrent scans
+- Released in `finally` block — guaranteed cleanup even on errors
+
+### Architecture
+- Each phase operates independently on server-side task status
+- Phase 2 queries `enrichmentStatus: 'pending'` — works regardless of Phase 1 outcome
+- Phase 3 queries `enrichmentStatus: 'enriched'` — works regardless of Phase 2 outcome
+- Phase 4 (consolidation) was already non-fatal
+
+---
+
 ## v2.8.0 — March 13, 2026
 
 **UX Improvements — Live Agent Status & Reverse-Chronological Details**
