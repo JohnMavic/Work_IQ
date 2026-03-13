@@ -13,6 +13,88 @@ const app = express();
 const PORT = 3000;
 const TASKS_FILE = path.join(__dirname, 'tasks.json');
 
+// --- Session Lifecycle Management (v2.7) ---
+// Tracks all active Copilot SDK sessions to guarantee subprocess cleanup
+// on errors, timeouts, and server shutdown.
+const activeSessions = new Set();
+
+function trackSession(session) {
+  if (session) activeSessions.add(session);
+  return session;
+}
+
+async function destroySession(session) {
+  if (!session) return;
+  activeSessions.delete(session);
+  try { await session.destroy(); } catch {}
+}
+
+async function destroyAllSessions() {
+  const sessions = [...activeSessions];
+  activeSessions.clear();
+  await Promise.allSettled(sessions.map(s => {
+    try { return s.destroy(); } catch { return Promise.resolve(); }
+  }));
+}
+
+// Graceful shutdown: destroy all tracked sessions before exit
+function setupGracefulShutdown() {
+  let shuttingDown = false;
+  const shutdown = async (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`\n[SHUTDOWN] ${signal} received — cleaning up ${activeSessions.size} active session(s)...`);
+    await destroyAllSessions();
+    console.log('[SHUTDOWN] All sessions destroyed. Exiting.');
+    process.exit(0);
+  };
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  // Windows: handle Ctrl+C in non-TTY (e.g. background processes)
+  process.on('SIGHUP', () => shutdown('SIGHUP'));
+}
+setupGracefulShutdown();
+
+// Startup orphan reaper: kill leftover CLI subprocesses from previous server runs.
+// The Copilot SDK spawns Node.js child processes via stdio with a distinctive
+// command line containing '@github/copilot'. On Windows we use PowerShell's
+// Get-CimInstance (WMIC is deprecated on Win11); on Unix we use pkill.
+async function reapOrphanedSessions() {
+  const { execSync } = await import('child_process');
+  try {
+    if (process.platform === 'win32') {
+      // Use PowerShell Get-CimInstance to find node.exe processes with copilot in command line
+      const psOut = execSync(
+        'powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"name=\'node.exe\'\\" | Where-Object { $_.CommandLine -match \'copilot|@github\' } | Select-Object -ExpandProperty ProcessId"',
+        { encoding: 'utf-8', timeout: 15000 }
+      );
+      const ownPid = process.pid;
+      const orphanPids = psOut.split(/\r?\n/)
+        .map(line => parseInt(line.trim(), 10))
+        .filter(pid => pid && !isNaN(pid) && pid !== ownPid);
+
+      if (orphanPids.length > 0) {
+        for (const pid of orphanPids) {
+          try { execSync(`taskkill /F /PID ${pid}`, { timeout: 5000 }); } catch {}
+        }
+        console.log(`[REAPER] Killed ${orphanPids.length} orphaned Copilot SDK subprocess(es) from previous run`);
+      }
+    } else {
+      // Unix: kill node processes whose cmdline contains copilot-sdk markers
+      try {
+        execSync("pkill -f 'copilot.*stdio'", { timeout: 5000 });
+        console.log('[REAPER] Killed orphaned Copilot SDK subprocesses from previous run');
+      } catch {
+        // pkill returns non-zero if no processes matched — that's fine
+      }
+    }
+  } catch (err) {
+    // Non-fatal: if we can't reap, just log and continue
+    console.warn(`[REAPER] Orphan cleanup skipped: ${err.message}`);
+  }
+}
+reapOrphanedSessions();
+
 // --- Load Skill Files (v1.3) ---
 
 const SCAN_SKILL_PATH = path.join(__dirname, 'docs', 'SCAN_SKILL.md');
@@ -23,6 +105,7 @@ const ENRICH_SKILL_PATH = path.join(__dirname, 'docs', 'ENRICH_SKILL.md');
 const UPDATE_CHECK_SKILL_PATH = path.join(__dirname, 'docs', 'UPDATE_CHECK_SKILL.md');
 const SEARCH_SKILL_PATH = path.join(__dirname, 'docs', 'SEARCH_SKILL.md');
 const CONSOLIDATE_SKILL_PATH = path.join(__dirname, 'docs', 'CONSOLIDATE_SKILL.md');
+const CORRECT_SKILL_PATH = path.join(__dirname, 'docs', 'CORRECT_SKILL.md');
 
 let SCAN_SKILL = '';
 let LOG_WORK_SKILL = '';
@@ -31,6 +114,7 @@ let ENRICH_SKILL = '';
 let UPDATE_CHECK_SKILL = '';
 let SEARCH_SKILL = '';
 let CONSOLIDATE_SKILL = '';
+let CORRECT_SKILL = '';
 
 try {
   SCAN_SKILL = fs.readFileSync(SCAN_SKILL_PATH, 'utf-8');
@@ -81,10 +165,20 @@ try {
   console.warn('Warning: CONSOLIDATE_SKILL.md not found');
 }
 
+try {
+  CORRECT_SKILL = fs.readFileSync(CORRECT_SKILL_PATH, 'utf-8');
+  console.log(`Loaded CORRECT_SKILL.md (${CORRECT_SKILL.length} chars)`);
+} catch (err) {
+  console.warn('Warning: CORRECT_SKILL.md not found');
+}
+
 app.use(express.json());
 
-// Serve index.html at root
+// Serve index.html at root (no-cache to ensure code changes are always picked up)
 app.get('/', (req, res) => {
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
@@ -136,12 +230,20 @@ function cleanupDoneTasks(retentionDays = 3) {
   return removed;
 }
 
-// --- Dedup Helpers (v1.3) ---
+// --- Dedup Helpers (v1.3, improved v2.3) ---
+
+// Strip common email subject prefixes: Re:, Fw:, AW:, WG:, [EXTERN], [EXTERNAL], etc.
+function stripSubjectPrefixes(title) {
+  return String(title)
+    .replace(/^(\s*(re|fw|fwd|aw|wg|antwort|weiterleitung)\s*:\s*)+/gi, '')
+    .replace(/\[extern(al)?\]\s*/gi, '')
+    .trim();
+}
 
 function normalizeForCompare(title) {
-  return String(title)
+  return stripSubjectPrefixes(String(title))
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/[^a-z0-9äöüß\s]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -152,7 +254,10 @@ function isSimilarTitle(a, b) {
   if (wordsA.size === 0 || wordsB.size === 0) return false;
   const intersection = [...wordsA].filter(w => wordsB.has(w)).length;
   const union = new Set([...wordsA, ...wordsB]).size;
-  return (intersection / union) > 0.7;
+  const jaccard = intersection / union;
+  // Also check if one subject is a subset of the other (covers prefix-only differences)
+  const subsetRatio = intersection / Math.min(wordsA.size, wordsB.size);
+  return jaccard > 0.6 || subsetRatio >= 0.9;
 }
 
 // --- Keyword Extraction for Log Analysis Fallback (v1.4) ---
@@ -552,11 +657,11 @@ app.post('/api/tasks/:id/note', async (req, res) => {
 
 // POST /api/scan — scan M365 emails and Teams via Copilot SDK + Work IQ
 app.post('/api/scan', async (req, res) => {
-  let client;
+  let client, session;
   const scanDays = Math.min(14, Math.max(1, parseInt(req.body?.scanDays) || 4));
   try {
     client = new CopilotClient();
-    const session = await client.createSession({
+    session = trackSession(await client.createSession({
       mcpServers: {
         workiq: {
           type: 'stdio',
@@ -565,7 +670,7 @@ app.post('/api/scan', async (req, res) => {
           tools: '*'
         }
       }
-    });
+    }));
 
     // Build context-aware prompt with existing tasks (v1.3, dedup fix v1.5)
     const data = readTasks();
@@ -593,7 +698,9 @@ app.post('/api/scan', async (req, res) => {
         JSON.stringify(allContextTasks) + `\n\n` +
         `Scan my emails and Teams messages from the ${daysText}.\n` +
         `For each action item found, decide: action "update" (with existingId) or "new".\n` +
-        `If a found item matches a DONE task, use action "skip" — do NOT create it again.`;
+        `If a found item matches a DONE task, use action "skip" — do NOT create it again.\n` +
+        `IMPORTANT: When matching, ignore subject prefixes like Re:, Fw:, AW:, WG:, [EXTERN], [EXTERNAL]. ` +
+        `"Re: RG Netzwerkprüfung" and "[EXTERN] RG Netzwerkprüfung" are the SAME topic.`;
     } else if (discoverySkill) {
       scanPrompt = discoverySkill + `\n\n` +
         `There are no existing tasks yet.\n\n` +
@@ -626,7 +733,7 @@ app.post('/api/scan', async (req, res) => {
     console.log(`[SCAN] Prompt size: ${scanPrompt.length} chars, timeout: 180s, scanDays: ${scanDays}`);
     const response = await session.sendAndWait({ prompt: scanPrompt }, 180000);
     console.log(`[SCAN] Response received in ${((Date.now() - scanStart) / 1000).toFixed(1)}s`);
-    await session.destroy();
+    await destroySession(session);
 
     if (!response) {
       return res.status(502).json({ error: 'No response from AI engine' });
@@ -719,7 +826,7 @@ app.post('/api/scan', async (req, res) => {
           }
           if (!existing) {
             existing = data.tasks.find(t =>
-              t.title === titleNorm && t.from === fromNorm && t.source === sourceNorm
+              normalizeForCompare(t.title) === normalizeForCompare(titleNorm) && t.source === sourceNorm
             );
           }
           if (existing) {
@@ -728,11 +835,33 @@ app.post('/api/scan', async (req, res) => {
           }
         }
 
-        // Safety-Net: Jaccard word similarity check against ALL existing tasks
+        // Safety-Net: similarity check against ALL existing tasks (including done)
         const similarTask = data.tasks.find(t => isSimilarTitle(t.title, titleNorm));
         if (similarTask) {
-          console.warn(`Safety-Net dedup: "${titleNorm}" is similar to existing "${similarTask.title}", skipping`);
-          skipped++;
+          // If the matching task is done, reactivate it instead of creating a duplicate
+          if (similarTask.status === 'done') {
+            const now2 = new Date().toISOString();
+            similarTask.status = 'needs-attention';
+            similarTask.doneAt = null;
+            if (!similarTask.history) similarTask.history = [];
+            similarTask.history.push({
+              timestamp: now2,
+              type: 'reactivated',
+              text: `🔄 Reactivated: new activity detected in "${titleNorm}" (from ${fromNorm || 'unknown'}). Previous status was done.`
+            });
+            // Update link/date if the new scan has fresher data
+            if (item.link) similarTask.link = String(item.link).trim();
+            if (item.date) similarTask.date = item.date;
+            similarTask.enrichmentStatus = 'pending';
+            similarTask.updateCheckStatus = 'pending';
+            similarTask.updatedAt = now2;
+            newTaskIds.push(similarTask.id);
+            updated++;
+            console.log(`Reactivated done task: "${similarTask.title}" (matched "${titleNorm}")`);
+          } else {
+            console.warn(`Safety-Net dedup: "${titleNorm}" is similar to existing "${similarTask.title}", skipping`);
+            skipped++;
+          }
           continue;
         }
 
@@ -771,6 +900,7 @@ app.post('/api/scan', async (req, res) => {
     console.error('Scan failed:', err);
     res.status(500).json({ error: 'Scan failed', detail: err.message });
   } finally {
+    await destroySession(session);
     if (client) {
       try { await client.dispose(); } catch {}
     }
@@ -799,10 +929,10 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
     if (t) t.enrichmentStatus = 'enriching';
   });
 
-  let client;
+  let client, session;
   try {
     client = new CopilotClient();
-    const session = await client.createSession({
+    session = trackSession(await client.createSession({
       mcpServers: {
         workiq: {
           type: 'stdio',
@@ -811,7 +941,7 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
           tools: '*'
         }
       }
-    });
+    }));
 
     // Extract keywords from title (drop common words, keep distinctive terms)
     const stopWords = new Set(['the', 'a', 'an', 'to', 'for', 'of', 'in', 'on', 'at', 'by', 'and', 'or', 'via', 'with', 'from', 'my', 'your', 'is', 'are', 'was', 'be', 'has', 'have', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'this', 'that', 'these', 'those', 'it', 'its']);
@@ -852,7 +982,7 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
     const response = await session.sendAndWait({ prompt: enrichPrompt }, 300000);
     const enrichDuration = Date.now() - enrichStart;
     console.log(`[ENRICH] Response in ${(enrichDuration / 1000).toFixed(1)}s`);
-    await session.destroy();
+    await destroySession(session);
 
     if (!response) {
       await safeWriteTasks((data) => {
@@ -935,6 +1065,7 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
     });
     res.status(500).json({ error: 'Enrichment failed', detail: err.message });
   } finally {
+    await destroySession(session);
     if (client) {
       try { await client.dispose(); } catch {}
     }
@@ -960,10 +1091,10 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
     if (t) t.updateCheckStatus = 'checking';
   });
 
-  let client;
+  let client, session;
   try {
     client = new CopilotClient();
-    const session = await client.createSession({
+    session = trackSession(await client.createSession({
       mcpServers: {
         workiq: {
           type: 'stdio',
@@ -972,7 +1103,7 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
           tools: '*'
         }
       }
-    });
+    }));
 
     // Extract keywords from title (same technique as Phase 2)
     const stopWords = new Set(['the', 'a', 'an', 'to', 'for', 'of', 'in', 'on', 'at', 'by', 'and', 'or', 'via', 'with', 'from', 'my', 'your', 'is', 'are', 'was', 'be', 'has', 'have', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'this', 'that', 'these', 'those', 'it', 'its']);
@@ -1015,7 +1146,7 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
     console.log(`[UPDATE-CHECK] Task "${task.title}" — checking for updates since ${lastChecked} (prompt: ${checkPrompt.length} chars)`);
     const response = await session.sendAndWait({ prompt: checkPrompt }, 300000);
     console.log(`[UPDATE-CHECK] Response in ${((Date.now() - checkStart) / 1000).toFixed(1)}s`);
-    await session.destroy();
+    await destroySession(session);
 
     if (!response) {
       await safeWriteTasks((data) => {
@@ -1079,11 +1210,11 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
     // Post-search evaluation: intelligently update title/summary if Phase 3 found new info
     let evaluation = null;
     if (updated && updated.hasUpdate && updated.updateSummary) {
-      let evalClient;
+      let evalClient, evalSession;
       try {
         console.log(`[EVAL-P3] Starting post-update evaluation for task "${originalTitle}" (${id})`);
         evalClient = new CopilotClient();
-        const evalSession = await evalClient.createSession({});
+        evalSession = trackSession(await evalClient.createSession({}));
 
         const evalPrompt = `You are evaluating whether a task's title and summary need updating based on new information from an update check.
 
@@ -1139,7 +1270,7 @@ Return ONLY valid JSON, no markdown:
 }`;
 
         const evalResponse = await evalSession.sendAndWait({ prompt: evalPrompt }, 30000);
-        await evalSession.destroy();
+        await destroySession(evalSession);
 
         if (evalResponse) {
           const evalResult = parseJsonFromResponse(evalResponse.data.content);
@@ -1184,6 +1315,7 @@ Return ONLY valid JSON, no markdown:
       } catch (evalErr) {
         console.error(`[EVAL-P3] Post-update evaluation failed (non-fatal): ${evalErr.message}`);
       } finally {
+        await destroySession(evalSession);
         if (evalClient) {
           try { await evalClient.dispose(); } catch {}
         }
@@ -1209,6 +1341,7 @@ Return ONLY valid JSON, no markdown:
     });
     res.status(500).json({ error: 'Update check failed', detail: err.message });
   } finally {
+    await destroySession(session);
     if (client) {
       try { await client.dispose(); } catch {}
     }
@@ -1217,7 +1350,7 @@ Return ONLY valid JSON, no markdown:
 
 // POST /api/consolidate — Phase 4: suggest merging semantically related tasks
 app.post('/api/consolidate', async (req, res) => {
-  let client;
+  let client, session;
   try {
     const data = readTasks();
     const activeTasks = data.tasks.filter(t =>
@@ -1261,13 +1394,13 @@ app.post('/api/consolidate', async (req, res) => {
         : '');
 
     client = new CopilotClient();
-    const session = await client.createSession({});
+    session = trackSession(await client.createSession({}));
 
     const startTime = Date.now();
     console.log(`[CONSOLIDATE] Analyzing ${activeTasks.length} tasks for merge suggestions (prompt: ${prompt.length} chars)`);
     const response = await session.sendAndWait({ prompt }, 30000);
     console.log(`[CONSOLIDATE] Response in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
-    await session.destroy();
+    await destroySession(session);
 
     if (!response) {
       return res.json({ success: true, suggestions: [], reason: 'No response from AI' });
@@ -1307,6 +1440,7 @@ app.post('/api/consolidate', async (req, res) => {
     console.error('[CONSOLIDATE] Failed:', err);
     res.json({ success: true, suggestions: [], reason: err.message });
   } finally {
+    await destroySession(session);
     if (client) {
       try { await client.dispose(); } catch {}
     }
@@ -1320,7 +1454,7 @@ app.post('/api/tasks/merge', async (req, res) => {
     return res.status(400).json({ error: 'At least 2 task IDs required' });
   }
 
-  let client;
+  let client, session;
   try {
     const data = readTasks();
     const tasksToMerge = taskIds.map(id => data.tasks.find(t => t.id === id)).filter(Boolean);
@@ -1330,7 +1464,7 @@ app.post('/api/tasks/merge', async (req, res) => {
 
     // Generate merged summary via AI (no MCP needed)
     client = new CopilotClient();
-    const session = await client.createSession({});
+    session = trackSession(await client.createSession({}));
 
     const mergePrompt = `You are merging multiple action items into one unified summary.
 
@@ -1355,7 +1489,7 @@ Return ONLY valid JSON:
     console.log(`[MERGE] Merging ${tasksToMerge.length} tasks`);
     const response = await session.sendAndWait({ prompt: mergePrompt }, 30000);
     console.log(`[MERGE] Response in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
-    await session.destroy();
+    await destroySession(session);
 
     let mergedTitle = suggestedTitle || tasksToMerge[0].title;
     let mergedSummary = tasksToMerge.map(t => t.summary || '').filter(Boolean).join('\n\n---\n\n');
@@ -1463,6 +1597,7 @@ Return ONLY valid JSON:
     console.error('[MERGE] Failed:', err);
     res.status(500).json({ error: 'Merge failed', detail: err.message });
   } finally {
+    await destroySession(session);
     if (client) {
       try { await client.dispose(); } catch {}
     }
@@ -1543,7 +1678,7 @@ app.post('/api/tasks/:id/log/analyze', async (req, res) => {
     .join('\n---\n');
 
   // Try AI analysis (Copilot SDK without Work IQ — fast, just reasoning)
-  let client;
+  let client, session, preSession;
   try {
     client = new CopilotClient();
 
@@ -1551,13 +1686,15 @@ app.post('/api/tasks/:id/log/analyze', async (req, res) => {
     // skip intent classification entirely and use a dedicated update-only prompt.
     // This prevents the LLM from misclassifying user action reports as search requests.
     const lowerText = text.toLowerCase().trim();
-    const ichHabeAction = /\bich habe\b/.test(lowerText) && 
+    // Negation check: if the user says "Ich habe NICHT bestätigt" or "I did NOT confirm", skip the pre-filter
+    const hasNegation = /\b(nicht|never|not|nie|kein|keine|keinen|keinem|keiner)\b/.test(lowerText);
+    const ichHabeAction = !hasNegation && /\bich habe\b/.test(lowerText) &&
       /\b(bestätigt|gesendet|editiert|mitgeteilt|erledigt|geschickt|gemacht|aktualisiert|abgeschlossen|eingereicht|gespeichert|geändert|übermittelt|informiert|kommuniziert|fertiggestellt|verschickt|weitergeleitet|submitted|confirmed)\b/.test(lowerText);
-    const iDidAction = /\bi (did|sent|edited|confirmed|completed|finished|told|communicated|submitted|forwarded)\b/i.test(lowerText);
+    const iDidAction = !hasNegation && /\bi (did|sent|edited|confirmed|completed|finished|told|communicated|submitted|forwarded)\b/i.test(lowerText);
     
     if (ichHabeAction || iDidAction) {
       console.log(`[ANALYZE] Pre-filter: detected "Ich habe..." action report → forcing update-only prompt`);
-      const preSession = await client.createSession({});
+      preSession = trackSession(await client.createSession({}));
       try {
         const updateOnlyPrompt = `You are updating a task tracker based on the user's action report. The user is telling you what they DID. Generate an appropriate update.
 
@@ -1576,7 +1713,7 @@ Return ONLY this JSON (no markdown, no explanation):
   "changeDescription": "Brief description of what changed based on the user's action"
 }`;
         const updateResponse = await preSession.sendAndWait({ prompt: updateOnlyPrompt }, 30000);
-        await preSession.destroy();
+        await destroySession(preSession);
         if (updateResponse) {
           const updateResult = parseJsonFromResponse(updateResponse.data.content);
           if (updateResult && updateResult.intent === 'update') {
@@ -1607,11 +1744,11 @@ Return ONLY this JSON (no markdown, no explanation):
         }
       } catch (preErr) {
         console.log(`[ANALYZE] Pre-filter update failed: ${preErr.message}, falling through to normal classification`);
-        try { await preSession.destroy(); } catch (e) {}
+        await destroySession(preSession);
       }
     }
 
-    const session = await client.createSession({});  // No MCP servers → AI reasoning only
+    session = trackSession(await client.createSession({ model: 'claude-opus-4-6' }));  // Opus 4.6 for superior intent classification (especially correction detection)
 
     const analyzePrompt = `You are an intelligent assistant managing a task tracker. The user sends you messages about a specific task. Your job is to UNDERSTAND what the user wants and act accordingly.
 
@@ -1636,6 +1773,16 @@ Follow this decision tree IN ORDER. Stop at the first match:
 Look for patterns like: "Ich habe...", "I did...", "I sent...", "I edited...", "I confirmed...", "I told X...", "Ich habe X mitgeteilt", "Ich habe X bestätigt", "Ich habe X editiert", "Ich habe X gesendet"
 → If YES: this is **"update"**. The user is GIVING you information about an action they took. Record it in the task.
 ⚠️ Even if the message mentions "E-Mail", "Teams", "Chat" — these describe HOW the user communicated. They are NOT requests to search!
+
+### Step 1.5: Is the user CORRECTING or DISPUTING existing information?
+The user says something currently stored in the title or summary is WRONG, inaccurate, or did not happen. Look for:
+- Explicit denial: "Das stimmt nicht", "That's wrong", "Das ist falsch", "Nein, das war anders"
+- Contradiction of stored facts: "SSD wurde nie bestellt", "I never confirmed that", "Ich habe das NICHT bestätigt"
+- Correction request: "Der Titel ist falsch", "Die Summary stimmt nicht", "Das muss korrigiert werden"
+- Disputing what happened: "Das wurde nicht bestellt", "That was never ordered", "Wir haben das nicht gemacht"
+⚠️ This is NOT the same as "update" — the user is NOT adding new information, they are saying EXISTING information is WRONG.
+⚠️ The key difference: "update" = user adds/changes info. "correct" = user says current info is factually incorrect and needs verification.
+→ If YES: this is **"correct"**. The existing data must be VERIFIED against M365 communications before being changed.
 
 ### Step 2: Does the user ask to ONLY rename the title?
 Look for: "nenne es...", "ändere den Titel zu...", "rename to..."
@@ -1679,6 +1826,9 @@ Choose the intent that best matches what the user actually wants:
 **"rename"** — The user wants ONLY the title changed (not the summary).
 
 **"answer"** — The user asks a question answerable from the task context, conversation history, or general knowledge. No external search needed.
+
+**"correct"** — The user disputes or denies existing information in the task's title or summary. They claim something is WRONG, did not happen, or is inaccurate. This requires VERIFICATION against M365 communications before any change is made.
+  Use this when the user contradicts stored facts — NOT when they simply add new information.
 
 **"search"** — The user explicitly wants you to FIND communications in their M365 environment (emails, Teams, calendar). This requires Work IQ search and is the ONLY intent that triggers an external search.
   ONLY use "search" when the user clearly asks you to look up, find, search, or check something in their communications.
@@ -1736,18 +1886,33 @@ For "search":
   "clarificationQuestion": null
 }
 
+For "correct":
+{
+  "_reasoning": "The user says the current title/summary contains wrong information about X — this needs verification against M365",
+  "intent": "correct",
+  "disputedClaim": "What specific claim the user says is wrong (extracted from current title/summary)",
+  "userAssertion": "What the user says is actually true (in their own words)",
+  "affectedFields": ["title", "summary"],
+  "keywords": ["search", "terms", "to verify the claim"],
+  "keywordsEnglish": ["English", "translations"],
+  "verificationQuestion": "The specific question to answer by searching M365 — e.g. 'Was a Cisco SSD actually ordered?'"
+}
+
 ## GUIDELINES
 
 - For "update", "summarize", "answer", "rename": provide the result IMMEDIATELY — the user should not need to click Execute.
+- For "correct": return the correction plan — the frontend will show a "Verify" button. The user's claim must be checked against M365 evidence before any change is made.
 - For "search": think about WHO sends the relevant emails (person name or company domain → searchFrom). If the user writes in German but emails may be in English, provide keywordsEnglish with translated terms.
 - Write in the same language as the user's message (German → German, English → English).
+- When unsure between "update" and "correct": if the user says existing info is WRONG → "correct". If the user provides NEW info → "update".
 - When unsure between "update" and "search": if the user's message starts with "Ich habe..." or "I did..." or contains information they are GIVING you (a link, a status report, a completed action), it's ALWAYS "update" — NEVER "search".
 - NEVER interpret "per E-Mail", "per Teams", "per Chat" as a signal to search. These describe the user's OWN actions, not a request to find communications.
 - "search" should ONLY be used when the user explicitly asks you to LOOK FOR or FIND something in their communications.
 
 ## FINAL CHECK (do this before responding)
-Before you output your JSON, ask yourself: "Does the user's message contain 'Ich habe' or 'I did/sent/edited/confirmed'?"
-If YES → your intent MUST be "update". Do NOT choose "search". The user is telling you what THEY did — not asking you to find something.
+Before you output your JSON, ask yourself:
+1. "Does the user's message contain 'Ich habe' or 'I did/sent/edited/confirmed'?" If YES → "update" (unless negated: "Ich habe NICHT..." → could be "correct").
+2. "Does the user say something in the title/summary is WRONG or did not happen?" If YES → "correct".
 
 ## CLASSIFICATION EXAMPLES (follow these exactly)
 
@@ -1760,6 +1925,15 @@ User: "Ich habe Harshitha mein Thema mitgeteilt: Agent Zero Demo"
 User: "Ich habe das Slide Deck editiert. https://sharepoint.com/... Aktualisiere die Zusammenfassung."
 → {"_reasoning": "User says 'Ich habe editiert' + wants update", "intent": "update", ...}
 
+User: "Das stimmt nicht, die SSD wurde nie bestellt."
+→ {"_reasoning": "User disputes existing info — says SSD was never ordered, contradicts summary", "intent": "correct", ...}
+
+User: "Der Titel ist falsch. Es geht nicht um eine Bestellung, sondern um eine Anfrage."
+→ {"_reasoning": "User says title is wrong — current info is factually incorrect", "intent": "correct", ...}
+
+User: "Ich habe das NICHT bestätigt, das ist falsch."
+→ {"_reasoning": "User denies having confirmed — negation + dispute of stored info", "intent": "correct", ...}
+
 User: "Gibt es neue Nachrichten von Sebastian wegen der SSD?"
 → {"_reasoning": "User asks to FIND communications", "intent": "search", ...}
 
@@ -1769,7 +1943,7 @@ User: "Was ist der nächste Schritt?"
 Return ONLY the JSON object. No markdown, no explanation.`;
 
     const response = await session.sendAndWait({ prompt: analyzePrompt }, 30000);
-    await session.destroy();
+    await destroySession(session);
 
     if (response) {
       const result = parseJsonFromResponse(response.data.content);
@@ -1902,6 +2076,19 @@ Return ONLY the JSON object. No markdown, no explanation.`;
           });
         }
 
+        // For correct: return correction plan for frontend verification flow
+        if (result.intent === 'correct') {
+          const correctionPlan = {
+            disputedClaim: result.disputedClaim || '',
+            userAssertion: result.userAssertion || '',
+            affectedFields: result.affectedFields || ['summary'],
+            keywords: result.keywords || [],
+            keywordsEnglish: result.keywordsEnglish || [],
+            verificationQuestion: result.verificationQuestion || ''
+          };
+          return res.json({ intent: 'correct', plan: correctionPlan });
+        }
+
         // For search: return plan as before
         if (result.intent === 'search') {
           const plan = {
@@ -1958,6 +2145,8 @@ Return ONLY the JSON object. No markdown, no explanation.`;
     };
     return res.json({ intent: 'search', plan, fallback: true });
   } finally {
+    await destroySession(preSession);
+    await destroySession(session);
     if (client) {
       try { await client.dispose(); } catch {}
     }
@@ -1997,7 +2186,7 @@ app.post('/api/tasks/:id/log', async (req, res) => {
   let searchAmbiguities = [];
   const searchStartTime = Date.now();
 
-  let client;
+  let client, session;
   try {
     const taskDate = taskContext.date || taskContext.createdAt || '';
 
@@ -2070,16 +2259,16 @@ app.post('/api/tasks/:id/log', async (req, res) => {
     console.log(`[LOG] Prompt size: ${searchPrompt.length} chars`);
 
     client = new CopilotClient();
-    const session = await client.createSession({
+    session = trackSession(await client.createSession({
       mcpServers: {
         workiq: { type: 'stdio', command: 'workiq', args: ['mcp'], tools: '*' }
       }
-    });
+    }));
 
     const response = await session.sendAndWait({ prompt: searchPrompt }, 300000);
     const elapsed = Date.now() - searchStartTime;
     console.log(`[LOG] Response received in ${elapsed}ms`);
-    await session.destroy();
+    await destroySession(session);
 
     if (response) {
       const rawContent = response.data.content;
@@ -2116,6 +2305,7 @@ app.post('/api/tasks/:id/log', async (req, res) => {
     console.error(`[LOG] ${searchMethod} failed after ${elapsed}ms:`, err.message);
     searchError = err.message;
   } finally {
+    await destroySession(session);
     if (client) {
       try { await client.dispose(); } catch {}
     }
@@ -2206,11 +2396,11 @@ app.post('/api/tasks/:id/log', async (req, res) => {
     // Post-search evaluation: check if title and summary need updating based on new information
     let evaluation = null;
     if (!searchError && (searchAnswer || communications.length > 0)) {
-      let evalClient;
+      let evalClient, evalSession;
       try {
         console.log(`[EVAL] Starting post-search evaluation for task "${task.title}" (${id})`);
         evalClient = new CopilotClient();
-        const evalSession = await evalClient.createSession({});
+        evalSession = trackSession(await evalClient.createSession({}));
 
         const commSummaries = communications.slice(0, 10).map(c => {
           const date = c.date ? new Date(c.date).toLocaleDateString('de-CH') : '';
@@ -2268,7 +2458,7 @@ Return ONLY valid JSON, no markdown:
 }`;
 
         const evalResponse = await evalSession.sendAndWait({ prompt: evalPrompt }, 30000);
-        await evalSession.destroy();
+        await destroySession(evalSession);
 
         if (evalResponse) {
           const evalResult = parseJsonFromResponse(evalResponse.data.content);
@@ -2316,6 +2506,7 @@ Return ONLY valid JSON, no markdown:
       } catch (evalErr) {
         console.error(`[EVAL] Post-search evaluation failed (non-fatal): ${evalErr.message}`);
       } finally {
+        await destroySession(evalSession);
         if (evalClient) {
           try { await evalClient.dispose(); } catch {}
         }
@@ -2355,10 +2546,10 @@ app.post('/api/tasks/:id/review', async (req, res) => {
   const now = new Date().toISOString();
   console.log(`[${now}] Review response for task "${task.title}" (${id}): "${response.trim().substring(0, 100)}..."`);
 
-  let client;
+  let client, session;
   try {
     client = new CopilotClient();
-    const session = await client.createSession({
+    session = trackSession(await client.createSession({
       mcpServers: {
         workiq: {
           type: 'stdio',
@@ -2367,7 +2558,7 @@ app.post('/api/tasks/:id/review', async (req, res) => {
           tools: '*'
         }
       }
-    });
+    }));
 
     const reviewPrompt = `You are an intelligent assistant for a task management app. The user is responding to review questions that the agent flagged as uncertain during content enrichment.
 
@@ -2410,7 +2601,7 @@ RULES:
 Return ONLY the JSON object. No markdown, no explanation.`;
 
     const aiResponse = await session.sendAndWait({ prompt: reviewPrompt }, 180000);
-    await session.destroy();
+    await destroySession(session);
 
     if (!aiResponse) {
       return res.status(500).json({ error: 'No response from AI' });
@@ -2497,7 +2688,266 @@ Return ONLY the JSON object. No markdown, no explanation.`;
   } catch (err) {
     console.error(`[REVIEW] Failed for task ${id}:`, err);
     res.status(500).json({ error: 'Review processing failed', detail: err.message });
+  } finally {
+    await destroySession(session);
+    if (client) {
+      try { await client.dispose(); } catch {}
+    }
   }
+});
+
+// POST /api/tasks/:id/correct — Evidence-based correction verification (v2.6: Opus 4.6 + Work IQ MCP)
+app.post('/api/tasks/:id/correct', async (req, res) => {
+  const { id } = req.params;
+  const { plan } = req.body;
+
+  if (!plan || !plan.disputedClaim) {
+    return res.status(400).json({ error: 'Correction plan with disputedClaim is required' });
+  }
+
+  let task;
+  try {
+    const data = readTasks();
+    task = data.tasks.find(t => t.id === id);
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to read tasks', detail: err.message });
+  }
+
+  const now = new Date().toISOString();
+  console.log(`[${now}] Correction verification for task "${task.title}" (${id}): disputed="${plan.disputedClaim}", user says="${plan.userAssertion}"`);
+
+  let client, session;
+  try {
+    client = new CopilotClient();
+    session = trackSession(await client.createSession({
+      model: 'claude-opus-4-6',  // Opus 4.6 for nuanced evidence evaluation
+      mcpServers: {
+        workiq: {
+          type: 'stdio',
+          command: 'workiq',
+          args: ['mcp'],
+          tools: '*'
+        }
+      }
+    }));
+
+    const taskDate = task.date || task.createdAt || '';
+    const allKeywords = [
+      ...(plan.keywords || []),
+      ...(plan.keywordsEnglish || [])
+    ].filter(k => k && k.trim());
+
+    const correctPrompt = (CORRECT_SKILL || '') + '\n\n' +
+      `## Verification Task\n\n` +
+      `**Disputed claim (currently stored):** ${plan.disputedClaim}\n` +
+      `**User's assertion (what they say is true):** ${plan.userAssertion}\n` +
+      `**Verification question:** ${plan.verificationQuestion || 'Is the stored information correct or is the user right?'}\n\n` +
+      `## Task Context\n\n` +
+      `- **Title:** ${task.title}\n` +
+      `- **Summary:** ${task.summary || '(no summary)'}\n` +
+      `- **From:** ${task.from || 'unknown'}\n` +
+      `- **Source:** ${task.source}\n` +
+      `- **Date:** ${taskDate}\n\n` +
+      `## Search Parameters\n\n` +
+      `- **Keywords:** ${allKeywords.join(', ') || 'extract from context'}\n` +
+      `- **Time window:** from ${taskDate || '2 weeks ago'} to now\n` +
+      `- **Search targets:** all (inbox, sent, teams)\n\n` +
+      `Search for evidence. Apply the truth hierarchy. Return your verdict as JSON.`;
+
+    const aiResponse = await session.sendAndWait({ prompt: correctPrompt }, 300000);
+    await destroySession(session);
+
+    if (!aiResponse) {
+      return res.status(502).json({ error: 'No response from AI engine' });
+    }
+
+    const result = parseJsonFromResponse(aiResponse.data.content);
+    if (!result || typeof result !== 'object' || !result.verdict) {
+      return res.status(500).json({ error: 'Could not parse verification response' });
+    }
+
+    // If verdict is user_correct: apply correction immediately
+    if (result.verdict === 'user_correct') {
+      const updatedTask = await safeWriteTasks((data) => {
+        const t = data.tasks.find(t => t.id === id);
+        if (!t) return null;
+        const nowWrite = new Date().toISOString();
+        if (!t.history) t.history = [];
+
+        const previousTitle = t.title;
+        const previousSummary = t.summary;
+
+        if (result.suggestedTitle && result.suggestedTitle !== t.title) {
+          t.title = result.suggestedTitle;
+          t.history.push({
+            timestamp: nowWrite,
+            type: 'title-change',
+            text: `📝 Title corrected after verification:\n"${previousTitle}" → "${result.suggestedTitle}"`
+          });
+        }
+
+        if (result.suggestedSummary) {
+          t.summary = result.suggestedSummary;
+          t.history.push({
+            timestamp: nowWrite,
+            type: 'summary-update',
+            text: `✏️ Summary corrected after verification` +
+              (previousSummary ? `\nPrevious: ${previousSummary.length > 300 ? previousSummary.substring(0, 300) + '...' : previousSummary}` : '')
+          });
+        }
+
+        t.history.push({
+          timestamp: nowWrite,
+          type: 'correction',
+          text: `🔍 Correction verified (${result.confidence} confidence):\n` +
+            `Disputed: ${plan.disputedClaim}\n` +
+            `Verdict: User is correct — ${result.explanation}`
+        });
+
+        t.updatedAt = nowWrite;
+        return t;
+      });
+
+      return res.json({
+        verdict: 'user_correct',
+        confidence: result.confidence,
+        explanation: result.explanation,
+        evidence: result.evidence || [],
+        searchAttempts: result.searchAttempts || [],
+        applied: true,
+        task: updatedTask
+      });
+    }
+
+    // If verdict is current_correct or inconclusive: return evidence for discussion/veto
+    const savedTask = await safeWriteTasks((data) => {
+      const t = data.tasks.find(t => t.id === id);
+      if (!t) return null;
+      const nowWrite = new Date().toISOString();
+      if (!t.history) t.history = [];
+
+      t.history.push({
+        timestamp: nowWrite,
+        type: 'correction',
+        text: `🔍 Correction verification (${result.confidence} confidence):\n` +
+          `Disputed: ${plan.disputedClaim}\n` +
+          `Verdict: ${result.verdict === 'current_correct' ? 'Current information appears correct' : 'Inconclusive — insufficient evidence'}\n` +
+          `${result.explanation}`
+      });
+
+      t.updatedAt = nowWrite;
+      return t;
+    });
+
+    return res.json({
+      verdict: result.verdict,
+      confidence: result.confidence,
+      explanation: result.explanation,
+      evidence: result.evidence || [],
+      searchAttempts: result.searchAttempts || [],
+      suggestedTitle: result.suggestedTitle,
+      suggestedSummary: result.suggestedSummary,
+      applied: false,
+      task: savedTask
+    });
+
+  } catch (err) {
+    console.error(`[CORRECT] Failed for task ${id}:`, err);
+    res.status(500).json({ error: 'Correction verification failed', detail: err.message });
+  } finally {
+    await destroySession(session);
+    if (client) {
+      try { await client.dispose(); } catch {}
+    }
+  }
+});
+
+// POST /api/tasks/:id/correct/resolve — User resolves correction discussion (accept evidence or veto)
+app.post('/api/tasks/:id/correct/resolve', async (req, res) => {
+  const { id } = req.params;
+  const { action, correctedTitle, correctedSummary } = req.body;
+
+  if (!action || !['accept', 'veto'].includes(action)) {
+    return res.status(400).json({ error: 'Action must be "accept" or "veto"' });
+  }
+
+  let task;
+  try {
+    const data = readTasks();
+    task = data.tasks.find(t => t.id === id);
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to read tasks', detail: err.message });
+  }
+
+  const now = new Date().toISOString();
+
+  if (action === 'accept') {
+    // User accepts that the current information is correct — no changes needed
+    const updatedTask = await safeWriteTasks((data) => {
+      const t = data.tasks.find(t => t.id === id);
+      if (!t) return null;
+      if (!t.history) t.history = [];
+
+      t.history.push({
+        timestamp: now,
+        type: 'correction-dismissed',
+        text: `✅ User accepted verification result — current information confirmed as correct`
+      });
+
+      t.updatedAt = now;
+      return t;
+    });
+
+    console.log(`[${now}] Correction resolved (accept): task "${task.title}" (${id})`);
+    return res.json({ success: true, action: 'accept', task: updatedTask });
+  }
+
+  // action === 'veto': User overrides — their version is applied regardless of evidence
+  if (!correctedTitle && !correctedSummary) {
+    return res.status(400).json({ error: 'Veto requires at least correctedTitle or correctedSummary' });
+  }
+
+  const updatedTask = await safeWriteTasks((data) => {
+    const t = data.tasks.find(t => t.id === id);
+    if (!t) return null;
+    if (!t.history) t.history = [];
+
+    const previousTitle = t.title;
+    const previousSummary = t.summary;
+
+    if (correctedTitle && correctedTitle.trim() !== t.title) {
+      t.title = correctedTitle.trim();
+      t.history.push({
+        timestamp: now,
+        type: 'title-change',
+        text: `📝 Title corrected (user veto):\n"${previousTitle}" → "${correctedTitle.trim()}"`
+      });
+    }
+
+    if (correctedSummary && correctedSummary.trim()) {
+      t.summary = correctedSummary.trim();
+      t.history.push({
+        timestamp: now,
+        type: 'summary-update',
+        text: `✏️ Summary corrected (user veto)` +
+          (previousSummary ? `\nPrevious: ${previousSummary.length > 300 ? previousSummary.substring(0, 300) + '...' : previousSummary}` : '')
+      });
+    }
+
+    t.history.push({
+      timestamp: now,
+      type: 'correction-veto',
+      text: `⚡ User exercised veto right — correction applied despite evidence suggesting otherwise`
+    });
+
+    t.updatedAt = now;
+    return t;
+  });
+
+  console.log(`[${now}] Correction resolved (veto): task "${task.title}" (${id})`);
+  return res.json({ success: true, action: 'veto', task: updatedTask });
 });
 
 // Extract JSON array from AI response (handles markdown code blocks)
