@@ -2945,8 +2945,25 @@
 
   function unfreezeTask(taskId) {
     frozenTasks.delete(taskId);
+    // Re-render task card with latest data
     const card = document.getElementById('card-' + taskId);
-    if (card) card.classList.remove('frozen');
+    if (card) {
+      card.classList.remove('frozen');
+      const task = tasks.find(t => t.id === taskId);
+      if (task) {
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = renderTaskCard(task);
+        if (wrapper.firstElementChild) {
+          card.replaceWith(wrapper.firstElementChild);
+        }
+      }
+    }
+    // Re-render detail panel if this is the selected task
+    if (taskId === selectedTaskId) {
+      const task = tasks.find(t => t.id === taskId);
+      const detailPanel = document.getElementById('taskDetailPanel');
+      if (detailPanel && task) detailPanel.innerHTML = renderTaskDetail(task);
+    }
   }
 
   // Refresh a single task card from server without full page re-render
