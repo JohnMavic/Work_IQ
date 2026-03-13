@@ -3366,12 +3366,19 @@
 
   function updateLastScan(ts) {
     const el = document.getElementById('lastScan');
-    el.textContent = ts ? `Last scan: ${formatDate(ts)}` : 'Never scanned';
+    // Preserve the scan report panel child — only update the text node
+    let textNode = el.firstChild;
+    if (!textNode || textNode.nodeType !== Node.TEXT_NODE) {
+      textNode = document.createTextNode('');
+      el.insertBefore(textNode, el.firstChild);
+    }
+    let text = ts ? `Last scan: ${formatDate(ts)}` : 'Never scanned';
     // Add indicator if there were issues
     if (scanReport && scanReport.completedAt) {
       const hasErrors = Object.values(scanReport.phases).some(p => p.status === 'failed' || p.status === 'partial');
-      if (hasErrors) el.textContent += ' ⚠️';
+      if (hasErrors) text += ' ⚠️';
     }
+    textNode.textContent = text;
   }
 
   function formatDate(iso) {
