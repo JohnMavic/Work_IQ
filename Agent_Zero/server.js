@@ -97,7 +97,6 @@ reapOrphanedSessions();
 
 // --- Load Skill Files (v1.3) ---
 
-const SCAN_SKILL_PATH = path.join(__dirname, 'docs', 'SCAN_SKILL.md');
 const LOG_WORK_SKILL_PATH = path.join(__dirname, 'docs', 'LOG_WORK_SKILL.md');
 
 const SCAN_DISCOVERY_SKILL_PATH = path.join(__dirname, 'docs', 'SCAN_DISCOVERY_SKILL.md');
@@ -107,7 +106,6 @@ const SEARCH_SKILL_PATH = path.join(__dirname, 'docs', 'SEARCH_SKILL.md');
 const CONSOLIDATE_SKILL_PATH = path.join(__dirname, 'docs', 'CONSOLIDATE_SKILL.md');
 const CORRECT_SKILL_PATH = path.join(__dirname, 'docs', 'CORRECT_SKILL.md');
 
-let SCAN_SKILL = '';
 let LOG_WORK_SKILL = '';
 let SCAN_DISCOVERY_SKILL = '';
 let ENRICH_SKILL = '';
@@ -115,13 +113,6 @@ let UPDATE_CHECK_SKILL = '';
 let SEARCH_SKILL = '';
 let CONSOLIDATE_SKILL = '';
 let CORRECT_SKILL = '';
-
-try {
-  SCAN_SKILL = fs.readFileSync(SCAN_SKILL_PATH, 'utf-8');
-  console.log(`Loaded SCAN_SKILL.md (${SCAN_SKILL.length} chars)`);
-} catch (err) {
-  console.warn('Warning: SCAN_SKILL.md not found, using minimal scan prompt');
-}
 
 try {
   LOG_WORK_SKILL = fs.readFileSync(LOG_WORK_SKILL_PATH, 'utf-8');
@@ -691,7 +682,7 @@ app.post('/api/scan', async (req, res) => {
 
     let scanPrompt;
     const daysText = `last ${scanDays} day${scanDays === 1 ? '' : 's'}`;
-    const discoverySkill = SCAN_DISCOVERY_SKILL || SCAN_SKILL || '';
+    const discoverySkill = SCAN_DISCOVERY_SKILL || '';
     if (discoverySkill && allContextTasks.length > 0) {
       scanPrompt = discoverySkill + `\n\n` +
         `EXISTING TASKS (active and done — do NOT re-create done tasks):\n` +
