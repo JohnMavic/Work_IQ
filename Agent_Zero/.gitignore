@@ -1,5 +1,6 @@
 # Test results - do not publish
 tests/
+test-results/
 
 # Node modules
 node_modules/
@@ -7,3 +8,8 @@ node_modules/
 # Local data
 tasks.json
 scan-log.txt
+
+# Non-publishable assets
+docs/archive/
+docs/Final Video/
+*.docx
