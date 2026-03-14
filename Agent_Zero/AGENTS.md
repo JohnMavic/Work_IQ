@@ -1,6 +1,6 @@
 # Agent Zero — Custom Agent Instructions
 
-> Version 2.2.0 · Agent architecture for the GitHub Copilot SDK Enterprise Challenge
+> Version 2.9.1 · Agent architecture for the GitHub Copilot SDK Enterprise Challenge
 
 Agent Zero uses the GitHub Copilot SDK to orchestrate multiple AI agent roles, each defined by a dedicated skill file. All agents communicate with Microsoft 365 via the Work IQ MCP server.
 

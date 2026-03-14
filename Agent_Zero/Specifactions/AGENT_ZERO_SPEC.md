@@ -1,9 +1,9 @@
 # Agent Zero — Product Specification
 
-**Version:** 2.6.0
-**Date:** March 13, 2026
+**Version:** 2.9.1
+**Date:** March 14, 2026
 **Author:** Martin Hämmerli
-**Status:** v2.6.0 implemented (Correction Verification + Claude Opus 4.6)
+**Status:** v2.9.1 implemented (scan resilience + default-model reasoning)
 
 ---
 
@@ -111,6 +111,13 @@ First-time setup:
 - After completion: notification toast with result summary
 - Scan prompt uses `SCAN_DISCOVERY_SKILL.md` if available (fallback: `SCAN_SKILL.md`, then inline prompt)
 
+### 4.1a Scan Resilience
+
+- **Scan lock:** Frontend `scanInProgress` state prevents overlapping scans; a second trigger is rejected with a user-visible warning.
+- **Phase 1 non-fatal:** If discovery fails, the UI records the failure and still continues with existing pending/enriched tasks already stored on the server.
+- **Phase-independent recovery:** Phase 2 reloads all `enrichmentStatus: "pending"` tasks from the server; Phase 3 reloads all `enriched` / `needs-review` tasks.
+- **Per-task retry:** Enrichment and update-check retry each task once after 3 seconds before marking it as failed.
+
 ### 4.2 Task List Display
 
 Each task is displayed as a card with:
@@ -188,7 +195,7 @@ Each task card is clickable — clicking the title/meta area toggles an **Intera
 
 **Visual indicators:**
 - **Neon-pink border** (`.has-content`): Task has conversation entries
-- **Neon-cyan border + glowing badge** (`.frozen`): Task has active agent work (unified freeze mode for all AI operations)
+- **Neon-cyan border + dynamic badge** (`.frozen`): Task has active agent work (unified freeze mode for all AI operations, with context-specific status text)
 - **Green background** (`.active-panel`): Panel is currently open
 
 ### 4.9 Intent-Based Agent (6 Intents)
@@ -196,7 +203,7 @@ Each task card is clickable — clicking the title/meta area toggles an **Intera
 The agent uses a two-phase approach:
 
 **Phase 1 — Analyze** (`POST /api/tasks/:id/log/analyze`):
-- Uses Copilot SDK with **Claude Opus 4.6** model, **without** Work IQ MCP (fast, AI reasoning only, ~5–15s)
+- Uses Copilot SDK with the **default model** (explicit Claude Opus 4.6 override removed), **without** Work IQ MCP (fast, AI reasoning only, ~5–15s, 60s timeout)
 - Determines one of 6 intents based on user message + task context + conversation history
 
 | Intent | Trigger Examples | Behavior | Requires Execute? |
@@ -224,7 +231,7 @@ The agent uses a two-phase approach:
 
 **Phase 2b — Correction Verification** (`POST /api/tasks/:id/correct`):
 - Only for `correct` intent, triggered by user clicking Verify
-- Uses **Claude Opus 4.6 + Work IQ MCP + CORRECT_SKILL.md** — evidence-based verification with truth hierarchy
+- Uses **default model + Work IQ MCP + CORRECT_SKILL.md** — evidence-based verification with truth hierarchy
 - Searches M365 for evidence supporting or contradicting the user's correction claim
 - **Truth hierarchy:** newest M365 messages > older messages > task history > user claims
 - Returns one of three verdicts:
@@ -367,7 +374,7 @@ When the user clicks Execute, the plan UI shows live status updates:
 
 - **Write queue** (`safeWriteTasks()`): All mutations go through a sequential promise chain to prevent concurrent file writes
 - **Freeze task tracking** (`frozenTasks` Set): When an agent is working on a task:
-  - Card gets neon cyan border + glowing "❄️ Agent working..." badge
+  - Card gets neon cyan border + a context-specific working badge
   - All interaction functions (delete, update, panel toggle, analyze) check `frozenTasks` Set and refuse action
   - Status changes on OTHER tasks use inline DOM updates (no full re-render)
   - Task deletion uses minimal DOM removal
@@ -418,7 +425,7 @@ The scan process is split into 4 sequential phases for faster initial feedback a
 - Non-fatal: failures are silently caught, scan completes normally
 - Also available as standalone action via **🔗 Find Duplicates** button
 
-**Freeze Mode:** During Phase 2/3, the task being processed is frozen — neon blue border/glow, pulse animation, `pointer-events: none`, "❄️ Agent working..." badge. All interaction functions (delete, update, panel toggle, analyze) check `frozenTasks` Set and refuse action.
+**Freeze Mode:** During Phase 2/3, the task being processed is frozen — neon blue border/glow, pulse animation, `pointer-events: none`, and a context-specific status badge (for example content analysis, retry, or update-check text). All interaction functions (delete, update, panel toggle, analyze) check `frozenTasks` Set and refuse action.
 
 ---
 
@@ -537,9 +544,9 @@ The scan process is split into 4 sequential phases for faster initial feedback a
 | `POST` | `/api/consolidate` | Phase 4: Find duplicate/related tasks |
 | `POST` | `/api/tasks/merge` | Merge two or more tasks into one |
 | `POST` | `/api/tasks/:id/dismiss-merge` | Dismiss a merge suggestion (bidirectional) |
-| `POST` | `/api/tasks/:id/log/analyze` | AI intent analysis (Claude Opus 4.6) |
+| `POST` | `/api/tasks/:id/log/analyze` | AI intent analysis (default model) |
 | `POST` | `/api/tasks/:id/log` | Execute intelligent search |
-| `POST` | `/api/tasks/:id/correct` | Correction verification (Claude Opus 4.6 + Work IQ MCP) |
+| `POST` | `/api/tasks/:id/correct` | Correction verification (default model + Work IQ MCP) |
 | `POST` | `/api/tasks/:id/correct/resolve` | Resolve correction discussion (accept or veto) |
 | `POST` | `/api/cleanup` | Permanently delete done tasks older than `retentionDays` |
 | `POST` | `/api/tasks/:id/review` | Ambiguity resolution — user responds to review questions |
@@ -622,7 +629,7 @@ The scan process is split into 4 sequential phases for faster initial feedback a
 **Response (correct):** `{ intent: 'correct', plan: { disputedClaim, userAssertion, affectedFields, keywords, keywordsEnglish, verificationQuestion } }` — correction plan returned for verification
 **Response (search):** `{ intent: 'search', plan: AgentPlan, fallback? }` — plan returned for user confirmation
 **AI prompt includes:** Task context (title, from, source, date) + last 8 conversation entries
-**Model:** Claude Opus 4.6 (for superior intent classification, especially correction detection)
+**Model:** Default Copilot model routing (explicit Claude Opus 4.6 override removed) for reasoning-based intent classification, especially correction detection
 **Timeout:** 30 seconds for Copilot SDK analysis
 
 ### 6.10 POST /api/tasks/:id/log
@@ -638,7 +645,7 @@ The scan process is split into 4 sequential phases for faster initial feedback a
 ### 6.11 POST /api/tasks/:id/correct
 
 **Request body:** `{ plan: { disputedClaim, userAssertion, affectedFields, keywords, keywordsEnglish, verificationQuestion } }`
-**Model:** Claude Opus 4.6 (for nuanced evidence evaluation)
+**Model:** Default Copilot model routing (explicit Claude Opus 4.6 override removed) for nuanced evidence evaluation
 **MCP:** Work IQ (email, Teams, calendar search)
 **Skill:** CORRECT_SKILL.md (3-attempt search, truth hierarchy, evidence-based verdict)
 **Timeout:** 300 seconds
@@ -669,7 +676,7 @@ External Markdown files loaded at server startup:
 | `UPDATE_CHECK_SKILL.md` | `docs/UPDATE_CHECK_SKILL.md` | Phase 3: Thread update check prompt |
 | `CONSOLIDATE_SKILL.md` | `docs/CONSOLIDATE_SKILL.md` | Phase 4: Task consolidation / duplicate detection prompt |
 | `SEARCH_SKILL.md` | `docs/SEARCH_SKILL.md` | Intelligent communication search prompt (v2.2) |
-| `CORRECT_SKILL.md` | `docs/CORRECT_SKILL.md` | Correction verification prompt (v2.6, Claude Opus 4.6) |
+| `CORRECT_SKILL.md` | `docs/CORRECT_SKILL.md` | Correction verification prompt (v2.6, default model; explicit Opus override removed) |
 | `SCAN_SKILL.md` | `docs/SCAN_SKILL.md` | Legacy scan skill (backup/fallback) |
 | `LOG_WORK_SKILL.md` | `docs/LOG_WORK_SKILL.md` | Communication search prompt template (fallback path) |
 

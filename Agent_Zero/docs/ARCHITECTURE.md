@@ -1,6 +1,6 @@
 # Agent Zero — Architecture
 
-> Version 2.6.0 · March 13, 2026 · Author: Martin Hämmerli
+> Version 2.9.1 · March 14, 2026 · Author: Martin Hämmerli
 
 Agent Zero is a personal action-item tracker that scans Microsoft 365 emails and Teams messages for tasks,
 extracts content summaries, and monitors threads for updates — all powered by AI.
@@ -47,10 +47,7 @@ extracts content summaries, and monitors threads for updates — all powered by 
 
 **Data flow:** Browser → Express → Copilot SDK → Work IQ MCP → Microsoft 365 → back up the chain.
 
-Each scan creates a fresh Copilot SDK session with Work IQ as MCP server. Sessions are independent —
-one session per API call, no shared state between scan phases. All sessions are tracked in a global
-`activeSessions` Set and guaranteed to be destroyed via `destroySession()` in finally blocks, graceful
-shutdown handlers (SIGINT/SIGTERM), and a startup orphan reaper.
+**Session lifecycle management:** Each scan creates a fresh Copilot SDK session with Work IQ as MCP server. Sessions are independent — one session per API call, no shared state between scan phases. All sessions are tracked in a global `activeSessions` Set and guaranteed to be destroyed via `destroySession()` in finally blocks, graceful shutdown handlers (SIGINT/SIGTERM), and a startup orphan reaper.
 
 ---
 
@@ -96,6 +93,8 @@ server.js
 | Copilot SDK | `npm install` (project dep) | Node.js library — manages AI sessions and prompts | — |
 | Copilot CLI | Bundled with SDK (automatic) | AI runtime — spawned by SDK to talk to GitHub's API | GitHub OAuth (auto-login on first start) |
 | Work IQ | `npm install -g @microsoft/workiq` | MCP server for M365 email/Teams/calendar data | MSAL (`workiq accept-eula`) |
+
+**Model selection:** Intent analysis and correction verification now rely on the Copilot CLI's default model routing. The previous explicit Claude Opus 4.6 override was removed.
 
 ---
 
@@ -190,6 +189,15 @@ Each task is frozen (neon cyan border) during processing, then auto-refreshed.
 - **Keep Separate** (`POST /api/tasks/:id/dismiss-merge`): Adds bidirectional `noMergeWith` entries on both tasks — this pair will never be suggested again.
 
 **Non-fatal:** Phase 4 failures are silently caught — the scan still completes successfully.
+
+### Scan Resilience Architecture
+
+The scan orchestration in `index.html` is designed to recover phase-by-phase instead of failing as one monolithic job:
+
+- **Phase 1 is non-fatal:** If discovery fails, the UI records the error in the scan report and still continues with already-known pending/enriched tasks.
+- **Phase-independent processing:** Phase 2 reloads all `enrichmentStatus: 'pending'` tasks from the server; Phase 3 reloads all `enriched` / `needs-review` tasks. This allows partial recovery after transient failures or server restarts.
+- **Per-task retry loops:** Enrichment and update-check retry each task once after a 3-second delay before marking the task as failed.
+- **Scan lock + reporting:** A frontend `scanInProgress` lock prevents overlapping scans, while the expandable **Last scan** panel stores per-phase durations, retry counts, failures, and error details.
 
 ### Visual Step Indicators
 
@@ -367,9 +375,9 @@ Additionally, stuck statuses are reset: `enriching` → `pending`, `checking` �
 | `POST` | `/api/consolidate` | Phase 4: Find duplicate/related tasks | 30s |
 | `POST` | `/api/tasks/merge` | Merge two or more tasks into one | 30s |
 | `POST` | `/api/tasks/:id/dismiss-merge` | Dismiss a merge suggestion (bidirectional) | — |
-| `POST` | `/api/tasks/:id/log/analyze` | AI intent analysis (Claude Opus 4.6, no Work IQ) | 30s |
+| `POST` | `/api/tasks/:id/log/analyze` | AI intent analysis (default model, no Work IQ) | 30s |
 | `POST` | `/api/tasks/:id/log` | Intelligent search via Copilot SDK + MCP + SEARCH_SKILL.md | 300s |
-| `POST` | `/api/tasks/:id/correct` | Correction verification (Claude Opus 4.6 + Work IQ MCP + CORRECT_SKILL.md) | 300s |
+| `POST` | `/api/tasks/:id/correct` | Correction verification (default model + Work IQ MCP + CORRECT_SKILL.md) | 300s |
 | `POST` | `/api/tasks/:id/correct/resolve` | Resolve correction discussion (accept or veto) | — |
 | `POST` | `/api/cleanup` | Permanently delete done tasks older than `retentionDays` | — |
 | `POST` | `/api/tasks/:id/review` | Ambiguity resolution — user responds to agent's review questions (with MCP research) | 180s |
@@ -397,17 +405,18 @@ The entire frontend lives in `index.html` — a single-file dark-themed SPA.
 - **Filter bar** with badge counts: All, Attention, New, Escalated, In-Progress, Done, Paused
 - **Task cards** with status dropdown, summary section, step indicators, action buttons
 - **Step indicator tooltips**: Hover over phase dots for detailed status info (phase name, current action, result)
-- **Freeze mode**: Unified neon cyan border + glowing "❄️ Agent working..." badge during **any** AI processing — scan phases, analyzeLog, and executeLog all use the same visual. Frozen tasks block status changes and deletion.
+- **Freeze mode**: Unified neon cyan border + dynamic status badge during **any** AI processing — scan phases, analyzeLog, and executeLog all use the same visual. Frozen tasks block status changes and deletion.
 - **Scan abort**: Red "⏹ Stop" button in progress bar — safely stops scan between tasks (waits for current task to finish)
+- **Scan report panel**: Expandable **Last scan** panel with per-phase durations, retry counts, task-level failures, and error details
 - **Auto-cleanup**: Done tasks are permanently deleted from `tasks.json` after configurable retention period (default 3 days, slider 1–30 days). Cleanup runs on server startup and before each scan.
 - **Auto-refresh**: `refreshSingleTask()` re-renders individual cards after agent work
 - **Server health check**: Polls `/api/tasks` every 5s when offline, green/red status dot + "Online"/"Offline" label
 - **Duplicate instance prevention**: `app.listen()` catches `EADDRINUSE` — if port 3000 is taken, shows clear error and exits with code 1. `START-AGENT-ZERO.bat` also pre-checks via `netstat`.
 - **Link opening**: Window or tab mode (user preference persisted in localStorage, defunct split/incognito modes auto-migrated to window)
-- **Log work**: Two-phase agent (analyze intent via Claude Opus 4.6 → intelligent search via SEARCH_SKILL.md or correction verification via CORRECT_SKILL.md with 3-attempt strategy, self-assessment, and confidence levels)
+- **Log work**: Two-phase agent (analyze intent via the default model → intelligent search via SEARCH_SKILL.md or correction verification via CORRECT_SKILL.md with 3-attempt strategy, self-assessment, and confidence levels)
 - **Merge Mode**: "🔗 Merge Tasks" button activates multi-select mode — checkboxes appear on all task cards, floating merge bar at bottom with selected count, titles, and Merge/Cancel buttons. ESC exits. Merged tasks preserve all source links via `additionalLinks[]`.
 - **Prominent answer display**: When agent returns a direct answer with confidence, it's shown as an always-visible block with color-coded border — never collapsed
-- **Detail panel**: Expandable history with multi-line entries, icons per history type, search attempt details, confidence badges, relevance annotations
+- **Detail panel**: Expandable reverse-chronological history with multi-line entries, icons per history type, search attempt details, confidence badges, and relevance annotations
 
 ### Key Functions
 
@@ -524,7 +533,7 @@ Verifies user correction claims against M365 communications. The user says infor
 - **Three verdicts:** `user_correct` (apply correction), `current_correct` (evidence supports stored info), `inconclusive` (insufficient evidence).
 - **User veto:** Even when evidence contradicts the user, they have absolute override right via the resolve endpoint.
 - **Language awareness:** Bilingual keyword search (German + English).
-- **Model:** Claude Opus 4.6 for nuanced evidence evaluation.
+- **Model:** Default Copilot model routing (explicit Claude Opus 4.6 override removed) for nuanced evidence evaluation.
 - **Output:** JSON with `verdict`, `confidence`, `explanation`, `evidence[]`, `searchAttempts[]`, `suggestedTitle`, `suggestedSummary`
 
 ### UPDATE_CHECK_SKILL.md — Phase 3: Detect New Activity

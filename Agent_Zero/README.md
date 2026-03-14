@@ -1,6 +1,6 @@
 # Agent Zero
 
-> Version 2.6.0 · A personal AI-powered action-item tracker for Microsoft 365
+> Version 2.9.1 · A personal AI-powered action-item tracker for Microsoft 365
 
 **Author:** Martin Hämmerli · [martih@microsoft.com](mailto:martih@microsoft.com)
 
@@ -122,7 +122,7 @@ Every AI operation follows the same pattern in `server.js`:
 4. The JSON response is parsed and stored in `tasks.json`
 5. The session and client are destroyed
 
-Sessions that need M365 data (scan, enrich, update-check, search, correction verification) include the Work IQ MCP server. Sessions that only need AI reasoning (intent analysis via `/api/tasks/:id/log/analyze`) create sessions without MCP servers. Intent analysis and correction verification use Claude Opus 4.6 for superior understanding (`model: 'claude-opus-4-6'` in `createSession()`).
+Sessions that need M365 data (scan, enrich, update-check, search, correction verification) include the Work IQ MCP server. Sessions that only need AI reasoning (intent analysis via `/api/tasks/:id/log/analyze`) create sessions without MCP servers. Intent analysis and correction verification now use the default Copilot model selection — the explicit Claude Opus 4.6 override was removed.
 
 ### Four-Phase Scan Pipeline
 
@@ -141,32 +141,38 @@ Each task shows three step dots (● ● ●) indicating pipeline progress. Task
 
 Beyond scanning, each task has an interactive agent panel where users can ask questions or give instructions. This uses a two-phase flow:
 
-1. **Analyze** (`POST /api/tasks/:id/log/analyze`) — AI (Claude Opus 4.6) determines intent (update, summarize, rename, answer, correct, or search) without MCP. For update/summarize/answer/rename, the result is returned immediately. For correct, a verification plan is returned. For search, a search plan is returned.
+1. **Analyze** (`POST /api/tasks/:id/log/analyze`) — AI (default model, reasoning-only, 60s timeout) determines intent (update, summarize, rename, answer, correct, or search) without MCP. For update/summarize/answer/rename, the result is returned immediately. For correct, a verification plan is returned. For search, a search plan is returned.
 2. **Execute Search** (`POST /api/tasks/:id/log`) — if intent was search, the confirmed plan is executed with Work IQ MCP using `SEARCH_SKILL.md` (3-attempt intelligent search with self-assessment and confidence levels).
-3. **Verify Correction** (`POST /api/tasks/:id/correct`) — if intent was correct, AI (Claude Opus 4.6) searches M365 for evidence using `CORRECT_SKILL.md`. Returns verdict with evidence. User can accept or veto the result.
+3. **Verify Correction** (`POST /api/tasks/:id/correct`) — if intent was correct, AI (default model) searches M365 for evidence using `CORRECT_SKILL.md`. Returns verdict with evidence. User can accept or veto the result.
 
 ## Features
 
-- **Three-phase scan** with visual progress indicators
+- **Four-phase scan** with visual progress indicators
 - **Phase 4: Task consolidation** — AI finds duplicate/related tasks and suggests merging. Also available as standalone "🔗 Find Duplicates" button.
 - **Manual Merge Mode** — "🔗 Merge Tasks" button activates multi-select merge with checkboxes, floating merge bar, and full link preservation
 - **AI content extraction** via keyword-based Work IQ search
 - **Intelligent search** — goal-oriented 3-attempt search with self-assessment and confidence levels (SEARCH_SKILL.md)
+- **Intent classification improvements** — reasoning-based 6-intent analysis with 60s timeout and stronger correction-vs-update detection
 - **Post-search evaluation** — after search, AI evaluates whether task title and summary need updating based on new findings; applies changes automatically with full history traceability
 - **"Updated" status** — tasks automatically marked 🔄 Updated when Phase 3 detects new information; pulsing glow for visibility
-- **Evidence-based corrections** — when users say information is wrong, AI verifies against M365 evidence (Claude Opus 4.6). Truth hierarchy: newest messages > older > history. User retains absolute veto right.
+- **Evidence-based corrections** — when users say information is wrong, AI verifies against M365 evidence using the default model + Work IQ. Truth hierarchy: newest messages > older > history. User retains absolute veto right.
 - **Rename via conversation** — agent can change task titles through natural discussion
 - **Add Task modal** — title, assignment, and optional context; agent auto-starts on assignment
+- **Session lifecycle management** — active Copilot/Work IQ subprocess sessions are tracked and guaranteed to be cleaned up on errors, shutdown, and startup recovery
 - **Configurable scan range** — slider to choose 1–14 days of email/Teams history to scan (default: 4 days)
 - **Scan abort** — stop scan safely between tasks with "⏹ Stop" button
+- **Scan process resilience** — Phase 1 is non-fatal, later phases are phase-independent, and Phase 2/3 retry each task once after transient failures
+- **Expandable scan report panel** — click "Last scan" to inspect per-phase duration, retry counts, failures, and errors
+- **Live agent status on task cards** — badges show context-specific activity such as analyzing content, retrying enrichment, or checking updates
 - **Auto-cleanup** — done tasks permanently deleted after configurable retention (1–30 days slider, default: 3 days)
 - **Auto-refresh** — cards update in real-time after agent work
+- **Reverse-chronological details panel** — newest conversation and execution details appear first, like an email thread
 - **Status management** — New, In Progress, Needs Attention, Escalated, On Radar, Paused, Done
 - **Filter bar** with live badge counts
 - **Deep links** to original emails and Teams messages (window or tab mode)
 - **Ambiguity review** — AI asks clarifying questions when uncertain; user resolves inline
 - **Task history** — every change, agent action, and error is logged with timestamps
-- **Smart deduplication** — AI compares against existing tasks during scan
+- **Intelligent duplicate detection** — AI compares against existing tasks during scan, normalizes subject prefixes, and reactivates matching done tasks instead of creating duplicates
 - **Server health check** — auto-reconnect with offline banner
 - **Duplicate instance prevention** — server detects port conflicts (`EADDRINUSE`) and exits with a clear error message instead of crashing silently
 
@@ -186,9 +192,9 @@ Beyond scanning, each task has an interactive agent panel where users can ask qu
 | `/api/consolidate` | POST | Phase 4: Find duplicate/related tasks |
 | `/api/tasks/merge` | POST | Merge two or more tasks into one |
 | `/api/tasks/:id/dismiss-merge` | POST | Dismiss a merge suggestion (bidirectional) |
-| `/api/tasks/:id/log/analyze` | POST | Intent analysis (Claude Opus 4.6, 6 intents) — no MCP |
+| `/api/tasks/:id/log/analyze` | POST | Intent analysis (default model, 6 intents) — no MCP |
 | `/api/tasks/:id/log` | POST | Execute search with Work IQ MCP |
-| `/api/tasks/:id/correct` | POST | Correction verification (Claude Opus 4.6 + Work IQ MCP) |
+| `/api/tasks/:id/correct` | POST | Correction verification (default model + Work IQ MCP) |
 | `/api/tasks/:id/correct/resolve` | POST | Resolve correction (accept or veto) |
 | `/api/tasks/:id/review` | POST | Ambiguity review resolution — with MCP research |
 | `/api/cleanup` | POST | Permanently delete done tasks older than `retentionDays` |
@@ -291,7 +297,7 @@ Agent_Zero/
 ├── docs/
 │   ├── README.md                Challenge documentation (problem, solution, RAI)
 │   ├── ARCHITECTURE.md          System architecture (current state)
-│   ├── CHANGELOG.md             Version history (v1.0 → v2.6)
+│   ├── CHANGELOG.md             Version history (v1.0 → v2.9)
 │   ├── SCAN_DISCOVERY_SKILL.md  Phase 1 prompt template
 │   ├── ENRICH_SKILL.md          Phase 2 prompt template
 │   ├── UPDATE_CHECK_SKILL.md    Phase 3 prompt template

@@ -29,7 +29,7 @@ The core challenge: **email is designed for reading, not for acting.** There is 
 - **Goal-oriented search** — Agents evaluate whether results actually answer the question, not just match keywords
 - **Temporal awareness** — Agents distinguish current from historical information using discovery dates
 - **Evidence-based corrections** — When users say information is wrong, AI searches M365 for evidence before changing anything. Truth hierarchy: newest messages > older messages > history > user claims. Users retain absolute veto right.
-- **Claude Opus 4.6 for intent classification** — The most capable model handles nuanced intent detection, especially distinguishing corrections from updates
+- **Default model for intent classification** — Reasoning-based intent detection now uses the Copilot CLI's default model routing; the explicit Claude Opus 4.6 override was removed
 - **Ambiguity handling** — When uncertain, agents ask clarifying questions instead of guessing
 - **Hallucination prevention** — Agents are instructed to report failure honestly rather than fabricate information
 - **Three-attempt strategy** — Progressively broader search approaches before giving up
@@ -51,7 +51,7 @@ Agent_Zero/
 ├── docs/                  # Documentation, skill files, architecture
 │   ├── README.md          # This file — solution documentation
 │   ├── ARCHITECTURE.md    # Detailed technical architecture
-│   ├── CHANGELOG.md       # Version history (v1.0 → v2.6)
+│   ├── CHANGELOG.md       # Version history (v1.0 → v2.9)
 │   └── *.md               # 7 skill files (scan, enrich, search, correct, etc.)
 ├── Specifactions/         # Product specification
 ├── Images/                # Branding images
