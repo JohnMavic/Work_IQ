@@ -123,8 +123,8 @@ Scan subjects only          Extract full content        Check for new replies   
 ### Phase 1: Discovery
 
 **Endpoint:** `POST /api/scan`
-**Timeout:** 180s
-**Skill:** `SCAN_DISCOVERY_SKILL.md` (fallback: `SCAN_SKILL.md`)
+**Timeout:** 300s (with retry at reduced context)
+**Skill:** `SCAN_DISCOVERY_SKILL.md`
 
 1. Load existing tasks as deduplication context (50 active + 30 done)
 2. Send skill prompt + context to Work IQ via Copilot SDK
@@ -462,16 +462,9 @@ Scans the user's M365 inbox and Teams for messages that require action. Returns 
 - **Critical rule:** Subject lines must be copied **character by character** — no rephrasing, no "Action Item:" prefixes. This ensures Phase 2 can find the original message.
 - **Output:** JSON array of action objects with title, source, from, date, link.
 
-### SCAN_SKILL.md — Legacy Scan (Fallback)
+### ~~SCAN_SKILL.md~~ — Archived (v2.9.1)
 
-**Used by:** `POST /api/scan` (fallback if SCAN_DISCOVERY_SKILL.md is missing) · **Lines:** 106
-
-The original monolithic scan skill from v1.0. Unlike the discovery skill, this reads email **bodies**
-and generates summaries in a single pass. Kept as fallback — not used when SCAN_DISCOVERY_SKILL.md exists.
-
-- **Content extraction:** Reads full email body, extracts topics, requests, action items, deadlines
-- **Matching rules:** Same topic = same task (even across email/Teams), follow-ups = update
-- **Summary:** 2-4 sentences capturing situation, request, and key details
+Moved to `docs/archive/SCAN_SKILL_legacy.md`. Was the original monolithic scan skill from v1.0 that combined scanning and enrichment in one step. Replaced by SCAN_DISCOVERY_SKILL.md (Phase 1) + ENRICH_SKILL.md (Phase 2).
 
 ### ENRICH_SKILL.md — Phase 2: Content Extraction
 
@@ -628,7 +621,6 @@ Agent_Zero/
 │   ├── ARCHITECTURE.md        This file
 │   ├── CHANGELOG.md           Version history
 │   ├── SCAN_DISCOVERY_SKILL.md  Phase 1 skill instructions
-│   ├── SCAN_SKILL.md           Legacy scan skill (fallback)
 │   ├── ENRICH_SKILL.md         Phase 2 skill instructions
 │   ├── UPDATE_CHECK_SKILL.md   Phase 3 skill instructions
 │   ├── CONSOLIDATE_SKILL.md   Phase 4 skill instructions
