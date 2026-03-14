@@ -3372,9 +3372,12 @@
       textNode = document.createTextNode('');
       el.insertBefore(textNode, el.firstChild);
     }
-    let text = ts ? `Last scan: ${formatDate(ts)}` : 'Never scanned';
+    // Use the most recent timestamp: scan report (local) or server lastScan
+    const reportTs = scanReport ? (scanReport.completedAt || scanReport.startedAt) : null;
+    const bestTs = reportTs && (!ts || new Date(reportTs) > new Date(ts)) ? reportTs : ts;
+    let text = bestTs ? `Last scan: ${formatDate(bestTs)}` : 'Never scanned';
     // Add indicator if there were issues
-    if (scanReport && scanReport.completedAt) {
+    if (scanReport && (scanReport.completedAt || scanReport.startedAt)) {
       const hasErrors = Object.values(scanReport.phases).some(p => p.status === 'failed' || p.status === 'partial');
       if (hasErrors) text += ' ⚠️';
     }

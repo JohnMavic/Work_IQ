@@ -734,9 +734,9 @@ app.post('/api/scan', async (req, res) => {
     let lastError = null;
 
     // Attempt 1: full context
-    console.log(`[SCAN] Attempt 1: Prompt size: ${scanPrompt.length} chars, timeout: 180s, scanDays: ${scanDays}`);
+    console.log(`[SCAN] Attempt 1: Prompt size: ${scanPrompt.length} chars, timeout: 300s, scanDays: ${scanDays}`);
     try {
-      response = await session.sendAndWait({ prompt: scanPrompt }, 180000);
+      response = await session.sendAndWait({ prompt: scanPrompt }, 300000);
       console.log(`[SCAN] Response received in ${((Date.now() - scanStart) / 1000).toFixed(1)}s`);
     } catch (err1) {
       lastError = err1;
@@ -745,7 +745,7 @@ app.post('/api/scan', async (req, res) => {
 
       // Attempt 2: reduced context (fewer existing tasks, shorter scan range)
       const reducedDays = Math.min(scanDays, 2);
-      const reducedTasks = allContextTasks.slice(0, 20);
+      const reducedTasks = allContextTasks.slice(0, 10);
       const reducedPrompt = discoverySkill
         ? discoverySkill + `\n\n` +
           (reducedTasks.length > 0
@@ -762,7 +762,7 @@ app.post('/api/scan', async (req, res) => {
         session = trackSession(await client.createSession({
           mcpServers: { workiq: { type: 'stdio', command: 'workiq', args: ['mcp'], tools: '*' } }
         }));
-        response = await session.sendAndWait({ prompt: reducedPrompt }, 180000);
+        response = await session.sendAndWait({ prompt: reducedPrompt }, 300000);
         console.log(`[SCAN] Attempt 2 succeeded in ${((Date.now() - scanStart) / 1000).toFixed(1)}s`);
       } catch (err2) {
         lastError = err2;
