@@ -2,16 +2,19 @@
 title Agent Zero Launcher
 cd /d "%~dp0"
 
-REM Check if server already running on port 3000 — kill and restart
+REM Check if server already running on port 3000 — kill server + all SDK subprocesses
 netstat -ano | findstr ":3000 " | findstr "LISTENING" >nul 2>&1
 if %errorlevel%==0 (
     echo Existing server found on port 3000 — terminating...
     for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":3000 " ^| findstr "LISTENING"') do (
         taskkill /PID %%p /F >nul 2>&1
     )
-    timeout /t 2 /nobreak >nul
-    echo Old server terminated.
 )
+
+REM Kill orphaned Copilot SDK and Work IQ subprocesses
+powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"name='node.exe'\" | Where-Object { $_.CommandLine -match 'copilot|@github|workiq.*mcp' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+timeout /t 2 /nobreak >nul
+echo Cleanup complete.
 
 REM Start server in a separate minimized window
 echo Starting Agent Zero server...

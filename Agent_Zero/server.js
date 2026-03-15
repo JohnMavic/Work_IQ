@@ -13,28 +13,55 @@ const app = express();
 const PORT = 3000;
 const TASKS_FILE = path.join(__dirname, 'tasks.json');
 
-// --- Session Lifecycle Management (v2.7) ---
+// --- Session Lifecycle Management (v2.7, enhanced v2.10) ---
 // Tracks all active Copilot SDK sessions to guarantee subprocess cleanup
 // on errors, timeouts, and server shutdown.
 const activeSessions = new Set();
+const sessionTimestamps = new Map(); // session → creation time for staleness detection
 
 function trackSession(session) {
-  if (session) activeSessions.add(session);
+  if (session) {
+    activeSessions.add(session);
+    sessionTimestamps.set(session, Date.now());
+  }
   return session;
 }
 
 async function destroySession(session) {
   if (!session) return;
   activeSessions.delete(session);
+  sessionTimestamps.delete(session);
   try { await session.destroy(); } catch {}
 }
 
 async function destroyAllSessions() {
   const sessions = [...activeSessions];
   activeSessions.clear();
+  sessionTimestamps.clear();
   await Promise.allSettled(sessions.map(s => {
     try { return s.destroy(); } catch { return Promise.resolve(); }
   }));
+}
+
+// Periodic reaper: kill orphaned SDK subprocesses every 5 minutes during runtime.
+// Also destroys tracked sessions that have been alive for over 10 minutes (stuck).
+function startPeriodicReaper() {
+  setInterval(async () => {
+    // Step 1: Destroy stale tracked sessions (>10 min old)
+    const now = Date.now();
+    const staleTimeout = 10 * 60 * 1000; // 10 minutes
+    for (const [session, created] of sessionTimestamps.entries()) {
+      if (now - created > staleTimeout) {
+        console.log(`[REAPER] Destroying stale session (age: ${((now - created) / 1000).toFixed(0)}s)`);
+        await destroySession(session);
+      }
+    }
+
+    // Step 2: Kill orphaned OS-level processes
+    try {
+      await reapOrphanedSessions();
+    } catch {}
+  }, 5 * 60 * 1000); // every 5 minutes
 }
 
 // Graceful shutdown: destroy all tracked sessions before exit
@@ -45,6 +72,8 @@ function setupGracefulShutdown() {
     shuttingDown = true;
     console.log(`\n[SHUTDOWN] ${signal} received — cleaning up ${activeSessions.size} active session(s)...`);
     await destroyAllSessions();
+    // Also kill any remaining SDK subprocesses
+    try { await reapOrphanedSessions(); } catch {}
     console.log('[SHUTDOWN] All sessions destroyed. Exiting.');
     process.exit(0);
   };
@@ -63,9 +92,9 @@ async function reapOrphanedSessions() {
   const { execSync } = await import('child_process');
   try {
     if (process.platform === 'win32') {
-      // Use PowerShell Get-CimInstance to find node.exe processes with copilot in command line
+      // Find node.exe processes with copilot OR workiq in command line (SDK subprocesses + MCP servers)
       const psOut = execSync(
-        'powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"name=\'node.exe\'\\" | Where-Object { $_.CommandLine -match \'copilot|@github\' } | Select-Object -ExpandProperty ProcessId"',
+        'powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"name=\'node.exe\'\\" | Where-Object { $_.CommandLine -match \'copilot|@github|workiq.*mcp\' } | Select-Object -ExpandProperty ProcessId"',
         { encoding: 'utf-8', timeout: 15000 }
       );
       const ownPid = process.pid;
@@ -77,7 +106,7 @@ async function reapOrphanedSessions() {
         for (const pid of orphanPids) {
           try { execSync(`taskkill /F /PID ${pid}`, { timeout: 5000 }); } catch {}
         }
-        console.log(`[REAPER] Killed ${orphanPids.length} orphaned Copilot SDK subprocess(es) from previous run`);
+        console.log(`[REAPER] Killed ${orphanPids.length} orphaned subprocess(es) (copilot + workiq)`);
       }
     } else {
       // Unix: kill node processes whose cmdline contains copilot-sdk markers
@@ -94,6 +123,7 @@ async function reapOrphanedSessions() {
   }
 }
 reapOrphanedSessions();
+startPeriodicReaper();
 
 // --- Load Skill Files (v1.3) ---
 
