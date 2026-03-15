@@ -89,15 +89,21 @@ setupGracefulShutdown();
 // command line containing '@github/copilot'. On Windows we use PowerShell's
 // Get-CimInstance (WMIC is deprecated on Win11); on Unix we use pkill.
 async function reapOrphanedSessions() {
+  // Only kill orphaned SDK processes — NOT those actively used by this server.
+  // Strategy: kill processes that started BEFORE this server (orphans from previous runs).
+  // Active sessions started after our server are by definition ours.
+  if (activeSessions.size > 0) {
+    // Don't reap while sessions are active — they might own child processes
+    return;
+  }
   const { execSync } = await import('child_process');
   try {
     if (process.platform === 'win32') {
-      // Find node.exe processes with copilot OR workiq in command line (SDK subprocesses + MCP servers)
+      const ownPid = process.pid;
       const psOut = execSync(
-        'powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"name=\'node.exe\'\\" | Where-Object { $_.CommandLine -match \'copilot|@github|workiq.*mcp\' } | Select-Object -ExpandProperty ProcessId"',
+        `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"name='node.exe'\\" | Where-Object { $_.CommandLine -match 'copilot|@github|workiq.*mcp' -and $_.ProcessId -ne ${ownPid} } | Select-Object -ExpandProperty ProcessId"`,
         { encoding: 'utf-8', timeout: 15000 }
       );
-      const ownPid = process.pid;
       const orphanPids = psOut.split(/\r?\n/)
         .map(line => parseInt(line.trim(), 10))
         .filter(pid => pid && !isNaN(pid) && pid !== ownPid);
@@ -106,7 +112,7 @@ async function reapOrphanedSessions() {
         for (const pid of orphanPids) {
           try { execSync(`taskkill /F /PID ${pid}`, { timeout: 5000 }); } catch {}
         }
-        console.log(`[REAPER] Killed ${orphanPids.length} orphaned subprocess(es) (copilot + workiq)`);
+        console.log(`[REAPER] Killed ${orphanPids.length} orphaned subprocess(es)`);
       }
     } else {
       // Unix: kill node processes whose cmdline contains copilot-sdk markers
@@ -712,43 +718,46 @@ app.post('/api/scan', async (req, res) => {
 
     let scanPrompt;
     const daysText = `last ${scanDays} day${scanDays === 1 ? '' : 's'}`;
-    const discoverySkill = SCAN_DISCOVERY_SKILL || '';
-    if (discoverySkill && allContextTasks.length > 0) {
-      scanPrompt = discoverySkill + `\n\n` +
-        `EXISTING TASKS (active and done — do NOT re-create done tasks):\n` +
-        JSON.stringify(allContextTasks) + `\n\n` +
-        `Scan my emails and Teams messages from the ${daysText}.\n` +
-        `For each action item found, decide: action "update" (with existingId) or "new".\n` +
-        `If a found item matches a DONE task, use action "skip" — do NOT create it again.\n` +
-        `IMPORTANT: When matching, ignore subject prefixes like Re:, Fw:, AW:, WG:, [EXTERN], [EXTERNAL]. ` +
-        `"Re: RG Netzwerkprüfung" and "[EXTERN] RG Netzwerkprüfung" are the SAME topic.`;
-    } else if (discoverySkill) {
-      scanPrompt = discoverySkill + `\n\n` +
-        `There are no existing tasks yet.\n\n` +
-        `Scan my emails and Teams messages from the ${daysText}.\n` +
-        `For each action item found, return with action "new".`;
-    } else if (allContextTasks.length > 0) {
-      // Fallback: no skill file, use inline prompt (backward-compat)
-      scanPrompt = `I have these EXISTING action items (do NOT re-create done ones):\n` +
-        JSON.stringify(allContextTasks) + `\n\n` +
-        `Scan my emails and Teams messages from the ${daysText}. ` +
-        `For each message that contains an action item assigned to me or expected from me:\n\n` +
-        `1. Check if it matches an existing task above (same topic/request, even if worded differently or from a different channel/sender).\n` +
-        `   - If it matches a DONE task: skip it entirely — do NOT return it.\n` +
-        `   - If it matches an active/in-progress task: return {"action":"update","existingId":"<id>","changes":{...},"reason":"<why>"}\n` +
-        `     Only include fields in "changes" that actually changed (title, date, link). Do NOT include "from" or "source" in changes.\n` +
-        `   - If NO match: return {"action":"new","title":"EXACT subject line","source":"email" or "teams","from":"...","date":"...","link":"..."}\n\n` +
-        `Return ONLY a JSON array. No markdown, no explanation.\n` +
-        `If no action items found, return [].`;
-    } else {
-      scanPrompt = `Scan my emails and Teams messages from the ${daysText}. ` +
-        `For each message that contains an action item assigned to me or expected from me, ` +
-        `return ONLY a JSON array (no markdown, no explanation) with objects containing: ` +
-        `action (always "new"), title (EXACT subject line — do not rephrase), ` +
-        `source ("email" or "teams"), from (sender name string), ` +
-        `date (ISO 8601 string), and link (message URL or deep link string, or null if unavailable). ` +
-        `If there are no action items, return an empty array [].`;
-    }
+
+    // Build dedup context: compact list of existing task titles for matching
+    const contextLines = allContextTasks.map(t => {
+      const status = t.status === 'done' ? ' [DONE]' : '';
+      return `- "${t.title}" (${t.source}, from ${t.from || 'unknown'})${status}`;
+    }).join('\n');
+
+    // Hybrid approach: naive question + dedup context + structured JSON output
+    scanPrompt = `Which of my emails and Teams messages from the ${daysText} require me to take action?
+
+I need to respond, approve, review, decide, deliver, or follow up on something. Find ALL such messages.
+
+${allContextTasks.length > 0 ? `IMPORTANT — I already have these action items tracked. Do NOT return items that match an existing one (same topic, same thread, same request — even if worded differently or with different prefixes like Re:, Fw:, [EXTERN]):
+${contextLines}
+
+For items matching an EXISTING active task, return: {"action": "update", "existingId": "<id>", "changes": {"date": "...", "link": "..."}, "reason": "why"}
+For items matching a DONE task, return: {"action": "skip"} — do NOT re-create them unless there is genuinely NEW activity.
+For NEW items not yet tracked, return the full object below.
+` : ''}
+For each NEW actionable message, return:
+{
+  "action": "new",
+  "title": "EXACT email subject line or Teams message topic — copy character by character, do NOT rephrase",
+  "source": "email" or "teams",
+  "from": "Sender's display name",
+  "date": "ISO 8601 date string",
+  "link": "Direct URL to open this specific message (Outlook link or Teams deep link), or null",
+  "actionNeeded": "What exactly I need to do (1-2 sentences)",
+  "deadline": "Deadline if mentioned, or null"
+}
+
+RULES:
+1. Subject lines must be EXACT — copy them character by character. Do NOT rephrase or summarize.
+2. Each link must be the specific URL for THAT message. Wrong link = set to null.
+3. Ignore purely informational messages (FYI, newsletters, automated notifications with no action).
+4. Ignore calendar invitations unless they contain an explicit action request.
+5. Ignore messages where I am only in CC with no expectation to act.
+
+Return ONLY a JSON array. No markdown, no explanation, no code blocks.
+If nothing requires action, return [].`;
 
     const scanStart = Date.now();
     let response = null;
@@ -764,18 +773,13 @@ app.post('/api/scan', async (req, res) => {
       console.warn(`[SCAN] Attempt 1 failed: ${err1.message}`);
       await destroySession(session);
 
-      // Attempt 2: reduced context (fewer existing tasks, shorter scan range)
+      // Attempt 2: reduced context, shorter scan range
       const reducedDays = Math.min(scanDays, 2);
-      const reducedTasks = allContextTasks.slice(0, 10);
-      const reducedPrompt = discoverySkill
-        ? discoverySkill + `\n\n` +
-          (reducedTasks.length > 0
-            ? `EXISTING TASKS (do NOT re-create):\n${JSON.stringify(reducedTasks)}\n\n`
-            : '') +
-          `Scan my emails and Teams messages from the last ${reducedDays} day${reducedDays === 1 ? '' : 's'}.\n` +
-          `For each action item found, decide: action "update" (with existingId) or "new".\n` +
-          `If a found item matches a DONE task, use action "skip".`
-        : scanPrompt;
+      const reducedContext = allContextTasks.slice(0, 10).map(t => `- "${t.title}"${t.status === 'done' ? ' [DONE]' : ''}`).join('\n');
+      const reducedPrompt = `Which of my emails and Teams messages from the last ${reducedDays} day${reducedDays === 1 ? '' : 's'} require me to take action?
+${reducedContext ? `\nAlready tracked (do NOT duplicate):\n${reducedContext}\n` : ''}
+For each NEW actionable message, return: {"action":"new","title":"EXACT subject","source":"email"/"teams","from":"sender","date":"ISO date","link":"URL or null","actionNeeded":"what to do","deadline":"deadline or null"}
+Return ONLY a JSON array. If nothing, return [].`;
 
       console.log(`[SCAN] Attempt 2: Reduced prompt ${reducedPrompt.length} chars, ${reducedDays} days, ${reducedTasks.length} context tasks`);
       try {
@@ -934,7 +938,13 @@ app.post('/api/scan', async (req, res) => {
           link: item.link ? String(item.link).trim() : null,
           status: 'new',
           notes: '',
-          history: [{ timestamp: now, type: 'created', text: `Task created from ${sourceNorm} scan` }],
+          history: [{
+            timestamp: now,
+            type: 'created',
+            text: `Task created from ${sourceNorm} scan` +
+              (item.actionNeeded ? `\n🎯 Action: ${item.actionNeeded}` : '') +
+              (item.deadline ? `\n⏰ Deadline: ${item.deadline}` : '')
+          }],
           doneAt: null,
           enrichmentStatus: 'pending',
           updateCheckStatus: 'pending',
