@@ -1,6 +1,6 @@
 # Agent Zero — Architecture
 
-> Version 2.9.1 · March 14, 2026 · Author: Martin Hämmerli
+> Version 3.0.0 · March 16, 2026 · Author: Martin Hämmerli
 
 Agent Zero is a personal action-item tracker that scans Microsoft 365 emails and Teams messages for tasks,
 extracts content summaries, and monitors threads for updates — all powered by AI.
@@ -107,14 +107,15 @@ one-by-one to avoid Work IQ timeouts.
 ```
 Phase 1: Discovery          Phase 2: Enrichment         Phase 3: Update Check        Phase 4: Consolidation
 ─────────────────────       ─────────────────────       ─────────────────────        ─────────────────────
-Scan subjects only          Extract full content        Check for new replies        Find related tasks
+Naive hybrid action scan    Extract full content        Check for new replies        Find related tasks
 ~30-60s total               ~60-180s per task           ~30-90s per task             ~5-15s total
 
   ┌──────────┐               ┌──────────┐               ┌──────────┐                ┌──────────┐
   │ Work IQ  │               │ Work IQ  │               │ Work IQ  │                │ No MCP   │
-  │ "List    │               │ "Find ALL│               │ "Any new │                │ "Compare │
-  │ subjects"│               │ messages │               │ replies  │                │ all task │
-  │          │               │ about X" │               │ since Y?"│                │ summaries│
+  │ "Which   │               │ "Find ALL│               │ "Any new │                │ "Compare │
+  │ messages │               │ messages │               │ replies  │                │ all task │
+  │ need my  │               │ about X" │               │ since Y?"│                │ summaries│
+  │ action?" │               │          │               │          │                │          │
   └────┬─────┘               └────┬─────┘               └────┬─────┘                └────┬─────┘
        │                          │                          │                            │
   New/Update/Skip            Summary + Confidence       Update or No-change          Merge suggestions
@@ -124,11 +125,12 @@ Scan subjects only          Extract full content        Check for new replies   
 
 **Endpoint:** `POST /api/scan`
 **Timeout:** 300s (with retry at reduced context)
-**Skill:** `SCAN_DISCOVERY_SKILL.md`
+**Primary prompt:** Inline natural language question — **"Which messages need my action?"**
+**Fallback prompt:** `SCAN_DISCOVERY_SKILL.md` (legacy backup)
 
 1. Load existing tasks as deduplication context (50 active + 30 done)
-2. Send skill prompt + context to Work IQ via Copilot SDK
-3. AI returns JSON array with `action` per item:
+2. Send the inline discovery question + context to Work IQ via Copilot SDK
+3. AI performs a naive hybrid first pass over recent messages and returns a JSON array with `action` per item:
    - `"new"` → create task with `enrichmentStatus: 'pending'`
    - `"update"` → modify existing task (title, date, status)
    - `"skip"` → item matches a done task, ignore
@@ -168,6 +170,18 @@ Each task is frozen (neon cyan border) during processing, then auto-refreshed.
 9. Runs EVERY scan cycle (unlike enrichment which is one-time)
 
 **Frontend loop:** Iterates all tasks where `enrichmentStatus === 'enriched' || 'needs-review'` and `status !== 'done'`.
+
+### Verify-and-Improve Loop
+
+Used for update-intent rewriting and post-update refinement when the agent changes existing task content.
+
+1. **Execute** — first LLM call applies the requested update.
+2. **Verify** — second LLM call checks whether the result actually matches the user's intent and preserves critical context.
+3. **Improve** — optional third LLM call rewrites the result if verification finds issues.
+
+- **Architecture:** Each step is a separate pure-reasoning LLM call; no Work IQ MCP is needed.
+- **Retry policy:** Maximum 1 improve retry.
+- **Graceful degradation:** If Verify or Improve fails, the original Execute result is kept instead of failing the user action.
 
 ### Phase 4: Task Consolidation
 
@@ -450,21 +464,22 @@ The entire frontend lives in `index.html` — a single-file dark-themed SPA.
 Skill files are markdown documents loaded at server startup. They serve as prompt templates
 for the AI agent — each file instructs the AI how to perform a specific task via Work IQ.
 
-### SCAN_DISCOVERY_SKILL.md — Phase 1: Subject-Only Scan
+### SCAN_DISCOVERY_SKILL.md — Phase 1 Fallback Prompt
 
-**Used by:** `POST /api/scan` · **Lines:** 66 · **Timeout:** 180s
+**Used by:** `POST /api/scan` fallback path · **Lines:** 66 · **Timeout:** 180s
 
-Scans the user's M365 inbox and Teams for messages that require action. Returns **metadata only**
-(subject, sender, date, link) — no email body content is read at this stage.
+Provides the older structured discovery guidance for the Phase 1 metadata pass. In v3.0.0,
+the primary discovery prompt is now the inline natural-language question **"Which messages need my action?"**;
+this file remains as a legacy backup when the inline path is unavailable.
 
 - **Action detection:** Identifies messages where the user must respond, review, approve, or deliver something. Ignores FYI emails, newsletters, calendar invites, and CC-only messages.
 - **Deduplication:** Receives existing tasks as context. Returns `"action": "new"` (create), `"update"` (modify existing), or `"skip"` (matches a done task).
-- **Critical rule:** Subject lines must be copied **character by character** — no rephrasing, no "Action Item:" prefixes. This ensures Phase 2 can find the original message.
+- **Critical rule:** Subject lines must be copied **character by character** — no rephrasing, no "Action Item:" prefixes. This helps Phase 2 find the original message when subject metadata is used.
 - **Output:** JSON array of action objects with title, source, from, date, link.
 
 ### ~~SCAN_SKILL.md~~ — Archived (v2.9.1)
 
-Moved to `docs/archive/SCAN_SKILL_legacy.md`. Was the original monolithic scan skill from v1.0 that combined scanning and enrichment in one step. Replaced by SCAN_DISCOVERY_SKILL.md (Phase 1) + ENRICH_SKILL.md (Phase 2).
+Moved to `docs/archive/SCAN_SKILL_legacy.md`. Was the original monolithic scan skill from v1.0 that combined scanning and enrichment in one step. In v3.0.0, Phase 1 uses an inline natural-language discovery prompt, with `SCAN_DISCOVERY_SKILL.md` retained as a fallback reference alongside `ENRICH_SKILL.md` for Phase 2.
 
 ### ENRICH_SKILL.md — Phase 2: Content Extraction
 
@@ -578,7 +593,7 @@ await destroySession(session);  // guaranteed cleanup via finally block + gracef
 
 | Phase | What is read | How it searches | Key technique |
 |-------|-------------|-----------------|---------------|
-| **Phase 1** | Subject lines, sender, date, link | "List messages requiring action from last N days" | Metadata only — no body content |
+| **Phase 1** | Recent message metadata (subject/topic, sender, date, link) | "Which messages need my action?" | Naive hybrid first pass — inline natural-language prompt, no body content |
 | **Phase 2** | Full email body, all thread replies, Teams chat history | Keyword search from title (3 attempts), temporal classification | Keywords + link context + sender hint + discovery date |
 | **Phase 3** | New replies since last check | Keyword search (3 attempts), temporal filter on last-checked date | Keywords + link context + `lastUpdateCheck` anchor |
 | **Phase 4** | *No Work IQ access* | Semantic comparison of all task titles + summaries | Pure reasoning — analyzes existing data only |
@@ -620,7 +635,7 @@ Agent_Zero/
 ├── docs/
 │   ├── ARCHITECTURE.md        This file
 │   ├── CHANGELOG.md           Version history
-│   ├── SCAN_DISCOVERY_SKILL.md  Phase 1 skill instructions
+│   ├── SCAN_DISCOVERY_SKILL.md  Phase 1 fallback instructions
 │   ├── ENRICH_SKILL.md         Phase 2 skill instructions
 │   ├── UPDATE_CHECK_SKILL.md   Phase 3 skill instructions
 │   ├── CONSOLIDATE_SKILL.md   Phase 4 skill instructions

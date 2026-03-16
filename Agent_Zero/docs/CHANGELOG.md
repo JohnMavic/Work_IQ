@@ -4,6 +4,37 @@ All notable changes to this project are documented here.
 
 ---
 
+## v3.0.0 — March 16, 2026
+
+**Naive Hybrid Scan + Verify-and-Improve Loop + Server Stability**
+
+### Phase 1 Redesign: Naive Hybrid Scan
+- Replaced technical SCAN_DISCOVERY_SKILL prompt with natural language: "Which of my emails and Teams messages require me to take action?"
+- Dedup context sent as human-readable list instead of raw JSON
+- New fields from scan: `actionNeeded` (what the user must do) and `deadline` (if any)
+- Links now included directly in Phase 1 results (previously only after enrichment)
+- Dedup against active AND done tasks preserved — 6 items correctly skipped in testing
+- Retry with reduced context on timeout preserved
+
+### Verify-and-Improve Loop for Update Intent
+- When a user gives an update instruction, the agent now follows a 3-step process:
+  1. **Execute**: Generate title/summary changes
+  2. **Verify**: Separate LLM call evaluates whether changes correctly fulfil the user's instruction
+  3. **Improve**: If verification fails, feedback is sent to a retry LLM call (max 1 retry)
+- Pure agent reasoning — no keywords or pattern matching
+- Graceful degradation: if verification fails/times out, original result is used
+
+### Content Removal Capability
+- Agent can now remove false/wrong information from title and summary when user explicitly requests it
+- Update prompt rule "NEVER drop information" now has exception for user-requested removal of false content
+- Decision tree Step 1.7 (correct) refined: only triggers for M365 verification requests, not removal requests
+
+### Server Stability
+- Global `uncaughtException` and `unhandledRejection` handlers prevent server crashes from SDK stream errors (ERR_STREAM_DESTROYED, EPIPE)
+- Periodic reaper now skips cleanup when active sessions exist (prevents killing SDK processes mid-operation)
+
+---
+
 ## v2.9.1 — March 13, 2026
 
 **Scan Report Panel Fix + Scan Retry on Timeout**

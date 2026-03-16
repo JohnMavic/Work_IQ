@@ -1,9 +1,9 @@
 # Agent Zero — Product Specification
 
-**Version:** 2.9.1
+**Version:** 3.0.0
 **Date:** March 14, 2026
 **Author:** Martin Hämmerli
-**Status:** v2.9.1 implemented (scan resilience + default-model reasoning)
+**Status:** v3.0.0 implemented (naive hybrid Phase 1 scan + verify-and-improve update loop + content removal + server stability hardening)
 
 ---
 
@@ -96,7 +96,7 @@ First-time setup:
 - The scan days value is sent in the request body: `{ scanDays: <number> }`
 - When triggered, the backend:
   1. Reads existing tasks from `tasks.json` (active + done for dedup context)
-  2. Calls Work IQ via Copilot SDK (MCP session) to scan emails and Teams
+  2. Calls Work IQ via Copilot SDK (MCP session) with the inline Phase 1 question: **"Which messages need my action?"**
   3. AI identifies action items AND matches them against existing tasks (semantic dedup)
   4. **New items** → added with status `new`
   5. **Matched items with changes** → existing task updated + `scan-update` history entry
@@ -109,7 +109,7 @@ First-time setup:
   - Button label changes per phase: "Scanning..." → "Enriching..." → "Checking updates..."
 - Scan button disabled during scan (text changes to "Scanning...")
 - After completion: notification toast with result summary
-- Scan prompt uses `SCAN_DISCOVERY_SKILL.md` if available (fallback: `SCAN_SKILL.md`, then inline prompt)
+- Primary scan prompt is the inline natural-language question above; `SCAN_DISCOVERY_SKILL.md` remains as legacy/fallback guidance
 
 ### 4.1a Scan Resilience
 
@@ -208,7 +208,7 @@ The agent uses a two-phase approach:
 
 | Intent | Trigger Examples | Behavior | Requires Execute? |
 |---|---|---|---|
-| `update` | "Ich habe X bestätigt", "I sent...", "I edited..." | AI updates title and/or summary with new information | No — result saved immediately |
+| `update` | "Ich habe X bestätigt", "I sent...", "I edited...", "remove that wrong part" | AI updates title and/or summary with new information, including removal of false content on user request | No — result saved immediately |
 | `summarize` | "fasse zusammen", "summarize this", "key points" | AI summarizes the content provided in the message | No — result saved immediately |
 | `rename` | "nenne es...", "ändere den Titel zu...", "rename to..." | AI changes only the title | No — result saved immediately |
 | `answer` | "bis wann?", "what's the deadline?", "who is responsible?" | AI answers from task context + conversation history | No — result saved immediately |
@@ -218,6 +218,12 @@ The agent uses a two-phase approach:
 **Pre-filter:** Messages matching "Ich habe [action verb]" (without negation) bypass intent classification and go directly to the update-only prompt. Negation patterns ("Ich habe NICHT bestätigt") are excluded from the pre-filter and proceed to full classification, where they are typically classified as `correct`.
 
 **Conversation context:** Last 8 history entries of type `update` or `note` are included in the analyze prompt, with full details (user text, agent intent, understanding, communications).
+
+**Update intent — Verify-and-Improve Loop:**
+- 3-step flow: **Execute → Verify → Improve**
+- Each step is a separate Copilot reasoning call with **no Work IQ MCP**
+- **Max 1 retry:** Verify can trigger at most one Improve pass
+- **Graceful degradation:** If Verify or Improve fails, the original Execute result is preserved and returned
 
 **Phase 2a — Execute Search** (`POST /api/tasks/:id/log`):
 - Only for `search` intent, triggered by user clicking Execute
@@ -396,8 +402,10 @@ Each scanned task includes an optional `summary` field — a 2-4 sentence briefi
 
 The scan process is split into 4 sequential phases for faster initial feedback and progressive content loading:
 
-**Phase 1 — Discovery (Subject-Only):**
-- Uses `SCAN_DISCOVERY_SKILL.md` — extracts only subject line, sender, date
+**Phase 1 — Discovery (Naive Hybrid):**
+- Primary prompt is the inline question **"Which messages need my action?"**
+- Uses recent message metadata (subject/topic, sender, date, link) for a lightweight first pass
+- `SCAN_DISCOVERY_SKILL.md` remains available as legacy/fallback guidance
 - Tasks appear immediately with `summary: null`, `enrichmentStatus: "pending"`
 - Returns `newTaskIds[]` for Phase 2 orchestration
 - Step 1 indicator turns green ✅
@@ -538,7 +546,7 @@ The scan process is split into 4 sequential phases for faster initial feedback a
 | `DELETE` | `/api/tasks/:id` | Delete a task |
 | `DELETE` | `/api/tasks/:id/history/:index` | Delete a history entry |
 | `POST` | `/api/tasks/:id/note` | Save a note (no agent) |
-| `POST` | `/api/scan` | Phase 1: Discovery scan (subjects only) |
+| `POST` | `/api/scan` | Phase 1: Discovery scan (naive hybrid action question) |
 | `POST` | `/api/tasks/:id/enrich` | Phase 2: Content extraction + summary |
 | `POST` | `/api/tasks/:id/check-update` | Phase 3: Thread update check |
 | `POST` | `/api/consolidate` | Phase 4: Find duplicate/related tasks |
@@ -591,6 +599,7 @@ The scan process is split into 4 sequential phases for faster initial feedback a
 ### 6.8 POST /api/scan
 
 **Request body:** `{ scanDays?: number }` (1–14, default 4)
+**Prompting:** Primary inline question **"Which messages need my action?"**; `SCAN_DISCOVERY_SKILL.md` is retained as fallback guidance, not the primary prompt
 **Side effects:**
 - Creates new tasks (status `new`, `summary: null`, `enrichmentStatus: "pending"`)
 - Updates existing tasks (matched by `existingId`)
@@ -625,11 +634,12 @@ The scan process is split into 4 sequential phases for faster initial feedback a
 ### 6.9 POST /api/tasks/:id/log/analyze
 
 **Request body:** `{ text: string }`
-**Response (summarize/answer):** `{ intent, result, task }` — result saved to history immediately
+**Response (update/summarize/answer/rename):** `{ intent, result, task }` — result saved to history immediately
 **Response (correct):** `{ intent: 'correct', plan: { disputedClaim, userAssertion, affectedFields, keywords, keywordsEnglish, verificationQuestion } }` — correction plan returned for verification
 **Response (search):** `{ intent: 'search', plan: AgentPlan, fallback? }` — plan returned for user confirmation
 **AI prompt includes:** Task context (title, from, source, date) + last 8 conversation entries
 **Model:** Default Copilot model routing (explicit Claude Opus 4.6 override removed) for reasoning-based intent classification, especially correction detection
+**Update handling:** `update` intent uses a Verify-and-Improve loop — **Execute → Verify → Improve** as separate no-MCP reasoning calls, with at most 1 Improve retry and graceful fallback to the Execute result
 **Timeout:** 30 seconds for Copilot SDK analysis
 
 ### 6.10 POST /api/tasks/:id/log
@@ -671,7 +681,7 @@ External Markdown files loaded at server startup:
 
 | File | Path | Purpose |
 |---|---|---|
-| `SCAN_DISCOVERY_SKILL.md` | `docs/SCAN_DISCOVERY_SKILL.md` | Phase 1: Subject-only discovery scan prompt |
+| `SCAN_DISCOVERY_SKILL.md` | `docs/SCAN_DISCOVERY_SKILL.md` | Phase 1 legacy/fallback discovery guidance (inline question is primary in v3.0.0) |
 | `ENRICH_SKILL.md` | `docs/ENRICH_SKILL.md` | Phase 2: Content extraction + summary prompt |
 | `UPDATE_CHECK_SKILL.md` | `docs/UPDATE_CHECK_SKILL.md` | Phase 3: Thread update check prompt |
 | `CONSOLIDATE_SKILL.md` | `docs/CONSOLIDATE_SKILL.md` | Phase 4: Task consolidation / duplicate detection prompt |
@@ -699,7 +709,7 @@ Agent_Zero/
 ├── docs/
 │   ├── ARCHITECTURE.md               (technical architecture document)
 │   ├── CHANGELOG.md                  (version history v1.0 → v2.2)
-│   ├── SCAN_DISCOVERY_SKILL.md       (Phase 1 scan prompt)
+│   ├── SCAN_DISCOVERY_SKILL.md       (Phase 1 fallback prompt)
 │   ├── ENRICH_SKILL.md               (Phase 2 enrichment prompt)
 │   ├── UPDATE_CHECK_SKILL.md         (Phase 3 update check prompt)
 │   ├── CONSOLIDATE_SKILL.md         (Phase 4 task consolidation prompt)

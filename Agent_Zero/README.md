@@ -1,6 +1,6 @@
 # Agent Zero
 
-> Version 2.9.1 · A personal AI-powered action-item tracker for Microsoft 365
+> Version 3.0.0 · A personal AI-powered action-item tracker for Microsoft 365
 
 **Author:** Martin Hämmerli · [martih@microsoft.com](mailto:martih@microsoft.com)
 
@@ -148,16 +148,20 @@ Beyond scanning, each task has an interactive agent panel where users can ask qu
 ## Features
 
 - **Four-phase scan** with visual progress indicators
+- **Naive hybrid Phase 1 scan** — asks "Which messages need my action?" for a lightweight first pass instead of relying on a technical subject-scan prompt
 - **Phase 4: Task consolidation** — AI finds duplicate/related tasks and suggests merging. Also available as standalone "🔗 Find Duplicates" button.
 - **Manual Merge Mode** — "🔗 Merge Tasks" button activates multi-select merge with checkboxes, floating merge bar, and full link preservation
 - **AI content extraction** via keyword-based Work IQ search
 - **Intelligent search** — goal-oriented 3-attempt search with self-assessment and confidence levels (SEARCH_SKILL.md)
 - **Intent classification improvements** — reasoning-based 6-intent analysis with 60s timeout and stronger correction-vs-update detection
+- **Verify-and-improve update loop** — update intent runs Execute → Verify → Improve so the agent checks its own work before finalizing changes
 - **Post-search evaluation** — after search, AI evaluates whether task title and summary need updating based on new findings; applies changes automatically with full history traceability
 - **"Updated" status** — tasks automatically marked 🔄 Updated when Phase 3 detects new information; pulsing glow for visibility
 - **Evidence-based corrections** — when users say information is wrong, AI verifies against M365 evidence using the default model + Work IQ. Truth hierarchy: newest messages > older > history. User retains absolute veto right.
+- **Content removal on request** — users can ask the agent to remove false information from a task title or summary
 - **Rename via conversation** — agent can change task titles through natural discussion
 - **Add Task modal** — title, assignment, and optional context; agent auto-starts on assignment
+- **Server stability hardening** — global error handlers and a safe periodic reaper reduce stuck sessions and improve recovery
 - **Session lifecycle management** — active Copilot/Work IQ subprocess sessions are tracked and guaranteed to be cleaned up on errors, shutdown, and startup recovery
 - **Configurable scan range** — slider to choose 1–14 days of email/Teams history to scan (default: 4 days)
 - **Scan abort** — stop scan safely between tasks with "⏹ Stop" button
