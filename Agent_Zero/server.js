@@ -13,6 +13,32 @@ const app = express();
 const PORT = 3000;
 const TASKS_FILE = path.join(__dirname, 'tasks.json');
 
+// --- Global Error Handlers (crash prevention) ---
+// Prevent server termination from unhandled errors in SDK child processes.
+// The Copilot SDK's JSON-RPC streams can emit errors asynchronously
+// (e.g. ERR_STREAM_DESTROYED) after session.destroy() — these must not crash the server.
+process.on('uncaughtException', (err) => {
+  // Stream errors from destroyed SDK sessions are expected and non-fatal
+  if (err.code === 'ERR_STREAM_DESTROYED' || err.code === 'ERR_STREAM_WRITE_AFTER_END' || err.code === 'EPIPE') {
+    console.warn(`[RECOVERED] Non-fatal stream error: ${err.code} — ${err.message}`);
+    return;
+  }
+  // For truly unexpected errors, log but keep running
+  console.error(`[RECOVERED] Uncaught exception (server continues): ${err.message}`);
+  console.error(err.stack);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  const code = reason instanceof Error ? reason.code : '';
+  // SDK stream errors surfacing as rejected promises — non-fatal
+  if (code === 'ERR_STREAM_DESTROYED' || code === 'ERR_STREAM_WRITE_AFTER_END' || code === 'EPIPE') {
+    console.warn(`[RECOVERED] Non-fatal rejected promise: ${code} — ${msg}`);
+    return;
+  }
+  console.error(`[RECOVERED] Unhandled rejection (server continues): ${msg}`);
+});
+
 // --- Session Lifecycle Management (v2.7, enhanced v2.10) ---
 // Tracks all active Copilot SDK sessions to guarantee subprocess cleanup
 // on errors, timeouts, and server shutdown.
