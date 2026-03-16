@@ -1034,7 +1034,7 @@
   <!-- Header -->
   <header>
     <!-- Row 1: App name -->
-    <h1>📋 Agent Zero</h1>
+    <h1>📋 Agent Zero <span id="appVersion" style="font-size:0.5em;font-weight:400;color:#64748b;vertical-align:middle"></span></h1>
 
     <!-- Row 2: Status (idle) ↔ Progress (scanning) — same height always -->
     <div class="header-row-2">
@@ -3655,6 +3655,12 @@
 
   // --- Init ---
   checkServerHealth();
+
+  // Fetch and display app version
+  fetch('/api/version').then(r => r.json()).then(d => {
+    const el = document.getElementById('appVersion');
+    if (el && d.version) el.textContent = `v${d.version}`;
+  }).catch(() => {});
 
   // Auto-trigger scan when opened with ?autoScan=true (used by scheduled task)
   const urlParams = new URLSearchParams(window.location.search);

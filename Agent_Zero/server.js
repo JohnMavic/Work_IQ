@@ -488,6 +488,16 @@ function migrateToV3() {
 
 // --- API Endpoints ---
 
+// GET /api/version — return app version from package.json
+app.get('/api/version', (req, res) => {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
+    res.json({ version: pkg.version, name: pkg.name });
+  } catch {
+    res.json({ version: 'unknown' });
+  }
+});
+
 // GET /api/tasks — return all tasks
 app.get('/api/tasks', (req, res) => {
   try {
