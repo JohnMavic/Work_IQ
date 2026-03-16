@@ -1800,10 +1800,10 @@ USER'S MESSAGE:
 "${text.trim()}"
 
 RULES FOR THE SUMMARY:
-- You MUST keep ALL existing summary content intact
+- By default, keep ALL existing summary content intact
 - ADD the new information at the TOP with a timestamp: "📌 Update (DD.MM.YYYY, HH:MM): [new info]"
 - Then include ALL existing content below unchanged
-- The new summary MUST be LONGER than the original (you are adding, not replacing)
+- EXCEPTION: If the user says content is FALSE/WRONG and must be REMOVED — remove that specific false content, add an update note explaining the removal, keep all OTHER content
 - Write in the same language as the existing content
 
 Return ONLY this JSON (no markdown, no explanation):
@@ -1886,13 +1886,12 @@ Patterns: "Ich habe...", "I did...", "I sent...", "I edited...", "I confirmed...
 → If YES: this is **"update"**.
 ⚠️ Even if the message mentions "E-Mail", "Teams", "Chat" — these describe HOW the user communicated. They are NOT requests to search!
 
-### Step 1.7: Is the user CORRECTING or DISPUTING existing information?
-The user says something currently stored in the title or summary is WRONG, inaccurate, or did not happen. Look for:
-- Explicit denial: "Das stimmt nicht", "That's wrong", "Das ist falsch", "Nein, das war anders"
-- Contradiction of stored facts: "SSD wurde nie bestellt", "I never confirmed that", "Ich habe das NICHT bestätigt"
-- Correction request: "Der Titel ist falsch", "Die Summary stimmt nicht", "Das muss korrigiert werden"
-⚠️ The key difference: "update" = user adds/changes info. "correct" = user says current info is factually incorrect and needs verification.
-→ If YES: this is **"correct"**. The existing data must be VERIFIED against M365 communications before being changed.
+### Step 1.7: Is the user CORRECTING or DISPUTING existing information AND wants VERIFICATION?
+The user says something currently stored in the title or summary is WRONG, inaccurate, or did not happen, AND wants you to CHECK in M365 whether it's true. Look for:
+- Explicit denial + request to verify: "Das stimmt nicht, überprüfe das", "Check if that's true"
+- Contradiction where the user is UNSURE: "Ich glaube das wurde nie bestellt", "I don't think I confirmed that"
+⚠️ If the user KNOWS it's wrong and just wants it REMOVED (e.g. "ist komplett falsch und muss entfernt werden", "remove this, it's wrong") → this is **"update"** with removal, NOT "correct". The user is not asking you to verify — they are telling you to fix it.
+→ If the user wants M365 VERIFICATION before changing: **"correct"**
 
 ### Step 2: Does the user ask to ONLY rename the title?
 Look for: "nenne es...", "ändere den Titel zu...", "rename to..."
@@ -1954,7 +1953,7 @@ For "update":
   "_reasoning": "The user says 'Ich habe...' / reports an action / provides new information → update",
   "intent": "update",
   "newTitle": "Short, factual title reflecting the current state of the action item (max ~15 words). If the user doesn't ask for a title change, keep the original: ${JSON.stringify(task.title)}",
-  "newSummary": "IMPORTANT: You MUST keep ALL existing summary content and ADD the new information. Use the reverse-chronological format: newest update at top with '📌 Update (DD.MM.YYYY, HH:MM): ...' followed by all existing content below. NEVER replace or drop existing information. The result must be LONGER than the original, not shorter.",
+  "newSummary": "IMPORTANT: By default, keep ALL existing summary content and ADD new information at the top using '📌 Update (DD.MM.YYYY, HH:MM): ...'. EXCEPTION: If the user explicitly states that specific content is FALSE, WRONG, or must be REMOVED — then REMOVE that specific false content from the summary and title, add an update note explaining what was removed and why, and keep all OTHER content intact.",
   "changeDescription": "Brief human-readable description of what you changed and why"
 }
 
