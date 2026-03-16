@@ -2127,12 +2127,118 @@ Return ONLY the JSON object. No markdown, no explanation.`;
           return res.json({ intent: 'rename', result: newTitle, previousTitle: task.title, task: savedTask });
         }
 
-        // For update: update both title and summary, log changes
+        // For update: verify-and-improve loop before saving
         if (result.intent === 'update') {
-          const newTitle = result.newTitle ? String(result.newTitle).trim() : null;
-          const newSummary = result.newSummary ? String(result.newSummary).trim() : null;
-          const changeDescription = result.changeDescription || '';
+          let newTitle = result.newTitle ? String(result.newTitle).trim() : null;
+          let newSummary = result.newSummary ? String(result.newSummary).trim() : null;
+          let changeDescription = result.changeDescription || '';
 
+          // VERIFY-AND-IMPROVE LOOP: Agent checks its own work
+          // Max 2 iterations to avoid infinite loops
+          let verifyClient, verifySession;
+          try {
+            for (let attempt = 1; attempt <= 2; attempt++) {
+              verifyClient = new CopilotClient();
+              verifySession = trackSession(await verifyClient.createSession({}));
+
+              const verifyPrompt = `You are a quality reviewer. A user gave an instruction to update a task. An agent produced changes. Your job is to verify whether the agent's changes correctly fulfil the user's instruction.
+
+USER'S ORIGINAL INSTRUCTION:
+"${text.trim()}"
+
+TASK BEFORE CHANGES:
+Title: "${task.title}"
+Summary: ${task.summary || '(none)'}
+
+AGENT'S PROPOSED CHANGES:
+New Title: ${newTitle ? `"${newTitle}"` : '(unchanged)'}
+New Summary: ${newSummary ? `"${newSummary.substring(0, 2000)}"` : '(unchanged)'}
+Change Description: "${changeDescription}"
+
+EVALUATE:
+1. Does the new title correctly reflect the user's instruction? Did the agent change what the user asked for?
+2. Does the new summary correctly reflect the user's instruction? If the user asked to REMOVE something, is it actually removed? If the user asked to ADD something, is it actually added?
+3. Is important existing content preserved (unless the user explicitly asked to remove it)?
+4. Overall: did the agent do what the user asked?
+
+Return ONLY valid JSON:
+{
+  "fulfilled": true or false,
+  "issues": "If not fulfilled: describe specifically what is wrong or missing. If fulfilled: null"
+}`;
+
+              const verifyResponse = await verifySession.sendAndWait({ prompt: verifyPrompt }, 30000);
+              await destroySession(verifySession);
+
+              if (verifyResponse) {
+                const verifyResult = parseJsonFromResponse(verifyResponse.data.content);
+                if (verifyResult && verifyResult.fulfilled === true) {
+                  console.log(`[VERIFY] Update verified on attempt ${attempt} ✅`);
+                  break;
+                } else if (verifyResult && verifyResult.fulfilled === false && attempt < 2) {
+                  // Agent didn't fulfil the request — try again with feedback
+                  console.log(`[VERIFY] Issues found on attempt ${attempt}: ${verifyResult.issues}`);
+                  
+                  const retryClient = new CopilotClient();
+                  const retrySession = trackSession(await retryClient.createSession({}));
+                  
+                  const retryPrompt = `You previously tried to update a task but the result was not correct. Fix the issues and try again.
+
+USER'S ORIGINAL INSTRUCTION:
+"${text.trim()}"
+
+CURRENT TASK:
+Title: "${task.title}"
+Summary: ${task.summary || '(none)'}
+
+YOUR PREVIOUS ATTEMPT:
+New Title: ${newTitle ? `"${newTitle}"` : '(unchanged)'}
+New Summary: ${newSummary ? `"${newSummary.substring(0, 2000)}"` : '(unchanged)'}
+
+ISSUES WITH YOUR PREVIOUS ATTEMPT:
+${verifyResult.issues}
+
+Fix these issues. Return ONLY valid JSON:
+{
+  "newTitle": "Corrected title",
+  "newSummary": "Corrected summary",
+  "changeDescription": "What you fixed"
+}`;
+
+                  const retryResponse = await retrySession.sendAndWait({ prompt: retryPrompt }, 30000);
+                  await destroySession(retrySession);
+                  
+                  if (retryResponse) {
+                    const retryResult = parseJsonFromResponse(retryResponse.data.content);
+                    if (retryResult) {
+                      if (retryResult.newTitle) newTitle = String(retryResult.newTitle).trim();
+                      if (retryResult.newSummary) newSummary = String(retryResult.newSummary).trim();
+                      changeDescription = retryResult.changeDescription || changeDescription;
+                      console.log(`[VERIFY] Retry produced improved result, verifying again...`);
+                    }
+                  }
+                  
+                  try { await retryClient.dispose(); } catch {}
+                } else {
+                  console.log(`[VERIFY] Verification inconclusive on attempt ${attempt}, proceeding with current result`);
+                  break;
+                }
+              } else {
+                console.log(`[VERIFY] No verification response, proceeding with current result`);
+                break;
+              }
+
+              try { await verifyClient.dispose(); } catch {}
+              verifyClient = null;
+            }
+          } catch (verifyErr) {
+            console.warn(`[VERIFY] Verification failed (non-fatal): ${verifyErr.message}`);
+          } finally {
+            if (verifySession) await destroySession(verifySession);
+            if (verifyClient) { try { await verifyClient.dispose(); } catch {} }
+          }
+
+          // Save the (potentially improved) result
           const savedTask = await safeWriteTasks((data) => {
             const t = data.tasks.find(t => t.id === id);
             if (!t) return null;
