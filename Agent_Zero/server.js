@@ -65,32 +65,10 @@ async function destroySession(session) {
   sessionTimestamps.delete(session);
   const client = sessionClients.has(session) ? sessionClients.get(session) : null;
   try { await session.destroy(); } catch {}
-  // forceStop kills the child process AND prevents reconnection
   if (client) {
     try { await client.forceStop(); } catch {}
     try { await client.dispose(); } catch {}
   }
-}
-
-// Kill SDK child processes that are no longer owned by any active session.
-// Runs after each session destroy and periodically.
-async function cleanupOrphanedChildren() {
-  if (process.platform !== 'win32') return;
-  try {
-    const { execSync } = await import('child_process');
-    const ownPid = process.pid;
-    const psOut = execSync(
-      `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"name='node.exe'\\" | Where-Object { $_.CommandLine -match 'copilot|@github|workiq.*mcp' -and $_.ProcessId -ne ${ownPid} } | Select-Object ProcessId, ParentProcessId, @{N='Age';E={[int]((Get-Date) - $_.CreationDate).TotalSeconds}} | Where-Object { $_.Age -gt 5 } | Select-Object -ExpandProperty ProcessId"`,
-      { encoding: 'utf-8', timeout: 10000 }
-    );
-    const pids = psOut.split(/\r?\n/).map(l => parseInt(l.trim(), 10)).filter(p => p && !isNaN(p));
-    if (pids.length > 0) {
-      for (const pid of pids) {
-        try { execSync(`taskkill /F /PID ${pid}`, { timeout: 3000 }); } catch {}
-      }
-      console.log(`[CLEANUP] Killed ${pids.length} lingering SDK subprocess(es)`);
-    }
-  } catch {}
 }
 
 async function destroyAllSessions() {
@@ -102,11 +80,10 @@ async function destroyAllSessions() {
   }));
 }
 
-// Periodic reaper: kill orphaned SDK subprocesses every 5 minutes during runtime.
-// Also destroys tracked sessions that have been alive for over 10 minutes (stuck).
+// Periodic check: destroy tracked sessions that have been alive for over 10 minutes (stuck).
+// Uses destroySession() which calls forceStop() — safe and targeted.
 function startPeriodicReaper() {
   setInterval(async () => {
-    // Step 1: Destroy stale tracked sessions (>10 min old)
     const now = Date.now();
     const staleTimeout = 10 * 60 * 1000;
     for (const [session, created] of sessionTimestamps.entries()) {
@@ -115,12 +92,7 @@ function startPeriodicReaper() {
         await destroySession(session);
       }
     }
-
-    // Step 2: Kill orphaned OS-level processes (always runs, targets processes >60s old)
-    try {
-      await cleanupOrphanedChildren();
-    } catch {}
-  }, 60 * 1000); // every 60 seconds
+  }, 60 * 1000);
 }
 
 // Graceful shutdown: destroy all tracked sessions before exit
@@ -845,7 +817,7 @@ ${reducedContext ? `\nAlready tracked (do NOT duplicate):\n${reducedContext}\n` 
 For each NEW actionable message, return: {"action":"new","title":"EXACT subject","source":"email"/"teams","from":"sender","date":"ISO date","link":"URL or null","actionNeeded":"what to do","deadline":"deadline or null"}
 Return ONLY a JSON array. If nothing, return [].`;
 
-      console.log(`[SCAN] Attempt 2: Reduced prompt ${reducedPrompt.length} chars, ${reducedDays} days, ${reducedTasks.length} context tasks`);
+      console.log(`[SCAN] Attempt 2: Reduced prompt ${reducedPrompt.length} chars, ${reducedDays} days, ${allContextTasks.slice(0, 10).length} context tasks`);
       try {
         client = new CopilotClient();
         session = trackSession(await client.createSession({
