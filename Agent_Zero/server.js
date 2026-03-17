@@ -43,7 +43,8 @@ process.on('unhandledRejection', (reason, promise) => {
 // Tracks all active Copilot SDK sessions to guarantee subprocess cleanup
 // on errors, timeouts, and server shutdown.
 const activeSessions = new Set();
-const sessionTimestamps = new Map(); // session → creation time for staleness detection
+const sessionTimestamps = new Map();
+const sessionClients = new WeakMap(); // session → CopilotClient
 
 function trackSession(session) {
   if (session) {
@@ -53,11 +54,43 @@ function trackSession(session) {
   return session;
 }
 
+// Associate a client with a session so destroySession can dispose it
+function linkClientToSession(session, client) {
+  if (session && client) sessionClients.set(session, client);
+}
+
 async function destroySession(session) {
   if (!session) return;
   activeSessions.delete(session);
   sessionTimestamps.delete(session);
+  const client = sessionClients.has(session) ? sessionClients.get(session) : null;
   try { await session.destroy(); } catch {}
+  // forceStop kills the child process AND prevents reconnection
+  if (client) {
+    try { await client.forceStop(); } catch {}
+    try { await client.dispose(); } catch {}
+  }
+}
+
+// Kill SDK child processes that are no longer owned by any active session.
+// Runs after each session destroy and periodically.
+async function cleanupOrphanedChildren() {
+  if (process.platform !== 'win32') return;
+  try {
+    const { execSync } = await import('child_process');
+    const ownPid = process.pid;
+    const psOut = execSync(
+      `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"name='node.exe'\\" | Where-Object { $_.CommandLine -match 'copilot|@github|workiq.*mcp' -and $_.ProcessId -ne ${ownPid} } | Select-Object ProcessId, ParentProcessId, @{N='Age';E={[int]((Get-Date) - $_.CreationDate).TotalSeconds}} | Where-Object { $_.Age -gt 5 } | Select-Object -ExpandProperty ProcessId"`,
+      { encoding: 'utf-8', timeout: 10000 }
+    );
+    const pids = psOut.split(/\r?\n/).map(l => parseInt(l.trim(), 10)).filter(p => p && !isNaN(p));
+    if (pids.length > 0) {
+      for (const pid of pids) {
+        try { execSync(`taskkill /F /PID ${pid}`, { timeout: 3000 }); } catch {}
+      }
+      console.log(`[CLEANUP] Killed ${pids.length} lingering SDK subprocess(es)`);
+    }
+  } catch {}
 }
 
 async function destroyAllSessions() {
@@ -75,7 +108,7 @@ function startPeriodicReaper() {
   setInterval(async () => {
     // Step 1: Destroy stale tracked sessions (>10 min old)
     const now = Date.now();
-    const staleTimeout = 10 * 60 * 1000; // 10 minutes
+    const staleTimeout = 10 * 60 * 1000;
     for (const [session, created] of sessionTimestamps.entries()) {
       if (now - created > staleTimeout) {
         console.log(`[REAPER] Destroying stale session (age: ${((now - created) / 1000).toFixed(0)}s)`);
@@ -83,11 +116,11 @@ function startPeriodicReaper() {
       }
     }
 
-    // Step 2: Kill orphaned OS-level processes
+    // Step 2: Kill orphaned OS-level processes (always runs, targets processes >60s old)
     try {
-      await reapOrphanedSessions();
+      await cleanupOrphanedChildren();
     } catch {}
-  }, 5 * 60 * 1000); // every 5 minutes
+  }, 60 * 1000); // every 60 seconds
 }
 
 // Graceful shutdown: destroy all tracked sessions before exit
@@ -115,13 +148,7 @@ setupGracefulShutdown();
 // command line containing '@github/copilot'. On Windows we use PowerShell's
 // Get-CimInstance (WMIC is deprecated on Win11); on Unix we use pkill.
 async function reapOrphanedSessions() {
-  // Only kill orphaned SDK processes — NOT those actively used by this server.
-  // Strategy: kill processes that started BEFORE this server (orphans from previous runs).
-  // Active sessions started after our server are by definition ours.
-  if (activeSessions.size > 0) {
-    // Don't reap while sessions are active — they might own child processes
-    return;
-  }
+  // Kill ALL SDK child processes (used at startup to clean up from previous runs)
   const { execSync } = await import('child_process');
   try {
     if (process.platform === 'win32') {
@@ -138,7 +165,7 @@ async function reapOrphanedSessions() {
         for (const pid of orphanPids) {
           try { execSync(`taskkill /F /PID ${pid}`, { timeout: 5000 }); } catch {}
         }
-        console.log(`[REAPER] Killed ${orphanPids.length} orphaned subprocess(es)`);
+        console.log(`[REAPER] Killed ${orphanPids.length} orphaned subprocess(es) from previous run`);
       }
     } else {
       // Unix: kill node processes whose cmdline contains copilot-sdk markers
@@ -735,6 +762,7 @@ app.post('/api/scan', async (req, res) => {
       }
     }));
 
+    linkClientToSession(session, client);
     // Build context-aware prompt with existing tasks (v1.3, dedup fix v1.5)
     const data = readTasks();
     const activeTasks = data.tasks
@@ -823,6 +851,7 @@ Return ONLY a JSON array. If nothing, return [].`;
         session = trackSession(await client.createSession({
           mcpServers: { workiq: { type: 'stdio', command: 'workiq', args: ['mcp'], tools: '*' } }
         }));
+        linkClientToSession(session, client);
         response = await session.sendAndWait({ prompt: reducedPrompt }, 300000);
         console.log(`[SCAN] Attempt 2 succeeded in ${((Date.now() - scanStart) / 1000).toFixed(1)}s`);
       } catch (err2) {
@@ -1047,6 +1076,7 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
       }
     }));
 
+    linkClientToSession(session, client);
     // Extract keywords from title (drop common words, keep distinctive terms)
     const stopWords = new Set(['the', 'a', 'an', 'to', 'for', 'of', 'in', 'on', 'at', 'by', 'and', 'or', 'via', 'with', 'from', 'my', 'your', 'is', 'are', 'was', 'be', 'has', 'have', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'this', 'that', 'these', 'those', 'it', 'its']);
     const keywords = task.title
@@ -1209,6 +1239,7 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
       }
     }));
 
+    linkClientToSession(session, client);
     // Extract keywords from title (same technique as Phase 2)
     const stopWords = new Set(['the', 'a', 'an', 'to', 'for', 'of', 'in', 'on', 'at', 'by', 'and', 'or', 'via', 'with', 'from', 'my', 'your', 'is', 'are', 'was', 'be', 'has', 'have', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'this', 'that', 'these', 'those', 'it', 'its']);
     const keywords = task.title
@@ -1320,6 +1351,7 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
         evalClient = new CopilotClient();
         evalSession = trackSession(await evalClient.createSession({}));
 
+        linkClientToSession(evalSession, evalClient);
         const evalPrompt = `You are evaluating whether a task's title and summary need updating based on new information from an update check.
 
 CURRENT TASK:
@@ -1500,6 +1532,7 @@ app.post('/api/consolidate', async (req, res) => {
     client = new CopilotClient();
     session = trackSession(await client.createSession({}));
 
+    linkClientToSession(session, client);
     const startTime = Date.now();
     console.log(`[CONSOLIDATE] Analyzing ${activeTasks.length} tasks for merge suggestions (prompt: ${prompt.length} chars)`);
     const response = await session.sendAndWait({ prompt }, 30000);
@@ -1570,6 +1603,7 @@ app.post('/api/tasks/merge', async (req, res) => {
     client = new CopilotClient();
     session = trackSession(await client.createSession({}));
 
+    linkClientToSession(session, client);
     const mergePrompt = `You are merging multiple action items into one unified summary.
 
 TASKS TO MERGE:
@@ -1799,6 +1833,7 @@ app.post('/api/tasks/:id/log/analyze', async (req, res) => {
     if (ichHabeAction || iDidAction) {
       console.log(`[ANALYZE] Pre-filter: detected "Ich habe..." action report → forcing update-only prompt`);
       preSession = trackSession(await client.createSession({}));
+      linkClientToSession(preSession, client);
       try {
         const updateOnlyPrompt = `You are updating a task tracker. The user is providing information and wants the task updated. Generate an appropriate update that MERGES the new information with the existing content.
 
@@ -1861,6 +1896,7 @@ Return ONLY this JSON (no markdown, no explanation):
 
     session = trackSession(await client.createSession({}));
 
+    linkClientToSession(session, client);
     const analyzePrompt = `You are an intelligent assistant managing a task tracker. The user sends you messages about a specific task. Your job is to UNDERSTAND what the user wants and act accordingly.
 
 TASK CONTEXT:
@@ -2151,6 +2187,7 @@ Return ONLY the JSON object. No markdown, no explanation.`;
               verifyClient = new CopilotClient();
               verifySession = trackSession(await verifyClient.createSession({}));
 
+              linkClientToSession(verifySession, verifyClient);
               const verifyPrompt = `You are a quality reviewer. A user gave an instruction to update a task. An agent produced changes. Your job is to verify whether the agent's changes correctly fulfil the user's instruction.
 
 USER'S ORIGINAL INSTRUCTION:
@@ -2492,6 +2529,7 @@ app.post('/api/tasks/:id/log', async (req, res) => {
       }
     }));
 
+    linkClientToSession(session, client);
     const response = await session.sendAndWait({ prompt: searchPrompt }, 300000);
     const elapsed = Date.now() - searchStartTime;
     console.log(`[LOG] Response received in ${elapsed}ms`);
@@ -2629,6 +2667,7 @@ app.post('/api/tasks/:id/log', async (req, res) => {
         evalClient = new CopilotClient();
         evalSession = trackSession(await evalClient.createSession({}));
 
+        linkClientToSession(evalSession, evalClient);
         const commSummaries = communications.slice(0, 10).map(c => {
           const date = c.date ? new Date(c.date).toLocaleDateString('de-CH') : '';
           return `- ${c.from || '?'} → ${c.to || '?'} (${date}): ${c.summary || c.subject || ''}`;
@@ -2791,6 +2830,7 @@ app.post('/api/tasks/:id/review', async (req, res) => {
       }
     }));
 
+    linkClientToSession(session, client);
     const reviewPrompt = `You are an intelligent assistant for a task management app. The user is responding to review questions that the agent flagged as uncertain during content enrichment.
 
 TASK CONTEXT:
@@ -2962,6 +3002,7 @@ app.post('/api/tasks/:id/correct', async (req, res) => {
       }
     }));
 
+    linkClientToSession(session, client);
     const taskDate = task.date || task.createdAt || '';
     const allKeywords = [
       ...(plan.keywords || []),
