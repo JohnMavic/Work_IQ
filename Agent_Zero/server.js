@@ -819,6 +819,8 @@ Return ONLY a JSON array. If nothing, return [].`;
 
       console.log(`[SCAN] Attempt 2: Reduced prompt ${reducedPrompt.length} chars, ${reducedDays} days, ${allContextTasks.slice(0, 10).length} context tasks`);
       try {
+        // Dispose first client before creating a new one to prevent resource leak
+        if (client) { try { await client.dispose(); } catch {} }
         client = new CopilotClient();
         session = trackSession(await client.createSession({
           mcpServers: { workiq: { type: 'stdio', command: 'workiq', args: ['mcp'], tools: '*' } }
@@ -2198,10 +2200,12 @@ Return ONLY valid JSON:
                   // Agent didn't fulfil the request — try again with feedback
                   console.log(`[VERIFY] Issues found on attempt ${attempt}: ${verifyResult.issues}`);
                   
-                  const retryClient = new CopilotClient();
-                  const retrySession = trackSession(await retryClient.createSession({}));
-                  
-                  const retryPrompt = `You previously tried to update a task but the result was not correct. Fix the issues and try again.
+                  let retryClient, retrySession;
+                  try {
+                    retryClient = new CopilotClient();
+                    retrySession = trackSession(await retryClient.createSession({}));
+                    
+                    const retryPrompt = `You previously tried to update a task but the result was not correct. Fix the issues and try again.
 
 USER'S ORIGINAL INSTRUCTION:
 "${text.trim()}"
@@ -2224,20 +2228,21 @@ Fix these issues. Return ONLY valid JSON:
   "changeDescription": "What you fixed"
 }`;
 
-                  const retryResponse = await retrySession.sendAndWait({ prompt: retryPrompt }, 30000);
-                  await destroySession(retrySession);
-                  
-                  if (retryResponse) {
-                    const retryResult = parseJsonFromResponse(retryResponse.data.content);
-                    if (retryResult) {
-                      if (retryResult.newTitle) newTitle = String(retryResult.newTitle).trim();
-                      if (retryResult.newSummary) newSummary = String(retryResult.newSummary).trim();
-                      changeDescription = retryResult.changeDescription || changeDescription;
-                      console.log(`[VERIFY] Retry produced improved result, verifying again...`);
+                    const retryResponse = await retrySession.sendAndWait({ prompt: retryPrompt }, 30000);
+                    
+                    if (retryResponse) {
+                      const retryResult = parseJsonFromResponse(retryResponse.data.content);
+                      if (retryResult) {
+                        if (retryResult.newTitle) newTitle = String(retryResult.newTitle).trim();
+                        if (retryResult.newSummary) newSummary = String(retryResult.newSummary).trim();
+                        changeDescription = retryResult.changeDescription || changeDescription;
+                        console.log(`[VERIFY] Retry produced improved result, verifying again...`);
+                      }
                     }
+                  } finally {
+                    if (retrySession) await destroySession(retrySession);
+                    if (retryClient) { try { await retryClient.dispose(); } catch {} }
                   }
-                  
-                  try { await retryClient.dispose(); } catch {}
                 } else {
                   console.log(`[VERIFY] Verification inconclusive on attempt ${attempt}, proceeding with current result`);
                   break;
