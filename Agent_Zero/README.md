@@ -289,7 +289,7 @@ schtasks /create /xml "WorkIQ-Scan-Task.xml" /tn "WorkIQ-Scan"
 Agent_Zero/
 ├── server.js                    Express backend (API + AI orchestration)
 ├── index.html                   Single-file frontend (HTML + CSS + JS)
-├── package.json                 Dependencies (v2.2.0)
+├── package.json                 Dependencies (v3.0.0)
 ├── mcp.json                     MCP server configuration (Work IQ)
 ├── tasks.json                   Local task storage (gitignored)
 ├── AGENTS.md                    Agent behavior documentation
@@ -301,7 +301,7 @@ Agent_Zero/
 ├── docs/
 │   ├── README.md                Challenge documentation (problem, solution, RAI)
 │   ├── ARCHITECTURE.md          System architecture (current state)
-│   ├── CHANGELOG.md             Version history (v1.0 → v2.9)
+│   ├── CHANGELOG.md             Version history (v1.0 → v3.0)
 │   ├── SCAN_DISCOVERY_SKILL.md  Phase 1 prompt template
 │   ├── ENRICH_SKILL.md          Phase 2 prompt template
 │   ├── UPDATE_CHECK_SKILL.md    Phase 3 prompt template
