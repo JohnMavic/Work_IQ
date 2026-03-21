@@ -106,26 +106,45 @@
   .badge-success { background: var(--green-dim); color: var(--green); border: 1px solid rgba(63,185,80,0.3); }
   .stats-row {
     display: flex;
-    gap: 32px;
+    gap: 16px;
     margin-top: 20px;
     flex-wrap: wrap;
   }
   .stat {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+    flex: 1;
+    min-width: 120px;
+    background: var(--surface2);
+    border-radius: 10px;
+    padding: 16px 20px;
+    text-align: center;
+    border: 1px solid var(--border);
+    transition: transform 0.2s;
   }
+  .stat:hover { transform: translateY(-2px); }
   .stat-value {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--text);
+    font-size: 1.8rem;
+    font-weight: 800;
+    line-height: 1.2;
   }
   .stat-label {
-    font-size: 0.8rem;
+    font-size: 0.72rem;
     color: var(--text-dim);
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    margin-top: 4px;
   }
+  .stat-neon-blue { border-color: rgba(88,166,255,0.4); box-shadow: 0 0 12px rgba(88,166,255,0.1); }
+  .stat-neon-blue .stat-value { color: #58a6ff; }
+  .stat-neon-purple { border-color: rgba(188,140,255,0.4); box-shadow: 0 0 12px rgba(188,140,255,0.1); }
+  .stat-neon-purple .stat-value { color: #bc8cff; }
+  .stat-neon-gold { border-color: rgba(240,192,64,0.4); box-shadow: 0 0 12px rgba(240,192,64,0.1); }
+  .stat-neon-gold .stat-value { color: #f0c040; }
+  .stat-neon-green { border-color: rgba(63,185,80,0.4); box-shadow: 0 0 12px rgba(63,185,80,0.1); }
+  .stat-neon-green .stat-value { color: #3fb950; }
+  .stat-neon-orange { border-color: rgba(210,153,34,0.4); box-shadow: 0 0 12px rgba(210,153,34,0.1); }
+  .stat-neon-orange .stat-value { color: #d29922; }
+  .stat-neon-cyan { border-color: rgba(57,211,211,0.4); box-shadow: 0 0 12px rgba(57,211,211,0.1); }
+  .stat-neon-cyan .stat-value { color: #39d3d3; }
 
   /* Cards */
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
@@ -297,27 +316,27 @@
       <span class="badge badge-success">&#10003; OPTIMIZED &mdash; 79/100 (+12.9%)</span>
     </div>
     <div class="stats-row">
-      <div class="stat">
+      <div class="stat stat-neon-blue">
         <div class="stat-value">4</div>
         <div class="stat-label">Rounds</div>
       </div>
-      <div class="stat">
+      <div class="stat stat-neon-purple">
         <div class="stat-value">12</div>
         <div class="stat-label">Variants Tested</div>
       </div>
-      <div class="stat">
+      <div class="stat stat-neon-gold">
         <div class="stat-value">v1a</div>
         <div class="stat-label">Winner (Round 1)</div>
       </div>
-      <div class="stat">
+      <div class="stat stat-neon-green">
         <div class="stat-value">79.0</div>
         <div class="stat-label">Final Score</div>
       </div>
-      <div class="stat">
+      <div class="stat stat-neon-orange">
         <div class="stat-value">70.0</div>
         <div class="stat-label">Baseline Score</div>
       </div>
-      <div class="stat">
+      <div class="stat stat-neon-cyan">
         <div class="stat-value">+12.9%</div>
         <div class="stat-label">Improvement</div>
       </div>
