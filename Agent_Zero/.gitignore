@@ -13,3 +13,6 @@ scan-log.txt
 docs/archive/
 docs/Final Video/
 *.docx
+
+# Optimization workspace — contains sensitive test data (real inbox content)
+Agent_Zero_Claude_Loop/
