@@ -159,6 +159,41 @@
       "adopted": false,
       "consecutive_no_improvement": 2,
       "regression": {}
+    },
+    {
+      "round": 4,
+      "date": "2026-03-21T17:10:00Z",
+      "variants": {
+        "a": {
+          "strategy": "Reorder Only (positive inclusion first, conservative framing pushed down)",
+          "total_score": 40.0,
+          "duration_seconds": 175.4,
+          "tasks_created": 1,
+          "criteria": { "classification": 30, "subject_fidelity": 100, "deduplication": 85, "output_format": 100, "performance": 50 },
+          "notes": "Only 1 Teams question found. Reordering didn't help — model still ultra-conservative. Missed all emails."
+        },
+        "b": {
+          "strategy": "Channel Split (separate email/Teams rules with opposite defaults)",
+          "total_score": 59.5,
+          "duration_seconds": 182.3,
+          "tasks_created": 2,
+          "criteria": { "classification": 30, "subject_fidelity": 100, "deduplication": 85, "output_format": 100, "performance": 50 },
+          "notes": "Email default=include caught Quarter End POs but also Service Alert FP. Teams correctly filtered."
+        },
+        "c": {
+          "strategy": "Back to Basics (original + 3 surgical additions only, 538 words)",
+          "total_score": 0,
+          "duration_seconds": 300,
+          "tasks_created": 0,
+          "criteria": { "classification": 0, "subject_fidelity": 0, "deduplication": 0, "output_format": 0, "performance": 0 },
+          "notes": "TIMEOUT at 300s. Complete failure. Simpler prompt did not mean faster processing."
+        }
+      },
+      "winner": "none",
+      "adopted": false,
+      "consecutive_no_improvement": 3,
+      "phase_status": "OPTIMIZED — 3 consecutive rounds without improvement. v1a (79/100) is the final result.",
+      "regression": {}
     }
   ]
 }
