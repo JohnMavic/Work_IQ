@@ -9,3 +9,5 @@ Agent_Zero/.claude/
 Agent_Zero/scan-log.txt
 Agent_Zero/WorkIQ-Scan-Task.xml
 Agent_Zero/Start-WorkIQ-Scan.ps1
+
+Agent_Zero_Claude_Loop/
