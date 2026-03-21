@@ -1,0 +1,129 @@
+{
+  "_description": "Golden Set für Phase 1 Baseline — Bewertung der Scan-Ergebnisse",
+  "_date": "2026-03-21T15:34:35Z",
+  "_scan_params": { "days": 7 },
+  "_scan_duration_seconds": 127.2,
+  "_total_messages_evaluated": 33,
+  "_reviewer": "auto (pending user review)",
+
+  "scan_summary": {
+    "total_messages": 33,
+    "classified_as_new": 5,
+    "classified_as_update": 3,
+    "classified_as_skip": 25,
+    "updates_failed": 3
+  },
+
+  "new_tasks": [
+    {
+      "index": 1,
+      "title": "Quarter End P09 March GS Open POs",
+      "source": "email",
+      "from": "Anjali Patel (WIPRO LIMITED)",
+      "has_link": true,
+      "assessment": "actionable",
+      "reasoning": "Business request about purchase orders at quarter end — requires action",
+      "subject_fidelity": "exact"
+    },
+    {
+      "index": 2,
+      "title": "Extron MPR – Documentation and Update Information",
+      "source": "email",
+      "from": "Jessica Ratnam (Experis AG)",
+      "has_link": true,
+      "assessment": "actionable",
+      "reasoning": "Documentation and update information from colleague — requires review/action",
+      "subject_fidelity": "exact"
+    },
+    {
+      "index": 3,
+      "title": "Kurze Frage haben wir einen Passwortmanager den wir benutzen?",
+      "source": "teams",
+      "from": "Jessica Ratnam (Experis AG)",
+      "has_link": true,
+      "assessment": "actionable",
+      "reasoning": "Direct question from colleague that needs an answer",
+      "subject_fidelity": "exact"
+    },
+    {
+      "index": 4,
+      "title": "Which one you think is closer to what it does?",
+      "source": "teams",
+      "from": "Bremen Lee",
+      "has_link": true,
+      "assessment": "false_positive",
+      "reasoning": "Vague chat snippet without context — conversational, not a standalone task",
+      "subject_fidelity": "exact"
+    },
+    {
+      "index": 5,
+      "title": "Bin gerade noch in nem Call. Finden wir mal ein paar Minuten später oder bist fully booked?",
+      "source": "teams",
+      "from": "Belinda Schott (Sodexo Suisse SA)",
+      "has_link": true,
+      "assessment": "false_positive",
+      "reasoning": "Casual scheduling chat — not actionable, ephemeral Teams message",
+      "subject_fidelity": "exact"
+    }
+  ],
+
+  "failed_updates": [
+    {
+      "title": "[EXTERNAL] AW: Microsoft Seestrasse: IT Scope Alignment",
+      "issue": "Referenced task ID not found in tasks.json"
+    },
+    {
+      "title": "Microsoft Seestrasse – AV-Räume LAN-Recabling: Vollständiger Kabelaustausch (außer AP) entschieden",
+      "issue": "Referenced task ID not found in tasks.json"
+    },
+    {
+      "title": "S360 device non-compliance: desktop-39der34",
+      "issue": "Referenced task ID not found in tasks.json"
+    }
+  ],
+
+  "scores": {
+    "classification": {
+      "true_positives": 3,
+      "false_positives": 2,
+      "false_negatives_estimated": 0,
+      "precision": 0.60,
+      "recall_estimated": 1.00,
+      "f1_score": 0.75,
+      "score": 50,
+      "notes": "2 casual Teams chats wrongly flagged as actionable. Recall unknown — assumed 100%."
+    },
+    "subject_fidelity": {
+      "total_compared": 5,
+      "exact_matches": 5,
+      "match_rate": 1.00,
+      "score": 100,
+      "notes": "All 5 titles appear to be exact copies of original subjects."
+    },
+    "deduplication": {
+      "update_attempts": 3,
+      "successful_updates": 0,
+      "failed_updates": 3,
+      "false_duplicates_in_new": 0,
+      "accuracy": 0.50,
+      "score": 50,
+      "notes": "3 update attempts with non-existent task IDs. Topics seem related to existing tasks but IDs wrong."
+    },
+    "output_format": {
+      "valid_json": true,
+      "valid_array": true,
+      "all_fields_present": true,
+      "no_markdown_wrapper": true,
+      "valid_items_rate": 1.00,
+      "score": 100,
+      "notes": "Response was valid JSON with correct structure and all required fields."
+    },
+    "performance": {
+      "duration_seconds": 127.2,
+      "timeout": false,
+      "error": false,
+      "score": 50,
+      "notes": "127.2s is in the 120-300s range. Target is <60s."
+    }
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "phase": "phase_1",
+  "skill_file": "SCAN_DISCOVERY_SKILL.md",
+  "criteria_weights": {
+    "classification": 0.30,
+    "subject_fidelity": 0.25,
+    "deduplication": 0.15,
+    "output_format": 0.15,
+    "performance": 0.15
+  },
+  "baseline": {
+    "date": "2026-03-21T15:34:35Z",
+    "total_score": 70.0,
+    "scan_duration_seconds": 127.2,
+    "messages_evaluated": 33,
+    "tasks_created": 5,
+    "criteria": {
+      "classification": 50,
+      "subject_fidelity": 100,
+      "deduplication": 50,
+      "output_format": 100,
+      "performance": 50
+    },
+    "notes": "3/5 tasks korrekt actionable, 2 false positives (casual Teams chats). 3 failed dedup matches. 127s Dauer."
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "date": "2026-03-21T15:41:00Z",
+      "variants": {
+        "a": {
+          "strategy": "Strukturelle Optimierung (CoT, Decision Framework, Teams Rules)",
+          "total_score": 79.0,
+          "duration_seconds": 171.5,
+          "tasks_created": 5,
+          "criteria": {
+            "classification": 70,
+            "subject_fidelity": 100,
+            "deduplication": 70,
+            "output_format": 100,
+            "performance": 50
+          },
+          "notes": "4/5 korrekt actionable, 1 FP (scheduling). Eliminated 2 baseline FPs. 1 missed email. Only 1 failed dedup vs 3."
+        },
+        "b": {
+          "strategy": "Inhaltliche Optimierung (DO/DON'T Beispiele, Anti-Patterns)",
+          "total_score": 71.5,
+          "duration_seconds": 212.9,
+          "tasks_created": 1,
+          "criteria": {
+            "classification": 30,
+            "subject_fidelity": 100,
+            "deduplication": 100,
+            "output_format": 100,
+            "performance": 50
+          },
+          "notes": "Zu konservativ — nur 1 Task gefunden. 'When in doubt leave it out' war zu strikt. Recall katastrophal."
+        },
+        "c": {
+          "strategy": "Kompaktierung (kürzer, priorisiert, <400 Wörter)",
+          "total_score": 69.2,
+          "duration_seconds": 221.6,
+          "tasks_created": 3,
+          "criteria": {
+            "classification": 30,
+            "subject_fidelity": 100,
+            "deduplication": 85,
+            "output_format": 100,
+            "performance": 50
+          },
+          "notes": "Falsche Tasks gefunden (Event-Invite, FYI). Kompakter Prompt verlor zu viel Guidance. Langsamer trotz weniger Text."
+        }
+      },
+      "winner": "a",
+      "adopted": true,
+      "regression": {}
+    },
+    {
+      "round": 2,
+      "date": "2026-03-21T16:01:00Z",
+      "variants": {
+        "a": {
+          "strategy": "Recall+Hybrid (relaxed Teams rules, email subject-as-signal, shifted cost model)",
+          "total_score": 0,
+          "duration_seconds": 222.5,
+          "tasks_created": 0,
+          "criteria": {
+            "classification": 0,
+            "subject_fidelity": 0,
+            "deduplication": 0,
+            "output_format": 100,
+            "performance": 50
+          },
+          "notes": "KATASTROPHE: 0 Tasks gefunden. 'FN is permanent' Framing hat Model komplett verwirrt. Zu viel Nuance."
+        },
+        "b": {
+          "strategy": "Dedup-Excellence (v1b dedup rules merged into v1a, scheduling filter)",
+          "total_score": 0,
+          "duration_seconds": 245.9,
+          "tasks_created": 0,
+          "criteria": {
+            "classification": 0,
+            "subject_fidelity": 0,
+            "deduplication": 0,
+            "output_format": 100,
+            "performance": 50
+          },
+          "notes": "KATASTROPHE: 0 Tasks gefunden. '100% certain' Dedup-Schwelle + Scheduling-Filter = alles geskippt."
+        },
+        "c": {
+          "strategy": "Few-Shot Examples (10 konkrete Klassifikations-Beispiele aus realen Daten)",
+          "total_score": 70.0,
+          "duration_seconds": 126.0,
+          "tasks_created": 2,
+          "criteria": {
+            "classification": 30,
+            "subject_fidelity": 100,
+            "deduplication": 90,
+            "output_format": 100,
+            "performance": 50
+          },
+          "notes": "2/2 korrekt (100% Precision) aber nur 2/5 gefunden (40% Recall). Schnellste Variante (126s). Kein Improvement vs v1a."
+        }
+      },
+      "winner": "none",
+      "adopted": false,
+      "regression": {}
+    }
+  ]
+}

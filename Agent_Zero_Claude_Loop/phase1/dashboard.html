@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Zero — Phase 1: Scan &amp; Discovery</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  :root {
+    --bg-primary: #0d1117;
+    --bg-secondary: #161b22;
+    --bg-tertiary: #21262d;
+    --border: #30363d;
+    --text-primary: #e6edf3;
+    --text-secondary: #8b949e;
+    --text-muted: #484f58;
+    --accent-green: #3fb950;
+    --accent-blue: #58a6ff;
+    --accent-orange: #d29922;
+    --accent-red: #f85149;
+    --accent-purple: #bc8cff;
+    --accent-gold: #f0c000;
+    --accent-gray: #484f58;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.5;
+    padding: 24px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    padding: 32px 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 32px;
+  }
+  .header h1 {
+    font-size: 28px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    background: linear-gradient(135deg, var(--accent-green), var(--accent-blue));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .header .subtitle {
+    font-size: 16px;
+    color: var(--text-secondary);
+    margin-bottom: 20px;
+  }
+  .score-cards {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .score-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 32px;
+    text-align: center;
+    min-width: 180px;
+  }
+  .score-card .label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+  }
+  .score-card .value {
+    font-size: 36px;
+    font-weight: 700;
+  }
+  .score-card .value.baseline { color: var(--text-muted); }
+  .score-card .value.best { color: var(--accent-green); }
+  .score-card .delta {
+    font-size: 13px;
+    color: var(--accent-green);
+    margin-top: 2px;
+  }
+
+  /* Sections */
+  .section {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .section-title {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-title .icon { font-size: 20px; }
+
+  /* Charts */
+  .chart-container {
+    position: relative;
+    width: 100%;
+    max-height: 360px;
+  }
+
+  /* Radar section */
+  .radar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .round-select {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .round-select:focus { outline: 1px solid var(--accent-blue); }
+
+  /* Detail Table */
+  .detail-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  .detail-table th, .detail-table td {
+    padding: 10px 14px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+  }
+  .detail-table th {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    position: sticky;
+    top: 0;
+  }
+  .detail-table th:first-child, .detail-table td:first-child {
+    text-align: left;
+  }
+  .detail-table tr:hover { background: rgba(255,255,255,0.02); }
+  .detail-table .total-row {
+    font-weight: 700;
+    border-top: 2px solid var(--border);
+    background: rgba(255,255,255,0.03);
+  }
+  .detail-table .weight {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin-left: 4px;
+  }
+
+  /* Color-coded cells */
+  .cell-improved { color: var(--accent-green); }
+  .cell-same { color: var(--accent-orange); }
+  .cell-worse { color: var(--accent-red); }
+  .cell-winner {
+    color: var(--accent-gold);
+    font-weight: 700;
+    text-shadow: 0 0 8px rgba(240,192,0,0.3);
+  }
+
+  /* Regression Panel */
+  .regression-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+  }
+  .regression-card {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+  }
+  .regression-card .phase-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+  }
+  .regression-card .phase-score {
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .regression-card .phase-delta {
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .regression-card.stable { border-color: var(--accent-green); }
+  .regression-card.stable .phase-score { color: var(--accent-green); }
+  .regression-card.stable .phase-delta { color: var(--accent-green); }
+  .regression-card.degraded { border-color: var(--accent-red); }
+  .regression-card.degraded .phase-score { color: var(--accent-red); }
+  .regression-card.degraded .phase-delta { color: var(--accent-red); }
+  .regression-card.untested { border-color: var(--accent-gray); }
+  .regression-card.untested .phase-score { color: var(--text-muted); }
+  .regression-card.untested .phase-delta { color: var(--text-muted); }
+
+  /* Empty state */
+  .empty-state {
+    text-align: center;
+    padding: 48px 24px;
+    color: var(--text-muted);
+  }
+  .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+  .empty-state .msg { font-size: 16px; }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    body { padding: 12px; }
+    .header h1 { font-size: 22px; }
+    .score-card { min-width: 140px; padding: 12px 20px; }
+    .score-card .value { font-size: 28px; }
+    .detail-table { font-size: 12px; }
+    .detail-table th, .detail-table td { padding: 6px 8px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     EMBEDDED DATA — PASTE YOUR scores.json DATA HERE
+     This allows the dashboard to work with file:// protocol.
+     When served via HTTP, it will try to fetch scores.json first.
+     ============================================================ -->
+<script>
+const EMBEDDED_SCORES = {
+  "phase": "phase_1",
+  "skill_file": "SCAN_DISCOVERY_SKILL.md",
+  "criteria_weights": {
+    "classification": 0.30,
+    "subject_fidelity": 0.25,
+    "deduplication": 0.15,
+    "output_format": 0.15,
+    "performance": 0.15
+  },
+  "baseline": {
+    "date": "2026-03-22T10:00:00Z",
+    "total_score": 0,
+    "criteria": {
+      "classification": 0,
+      "subject_fidelity": 0,
+      "deduplication": 0,
+      "output_format": 0,
+      "performance": 0
+    }
+  },
+  "rounds": []
+};
+</script>
+
+<div class="header">
+  <h1>Agent Zero — Phase 1: Scan &amp; Discovery</h1>
+  <p class="subtitle">Skill Optimization Dashboard</p>
+  <div class="score-cards">
+    <div class="score-card">
+      <div class="label">Baseline Score</div>
+      <div class="value baseline" id="baselineScore">—</div>
+    </div>
+    <div class="score-card">
+      <div class="label">Current Best</div>
+      <div class="value best" id="bestScore">—</div>
+      <div class="delta" id="bestDelta"></div>
+    </div>
+    <div class="score-card">
+      <div class="label">Rounds</div>
+      <div class="value" id="roundCount" style="color:var(--accent-blue)">0</div>
+    </div>
+  </div>
+</div>
+
+<!-- 1. Score Progress -->
+<div class="section">
+  <div class="section-title"><span class="icon">📈</span> Score Progress</div>
+  <div class="chart-container">
+    <canvas id="progressChart"></canvas>
+  </div>
+  <div class="empty-state" id="progressEmpty" style="display:none">
+    <div class="icon">🔬</div>
+    <div class="msg">No rounds yet. Run the optimization loop to see progress.</div>
+  </div>
+</div>
+
+<!-- 2. Radar Chart -->
+<div class="section">
+  <div class="radar-header">
+    <div class="section-title" style="margin-bottom:0"><span class="icon">🎯</span> Criteria Breakdown</div>
+    <select class="round-select" id="radarRoundSelect">
+      <option value="-1">Select round…</option>
+    </select>
+  </div>
+  <div class="chart-container" style="max-height:420px">
+    <canvas id="radarChart"></canvas>
+  </div>
+  <div class="empty-state" id="radarEmpty" style="display:none">
+    <div class="icon">🎯</div>
+    <div class="msg">Select a round to see the criteria comparison.</div>
+  </div>
+</div>
+
+<!-- 3. Detail Table -->
+<div class="section">
+  <div class="section-title"><span class="icon">📊</span> Detailed Scores</div>
+  <div style="overflow-x:auto">
+    <table class="detail-table" id="detailTable">
+      <thead id="detailHead"></thead>
+      <tbody id="detailBody"></tbody>
+    </table>
+  </div>
+  <div class="empty-state" id="tableEmpty">
+    <div class="icon">📋</div>
+    <div class="msg">Run the first round to see the detailed comparison.</div>
+  </div>
+</div>
+
+<!-- 4. Regression Panel -->
+<div class="section">
+  <div class="section-title"><span class="icon">🛡️</span> Regression Impact</div>
+  <div class="regression-grid" id="regressionGrid"></div>
+  <div class="empty-state" id="regressionEmpty">
+    <div class="icon">🔒</div>
+    <div class="msg">No regression data available yet.</div>
+  </div>
+</div>
+
+<script>
+// ── Criteria display names and order ──
+const CRITERIA_META = {
+  classification:    { label: 'Klassifikation',    short: 'Klass.' },
+  subject_fidelity:  { label: 'Subject Fidelity',  short: 'Subject' },
+  deduplication:     { label: 'Deduplication',      short: 'Dedup.' },
+  output_format:     { label: 'Output Format',      short: 'Format' },
+  performance:       { label: 'Performance',        short: 'Perf.' }
+};
+const CRITERIA_KEYS = Object.keys(CRITERIA_META);
+
+const VARIANT_COLORS = {
+  a: { bg: 'rgba(88,166,255,0.2)',  border: '#58a6ff',  label: 'Variant A' },
+  b: { bg: 'rgba(63,185,80,0.2)',   border: '#3fb950',  label: 'Variant B' },
+  c: { bg: 'rgba(210,153,34,0.2)',  border: '#d29922',  label: 'Variant C' }
+};
+
+const PHASE_NAMES = {
+  phase_2: 'Phase 2 — Enrich & Context',
+  phase_3: 'Phase 3 — Structured Output',
+  phase_4: 'Phase 4 — Log Work'
+};
+
+let progressChart = null;
+let radarChart = null;
+
+// ── Data loading ──
+async function loadData() {
+  // Try fetch first (works when served via HTTP)
+  if (window.location.protocol !== 'file:') {
+    try {
+      const resp = await fetch('scores.json');
+      if (resp.ok) return await resp.json();
+    } catch (e) { /* fall through to embedded */ }
+  }
+  return EMBEDDED_SCORES;
+}
+
+// ── Render everything ──
+async function render() {
+  const data = await loadData();
+  renderHeader(data);
+  renderProgressChart(data);
+  renderRadarDropdown(data);
+  renderDetailTable(data);
+  renderRegression(data);
+}
+
+// ── Header ──
+function renderHeader(data) {
+  const baseline = data.baseline.total_score;
+  document.getElementById('baselineScore').textContent = baseline.toFixed(1);
+
+  const adoptedRounds = data.rounds.filter(r => r.adopted);
+  let best = baseline;
+  if (adoptedRounds.length > 0) {
+    const lastAdopted = adoptedRounds[adoptedRounds.length - 1];
+    const winner = lastAdopted.variants[lastAdopted.winner];
+    if (winner) best = winner.total_score;
+  }
+
+  document.getElementById('bestScore').textContent = best.toFixed(1);
+  const delta = best - baseline;
+  const deltaEl = document.getElementById('bestDelta');
+  if (delta > 0) {
+    deltaEl.textContent = `▲ +${delta.toFixed(1)} from baseline`;
+  } else if (delta < 0) {
+    deltaEl.textContent = `▼ ${delta.toFixed(1)} from baseline`;
+    deltaEl.style.color = 'var(--accent-red)';
+  }
+
+  document.getElementById('roundCount').textContent = data.rounds.length;
+}
+
+// ── Progress Chart ──
+function renderProgressChart(data) {
+  const canvas = document.getElementById('progressChart');
+  const emptyEl = document.getElementById('progressEmpty');
+  const adoptedRounds = data.rounds.filter(r => r.adopted);
+
+  if (adoptedRounds.length === 0) {
+    canvas.style.display = 'none';
+    emptyEl.style.display = 'block';
+    return;
+  }
+  canvas.style.display = 'block';
+  emptyEl.style.display = 'none';
+
+  const labels = ['Baseline'];
+  const scores = [data.baseline.total_score];
+
+  for (const round of adoptedRounds) {
+    labels.push(`Round ${round.round}`);
+    const winner = round.variants[round.winner];
+    scores.push(winner ? winner.total_score : 0);
+  }
+
+  if (progressChart) progressChart.destroy();
+  progressChart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Total Score (Adopted)',
+        data: scores,
+        borderColor: '#3fb950',
+        backgroundColor: 'rgba(63,185,80,0.15)',
+        fill: true,
+        tension: 0.3,
+        pointBackgroundColor: '#3fb950',
+        pointRadius: 6,
+        pointHoverRadius: 9,
+        borderWidth: 3
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#161b22',
+          borderColor: '#30363d',
+          borderWidth: 1,
+          titleColor: '#e6edf3',
+          bodyColor: '#8b949e',
+          callbacks: {
+            label: ctx => `Score: ${ctx.parsed.y.toFixed(1)}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(48,54,61,0.5)' },
+          ticks: { color: '#8b949e' }
+        },
+        y: {
+          min: 0, max: 100,
+          grid: { color: 'rgba(48,54,61,0.5)' },
+          ticks: { color: '#8b949e', stepSize: 20 }
+        }
+      }
+    }
+  });
+}
+
+// ── Radar Chart ──
+function renderRadarDropdown(data) {
+  const select = document.getElementById('radarRoundSelect');
+  select.innerHTML = '';
+
+  if (data.rounds.length === 0) {
+    select.innerHTML = '<option value="-1">No rounds available</option>';
+    document.getElementById('radarChart').style.display = 'none';
+    document.getElementById('radarEmpty').style.display = 'block';
+    return;
+  }
+
+  data.rounds.forEach((r, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = `Round ${r.round}` + (r.adopted ? ' ✓' : '');
+    select.appendChild(opt);
+  });
+
+  select.value = data.rounds.length - 1;
+  select.addEventListener('change', () => renderRadar(data, parseInt(select.value)));
+  renderRadar(data, data.rounds.length - 1);
+}
+
+function renderRadar(data, roundIndex) {
+  const canvas = document.getElementById('radarChart');
+  const emptyEl = document.getElementById('radarEmpty');
+
+  if (roundIndex < 0 || roundIndex >= data.rounds.length) {
+    canvas.style.display = 'none';
+    emptyEl.style.display = 'block';
+    return;
+  }
+  canvas.style.display = 'block';
+  emptyEl.style.display = 'none';
+
+  const round = data.rounds[roundIndex];
+  const labels = CRITERIA_KEYS.map(k => CRITERIA_META[k].label);
+
+  const datasets = [];
+
+  // Baseline
+  datasets.push({
+    label: 'Baseline',
+    data: CRITERIA_KEYS.map(k => data.baseline.criteria[k] || 0),
+    borderColor: '#484f58',
+    backgroundColor: 'rgba(72,79,88,0.1)',
+    borderWidth: 2,
+    pointRadius: 4,
+    pointBackgroundColor: '#484f58'
+  });
+
+  // Variants
+  for (const [key, colors] of Object.entries(VARIANT_COLORS)) {
+    if (round.variants[key]) {
+      const v = round.variants[key];
+      const isWinner = round.winner === key;
+      datasets.push({
+        label: `${colors.label}${isWinner ? ' 🏆' : ''}`,
+        data: CRITERIA_KEYS.map(k => v.criteria[k] || 0),
+        borderColor: colors.border,
+        backgroundColor: colors.bg,
+        borderWidth: isWinner ? 3 : 2,
+        pointRadius: isWinner ? 6 : 4,
+        pointBackgroundColor: colors.border
+      });
+    }
+  }
+
+  if (radarChart) radarChart.destroy();
+  radarChart = new Chart(canvas, {
+    type: 'radar',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: { color: '#8b949e', padding: 16, usePointStyle: true }
+        },
+        tooltip: {
+          backgroundColor: '#161b22',
+          borderColor: '#30363d',
+          borderWidth: 1,
+          titleColor: '#e6edf3',
+          bodyColor: '#8b949e'
+        }
+      },
+      scales: {
+        r: {
+          min: 0, max: 100,
+          ticks: {
+            stepSize: 20,
+            color: '#484f58',
+            backdropColor: 'transparent'
+          },
+          grid: { color: 'rgba(48,54,61,0.5)' },
+          angleLines: { color: 'rgba(48,54,61,0.5)' },
+          pointLabels: { color: '#8b949e', font: { size: 13 } }
+        }
+      }
+    }
+  });
+}
+
+// ── Detail Table ──
+function renderDetailTable(data) {
+  const thead = document.getElementById('detailHead');
+  const tbody = document.getElementById('detailBody');
+  const emptyEl = document.getElementById('tableEmpty');
+
+  if (data.rounds.length === 0) {
+    thead.innerHTML = '';
+    tbody.innerHTML = '';
+    emptyEl.style.display = 'block';
+    return;
+  }
+  emptyEl.style.display = 'none';
+
+  // Use latest round for detail view
+  const round = data.rounds[data.rounds.length - 1];
+  const variantKeys = Object.keys(round.variants).sort();
+
+  // Header
+  let headerHTML = '<tr><th>Criterion</th><th>Baseline</th>';
+  for (const vk of variantKeys) {
+    const isWinner = round.winner === vk;
+    headerHTML += `<th>${VARIANT_COLORS[vk]?.label || ('Variant ' + vk.toUpperCase())}${isWinner ? ' 🏆' : ''}</th>`;
+  }
+  headerHTML += '</tr>';
+  thead.innerHTML = headerHTML;
+
+  // Body rows
+  let bodyHTML = '';
+  for (const key of CRITERIA_KEYS) {
+    const weight = data.criteria_weights[key] || 0;
+    const baseVal = data.baseline.criteria[key] || 0;
+
+    bodyHTML += '<tr>';
+    bodyHTML += `<td>${CRITERIA_META[key].label} <span class="weight">(${(weight * 100).toFixed(0)}%)</span></td>`;
+    bodyHTML += `<td>${baseVal.toFixed(1)}</td>`;
+
+    // Find best value among variants for this criterion
+    let bestVal = -Infinity;
+    for (const vk of variantKeys) {
+      const val = round.variants[vk]?.criteria[key] || 0;
+      if (val > bestVal) bestVal = val;
+    }
+
+    for (const vk of variantKeys) {
+      const val = round.variants[vk]?.criteria[key] || 0;
+      const cls = getCellClass(val, baseVal, bestVal);
+      const icon = getCellIcon(val, baseVal, bestVal);
+      bodyHTML += `<td class="${cls}">${icon} ${val.toFixed(1)}</td>`;
+    }
+    bodyHTML += '</tr>';
+  }
+
+  // Total row
+  const baseTotalVal = data.baseline.total_score;
+  let bestTotal = -Infinity;
+  for (const vk of variantKeys) {
+    const t = round.variants[vk]?.total_score || 0;
+    if (t > bestTotal) bestTotal = t;
+  }
+
+  bodyHTML += '<tr class="total-row">';
+  bodyHTML += '<td>Weighted Total</td>';
+  bodyHTML += `<td>${baseTotalVal.toFixed(1)}</td>`;
+  for (const vk of variantKeys) {
+    const val = round.variants[vk]?.total_score || 0;
+    const cls = getCellClass(val, baseTotalVal, bestTotal);
+    const icon = getCellIcon(val, baseTotalVal, bestTotal);
+    bodyHTML += `<td class="${cls}">${icon} ${val.toFixed(1)}</td>`;
+  }
+  bodyHTML += '</tr>';
+
+  tbody.innerHTML = bodyHTML;
+}
+
+function getCellClass(val, baseVal, bestVal) {
+  if (val === bestVal && val > baseVal) return 'cell-winner';
+  if (val > baseVal) return 'cell-improved';
+  if (val === baseVal) return 'cell-same';
+  return 'cell-worse';
+}
+
+function getCellIcon(val, baseVal, bestVal) {
+  if (val === bestVal && val > baseVal) return '🏆';
+  if (val > baseVal) return '🟩';
+  if (val === baseVal) return '🟨';
+  return '🟥';
+}
+
+// ── Regression Panel ──
+function renderRegression(data) {
+  const grid = document.getElementById('regressionGrid');
+  const emptyEl = document.getElementById('regressionEmpty');
+
+  // Find latest round with regression data
+  let regressionData = null;
+  for (let i = data.rounds.length - 1; i >= 0; i--) {
+    if (data.rounds[i].regression) {
+      regressionData = data.rounds[i].regression;
+      break;
+    }
+  }
+
+  if (!regressionData) {
+    grid.innerHTML = '';
+    emptyEl.style.display = 'block';
+    return;
+  }
+  emptyEl.style.display = 'none';
+
+  let html = '';
+  for (const [phaseKey, info] of Object.entries(regressionData)) {
+    const phaseName = PHASE_NAMES[phaseKey] || phaseKey;
+    let status, deltaText;
+
+    if (info === null || info.score === null || info.score === undefined) {
+      status = 'untested';
+      deltaText = 'Not tested';
+    } else if (info.delta < 0) {
+      status = 'degraded';
+      deltaText = `▼ ${info.delta.toFixed(1)}`;
+    } else {
+      status = 'stable';
+      deltaText = info.delta === 0 ? '→ Stable' : `▲ +${info.delta.toFixed(1)}`;
+    }
+
+    const scoreText = (info && info.score !== null && info.score !== undefined)
+      ? info.score.toFixed(1)
+      : '—';
+
+    html += `
+      <div class="regression-card ${status}">
+        <div class="phase-label">${phaseName}</div>
+        <div class="phase-score">${scoreText}</div>
+        <div class="phase-delta">${deltaText}</div>
+      </div>`;
+  }
+
+  grid.innerHTML = html;
+}
+
+// ── Initialize ──
+render();
+</script>
+
+</body>
+</html>

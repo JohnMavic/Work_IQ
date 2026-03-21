@@ -1,0 +1,61 @@
+{
+  "_version": "1.0",
+  "_description": "Configuration for the skill optimization loop",
+
+  "source_project": {
+    "path": "E:/Work_IQ/Agent_Zero",
+    "branch": "main",
+    "skills_dir": "docs",
+    "server_file": "server.js",
+    "frontend_file": "index.html",
+    "tasks_file": "tasks.json"
+  },
+
+  "optimization_project": {
+    "path": "E:/Work_IQ/Agent_Zero_Claude_Loop",
+    "branch": "Agent_Zero_Claude_Loop"
+  },
+
+  "skill_files": [
+    {
+      "id": "phase_1",
+      "name": "SCAN_DISCOVERY_SKILL.md",
+      "phase": "Discovery",
+      "description": "Phase 1: Subject-Only Scan — identifies actionable messages"
+    },
+    {
+      "id": "phase_2",
+      "name": "ENRICH_SKILL.md",
+      "phase": "Enrichment",
+      "description": "Phase 2: Content Extraction & Summary — extracts full content"
+    },
+    {
+      "id": "phase_3",
+      "name": "UPDATE_CHECK_SKILL.md",
+      "phase": "Update Check",
+      "description": "Phase 3: Detect New Activity — checks for new replies"
+    },
+    {
+      "id": "phase_4",
+      "name": "CONSOLIDATE_SKILL.md",
+      "phase": "Consolidation",
+      "description": "Phase 4: Semantic Task Grouping — finds duplicates/related tasks"
+    }
+  ],
+
+  "optimization_rules": {
+    "max_iterations_per_skill": 10,
+    "min_improvement_threshold_percent": 2,
+    "consecutive_no_improvement_limit": 3,
+    "regression_tolerance_percent": 0,
+    "require_all_phases_pass": true
+  },
+
+  "test_settings": {
+    "server_port": 3000,
+    "server_start_wait_seconds": 5,
+    "api_timeout_seconds": 300,
+    "tasks_backup_strategy": "double_backup",
+    "results_naming": "YYYY-MM-DD-HHmm"
+  }
+}
