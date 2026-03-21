@@ -125,6 +125,40 @@
       "winner": "none",
       "adopted": false,
       "regression": {}
+    },
+    {
+      "round": 3,
+      "date": "2026-03-21T16:22:00Z",
+      "variants": {
+        "a": {
+          "strategy": "Minimal Fix (email: 'at least 2 of 3 criteria' statt 'all 3')",
+          "total_score": 69.2,
+          "duration_seconds": 264.4,
+          "tasks_created": 4,
+          "criteria": { "classification": 30, "subject_fidelity": 100, "deduplication": 85, "output_format": 100, "performance": 50 },
+          "notes": "Service Alert + Greeting als FP. Lowered email bar liess Noise durch."
+        },
+        "b": {
+          "strategy": "Tone Shift ('thorough' statt 'conservative', encouraging framing)",
+          "total_score": 57.8,
+          "duration_seconds": 265.2,
+          "tasks_created": 4,
+          "criteria": { "classification": 50, "subject_fidelity": 30, "deduplication": 85, "output_format": 100, "performance": 50 },
+          "notes": "KATASTROPHE: Subject Lines wurden MODIFIZIERT und Topics KOMBINIERT! Tone shift brach Subject Fidelity."
+        },
+        "c": {
+          "strategy": "Two-Pass Architecture (inclusive scan → strict filter)",
+          "total_score": 70.0,
+          "duration_seconds": 162.0,
+          "tasks_created": 3,
+          "criteria": { "classification": 30, "subject_fidelity": 100, "deduplication": 90, "output_format": 100, "performance": 50 },
+          "notes": "Fand Extron-Doku aber verpasste Emails. Message FROM user found. Scheduling FP. Kein Improvement."
+        }
+      },
+      "winner": "none",
+      "adopted": false,
+      "consecutive_no_improvement": 2,
+      "regression": {}
     }
   ]
 }

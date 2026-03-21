@@ -1,0 +1,14 @@
+{
+  "success": true,
+  "added": 4,
+  "skipped": 0,
+  "updated": 0,
+  "total": 32,
+  "lastScan": "2026-03-21T16:33:36.848Z",
+  "newTaskIds": [
+    "9f464f76-c315-4d1e-94f6-787a9e86a19f",
+    "9fe3524b-a68b-4933-8231-65dbd131796d",
+    "6bf9d09c-7f46-4e99-9c9a-b307719c25af",
+    "cd0c8d46-70d5-47af-a52a-1b95abe3db9e"
+  ]
+}
