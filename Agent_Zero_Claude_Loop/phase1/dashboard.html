@@ -34,6 +34,45 @@
   }
   .container { max-width: 1400px; margin: 0 auto; padding: 24px 32px 48px; }
 
+  /* Sticky TOC */
+  .toc {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(13, 17, 23, 0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0 32px;
+    margin: 0 -32px 24px;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .toc-inner {
+    max-width: 1400px;
+    margin: 0 auto;
+    display: flex;
+    gap: 0;
+  }
+  .toc a {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 12px 14px;
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 0.78rem;
+    font-weight: 500;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+    white-space: nowrap;
+  }
+  .toc a:hover { color: var(--text); }
+  .toc a.active {
+    color: var(--green);
+    border-bottom-color: var(--green);
+  }
+
   /* Header */
   .header {
     background: linear-gradient(135deg, #161b22 0%, #1a2332 100%);
@@ -282,8 +321,22 @@
     </div>
   </div>
 
+  <!-- TABLE OF CONTENTS (sticky nav) -->
+  <nav class="toc">
+    <div class="toc-inner">
+      <a href="#sec-about" data-sec="sec-about">📋 About</a>
+      <a href="#sec-criteria" data-sec="sec-criteria">🎯 Criteria</a>
+      <a href="#sec-squad" data-sec="sec-squad">🐙 Squad</a>
+      <a href="#sec-examples" data-sec="sec-examples">✅❌ Examples</a>
+      <a href="#sec-charts" data-sec="sec-charts">📈 Charts</a>
+      <a href="#sec-ranking" data-sec="sec-ranking">📊 Ranking</a>
+      <a href="#sec-results" data-sec="sec-results">📋 Results</a>
+      <a href="#sec-insights" data-sec="sec-insights">💡 Insights</a>
+    </div>
+  </nav>
+
   <!-- SECTION 1: WHAT THIS IS ABOUT -->
-  <div class="card" style="margin-bottom: 24px;">
+  <div id="sec-about" class="card" style="margin-bottom: 24px; scroll-margin-top: 72px;">
     <div class="card-title"><span class="icon">📋</span> What This Is About</div>
     <p style="color: var(--text); font-size: 0.9rem; line-height: 1.7; margin-bottom: 12px;">
       Agent Zero Phase 1 (Scan &amp; Discovery) is the critical first filter in a 4-phase AI task management pipeline. It scans the user&rsquo;s Microsoft 365 inbox and Teams messages to identify which messages require action &mdash; and which are just noise (newsletters, FYI, casual chats).
@@ -297,7 +350,7 @@
   </div>
 
   <!-- SECTION 2: SUCCESS CRITERIA -->
-  <div class="card" style="margin-bottom: 24px;">
+  <div id="sec-criteria" class="card" style="margin-bottom: 24px; scroll-margin-top: 72px;">
     <div class="card-title"><span class="icon">🎯</span> Success Criteria</div>
     <div class="table-wrap">
       <table>
@@ -355,7 +408,7 @@
   </div>
 
   <!-- SECTION: SQUAD METHODOLOGY -->
-  <div class="card" style="margin-bottom: 24px;">
+  <div id="sec-squad" class="card" style="margin-bottom: 24px; scroll-margin-top: 72px;">
     <div class="card-title"><span class="icon">🐙</span> Squad Methodology — How We Optimized</div>
     <p style="color: var(--text); font-size: 0.9rem; line-height: 1.7; margin-bottom: 16px;">
       This optimization used <strong style="color: var(--blue);">Squad</strong>, a multi-agent orchestration framework. Instead of trying one prompt change at a time (sequential), we deployed a team of specialized AI agents that worked <strong>in parallel</strong> — testing 3 competing strategies per round simultaneously.
@@ -421,7 +474,7 @@
   </div>
 
   <!-- SECTION 3: GOOD VS BAD EXAMPLES -->
-  <div class="card" style="margin-bottom: 24px;">
+  <div id="sec-examples" class="card" style="margin-bottom: 24px; scroll-margin-top: 72px;">
     <div class="card-title"><span class="icon">✅</span> What Worked vs <span style="color: var(--red);">❌</span> What Failed &mdash; Concrete Examples</div>
 
     <div style="display: flex; gap: 24px; flex-wrap: wrap;">
@@ -521,7 +574,7 @@
   </div>
 
   <!-- CHARTS ROW 1 -->
-  <div class="grid">
+  <div id="sec-charts" class="grid" style="scroll-margin-top: 72px;">
     <div class="card">
       <div class="card-title"><span class="icon">&#128200;</span> Score Progress Across Rounds</div>
       <div class="chart-container line">
@@ -537,7 +590,7 @@
   </div>
 
   <!-- ALL VARIANTS BAR CHART -->
-  <div class="card" style="margin-bottom: 24px;">
+  <div id="sec-ranking" class="card" style="margin-bottom: 24px; scroll-margin-top: 72px;">
     <div class="card-title"><span class="icon">&#128202;</span> All Variants &mdash; Ranked by Score</div>
     <div class="chart-container bar">
       <canvas id="allVariantsChart"></canvas>
@@ -545,7 +598,7 @@
   </div>
 
   <!-- COMPLETE RESULTS TABLE -->
-  <div class="card" style="margin-bottom: 24px;">
+  <div id="sec-results" class="card" style="margin-bottom: 24px; scroll-margin-top: 72px;">
     <div class="card-title"><span class="icon">&#128203;</span> Complete Results Table</div>
     <div class="table-wrap">
       <table id="resultsTable">
@@ -570,7 +623,7 @@
   </div>
 
   <!-- KEY INSIGHTS -->
-  <div class="card" style="margin-bottom: 24px;">
+  <div id="sec-insights" class="card" style="margin-bottom: 24px; scroll-margin-top: 72px;">
     <div class="card-title"><span class="icon">&#128161;</span> Key Insights</div>
     <div class="insights-grid">
       <div class="insight-block">
@@ -966,6 +1019,43 @@ function allVariantsFlat() {
       v.criteria.map(function(c, i) { return '<td class="' + critClass(c, BL.criteria[i]) + '">' + c + '</td>'; }).join('') +
       '<td>' + statusBadge(v) + '</td>';
     tbody.appendChild(tr);
+  });
+})();
+</script>
+
+<!-- Scroll-spy: highlights current section in TOC -->
+<script>
+(function() {
+  const tocLinks = document.querySelectorAll('.toc a[data-sec]');
+  const sections = Array.from(tocLinks).map(function(a) {
+    return { id: a.dataset.sec, el: document.getElementById(a.dataset.sec), link: a };
+  }).filter(function(s) { return s.el; });
+
+  function updateActive() {
+    var current = null;
+    var scrollY = window.scrollY || window.pageYOffset;
+    for (var i = sections.length - 1; i >= 0; i--) {
+      if (sections[i].el.offsetTop - 100 <= scrollY) {
+        current = sections[i].id;
+        break;
+      }
+    }
+    if (!current && sections.length) current = sections[0].id;
+    tocLinks.forEach(function(a) {
+      a.classList.toggle('active', a.dataset.sec === current);
+    });
+  }
+
+  window.addEventListener('scroll', updateActive, { passive: true });
+  updateActive();
+
+  // Smooth scroll on click
+  tocLinks.forEach(function(a) {
+    a.addEventListener('click', function(e) {
+      e.preventDefault();
+      var target = document.getElementById(this.dataset.sec);
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
   });
 })();
 </script>
