@@ -354,6 +354,72 @@
     </p>
   </div>
 
+  <!-- SECTION: SQUAD METHODOLOGY -->
+  <div class="card" style="margin-bottom: 24px;">
+    <div class="card-title"><span class="icon">🐙</span> Squad Methodology — How We Optimized</div>
+    <p style="color: var(--text); font-size: 0.9rem; line-height: 1.7; margin-bottom: 16px;">
+      This optimization used <strong style="color: var(--blue);">Squad</strong>, a multi-agent orchestration framework. Instead of trying one prompt change at a time (sequential), we deployed a team of specialized AI agents that worked <strong>in parallel</strong> — testing 3 competing strategies per round simultaneously.
+    </p>
+
+    <!-- Squad Workflow Diagram -->
+    <div style="background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 24px; margin-bottom: 20px; font-family: monospace; font-size: 0.82rem; line-height: 2; color: var(--text-dim); overflow-x: auto;">
+      <div style="text-align: center; color: var(--text); font-weight: 600; margin-bottom: 12px; font-family: -apple-system, sans-serif; font-size: 0.9rem;">Optimization Round Workflow</div>
+      <pre style="margin: 0; white-space: pre; text-align: center;">
+┌─────────────────────────────────────────────────────────────────────┐
+│  <span style="color: var(--gold);">🏗️ Orchestrator</span>                                                    │
+│  Analyzes baseline weaknesses, defines strategy for each engineer   │
+└────────────────────────────┬────────────────────────────────────────┘
+                             │ assigns strategies
+              ┌──────────────┼──────────────┐
+              ▼              ▼              ▼
+   ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+   │ <span style="color: var(--blue);">✏️ Engineer A</span> │ │ <span style="color: var(--green);">✏️ Engineer B</span> │ │ <span style="color: var(--orange);">✏️ Engineer C</span> │
+   │  Structural  │ │   Content    │ │  Compaction  │   ◄── <span style="color: var(--green);">PARALLEL</span>
+   │  optimization│ │  optimization│ │  optimization│
+   └──────┬───────┘ └──────┬───────┘ └──────┬───────┘
+          │                │                │
+          ▼                ▼                ▼
+   ┌─────────────────────────────────────────────────────────────────┐
+   │  <span style="color: var(--purple);">🧪 Tester</span>                                                       │
+   │  Runs each variant against live M365 inbox (sequential — 1 server)│
+   │  Protects tasks.json with hash verification + triple backup      │
+   └────────────────────────────┬────────────────────────────────────┘
+                                │ test results
+                                ▼
+   ┌─────────────────────────────────────────────────────────────────┐
+   │  <span style="color: var(--blue);">📊 Evaluator</span>                                                    │
+   │  Scores each variant against 5 criteria, compares to baseline   │
+   │  Winner needs ≥ +2 points to be adopted                         │
+   └────────────────────────────┬────────────────────────────────────┘
+                                │ recommendation
+                                ▼
+   ┌─────────────────────────────────────────────────────────────────┐
+   │  <span style="color: var(--gold);">🏗️ Orchestrator</span>                                                  │
+   │  Adopts winner OR logs learnings in decisions.md for next round │
+   └─────────────────────────────────────────────────────────────────┘</pre>
+    </div>
+
+    <!-- Benefits -->
+    <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px;">
+      <div style="flex: 1; min-width: 200px; background: var(--blue-dim); border: 1px solid rgba(88,166,255,0.2); border-radius: 8px; padding: 16px;">
+        <div style="font-weight: 600; color: var(--blue); margin-bottom: 6px;">⚡ 3× Throughput</div>
+        <div style="font-size: 0.85rem; color: var(--text-dim);">3 variants per round instead of 1. Tested 12 strategies in 4 rounds — sequentially this would have taken 12 rounds.</div>
+      </div>
+      <div style="flex: 1; min-width: 200px; background: var(--green-dim); border: 1px solid rgba(63,185,80,0.2); border-radius: 8px; padding: 16px;">
+        <div style="font-weight: 600; color: var(--green); margin-bottom: 6px;">🧠 Persistent Memory</div>
+        <div style="font-size: 0.85rem; color: var(--text-dim);">Squad's <code style="color: var(--text);">decisions.md</code> accumulated learnings across rounds. Round 2 knew that "DON'T examples kill recall." Round 3 knew that "tone shifts break fidelity."</div>
+      </div>
+      <div style="flex: 1; min-width: 200px; background: var(--orange-dim); border: 1px solid rgba(210,153,34,0.2); border-radius: 8px; padding: 16px;">
+        <div style="font-weight: 600; color: var(--orange); margin-bottom: 6px;">🔀 Strategy Diversity</div>
+        <div style="font-size: 0.85rem; color: var(--text-dim);">Each engineer has a different optimization philosophy — structural, content, or compaction. This avoids tunnel vision and explores the solution space more broadly.</div>
+      </div>
+    </div>
+
+    <p style="color: var(--text-dim); font-size: 0.85rem; line-height: 1.6;">
+      <strong style="color: var(--text);">Team composition:</strong> Orchestrator (Lead) · PromptEngineer-A (structural) · PromptEngineer-B (content) · PromptEngineer-C (compaction) · Tester · Evaluator — all defined in <code style="color: var(--text);">.squad/</code> with individual charters, routing rules, and shared decisions.
+    </p>
+  </div>
+
   <!-- SECTION 3: GOOD VS BAD EXAMPLES -->
   <div class="card" style="margin-bottom: 24px;">
     <div class="card-title"><span class="icon">✅</span> What Worked vs <span style="color: var(--red);">❌</span> What Failed &mdash; Concrete Examples</div>
