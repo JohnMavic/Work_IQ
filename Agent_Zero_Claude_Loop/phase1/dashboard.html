@@ -1,744 +1,735 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Agent Zero — Phase 1: Scan &amp; Discovery</title>
+<title>Agent Zero — Phase 1 Optimization Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
   :root {
-    --bg-primary: #0d1117;
-    --bg-secondary: #161b22;
-    --bg-tertiary: #21262d;
+    --bg: #0d1117;
+    --surface: #161b22;
+    --surface2: #1c2333;
     --border: #30363d;
-    --text-primary: #e6edf3;
-    --text-secondary: #8b949e;
-    --text-muted: #484f58;
-    --accent-green: #3fb950;
-    --accent-blue: #58a6ff;
-    --accent-orange: #d29922;
-    --accent-red: #f85149;
-    --accent-purple: #bc8cff;
-    --accent-gold: #f0c000;
-    --accent-gray: #484f58;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --green: #3fb950;
+    --green-dim: rgba(63,185,80,0.15);
+    --blue: #58a6ff;
+    --blue-dim: rgba(88,166,255,0.15);
+    --orange: #d29922;
+    --orange-dim: rgba(210,153,34,0.15);
+    --red: #f85149;
+    --red-dim: rgba(248,81,73,0.15);
+    --gold: #f0c040;
+    --purple: #bc8cff;
   }
-
   * { margin: 0; padding: 0; box-sizing: border-box; }
-
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    line-height: 1.5;
-    padding: 24px;
-    max-width: 1400px;
-    margin: 0 auto;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    padding: 0;
   }
+  .container { max-width: 1400px; margin: 0 auto; padding: 24px 32px 48px; }
 
   /* Header */
   .header {
-    text-align: center;
-    padding: 32px 0;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 32px;
+    background: linear-gradient(135deg, #161b22 0%, #1a2332 100%);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 32px 40px;
+    margin-bottom: 24px;
   }
+  .header-top { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
   .header h1 {
-    font-size: 28px;
-    font-weight: 600;
-    margin-bottom: 4px;
-    background: linear-gradient(135deg, var(--accent-green), var(--accent-blue));
+    font-size: 1.6rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--green), var(--blue));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
-  .header .subtitle {
-    font-size: 16px;
-    color: var(--text-secondary);
-    margin-bottom: 20px;
+  .header h1 span { font-weight: 400; opacity: 0.8; }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 18px;
+    border-radius: 24px;
+    font-weight: 600;
+    font-size: 0.95rem;
   }
-  .score-cards {
+  .badge-success { background: var(--green-dim); color: var(--green); border: 1px solid rgba(63,185,80,0.3); }
+  .stats-row {
     display: flex;
-    justify-content: center;
-    gap: 24px;
+    gap: 32px;
+    margin-top: 20px;
     flex-wrap: wrap;
   }
-  .score-card {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 16px 32px;
-    text-align: center;
-    min-width: 180px;
+  .stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
-  .score-card .label {
-    font-size: 12px;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--text-secondary);
-    margin-bottom: 4px;
-  }
-  .score-card .value {
-    font-size: 36px;
+  .stat-value {
+    font-size: 1.5rem;
     font-weight: 700;
+    color: var(--text);
   }
-  .score-card .value.baseline { color: var(--text-muted); }
-  .score-card .value.best { color: var(--accent-green); }
-  .score-card .delta {
-    font-size: 13px;
-    color: var(--accent-green);
-    margin-top: 2px;
+  .stat-label {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
   }
 
-  /* Sections */
-  .section {
-    background: var(--bg-secondary);
+  /* Cards */
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
+  .card {
+    background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 24px;
-    margin-bottom: 24px;
   }
-  .section-title {
-    font-size: 18px;
+  .card-title {
     font-weight: 600;
     margin-bottom: 16px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .section-title .icon { font-size: 20px; }
-
-  /* Charts */
-  .chart-container {
-    position: relative;
-    width: 100%;
-    max-height: 360px;
-  }
-
-  /* Radar section */
-  .radar-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  .round-select {
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 6px 12px;
-    font-size: 14px;
-    cursor: pointer;
-  }
-  .round-select:focus { outline: 1px solid var(--accent-blue); }
-
-  /* Detail Table */
-  .detail-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 14px;
-  }
-  .detail-table th, .detail-table td {
-    padding: 10px 14px;
-    text-align: center;
-    border-bottom: 1px solid var(--border);
-  }
-  .detail-table th {
-    background: var(--bg-tertiary);
-    color: var(--text-secondary);
-    font-weight: 600;
-    font-size: 12px;
+    color: var(--text-dim);
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    position: sticky;
-    top: 0;
+    font-size: 0.85rem;
   }
-  .detail-table th:first-child, .detail-table td:first-child {
+  .card-title .icon { margin-right: 6px; }
+
+  /* Table */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th {
     text-align: left;
-  }
-  .detail-table tr:hover { background: rgba(255,255,255,0.02); }
-  .detail-table .total-row {
-    font-weight: 700;
-    border-top: 2px solid var(--border);
-    background: rgba(255,255,255,0.03);
-  }
-  .detail-table .weight {
-    color: var(--text-muted);
-    font-size: 12px;
-    margin-left: 4px;
-  }
-
-  /* Color-coded cells */
-  .cell-improved { color: var(--accent-green); }
-  .cell-same { color: var(--accent-orange); }
-  .cell-worse { color: var(--accent-red); }
-  .cell-winner {
-    color: var(--accent-gold);
-    font-weight: 700;
-    text-shadow: 0 0 8px rgba(240,192,0,0.3);
-  }
-
-  /* Regression Panel */
-  .regression-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 16px;
-  }
-  .regression-card {
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px;
-    text-align: center;
-  }
-  .regression-card .phase-label {
-    font-size: 13px;
-    color: var(--text-secondary);
-    margin-bottom: 8px;
-  }
-  .regression-card .phase-score {
-    font-size: 24px;
-    font-weight: 700;
-    margin-bottom: 4px;
-  }
-  .regression-card .phase-delta {
-    font-size: 13px;
+    padding: 10px 12px;
+    background: var(--surface2);
+    color: var(--text-dim);
     font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
   }
-  .regression-card.stable { border-color: var(--accent-green); }
-  .regression-card.stable .phase-score { color: var(--accent-green); }
-  .regression-card.stable .phase-delta { color: var(--accent-green); }
-  .regression-card.degraded { border-color: var(--accent-red); }
-  .regression-card.degraded .phase-score { color: var(--accent-red); }
-  .regression-card.degraded .phase-delta { color: var(--accent-red); }
-  .regression-card.untested { border-color: var(--accent-gray); }
-  .regression-card.untested .phase-score { color: var(--text-muted); }
-  .regression-card.untested .phase-delta { color: var(--text-muted); }
+  td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+  .round-header td {
+    background: var(--surface2);
+    font-weight: 700;
+    color: var(--blue);
+    padding: 8px 12px;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--border);
+  }
+  .score-cell {
+    font-weight: 700;
+    font-size: 0.95rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .score-good { color: var(--green); }
+  .score-bad { color: var(--red); }
+  .score-neutral { color: var(--text-dim); }
+  .score-gold { color: var(--gold); }
+  .crit-good { color: var(--green); }
+  .crit-bad { color: var(--red); }
+  .crit-equal { color: var(--text-dim); }
+  .status-adopted {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background: var(--green-dim);
+    color: var(--green);
+  }
+  .status-rejected {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background: rgba(139,148,158,0.1);
+    color: var(--text-dim);
+  }
+  .status-failed {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background: var(--red-dim);
+    color: var(--red);
+  }
+  .strategy-text {
+    max-width: 280px;
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    line-height: 1.4;
+  }
 
-  /* Empty state */
-  .empty-state {
+  /* Insights */
+  .insights-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+  .insight-block h3 {
+    font-size: 0.95rem;
+    font-weight: 700;
+    margin-bottom: 12px;
+    color: var(--text);
+  }
+  .insight-block h3 .icon { margin-right: 6px; }
+  .insight-block ul {
+    list-style: none;
+    padding: 0;
+  }
+  .insight-block ul li {
+    position: relative;
+    padding: 6px 0 6px 20px;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+  .insight-block ul li::before {
+    content: '\203A';
+    position: absolute;
+    left: 4px;
+    color: var(--green);
+    font-weight: 700;
+  }
+  .insight-block.failures ul li::before { color: var(--red); }
+  .core-insight {
+    margin-top: 20px;
+    padding: 16px 20px;
+    background: linear-gradient(135deg, rgba(88,166,255,0.08), rgba(188,140,255,0.08));
+    border: 1px solid rgba(88,166,255,0.2);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    color: var(--text);
+  }
+  .core-insight strong { color: var(--blue); }
+
+  /* Footer */
+  .footer {
     text-align: center;
-    padding: 48px 24px;
-    color: var(--text-muted);
+    margin-top: 32px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 0.8rem;
   }
-  .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
-  .empty-state .msg { font-size: 16px; }
 
-  /* Responsive */
-  @media (max-width: 768px) {
-    body { padding: 12px; }
-    .header h1 { font-size: 22px; }
-    .score-card { min-width: 140px; padding: 12px 20px; }
-    .score-card .value { font-size: 28px; }
-    .detail-table { font-size: 12px; }
-    .detail-table th, .detail-table td { padding: 6px 8px; }
+  /* Chart containers */
+  .chart-container { position: relative; width: 100%; }
+  .chart-container.line { height: 300px; }
+  .chart-container.bar { height: 420px; }
+  .chart-container.radar { height: 380px; max-width: 500px; margin: 0 auto; }
+
+  @media (max-width: 900px) {
+    .grid { grid-template-columns: 1fr; }
+    .insights-grid { grid-template-columns: 1fr; }
+    .stats-row { gap: 20px; }
+    .container { padding: 16px; }
   }
 </style>
 </head>
 <body>
 
-<!-- ============================================================
-     EMBEDDED DATA — PASTE YOUR scores.json DATA HERE
-     This allows the dashboard to work with file:// protocol.
-     When served via HTTP, it will try to fetch scores.json first.
-     ============================================================ -->
+<div class="container">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-top">
+      <h1>Agent Zero &mdash; <span>Phase 1: Scan &amp; Discovery &mdash; Optimization Results</span></h1>
+      <span class="badge badge-success">&#10003; OPTIMIZED &mdash; 79/100 (+12.9%)</span>
+    </div>
+    <div class="stats-row">
+      <div class="stat">
+        <div class="stat-value">4</div>
+        <div class="stat-label">Rounds</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">12</div>
+        <div class="stat-label">Variants Tested</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">v1a</div>
+        <div class="stat-label">Winner (Round 1)</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">79.0</div>
+        <div class="stat-label">Final Score</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">70.0</div>
+        <div class="stat-label">Baseline Score</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">+12.9%</div>
+        <div class="stat-label">Improvement</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHARTS ROW 1 -->
+  <div class="grid">
+    <div class="card">
+      <div class="card-title"><span class="icon">&#128200;</span> Score Progress Across Rounds</div>
+      <div class="chart-container line">
+        <canvas id="progressChart"></canvas>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">&#127919;</span> Round 1 Criteria Breakdown (Radar)</div>
+      <div class="chart-container radar">
+        <canvas id="radarChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- ALL VARIANTS BAR CHART -->
+  <div class="card" style="margin-bottom: 24px;">
+    <div class="card-title"><span class="icon">&#128202;</span> All Variants &mdash; Ranked by Score</div>
+    <div class="chart-container bar">
+      <canvas id="allVariantsChart"></canvas>
+    </div>
+  </div>
+
+  <!-- COMPLETE RESULTS TABLE -->
+  <div class="card" style="margin-bottom: 24px;">
+    <div class="card-title"><span class="icon">&#128203;</span> Complete Results Table</div>
+    <div class="table-wrap">
+      <table id="resultsTable">
+        <thead>
+          <tr>
+            <th>Variant</th>
+            <th>Strategy</th>
+            <th>Score</th>
+            <th>Tasks</th>
+            <th>Duration</th>
+            <th>Classification</th>
+            <th>Subject</th>
+            <th>Dedup</th>
+            <th>Format</th>
+            <th>Perf</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- KEY INSIGHTS -->
+  <div class="card" style="margin-bottom: 24px;">
+    <div class="card-title"><span class="icon">&#128161;</span> Key Insights</div>
+    <div class="insights-grid">
+      <div class="insight-block">
+        <h3><span class="icon">&#127942;</span> Why v1a Wins</h3>
+        <ul>
+          <li><strong>Structural clarity works.</strong> The Decision Framework gave Copilot unambiguous classification rules &mdash; raising Classification from 50 to 70 and Deduplication from 50 to 70.</li>
+          <li><strong>Teams-specific rules closed the gap.</strong> Explicit Teams channel vs. chat rules eliminated the biggest source of missed items.</li>
+          <li><strong>It preserved what already worked.</strong> Subject Fidelity (100) and Output Format (100) stayed perfect &mdash; no regressions.</li>
+        </ul>
+      </div>
+      <div class="insight-block failures">
+        <h3><span class="icon">&#10060;</span> Why Every Challenger Failed</h3>
+        <ul>
+          <li><strong>Content approaches (v1b, v1c):</strong> DO/DON'T examples and compaction hurt task discovery &mdash; Copilot's conservative bias means fewer examples = fewer found tasks.</li>
+          <li><strong>Recall relaxation (v2a, v2b):</strong> Relaxing thresholds caused Copilot to return zero tasks &mdash; the model interpreted permissive language as "don't filter" rather than "find more".</li>
+          <li><strong>Tone shifts (v3b):</strong> Switching from conservative to thorough framing dropped Subject Fidelity from 100 to 30 &mdash; the model lost precision when pushed to be inclusive.</li>
+          <li><strong>Structural reordering (v4a, v4b, v4c):</strong> Moving sections around or adding surgical patches either had no effect or caused timeouts &mdash; the model was already at its structural optimum.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="core-insight">
+      <strong>Core Insight:</strong> The Copilot model has a strong inherent bias toward caution in classification tasks.
+      The only successful strategy was adding <em>structural decision frameworks</em> that gave explicit, unambiguous rules.
+      Every attempt to relax, reword, or reframe the instructions either failed catastrophically (0 tasks found) or caused regressions.
+      The v1a approach succeeded because it <em>worked with</em> the model's cautious nature rather than against it &mdash; providing clearer guardrails instead of looser ones.
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    Phase 1 optimization complete &nbsp;&middot;&nbsp; Branch: <strong>squad-optimization</strong> &nbsp;&middot;&nbsp; Skill File: <strong>SCAN_DISCOVERY_SKILL.md</strong> &nbsp;&middot;&nbsp; Date: <strong>2026-03-21</strong>
+  </div>
+
+</div>
+
 <script>
-const EMBEDDED_SCORES = {
-  "phase": "phase_1",
-  "skill_file": "SCAN_DISCOVERY_SKILL.md",
-  "criteria_weights": {
-    "classification": 0.30,
-    "subject_fidelity": 0.25,
-    "deduplication": 0.15,
-    "output_format": 0.15,
-    "performance": 0.15
-  },
-  "baseline": {
-    "date": "2026-03-22T10:00:00Z",
-    "total_score": 0,
-    "criteria": {
-      "classification": 0,
-      "subject_fidelity": 0,
-      "deduplication": 0,
-      "output_format": 0,
-      "performance": 0
+// ==============================================================
+// EMBEDDED DATA
+// ==============================================================
+const SCORES = {
+  phase: "phase_1",
+  skill_file: "SCAN_DISCOVERY_SKILL.md",
+  criteria: ["Classification (30%)", "Subject Fidelity (25%)", "Deduplication (15%)", "Output Format (15%)", "Performance (15%)"],
+  criteria_keys: ["classification", "subject_fidelity", "deduplication", "output_format", "performance"],
+  criteria_short: ["Classification", "Subject Fidelity", "Deduplication", "Output Format", "Performance"],
+  weights: [0.30, 0.25, 0.15, 0.15, 0.15],
+
+  baseline: { score: 70.0, duration: 127.2, tasks: 5, criteria: [50, 100, 50, 100, 50] },
+
+  rounds: [
+    { round: 1, adopted: true, winner: "a",
+      variants: {
+        a: { name: "v1a Structural", score: 79.0, duration: 171.5, tasks: 5, criteria: [70, 100, 70, 100, 50], strategy: "Decision Framework + Teams Rules + Dedup Guidance" },
+        b: { name: "v1b Content", score: 71.5, duration: 212.9, tasks: 1, criteria: [30, 100, 100, 100, 50], strategy: "DO/DON'T Examples, Anti-Patterns" },
+        c: { name: "v1c Compact", score: 69.2, duration: 221.6, tasks: 3, criteria: [30, 100, 85, 100, 50], strategy: "Shortened to <400 words" }
+      }
+    },
+    { round: 2, adopted: false, winner: "none",
+      variants: {
+        a: { name: "v2a Recall+", score: 0, duration: 222.5, tasks: 0, criteria: [0, 0, 0, 100, 50], strategy: "Relaxed recall framing" },
+        b: { name: "v2b Dedup+", score: 0, duration: 245.9, tasks: 0, criteria: [0, 0, 0, 100, 50], strategy: "100% certain dedup threshold" },
+        c: { name: "v2c Few-Shot", score: 70.0, duration: 126.0, tasks: 2, criteria: [30, 100, 90, 100, 50], strategy: "10 concrete classification examples" }
+      }
+    },
+    { round: 3, adopted: false, winner: "none",
+      variants: {
+        a: { name: "v3a Minimal", score: 69.2, duration: 264.4, tasks: 4, criteria: [30, 100, 85, 100, 50], strategy: "Lower email bar (2-of-3 criteria)" },
+        b: { name: "v3b Tone", score: 57.8, duration: 265.2, tasks: 4, criteria: [50, 30, 85, 100, 50], strategy: "Tone shift: thorough instead of conservative" },
+        c: { name: "v3c Two-Pass", score: 70.0, duration: 162.0, tasks: 3, criteria: [30, 100, 90, 100, 50], strategy: "Inclusive scan -> strict filter" }
+      }
+    },
+    { round: 4, adopted: false, winner: "none",
+      variants: {
+        a: { name: "v4a Reorder", score: 40.0, duration: 175.4, tasks: 1, criteria: [30, 100, 85, 100, 50], strategy: "Same words, positive criteria first" },
+        b: { name: "v4b Channel", score: 59.5, duration: 182.3, tasks: 2, criteria: [30, 100, 85, 100, 50], strategy: "Separate email/Teams defaults" },
+        c: { name: "v4c Basics", score: 0, duration: 300.0, tasks: 0, criteria: [0, 0, 0, 0, 0], strategy: "Original + 3 surgical additions (TIMEOUT)" }
+      }
     }
-  },
-  "rounds": []
-};
-</script>
-
-<div class="header">
-  <h1>Agent Zero — Phase 1: Scan &amp; Discovery</h1>
-  <p class="subtitle">Skill Optimization Dashboard</p>
-  <div class="score-cards">
-    <div class="score-card">
-      <div class="label">Baseline Score</div>
-      <div class="value baseline" id="baselineScore">—</div>
-    </div>
-    <div class="score-card">
-      <div class="label">Current Best</div>
-      <div class="value best" id="bestScore">—</div>
-      <div class="delta" id="bestDelta"></div>
-    </div>
-    <div class="score-card">
-      <div class="label">Rounds</div>
-      <div class="value" id="roundCount" style="color:var(--accent-blue)">0</div>
-    </div>
-  </div>
-</div>
-
-<!-- 1. Score Progress -->
-<div class="section">
-  <div class="section-title"><span class="icon">📈</span> Score Progress</div>
-  <div class="chart-container">
-    <canvas id="progressChart"></canvas>
-  </div>
-  <div class="empty-state" id="progressEmpty" style="display:none">
-    <div class="icon">🔬</div>
-    <div class="msg">No rounds yet. Run the optimization loop to see progress.</div>
-  </div>
-</div>
-
-<!-- 2. Radar Chart -->
-<div class="section">
-  <div class="radar-header">
-    <div class="section-title" style="margin-bottom:0"><span class="icon">🎯</span> Criteria Breakdown</div>
-    <select class="round-select" id="radarRoundSelect">
-      <option value="-1">Select round…</option>
-    </select>
-  </div>
-  <div class="chart-container" style="max-height:420px">
-    <canvas id="radarChart"></canvas>
-  </div>
-  <div class="empty-state" id="radarEmpty" style="display:none">
-    <div class="icon">🎯</div>
-    <div class="msg">Select a round to see the criteria comparison.</div>
-  </div>
-</div>
-
-<!-- 3. Detail Table -->
-<div class="section">
-  <div class="section-title"><span class="icon">📊</span> Detailed Scores</div>
-  <div style="overflow-x:auto">
-    <table class="detail-table" id="detailTable">
-      <thead id="detailHead"></thead>
-      <tbody id="detailBody"></tbody>
-    </table>
-  </div>
-  <div class="empty-state" id="tableEmpty">
-    <div class="icon">📋</div>
-    <div class="msg">Run the first round to see the detailed comparison.</div>
-  </div>
-</div>
-
-<!-- 4. Regression Panel -->
-<div class="section">
-  <div class="section-title"><span class="icon">🛡️</span> Regression Impact</div>
-  <div class="regression-grid" id="regressionGrid"></div>
-  <div class="empty-state" id="regressionEmpty">
-    <div class="icon">🔒</div>
-    <div class="msg">No regression data available yet.</div>
-  </div>
-</div>
-
-<script>
-// ── Criteria display names and order ──
-const CRITERIA_META = {
-  classification:    { label: 'Klassifikation',    short: 'Klass.' },
-  subject_fidelity:  { label: 'Subject Fidelity',  short: 'Subject' },
-  deduplication:     { label: 'Deduplication',      short: 'Dedup.' },
-  output_format:     { label: 'Output Format',      short: 'Format' },
-  performance:       { label: 'Performance',        short: 'Perf.' }
-};
-const CRITERIA_KEYS = Object.keys(CRITERIA_META);
-
-const VARIANT_COLORS = {
-  a: { bg: 'rgba(88,166,255,0.2)',  border: '#58a6ff',  label: 'Variant A' },
-  b: { bg: 'rgba(63,185,80,0.2)',   border: '#3fb950',  label: 'Variant B' },
-  c: { bg: 'rgba(210,153,34,0.2)',  border: '#d29922',  label: 'Variant C' }
+  ]
 };
 
-const PHASE_NAMES = {
-  phase_2: 'Phase 2 — Enrich & Context',
-  phase_3: 'Phase 3 — Structured Output',
-  phase_4: 'Phase 4 — Log Work'
-};
+// ==============================================================
+// HELPERS
+// ==============================================================
+const BL = SCORES.baseline;
 
-let progressChart = null;
-let radarChart = null;
-
-// ── Data loading ──
-async function loadData() {
-  // Try fetch first (works when served via HTTP)
-  if (window.location.protocol !== 'file:') {
-    try {
-      const resp = await fetch('scores.json');
-      if (resp.ok) return await resp.json();
-    } catch (e) { /* fall through to embedded */ }
-  }
-  return EMBEDDED_SCORES;
+function allVariantsFlat() {
+  const list = [];
+  SCORES.rounds.forEach(function(r) {
+    ['a','b','c'].forEach(function(k) {
+      const v = r.variants[k];
+      list.push({
+        name: v.name,
+        score: v.score,
+        duration: v.duration,
+        tasks: v.tasks,
+        criteria: v.criteria,
+        strategy: v.strategy,
+        key: k,
+        round: r.round,
+        adopted: r.adopted && r.winner === k,
+        failed: v.score === 0
+      });
+    });
+  });
+  return list;
 }
 
-// ── Render everything ──
-async function render() {
-  const data = await loadData();
-  renderHeader(data);
-  renderProgressChart(data);
-  renderRadarDropdown(data);
-  renderDetailTable(data);
-  renderRegression(data);
-}
+// ==============================================================
+// 1. SCORE PROGRESS LINE CHART
+// ==============================================================
+(function() {
+  var ctx = document.getElementById('progressChart').getContext('2d');
+  var labels = ['Baseline', 'Round 1', 'Round 2', 'Round 3', 'Round 4'];
+  var bestRunning = [70, 79, 79, 79, 79];
 
-// ── Header ──
-function renderHeader(data) {
-  const baseline = data.baseline.total_score;
-  document.getElementById('baselineScore').textContent = baseline.toFixed(1);
+  var roundBest = SCORES.rounds.map(function(r) {
+    var scores = ['a','b','c'].map(function(k) { return r.variants[k].score; });
+    return Math.max.apply(null, scores);
+  });
+  var challengers = [null].concat(roundBest);
 
-  const adoptedRounds = data.rounds.filter(r => r.adopted);
-  let best = baseline;
-  if (adoptedRounds.length > 0) {
-    const lastAdopted = adoptedRounds[adoptedRounds.length - 1];
-    const winner = lastAdopted.variants[lastAdopted.winner];
-    if (winner) best = winner.total_score;
-  }
-
-  document.getElementById('bestScore').textContent = best.toFixed(1);
-  const delta = best - baseline;
-  const deltaEl = document.getElementById('bestDelta');
-  if (delta > 0) {
-    deltaEl.textContent = `▲ +${delta.toFixed(1)} from baseline`;
-  } else if (delta < 0) {
-    deltaEl.textContent = `▼ ${delta.toFixed(1)} from baseline`;
-    deltaEl.style.color = 'var(--accent-red)';
-  }
-
-  document.getElementById('roundCount').textContent = data.rounds.length;
-}
-
-// ── Progress Chart ──
-function renderProgressChart(data) {
-  const canvas = document.getElementById('progressChart');
-  const emptyEl = document.getElementById('progressEmpty');
-  const adoptedRounds = data.rounds.filter(r => r.adopted);
-
-  if (adoptedRounds.length === 0) {
-    canvas.style.display = 'none';
-    emptyEl.style.display = 'block';
-    return;
-  }
-  canvas.style.display = 'block';
-  emptyEl.style.display = 'none';
-
-  const labels = ['Baseline'];
-  const scores = [data.baseline.total_score];
-
-  for (const round of adoptedRounds) {
-    labels.push(`Round ${round.round}`);
-    const winner = round.variants[round.winner];
-    scores.push(winner ? winner.total_score : 0);
-  }
-
-  if (progressChart) progressChart.destroy();
-  progressChart = new Chart(canvas, {
+  new Chart(ctx, {
     type: 'line',
     data: {
-      labels,
-      datasets: [{
-        label: 'Total Score (Adopted)',
-        data: scores,
-        borderColor: '#3fb950',
-        backgroundColor: 'rgba(63,185,80,0.15)',
-        fill: true,
-        tension: 0.3,
-        pointBackgroundColor: '#3fb950',
-        pointRadius: 6,
-        pointHoverRadius: 9,
-        borderWidth: 3
-      }]
+      labels: labels,
+      datasets: [
+        {
+          label: 'Best Adopted Score',
+          data: bestRunning,
+          borderColor: '#3fb950',
+          backgroundColor: 'rgba(63,185,80,0.1)',
+          borderWidth: 3,
+          fill: true,
+          tension: 0.3,
+          pointRadius: 6,
+          pointBackgroundColor: '#3fb950',
+          pointBorderColor: '#0d1117',
+          pointBorderWidth: 2
+        },
+        {
+          label: "Round Best Challenger",
+          data: challengers,
+          borderColor: 'transparent',
+          backgroundColor: '#d29922',
+          pointRadius: 8,
+          pointStyle: 'rectRot',
+          pointBackgroundColor: '#d29922',
+          pointBorderColor: '#0d1117',
+          pointBorderWidth: 2,
+          showLine: false
+        }
+      ]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
+        legend: { labels: { color: '#8b949e', usePointStyle: true, padding: 16 } }
+      },
+      scales: {
+        x: { ticks: { color: '#8b949e' }, grid: { color: 'rgba(48,54,61,0.5)' } },
+        y: {
+          min: 0, max: 100,
+          ticks: { color: '#8b949e', stepSize: 20 },
+          grid: { color: 'rgba(48,54,61,0.5)' }
+        }
+      }
+    },
+    plugins: [{
+      id: 'thresholdLine',
+      afterDraw: function(chart) {
+        var yScale = chart.scales.y;
+        var yPos = yScale.getPixelForValue(79);
+        var c = chart.ctx;
+        c.save();
+        c.setLineDash([6, 4]);
+        c.strokeStyle = 'rgba(63,185,80,0.4)';
+        c.lineWidth = 1.5;
+        c.beginPath();
+        c.moveTo(chart.chartArea.left, yPos);
+        c.lineTo(chart.chartArea.right, yPos);
+        c.stroke();
+        c.fillStyle = 'rgba(63,185,80,0.6)';
+        c.font = '11px sans-serif';
+        c.fillText('Adopted: 79', chart.chartArea.right - 72, yPos - 6);
+        c.restore();
+      }
+    }]
+  });
+})();
+
+// ==============================================================
+// 2. RADAR CHART - Round 1
+// ==============================================================
+(function() {
+  var ctx = document.getElementById('radarChart').getContext('2d');
+  var r1 = SCORES.rounds[0].variants;
+
+  new Chart(ctx, {
+    type: 'radar',
+    data: {
+      labels: SCORES.criteria_short,
+      datasets: [
+        {
+          label: 'Baseline',
+          data: BL.criteria,
+          borderColor: 'rgba(139,148,158,0.7)',
+          backgroundColor: 'rgba(139,148,158,0.08)',
+          borderWidth: 2,
+          pointRadius: 3,
+          pointBackgroundColor: 'rgba(139,148,158,0.7)'
+        },
+        {
+          label: 'v1a Structural (Winner)',
+          data: r1.a.criteria,
+          borderColor: '#3fb950',
+          backgroundColor: 'rgba(63,185,80,0.12)',
+          borderWidth: 2.5,
+          pointRadius: 4,
+          pointBackgroundColor: '#3fb950'
+        },
+        {
+          label: 'v1b Content',
+          data: r1.b.criteria,
+          borderColor: '#58a6ff',
+          backgroundColor: 'rgba(88,166,255,0.08)',
+          borderWidth: 1.5,
+          pointRadius: 3,
+          pointBackgroundColor: '#58a6ff'
+        },
+        {
+          label: 'v1c Compact',
+          data: r1.c.criteria,
+          borderColor: '#d29922',
+          backgroundColor: 'rgba(210,153,34,0.08)',
+          borderWidth: 1.5,
+          pointRadius: 3,
+          pointBackgroundColor: '#d29922'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#8b949e', usePointStyle: true, padding: 12, font: { size: 11 } } }
+      },
+      scales: {
+        r: {
+          min: 0, max: 100,
+          ticks: { stepSize: 25, color: '#8b949e', backdropColor: 'transparent', font: { size: 10 } },
+          grid: { color: 'rgba(48,54,61,0.5)' },
+          angleLines: { color: 'rgba(48,54,61,0.5)' },
+          pointLabels: { color: '#e6edf3', font: { size: 11 } }
+        }
+      }
+    }
+  });
+})();
+
+// ==============================================================
+// 3. ALL VARIANTS HORIZONTAL BAR CHART
+// ==============================================================
+(function() {
+  var ctx = document.getElementById('allVariantsChart').getContext('2d');
+  var all = allVariantsFlat();
+  all.push({ name: 'Baseline', score: BL.score, adopted: false, failed: false, key: 'bl', round: 0 });
+  all.sort(function(a, b) { return b.score - a.score; });
+
+  var labels = all.map(function(v) { return v.name; });
+  var data = all.map(function(v) { return v.score; });
+  var colors = all.map(function(v) {
+    if (v.adopted) return '#3fb950';
+    if (v.name === 'Baseline') return '#58a6ff';
+    if (v.failed) return '#f85149';
+    return '#484f58';
+  });
+
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        data: data,
+        backgroundColor: colors,
+        borderColor: colors,
+        borderWidth: 1,
+        borderRadius: 4,
+        barPercentage: 0.7
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: '#161b22',
-          borderColor: '#30363d',
-          borderWidth: 1,
-          titleColor: '#e6edf3',
-          bodyColor: '#8b949e',
           callbacks: {
-            label: ctx => `Score: ${ctx.parsed.y.toFixed(1)}`
+            label: function(context) { return 'Score: ' + context.raw; }
           }
         }
       },
       scales: {
         x: {
-          grid: { color: 'rgba(48,54,61,0.5)' },
-          ticks: { color: '#8b949e' }
+          min: 0, max: 100,
+          ticks: { color: '#8b949e' },
+          grid: { color: 'rgba(48,54,61,0.3)' }
         },
         y: {
-          min: 0, max: 100,
-          grid: { color: 'rgba(48,54,61,0.5)' },
-          ticks: { color: '#8b949e', stepSize: 20 }
+          ticks: { color: '#e6edf3', font: { size: 11 } },
+          grid: { display: false }
         }
       }
-    }
-  });
-}
-
-// ── Radar Chart ──
-function renderRadarDropdown(data) {
-  const select = document.getElementById('radarRoundSelect');
-  select.innerHTML = '';
-
-  if (data.rounds.length === 0) {
-    select.innerHTML = '<option value="-1">No rounds available</option>';
-    document.getElementById('radarChart').style.display = 'none';
-    document.getElementById('radarEmpty').style.display = 'block';
-    return;
-  }
-
-  data.rounds.forEach((r, i) => {
-    const opt = document.createElement('option');
-    opt.value = i;
-    opt.textContent = `Round ${r.round}` + (r.adopted ? ' ✓' : '');
-    select.appendChild(opt);
-  });
-
-  select.value = data.rounds.length - 1;
-  select.addEventListener('change', () => renderRadar(data, parseInt(select.value)));
-  renderRadar(data, data.rounds.length - 1);
-}
-
-function renderRadar(data, roundIndex) {
-  const canvas = document.getElementById('radarChart');
-  const emptyEl = document.getElementById('radarEmpty');
-
-  if (roundIndex < 0 || roundIndex >= data.rounds.length) {
-    canvas.style.display = 'none';
-    emptyEl.style.display = 'block';
-    return;
-  }
-  canvas.style.display = 'block';
-  emptyEl.style.display = 'none';
-
-  const round = data.rounds[roundIndex];
-  const labels = CRITERIA_KEYS.map(k => CRITERIA_META[k].label);
-
-  const datasets = [];
-
-  // Baseline
-  datasets.push({
-    label: 'Baseline',
-    data: CRITERIA_KEYS.map(k => data.baseline.criteria[k] || 0),
-    borderColor: '#484f58',
-    backgroundColor: 'rgba(72,79,88,0.1)',
-    borderWidth: 2,
-    pointRadius: 4,
-    pointBackgroundColor: '#484f58'
-  });
-
-  // Variants
-  for (const [key, colors] of Object.entries(VARIANT_COLORS)) {
-    if (round.variants[key]) {
-      const v = round.variants[key];
-      const isWinner = round.winner === key;
-      datasets.push({
-        label: `${colors.label}${isWinner ? ' 🏆' : ''}`,
-        data: CRITERIA_KEYS.map(k => v.criteria[k] || 0),
-        borderColor: colors.border,
-        backgroundColor: colors.bg,
-        borderWidth: isWinner ? 3 : 2,
-        pointRadius: isWinner ? 6 : 4,
-        pointBackgroundColor: colors.border
-      });
-    }
-  }
-
-  if (radarChart) radarChart.destroy();
-  radarChart = new Chart(canvas, {
-    type: 'radar',
-    data: { labels, datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: {
-          position: 'bottom',
-          labels: { color: '#8b949e', padding: 16, usePointStyle: true }
-        },
-        tooltip: {
-          backgroundColor: '#161b22',
-          borderColor: '#30363d',
-          borderWidth: 1,
-          titleColor: '#e6edf3',
-          bodyColor: '#8b949e'
-        }
-      },
-      scales: {
-        r: {
-          min: 0, max: 100,
-          ticks: {
-            stepSize: 20,
-            color: '#484f58',
-            backdropColor: 'transparent'
-          },
-          grid: { color: 'rgba(48,54,61,0.5)' },
-          angleLines: { color: 'rgba(48,54,61,0.5)' },
-          pointLabels: { color: '#8b949e', font: { size: 13 } }
-        }
+    },
+    plugins: [{
+      id: 'barLabels',
+      afterDatasetsDraw: function(chart) {
+        var c = chart.ctx;
+        c.save();
+        c.font = 'bold 11px sans-serif';
+        chart.getDatasetMeta(0).data.forEach(function(bar, i) {
+          var val = data[i];
+          var x = bar.x + 8;
+          var y = bar.y + 4;
+          c.fillStyle = val === 0 ? '#f85149' : '#e6edf3';
+          c.fillText(val === 0 ? '0 X' : val.toString(), x, y);
+        });
+        c.restore();
       }
-    }
+    }]
   });
-}
+})();
 
-// ── Detail Table ──
-function renderDetailTable(data) {
-  const thead = document.getElementById('detailHead');
-  const tbody = document.getElementById('detailBody');
-  const emptyEl = document.getElementById('tableEmpty');
+// ==============================================================
+// 4. RESULTS TABLE
+// ==============================================================
+(function() {
+  var tbody = document.getElementById('resultsBody');
 
-  if (data.rounds.length === 0) {
-    thead.innerHTML = '';
-    tbody.innerHTML = '';
-    emptyEl.style.display = 'block';
-    return;
+  function critClass(val, baseVal) {
+    if (val > baseVal) return 'crit-good';
+    if (val < baseVal) return 'crit-bad';
+    return 'crit-equal';
   }
-  emptyEl.style.display = 'none';
 
-  // Use latest round for detail view
-  const round = data.rounds[data.rounds.length - 1];
-  const variantKeys = Object.keys(round.variants).sort();
-
-  // Header
-  let headerHTML = '<tr><th>Criterion</th><th>Baseline</th>';
-  for (const vk of variantKeys) {
-    const isWinner = round.winner === vk;
-    headerHTML += `<th>${VARIANT_COLORS[vk]?.label || ('Variant ' + vk.toUpperCase())}${isWinner ? ' 🏆' : ''}</th>`;
+  function statusBadge(variant) {
+    if (variant.adopted) return '<span class="status-adopted">&#9733; ADOPTED</span>';
+    if (variant.failed) return '<span class="status-failed">FAILED</span>';
+    return '<span class="status-rejected">Rejected</span>';
   }
-  headerHTML += '</tr>';
-  thead.innerHTML = headerHTML;
 
-  // Body rows
-  let bodyHTML = '';
-  for (const key of CRITERIA_KEYS) {
-    const weight = data.criteria_weights[key] || 0;
-    const baseVal = data.baseline.criteria[key] || 0;
+  function scoreClass(variant) {
+    if (variant.adopted) return 'score-gold';
+    if (variant.failed) return 'score-bad';
+    if (variant.score >= BL.score) return 'score-good';
+    return 'score-bad';
+  }
 
-    bodyHTML += '<tr>';
-    bodyHTML += `<td>${CRITERIA_META[key].label} <span class="weight">(${(weight * 100).toFixed(0)}%)</span></td>`;
-    bodyHTML += `<td>${baseVal.toFixed(1)}</td>`;
+  // Baseline row
+  var blRow = document.createElement('tr');
+  blRow.innerHTML =
+    '<td><strong>Baseline</strong></td>' +
+    '<td class="strategy-text" style="color:#58a6ff">Original SCAN_DISCOVERY_SKILL.md</td>' +
+    '<td class="score-cell" style="color:#58a6ff">' + BL.score + '</td>' +
+    '<td>' + BL.tasks + '</td>' +
+    '<td>' + BL.duration + 's</td>' +
+    BL.criteria.map(function(c) { return '<td style="color:#58a6ff">' + c + '</td>'; }).join('') +
+    '<td><span class="status-rejected">Baseline</span></td>';
+  tbody.appendChild(blRow);
 
-    // Find best value among variants for this criterion
-    let bestVal = -Infinity;
-    for (const vk of variantKeys) {
-      const val = round.variants[vk]?.criteria[key] || 0;
-      if (val > bestVal) bestVal = val;
+  var all = allVariantsFlat();
+  var lastRound = 0;
+
+  all.forEach(function(v) {
+    if (v.round !== lastRound) {
+      lastRound = v.round;
+      var roundAdopted = SCORES.rounds[v.round - 1].adopted;
+      var hr = document.createElement('tr');
+      hr.className = 'round-header';
+      hr.innerHTML = '<td colspan="11">Round ' + v.round + (roundAdopted ? ' &#8212; &#10003; Winner adopted' : ' &#8212; No improvement adopted') + '</td>';
+      tbody.appendChild(hr);
     }
 
-    for (const vk of variantKeys) {
-      const val = round.variants[vk]?.criteria[key] || 0;
-      const cls = getCellClass(val, baseVal, bestVal);
-      const icon = getCellIcon(val, baseVal, bestVal);
-      bodyHTML += `<td class="${cls}">${icon} ${val.toFixed(1)}</td>`;
-    }
-    bodyHTML += '</tr>';
-  }
-
-  // Total row
-  const baseTotalVal = data.baseline.total_score;
-  let bestTotal = -Infinity;
-  for (const vk of variantKeys) {
-    const t = round.variants[vk]?.total_score || 0;
-    if (t > bestTotal) bestTotal = t;
-  }
-
-  bodyHTML += '<tr class="total-row">';
-  bodyHTML += '<td>Weighted Total</td>';
-  bodyHTML += `<td>${baseTotalVal.toFixed(1)}</td>`;
-  for (const vk of variantKeys) {
-    const val = round.variants[vk]?.total_score || 0;
-    const cls = getCellClass(val, baseTotalVal, bestTotal);
-    const icon = getCellIcon(val, baseTotalVal, bestTotal);
-    bodyHTML += `<td class="${cls}">${icon} ${val.toFixed(1)}</td>`;
-  }
-  bodyHTML += '</tr>';
-
-  tbody.innerHTML = bodyHTML;
-}
-
-function getCellClass(val, baseVal, bestVal) {
-  if (val === bestVal && val > baseVal) return 'cell-winner';
-  if (val > baseVal) return 'cell-improved';
-  if (val === baseVal) return 'cell-same';
-  return 'cell-worse';
-}
-
-function getCellIcon(val, baseVal, bestVal) {
-  if (val === bestVal && val > baseVal) return '🏆';
-  if (val > baseVal) return '🟩';
-  if (val === baseVal) return '🟨';
-  return '🟥';
-}
-
-// ── Regression Panel ──
-function renderRegression(data) {
-  const grid = document.getElementById('regressionGrid');
-  const emptyEl = document.getElementById('regressionEmpty');
-
-  // Find latest round with regression data
-  let regressionData = null;
-  for (let i = data.rounds.length - 1; i >= 0; i--) {
-    if (data.rounds[i].regression) {
-      regressionData = data.rounds[i].regression;
-      break;
-    }
-  }
-
-  if (!regressionData) {
-    grid.innerHTML = '';
-    emptyEl.style.display = 'block';
-    return;
-  }
-  emptyEl.style.display = 'none';
-
-  let html = '';
-  for (const [phaseKey, info] of Object.entries(regressionData)) {
-    const phaseName = PHASE_NAMES[phaseKey] || phaseKey;
-    let status, deltaText;
-
-    if (info === null || info.score === null || info.score === undefined) {
-      status = 'untested';
-      deltaText = 'Not tested';
-    } else if (info.delta < 0) {
-      status = 'degraded';
-      deltaText = `▼ ${info.delta.toFixed(1)}`;
-    } else {
-      status = 'stable';
-      deltaText = info.delta === 0 ? '→ Stable' : `▲ +${info.delta.toFixed(1)}`;
-    }
-
-    const scoreText = (info && info.score !== null && info.score !== undefined)
-      ? info.score.toFixed(1)
-      : '—';
-
-    html += `
-      <div class="regression-card ${status}">
-        <div class="phase-label">${phaseName}</div>
-        <div class="phase-score">${scoreText}</div>
-        <div class="phase-delta">${deltaText}</div>
-      </div>`;
-  }
-
-  grid.innerHTML = html;
-}
-
-// ── Initialize ──
-render();
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td><strong>' + v.name + '</strong></td>' +
+      '<td class="strategy-text">' + v.strategy + '</td>' +
+      '<td class="score-cell ' + scoreClass(v) + '">' + v.score + '</td>' +
+      '<td>' + v.tasks + '</td>' +
+      '<td>' + v.duration + 's</td>' +
+      v.criteria.map(function(c, i) { return '<td class="' + critClass(c, BL.criteria[i]) + '">' + c + '</td>'; }).join('') +
+      '<td>' + statusBadge(v) + '</td>';
+    tbody.appendChild(tr);
+  });
+})();
 </script>
 
 </body>
