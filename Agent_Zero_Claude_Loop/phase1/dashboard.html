@@ -282,6 +282,178 @@
     </div>
   </div>
 
+  <!-- SECTION 1: WHAT THIS IS ABOUT -->
+  <div class="card" style="margin-bottom: 24px;">
+    <div class="card-title"><span class="icon">📋</span> What This Is About</div>
+    <p style="color: var(--text); font-size: 0.9rem; line-height: 1.7; margin-bottom: 12px;">
+      Agent Zero Phase 1 (Scan &amp; Discovery) is the critical first filter in a 4-phase AI task management pipeline. It scans the user&rsquo;s Microsoft 365 inbox and Teams messages to identify which messages require action &mdash; and which are just noise (newsletters, FYI, casual chats).
+    </p>
+    <p style="color: var(--text-dim); font-size: 0.9rem; line-height: 1.7; margin-bottom: 12px;">
+      We optimized the AI prompt that drives this classification. Over 4 rounds, we tested 12 different prompt variants using a Squad-based parallel optimization approach: 3 AI &ldquo;Prompt Engineers&rdquo; created competing variants in each round, a Tester ran them against the live M365 inbox, and an Evaluator scored them against 5 success criteria.
+    </p>
+    <p style="color: var(--text); font-size: 0.9rem; line-height: 1.7;">
+      The winner &mdash; Variant <strong style="color: var(--green);">v1a</strong> from Round 1 &mdash; improved the score from <strong>70/100</strong> to <strong style="color: var(--green);">79/100 (+12.9%)</strong>. After 3 consecutive rounds without further improvement, Phase 1 is considered fully optimized.
+    </p>
+  </div>
+
+  <!-- SECTION 2: SUCCESS CRITERIA -->
+  <div class="card" style="margin-bottom: 24px;">
+    <div class="card-title"><span class="icon">🎯</span> Success Criteria</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Criterion</th>
+            <th>Weight</th>
+            <th>What It Measures</th>
+            <th>How We Measure It</th>
+            <th>Target</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Classification</strong></td>
+            <td>30%</td>
+            <td style="color: var(--text-dim);">Correct identification of actionable vs non-actionable messages</td>
+            <td style="color: var(--text-dim);">F1 score (Precision &times; Recall) against a manually reviewed &ldquo;Golden Set&rdquo;</td>
+            <td><span style="color: var(--green);">F1 &ge; 0.95 = 100pts</span></td>
+          </tr>
+          <tr>
+            <td><strong>Subject Fidelity</strong></td>
+            <td>25%</td>
+            <td style="color: var(--text-dim);">Subject lines must be exact character-by-character copies</td>
+            <td style="color: var(--text-dim);">String comparison: scan output title vs original email/Teams subject</td>
+            <td><span style="color: var(--green);">100% match = 100pts</span></td>
+          </tr>
+          <tr>
+            <td><strong>Deduplication</strong></td>
+            <td>15%</td>
+            <td style="color: var(--text-dim);">Correct recognition of messages that match existing tasks</td>
+            <td style="color: var(--text-dim);">Compare &ldquo;update&rdquo; classifications against actual task IDs in database</td>
+            <td><span style="color: var(--green);">&ge;95% correct = 100pts</span></td>
+          </tr>
+          <tr>
+            <td><strong>Output Format</strong></td>
+            <td>15%</td>
+            <td style="color: var(--text-dim);">Valid JSON with all required fields (action, title, source, from, date, link)</td>
+            <td style="color: var(--text-dim);">JSON schema validation + field value checks</td>
+            <td><span style="color: var(--green);">100% valid = 100pts</span></td>
+          </tr>
+          <tr>
+            <td><strong>Performance</strong></td>
+            <td>15%</td>
+            <td style="color: var(--text-dim);">Scan speed and reliability</td>
+            <td style="color: var(--text-dim);">Time measurement: start to response</td>
+            <td><span style="color: var(--green);">&lt;30s = 100pts</span>, 30-60s = 90pts, 60-120s = 70pts, 120-300s = 50pts</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="color: var(--text-dim); font-size: 0.85rem; line-height: 1.6; margin-top: 16px;">
+      <strong style="color: var(--text);">Total Score</strong> = &Sigma;(criterion_score &times; weight). A variant must score &ge;2 points higher than the current best to be adopted. After 3 consecutive rounds without improvement, the phase is declared optimized.
+    </p>
+  </div>
+
+  <!-- SECTION 3: GOOD VS BAD EXAMPLES -->
+  <div class="card" style="margin-bottom: 24px;">
+    <div class="card-title"><span class="icon">✅</span> What Worked vs <span style="color: var(--red);">❌</span> What Failed &mdash; Concrete Examples</div>
+
+    <div style="display: flex; gap: 24px; flex-wrap: wrap;">
+
+      <!-- LEFT COLUMN: What Worked -->
+      <div style="flex: 1; min-width: 320px; background: var(--green-dim); border: 1px solid rgba(63,185,80,0.2); border-radius: 8px; padding: 16px;">
+        <h3 style="font-size: 0.95rem; font-weight: 700; color: var(--green); margin-bottom: 12px;">✅ What Worked (v1a &mdash; 79/100)</h3>
+        <p style="color: var(--text); font-size: 0.85rem; line-height: 1.6; margin-bottom: 14px;">
+          The winning prompt added a <strong>Decision Framework</strong> that asks: &ldquo;Does this message require the user to perform a specific, concrete action?&rdquo; This single question dramatically improved classification.
+        </p>
+        <div class="table-wrap">
+          <table style="font-size: 0.8rem;">
+            <thead>
+              <tr>
+                <th style="background: rgba(63,185,80,0.12);">Message</th>
+                <th style="background: rgba(63,185,80,0.12);">Source</th>
+                <th style="background: rgba(63,185,80,0.12);">Classification</th>
+                <th style="background: rgba(63,185,80,0.12);">Why Correct</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>&ldquo;Quarter End P09 March GS Open POs&rdquo;</td>
+                <td>Email</td>
+                <td><span style="color: var(--green);">✅ New task</span></td>
+                <td style="color: var(--text-dim);">Business request requiring review</td>
+              </tr>
+              <tr>
+                <td>&ldquo;Könntest du den Aufbau der Extron Software dokumentieren?&rdquo;</td>
+                <td>Teams</td>
+                <td><span style="color: var(--green);">✅ New task</span></td>
+                <td style="color: var(--text-dim);">Clear deliverable directed at user</td>
+              </tr>
+              <tr>
+                <td>&ldquo;Kurze Frage: haben wir einen Passwortmanager?&rdquo;</td>
+                <td>Teams</td>
+                <td><span style="color: var(--green);">✅ New task</span></td>
+                <td style="color: var(--text-dim);">Direct question needing an answer</td>
+              </tr>
+              <tr>
+                <td>&ldquo;my combine button doesn&rsquo;t work!&rdquo;</td>
+                <td>Teams</td>
+                <td><span style="color: var(--green);">✅ New task</span></td>
+                <td style="color: var(--text-dim);">Support request needing help</td>
+              </tr>
+              <tr>
+                <td>Casual chat: &ldquo;Which one you think is closer?&rdquo;</td>
+                <td>Teams</td>
+                <td><span style="color: var(--green);">✅ Skipped</span></td>
+                <td style="color: var(--text-dim);">Vague snippet &mdash; no specific action</td>
+              </tr>
+              <tr>
+                <td>Scheduling: &ldquo;Bin gerade noch in nem Call...&rdquo;</td>
+                <td>Teams</td>
+                <td><span style="color: var(--green);">✅ Skipped</span></td>
+                <td style="color: var(--text-dim);">Ephemeral scheduling &mdash; not a task</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- RIGHT COLUMN: What Failed -->
+      <div style="flex: 1; min-width: 320px; background: var(--red-dim); border: 1px solid rgba(248,81,73,0.2); border-radius: 8px; padding: 16px;">
+        <h3 style="font-size: 0.95rem; font-weight: 700; color: var(--red); margin-bottom: 12px;">❌ What Failed</h3>
+
+        <div style="margin-bottom: 16px;">
+          <p style="font-size: 0.85rem; font-weight: 700; color: var(--text); margin-bottom: 4px;">❌ v1b (Round 1, 71.5pts) &mdash; &ldquo;When in doubt, leave it out&rdquo;</p>
+          <p style="color: var(--text-dim); font-size: 0.85rem; line-height: 1.6;">
+            Adding explicit DON&rsquo;T examples with strong &ldquo;leave it out&rdquo; messaging caused the model to find only 1 task out of 33 messages. The examples were interpreted too literally &mdash; the model started skipping everything remotely ambiguous.
+          </p>
+        </div>
+
+        <div style="margin-bottom: 16px;">
+          <p style="font-size: 0.85rem; font-weight: 700; color: var(--text); margin-bottom: 4px;">❌ v3b (Round 3, 57.8pts) &mdash; Tone shift broke subject fidelity</p>
+          <p style="color: var(--text-dim); font-size: 0.85rem; line-height: 1.6;">
+            Simply changing &ldquo;conservative&rdquo; to &ldquo;thorough&rdquo; in the prompt&rsquo;s tone &mdash; with identical rules &mdash; caused the model to start REWRITING subject lines. &ldquo;Which one you think is closer to what it does?&rdquo; became &ldquo;Agent Zero naming &mdash; Which one you think is closer...&rdquo; The model added context prefixes and combined multiple topics into single tasks, violating the #1 rule.
+          </p>
+        </div>
+
+        <div>
+          <p style="font-size: 0.85rem; font-weight: 700; color: var(--text); margin-bottom: 4px;">❌ v2a/v2b (Round 2, 0pts each) &mdash; Total model shutdown</p>
+          <p style="color: var(--text-dim); font-size: 0.85rem; line-height: 1.6;">
+            Two variants found ZERO tasks out of 33 messages. v2a tried to reframe costs (&ldquo;missing a task is permanent&rdquo;), v2b tightened the dedup threshold to &ldquo;100% certain&rdquo;. Both caused the Copilot model to enter a state of total paralysis &mdash; it considered every message ambiguous and skipped everything.
+          </p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Callout Box -->
+    <div style="margin-top: 20px; padding: 16px 20px; background: var(--surface2); border-left: 3px solid var(--gold); border-radius: 4px;">
+      <p style="color: var(--text); font-size: 0.9rem; line-height: 1.7;">
+        <strong style="color: var(--gold);">💡 Core Insight:</strong> The Copilot model has a strong inherent bias toward caution. Any additional guidance &mdash; regardless of intent &mdash; tends to amplify this bias. Variant v1a hit a &ldquo;sweet spot&rdquo; where the prompt provides enough structure to improve classification without triggering over-cautious behavior. This sweet spot is fragile: even small changes destabilize it.
+      </p>
+    </div>
+  </div>
+
   <!-- CHARTS ROW 1 -->
   <div class="grid">
     <div class="card">
