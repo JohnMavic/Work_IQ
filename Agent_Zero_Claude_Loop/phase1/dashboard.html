@@ -85,12 +85,15 @@
   .header h1 {
     font-size: 1.6rem;
     font-weight: 700;
+    color: var(--text);
+  }
+  .header h1 .highlight {
     background: linear-gradient(135deg, var(--green), var(--blue));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
-  .header h1 span { font-weight: 400; opacity: 0.8; }
+  .header h1 span { font-weight: 400; color: var(--text-dim); }
   .badge {
     display: inline-flex;
     align-items: center;
@@ -290,7 +293,7 @@
   <!-- HEADER -->
   <div class="header">
     <div class="header-top">
-      <h1>Agent Zero &mdash; <span>Phase 1: Scan &amp; Discovery &mdash; Optimization Results</span></h1>
+      <h1><span class="highlight">Agent Zero</span> &mdash; <span>Phase 1: Scan &amp; Discovery &mdash; Optimization Results</span></h1>
       <span class="badge badge-success">&#10003; OPTIMIZED &mdash; 79/100 (+12.9%)</span>
     </div>
     <div class="stats-row">
