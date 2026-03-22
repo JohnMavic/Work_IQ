@@ -12,19 +12,30 @@ You will receive KEYWORDS from the subject line, the SOURCE (email or teams), a 
 
 ## Search Strategy — Three Attempts
 
-You MUST try up to three search approaches. Do NOT give up after one failed search.
+You MUST try up to three search approaches. Do NOT give up after one failed search. Follow these steps in order:
 
-### Attempt 1: Keyword Search
+**Step 1: Keyword Search**
 Search for the conversation using the KEY TOPICS from the subject line. Do NOT search for the exact subject — use the most distinctive keywords (names, numbers, project names, locations).
+- For **emails**: search by subject keywords + sender name
+- For **Teams**: search by sender name + topic keywords
+
 Example: Subject "Submit NSSR/RITM via project intake form for Cisco SSD replacements at Zurich The Circle"
 → Search for: "Cisco SSD Zurich The Circle"
 
-### Attempt 2: Broader Search (if Attempt 1 fails)
+IF Step 1 returns no results, THEN proceed to Step 2.
+
+**Step 2: Broader Search**
 Try fewer, more general keywords. Drop specifics and search for the core topic.
 Example: Search for "SSD replacement Zurich" or "Cisco SSD"
 
-### Attempt 3: Sender-Based Search (if Attempt 2 fails)
+IF Step 2 returns no results, THEN proceed to Step 3.
+
+**Step 3: Sender-Based Search**
 Search for recent messages from the sender about the general topic area.
+
+**After finding the conversation**, verify you have the COMPLETE thread:
+- For **emails**: check if there are older replies in the thread you may have missed
+- For **Teams**: scroll back to the beginning of the relevant discussion to capture all context
 
 ## Temporal Awareness — CRITICAL
 
