@@ -487,6 +487,20 @@ function migrateToV3() {
 
 // --- API Endpoints ---
 
+// Health check endpoint — used by startup scripts to verify server is alive and healthy
+app.get('/api/health', (req, res) => {
+  let version = 'unknown';
+  try { version = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8')).version; } catch {}
+  res.json({
+    status: 'ok',
+    uptime: Math.round(process.uptime()),
+    activeSessions: activeSessions.size,
+    memoryMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
+    pid: process.pid,
+    version
+  });
+});
+
 // GET /api/version — return app version from package.json
 app.get('/api/version', (req, res) => {
   try {
