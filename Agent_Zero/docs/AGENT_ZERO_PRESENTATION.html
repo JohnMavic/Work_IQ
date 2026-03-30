@@ -291,7 +291,7 @@
             border: 2px solid rgba(0, 212, 255, 0.4);
             border-radius: 50%;
             cursor: pointer;
-            z-index: 10;
+            z-index: 50;
             transition: all 0.3s ease;
             user-select: none;
             display: flex;
@@ -302,7 +302,7 @@
         }
 
         .phases-slide .expand-btn::before {
-            content: '🧙‍♂️';
+            content: '🦹';
             font-size: 26px;
             transition: transform 0.3s ease;
             line-height: 1;
@@ -319,14 +319,6 @@
             transform: scale(1.15);
         }
 
-        .phase-content.active.expanded .screenshot-container::before {
-            content: '';
-            display: none;
-        }
-
-        .phases-slide .screenshot-container:hover .expand-btn {
-            opacity: 1;
-        }
 
         .screenshot-placeholder {
             width: 100%;
@@ -1896,26 +1888,26 @@
         // ===== SCREENSHOT CLICK TO EXPAND (button only) + BUBBLE ANIMATION =====
         const slideAnimSteps = {}; // track current animation step per slideId
 
-        // Add expand buttons to each phase screenshot-container
-        document.querySelectorAll('.phases-slide .screenshot-container').forEach(container => {
+        // Add ONE expand button to the phases SLIDE (not per container)
+        const phasesSlide = document.querySelector('.phases-slide');
+        if (phasesSlide) {
+            phasesSlide.style.position = 'relative';
             const btn = document.createElement('div');
             btn.className = 'expand-btn';
             btn.title = 'Expand / Collapse';
-            container.appendChild(btn);
+            phasesSlide.appendChild(btn);
 
-            // Expand/collapse ONLY via this button
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const phaseContent = container.closest('.phase-content');
-                const slide = container.closest('.slide');
-                if (slide && slide.querySelector('.bubble-editor-toolbar')) return;
-                if (phaseContent && phaseContent.classList.contains('active')) {
+                if (phasesSlide.querySelector('.bubble-editor-toolbar')) return;
+                const phaseContent = phasesSlide.querySelector('.phase-content.active');
+                if (phaseContent) {
                     phaseContent.classList.toggle('expanded');
                     btn.classList.toggle('is-expanded', phaseContent.classList.contains('expanded'));
                     setTimeout(resizePhaseImages, 50);
                 }
             });
-        });
+        }
 
         // Clicks on ANY slide (not on buttons/editor) advance bubble animation
         document.querySelectorAll('.slide').forEach(slide => {
@@ -2756,8 +2748,8 @@
                                 // Also collapse expanded phase
                                 const expanded = slide.querySelector('.phase-content.expanded');
                                 if (expanded) expanded.classList.remove('expanded');
-                                // Reset expand button text
-                                const btn = slide.querySelector('.phase-content.active .expand-btn');
+                                // Reset expand button
+                                const btn = slide.querySelector('.expand-btn');
                                 if (btn) btn.classList.remove('is-expanded');
                                 const toolbar = slide.querySelector('.bubble-editor-toolbar');
                                 if (toolbar) {
