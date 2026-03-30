@@ -150,12 +150,67 @@
             padding: 20px 30px;
             transition: all 0.3s ease;
             cursor: pointer;
+            position: relative;
         }
+        .phase-icon::after {
+            content: attr(data-label);
+            position: absolute;
+            bottom: -28px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.28em;
+            color: #64748b;
+            white-space: nowrap;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            transition: color 0.3s;
+        }
+        .phase-icon .phase-icon-tip {
+            display: none;
+            position: absolute;
+            bottom: calc(100% + 14px);
+            left: 50%;
+            transform: translateX(-50%);
+            background: #1a1d2e;
+            border: 2px solid #3b82f6;
+            border-radius: 10px;
+            padding: 10px 16px;
+            min-width: 220px;
+            max-width: 280px;
+            color: #e2e8f0;
+            font-size: 0.3em;
+            font-weight: 400;
+            line-height: 1.5;
+            text-align: center;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            z-index: 20;
+            pointer-events: none;
+        }
+        .phase-icon .phase-icon-tip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 7px solid transparent;
+            border-top-color: #3b82f6;
+        }
+        .phase-icon:hover .phase-icon-tip { display: block; animation: tooltipFade 0.25s ease; }
+        .phase-icon[data-phase="1"]:hover { border-color: #00d4ff; box-shadow: 0 0 25px rgba(0, 212, 255, 0.4); }
+        .phase-icon[data-phase="1"]:hover::after { color: #00d4ff; }
+        .phase-icon[data-phase="1"]:hover .phase-icon-tip { border-color: #00d4ff; }
+        .phase-icon[data-phase="2"]:hover { border-color: #34d399; box-shadow: 0 0 25px rgba(52, 211, 153, 0.4); }
+        .phase-icon[data-phase="2"]:hover::after { color: #34d399; }
+        .phase-icon[data-phase="2"]:hover .phase-icon-tip { border-color: #34d399; }
+        .phase-icon[data-phase="3"]:hover { border-color: #fbbf24; box-shadow: 0 0 25px rgba(251, 191, 36, 0.4); }
+        .phase-icon[data-phase="3"]:hover::after { color: #fbbf24; }
+        .phase-icon[data-phase="3"]:hover .phase-icon-tip { border-color: #fbbf24; }
+        .phase-icon[data-phase="4"]:hover { border-color: #e879f9; box-shadow: 0 0 25px rgba(232, 121, 249, 0.4); }
+        .phase-icon[data-phase="4"]:hover::after { color: #e879f9; }
+        .phase-icon[data-phase="4"]:hover .phase-icon-tip { border-color: #e879f9; }
 
         .phase-icon:hover {
             transform: translateY(-5px) scale(1.05);
-            border-color: #3b82f6;
-            box-shadow: 0 0 25px rgba(59, 130, 246, 0.4);
         }
 
         .scroll-arrow {
@@ -1677,10 +1732,10 @@
             </div>
 
             <div class="phase-teaser">
-                <div class="phase-icon">📡</div>
-                <div class="phase-icon">📋</div>
-                <div class="phase-icon">🔍</div>
-                <div class="phase-icon">🔗</div>
+                <div class="phase-icon" data-phase="1" data-label="Discovery" data-desc="Scans Outlook & Teams subjects to find action items automatically">📡<span class="phase-icon-tip">📡 <strong>Discovery</strong><br>Scans your inbox subjects — click to explore</span></div>
+                <div class="phase-icon" data-phase="2" data-label="Enrichment" data-desc="Reads full threads, creates structured summaries with key decisions">📋<span class="phase-icon-tip">📋 <strong>Enrichment</strong><br>Reads full threads & summarizes — click to explore</span></div>
+                <div class="phase-icon" data-phase="3" data-label="Update Check" data-desc="Detects new activity since last check — keeps summaries current">🔍<span class="phase-icon-tip">🔍 <strong>Update Check</strong><br>Finds new activity automatically — click to explore</span></div>
+                <div class="phase-icon" data-phase="4" data-label="Consolidation" data-desc="Finds semantic overlaps between tasks, suggests intelligent merges">🔗<span class="phase-icon-tip">🔗 <strong>Consolidation</strong><br>Merges duplicate tasks — click to explore</span></div>
             </div>
 
             <div class="scroll-arrow">↓</div>
@@ -2495,6 +2550,22 @@
                     }
                     resizePhaseImages();
                 }, 50);
+            });
+        });
+
+        // ===== SMART PHASE ICONS (SLIDE 1 → SLIDE 2 NAVIGATION) =====
+        document.querySelectorAll('.phase-icon[data-phase]').forEach(icon => {
+            icon.addEventListener('click', () => {
+                const phase = icon.getAttribute('data-phase');
+                const slide2 = document.querySelector('.slide[data-slide="2"]');
+                if (!slide2) return;
+                // Scroll to Slide 2
+                window.scrollTo({ top: slide2.offsetTop - 20, behavior: 'smooth' });
+                // Activate the matching phase tab after scroll settles
+                setTimeout(() => {
+                    const tab = document.querySelector(`.phase-tab[data-phase="${phase}"]`);
+                    if (tab) tab.click();
+                }, 600);
             });
         });
 
