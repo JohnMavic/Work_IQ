@@ -1168,13 +1168,13 @@
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
         }
 
-        /* Neon Glow Animation */
+        /* Neon Glow Animation — pulses box-shadow, NOT opacity */
         @keyframes neonPulse {
             0%, 100% {
-                opacity: 0.6;
+                filter: brightness(0.85);
             }
             50% {
-                opacity: 1;
+                filter: brightness(1.15);
             }
         }
 
@@ -1349,9 +1349,7 @@
 
         /* Hidden bubbles waiting for click-to-reveal */
         .editor-bubble.anim-hidden {
-            opacity: 0;
-            pointer-events: none;
-            transition: none;
+            display: none !important;
         }
 
         /* Selected Bubble Controls in Toolbar */
@@ -1904,27 +1902,34 @@
             });
         });
 
-        // Clicks on the slide (not on buttons/editor) advance bubble animation
-        document.querySelectorAll('.phases-slide').forEach(slide => {
+        // Clicks on ANY slide (not on buttons/editor) advance bubble animation
+        document.querySelectorAll('.slide').forEach(slide => {
             slide.addEventListener('click', (e) => {
-                // Ignore clicks on editor controls, expand button, bubbles, tabs, or toolbar
+                // Ignore clicks on editor controls, expand button, bubbles, tabs, toolbar, or interactive elements
                 if (e.target.closest('.bubble-editor-toolbar') ||
                     e.target.closest('.expand-btn') ||
                     e.target.closest('.editor-bubble') ||
                     e.target.closest('.phase-navigator') ||
-                    e.target.closest('.bubble-editor-toggle')) return;
+                    e.target.closest('.bubble-editor-toggle') ||
+                    e.target.closest('a') ||
+                    e.target.closest('button') ||
+                    e.target.closest('.feature-card') ||
+                    e.target.closest('.arch-component')) return;
 
                 const slideId = BubbleEditor.getSlideId(slide);
                 if (!slideAnimSteps[slideId]) slideAnimSteps[slideId] = 0;
                 slideAnimSteps[slideId]++;
-                // Reveal bubbles matching this step
-                const bubbles = slide.querySelectorAll('.editor-bubble');
+                const step = slideAnimSteps[slideId];
+
+                // Reveal all bubbles whose animationOrder matches this step
+                const bubbles = slide.querySelectorAll('.editor-bubble.anim-hidden');
                 bubbles.forEach(bubble => {
                     const data = BubbleEditor.getBubbleData(bubble);
                     if (!data) return;
                     const order = data.animationOrder || 0;
-                    if (order === slideAnimSteps[slideId]) {
+                    if (order === step) {
                         bubble.classList.remove('anim-hidden');
+                        // Trigger pop animation
                         bubble.classList.remove('animating');
                         void bubble.offsetWidth;
                         bubble.classList.add('animating');
@@ -1933,8 +1938,8 @@
             });
         });
 
-        // Apply initial visibility: hide bubbles with animationOrder > 0
-        function applyBubbleVisibility(slide) {
+        // Reset bubble visibility: hide all with order > 0, show order 0
+        function resetBubbleAnimation(slide) {
             const slideId = BubbleEditor.getSlideId(slide);
             slideAnimSteps[slideId] = 0;
             const bubbles = slide.querySelectorAll('.editor-bubble');
@@ -1943,9 +1948,9 @@
                 const data = BubbleEditor.getBubbleData(bubble);
                 if (!data) return;
                 const order = data.animationOrder || 0;
+                bubble.classList.remove('animating');
                 if (order > 0 && !isEditMode) {
                     bubble.classList.add('anim-hidden');
-                    bubble.classList.remove('animating');
                 } else {
                     bubble.classList.remove('anim-hidden');
                 }
@@ -2698,21 +2703,11 @@
                 return null;
             }
 
-            // Apply initial bubble visibility (hide bubbles with animationOrder > 0)
+            // Apply initial bubble visibility — delegates to external resetBubbleAnimation
             function applyBubbleVisibility(slide) {
-                const bubbles = slide.querySelectorAll('.editor-bubble');
-                const isEditMode = slide.querySelector('.bubble-editor-toolbar') !== null;
-                bubbles.forEach(bubble => {
-                    const data = getBubbleData(bubble);
-                    if (!data) return;
-                    const order = data.animationOrder || 0;
-                    if (order > 0 && !isEditMode) {
-                        bubble.classList.add('anim-hidden');
-                        bubble.classList.remove('animating');
-                    } else {
-                        bubble.classList.remove('anim-hidden');
-                    }
-                });
+                if (typeof resetBubbleAnimation === 'function') {
+                    resetBubbleAnimation(slide);
+                }
             }
 
             // Setup intersection observer for bubble visibility reset
@@ -2720,11 +2715,8 @@
                 const observer = new IntersectionObserver((entries) => {
                     entries.forEach(entry => {
                         if (entry.isIntersecting) {
-                            applyBubbleVisibility(entry.target);
-                            // Reset external animation step counter
-                            if (typeof slideAnimSteps !== 'undefined') {
-                                const sid = getSlideId(entry.target);
-                                slideAnimSteps[sid] = 0;
+                            if (typeof resetBubbleAnimation === 'function') {
+                                resetBubbleAnimation(entry.target);
                             }
                         }
                     });
@@ -2743,12 +2735,12 @@
                             const slide = document.querySelector('[data-slide-id="slide-2"]');
                             if (slide) {
                                 renderBubbles(slide);
-                                applyBubbleVisibility(slide);
-                                // Reset external animation step counter
-                                if (typeof slideAnimSteps !== 'undefined') {
-                                    const sid = getSlideId(slide);
-                                    slideAnimSteps[sid] = 0;
+                                if (typeof resetBubbleAnimation === 'function') {
+                                    resetBubbleAnimation(slide);
                                 }
+                                // Also collapse expanded phase
+                                const expanded = slide.querySelector('.phase-content.expanded');
+                                if (expanded) expanded.classList.remove('expanded');
                                 // Reset expand button text
                                 const btn = slide.querySelector('.phase-content.active .expand-btn');
                                 if (btn) btn.textContent = '🔍 Click to expand';
