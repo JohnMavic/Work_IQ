@@ -269,6 +269,7 @@
         /* Click-to-expand hint only on Slide 2 phase screenshots */
         .phases-slide .screenshot-container {
             cursor: pointer;
+            overflow: visible;
         }
 
         .phases-slide .screenshot-container:hover img {
@@ -317,6 +318,9 @@
         .phases-slide .screenshot-placeholder {
             padding: 0;
             align-items: flex-start;
+            position: relative;
+            display: inline-block;
+            width: fit-content;
         }
 
         .screenshot-container img {
@@ -2338,11 +2342,11 @@
                 const existingBubbles = slide.querySelectorAll('.editor-bubble');
                 existingBubbles.forEach(b => b.remove());
 
-                // Get container for bubbles (screenshot-container for phases, slide itself for others)
+                // Get container for bubbles (screenshot-placeholder for phases, slide itself for others)
                 let container = slide;
                 if (slideId.includes('phase')) {
                     const activePhase = slide.querySelector('.phase-content.active');
-                    container = activePhase?.querySelector('.screenshot-container') || slide;
+                    container = activePhase?.querySelector('.screenshot-placeholder') || activePhase?.querySelector('.screenshot-container') || slide;
                 }
 
                 const bubbles = allBubbles[slideId] || [];
