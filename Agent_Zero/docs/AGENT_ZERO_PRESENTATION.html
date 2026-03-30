@@ -277,7 +277,11 @@
         }
 
         .phases-slide .screenshot-container::before {
-            content: '🔍 Click to expand';
+            content: '';
+            display: none;
+        }
+
+        .phases-slide .expand-btn {
             position: absolute;
             bottom: 15px;
             right: 15px;
@@ -287,17 +291,25 @@
             border-radius: 8px;
             font-size: 0.85em;
             font-weight: 600;
-            pointer-events: none;
+            cursor: pointer;
             opacity: 0.8;
-            z-index: 5;
-            transition: opacity 0.3s ease;
+            z-index: 10;
+            transition: opacity 0.3s ease, transform 0.2s ease;
+            border: none;
+            user-select: none;
+        }
+
+        .phases-slide .expand-btn:hover {
+            opacity: 1;
+            transform: scale(1.05);
         }
 
         .phase-content.active.expanded .screenshot-container::before {
-            content: '🔍 Click to collapse';
+            content: '';
+            display: none;
         }
 
-        .phases-slide .screenshot-container:hover::before {
+        .phases-slide .screenshot-container:hover .expand-btn {
             opacity: 1;
         }
 
@@ -1335,6 +1347,13 @@
             animation: bubblePop 0.6s ease-out;
         }
 
+        /* Hidden bubbles waiting for click-to-reveal */
+        .editor-bubble.anim-hidden {
+            opacity: 0;
+            pointer-events: none;
+            transition: none;
+        }
+
         /* Selected Bubble Controls in Toolbar */
         .bubble-editor-toolbar .selected-controls {
             display: none;
@@ -1861,20 +1880,77 @@
             });
         });
 
-        // ===== SCREENSHOT CLICK TO EXPAND =====
-        document.querySelectorAll('.screenshot-container').forEach(container => {
-            container.addEventListener('click', () => {
+        // ===== SCREENSHOT CLICK TO EXPAND (button only) + BUBBLE ANIMATION =====
+        const slideAnimSteps = {}; // track current animation step per slideId
+
+        // Add expand buttons to each phase screenshot-container
+        document.querySelectorAll('.phases-slide .screenshot-container').forEach(container => {
+            const btn = document.createElement('div');
+            btn.className = 'expand-btn';
+            btn.textContent = '🔍 Click to expand';
+            container.appendChild(btn);
+
+            // Expand/collapse ONLY via this button
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
                 const phaseContent = container.closest('.phase-content');
-                // Disable expand/collapse while Bubble Editor is active
                 const slide = container.closest('.slide');
                 if (slide && slide.querySelector('.bubble-editor-toolbar')) return;
                 if (phaseContent && phaseContent.classList.contains('active')) {
                     phaseContent.classList.toggle('expanded');
-                    // Re-run sizing after expand/collapse
+                    btn.textContent = phaseContent.classList.contains('expanded') ? '🔍 Click to collapse' : '🔍 Click to expand';
                     setTimeout(resizePhaseImages, 50);
                 }
             });
         });
+
+        // Clicks on the slide (not on buttons/editor) advance bubble animation
+        document.querySelectorAll('.phases-slide').forEach(slide => {
+            slide.addEventListener('click', (e) => {
+                // Ignore clicks on editor controls, expand button, bubbles, tabs, or toolbar
+                if (e.target.closest('.bubble-editor-toolbar') ||
+                    e.target.closest('.expand-btn') ||
+                    e.target.closest('.editor-bubble') ||
+                    e.target.closest('.phase-navigator') ||
+                    e.target.closest('.bubble-editor-toggle')) return;
+
+                const slideId = BubbleEditor.getSlideId(slide);
+                if (!slideAnimSteps[slideId]) slideAnimSteps[slideId] = 0;
+                slideAnimSteps[slideId]++;
+                // Reveal bubbles matching this step
+                const bubbles = slide.querySelectorAll('.editor-bubble');
+                bubbles.forEach(bubble => {
+                    const data = BubbleEditor.getBubbleData(bubble);
+                    if (!data) return;
+                    const order = data.animationOrder || 0;
+                    if (order === slideAnimSteps[slideId]) {
+                        bubble.classList.remove('anim-hidden');
+                        bubble.classList.remove('animating');
+                        void bubble.offsetWidth;
+                        bubble.classList.add('animating');
+                    }
+                });
+            });
+        });
+
+        // Apply initial visibility: hide bubbles with animationOrder > 0
+        function applyBubbleVisibility(slide) {
+            const slideId = BubbleEditor.getSlideId(slide);
+            slideAnimSteps[slideId] = 0;
+            const bubbles = slide.querySelectorAll('.editor-bubble');
+            const isEditMode = slide.querySelector('.bubble-editor-toolbar') !== null;
+            bubbles.forEach(bubble => {
+                const data = BubbleEditor.getBubbleData(bubble);
+                if (!data) return;
+                const order = data.animationOrder || 0;
+                if (order > 0 && !isEditMode) {
+                    bubble.classList.add('anim-hidden');
+                    bubble.classList.remove('animating');
+                } else {
+                    bubble.classList.remove('anim-hidden');
+                }
+            });
+        }
 
         // ===== DYNAMIC PHASE IMAGE SIZING =====
         function resizePhaseImages() {
@@ -2621,34 +2697,41 @@
                 }
                 return null;
             }
+
+            // Apply initial bubble visibility (hide bubbles with animationOrder > 0)
+            function applyBubbleVisibility(slide) {
+                const bubbles = slide.querySelectorAll('.editor-bubble');
+                const isEditMode = slide.querySelector('.bubble-editor-toolbar') !== null;
+                bubbles.forEach(bubble => {
+                    const data = getBubbleData(bubble);
+                    if (!data) return;
+                    const order = data.animationOrder || 0;
+                    if (order > 0 && !isEditMode) {
+                        bubble.classList.add('anim-hidden');
+                        bubble.classList.remove('animating');
+                    } else {
+                        bubble.classList.remove('anim-hidden');
+                    }
+                });
+            }
 
-            // Setup intersection observer for animations
+            // Setup intersection observer for bubble visibility reset
             function setupIntersectionObserver() {
                 const observer = new IntersectionObserver((entries) => {
                     entries.forEach(entry => {
                         if (entry.isIntersecting) {
-                            animateBubbles(entry.target);
+                            applyBubbleVisibility(entry.target);
+                            // Reset external animation step counter
+                            if (typeof slideAnimSteps !== 'undefined') {
+                                const sid = getSlideId(entry.target);
+                                slideAnimSteps[sid] = 0;
+                            }
                         }
                     });
                 }, { threshold: 0.5 });
 
                 const slides = document.querySelectorAll('.slide');
                 slides.forEach(slide => observer.observe(slide));
-            }
-
-            // Animate bubbles when slide comes into view
-            function animateBubbles(slide) {
-                const bubbles = slide.querySelectorAll('.editor-bubble');
-                bubbles.forEach(bubble => {
-                    const data = getBubbleData(bubble);
-                    if (data) {
-                        const delay = data.animationOrder * 400;
-                        bubble.classList.remove('animating');
-                        setTimeout(() => {
-                            bubble.classList.add('animating');
-                        }, delay);
-                    }
-                });
             }
 
             // Handle phase switching for Slide 2
@@ -2660,6 +2743,15 @@
                             const slide = document.querySelector('[data-slide-id="slide-2"]');
                             if (slide) {
                                 renderBubbles(slide);
+                                applyBubbleVisibility(slide);
+                                // Reset external animation step counter
+                                if (typeof slideAnimSteps !== 'undefined') {
+                                    const sid = getSlideId(slide);
+                                    slideAnimSteps[sid] = 0;
+                                }
+                                // Reset expand button text
+                                const btn = slide.querySelector('.phase-content.active .expand-btn');
+                                if (btn) btn.textContent = '🔍 Click to expand';
                                 const toolbar = slide.querySelector('.bubble-editor-toolbar');
                                 if (toolbar) {
                                     selectedSlideId = getSlideId(slide);
@@ -2674,7 +2766,11 @@
                 init,
                 loadBubbles,
                 saveBubbles,
-                renderBubbles
+                renderBubbles,
+                getBubbleData,
+                getSlideId,
+                applyBubbleVisibility,
+                get allBubbles() { return allBubbles; }
             };
         })();
 
