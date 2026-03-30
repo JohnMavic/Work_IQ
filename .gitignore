@@ -9,4 +9,10 @@ Agent_Zero/.claude/
 Agent_Zero/scan-log.txt
 Agent_Zero/WorkIQ-Scan-Task.xml
 
+# Environment variables
+.env
+.env.*
+.env.local
+.env.production
+
 Agent_Zero_Claude_Loop/

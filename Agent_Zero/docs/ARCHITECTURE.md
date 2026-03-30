@@ -378,6 +378,8 @@ Additionally, stuck statuses are reset: `enriching` → `pending`, `checking` �
 | Method | Path | Purpose | Timeout |
 |--------|------|---------|---------|
 | `GET` | `/api/tasks` | List all tasks | — |
+| `GET` | `/api/health` | Health check (status, uptime, version, active sessions, SDK info) | — |
+| `GET` | `/api/version` | Returns current server version | — |
 | `POST` | `/api/tasks` | Create manual task | — |
 | `PATCH` | `/api/tasks/:id` | Update fields (status, notes, title, summary, enrichmentStatus, updateCheckStatus) | — |
 | `DELETE` | `/api/tasks/:id` | Delete task | — |

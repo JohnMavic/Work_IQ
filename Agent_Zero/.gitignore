@@ -16,3 +16,9 @@ docs/Final Video/
 
 # Optimization workspace — contains sensitive test data (real inbox content)
 Agent_Zero_Claude_Loop/
+
+# Environment variables
+.env
+.env.*
+.env.local
+.env.production
