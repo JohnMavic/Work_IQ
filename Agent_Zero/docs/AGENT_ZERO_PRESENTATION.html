@@ -846,6 +846,140 @@
             50% { opacity: 1; }
         }
 
+        /* === Phase Flow Animation Panel === */
+        .phase-flow-panel {
+            width: 100%;
+            max-width: 860px;
+            margin: 18px auto 0;
+            background: rgba(10, 14, 26, 0.92);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            padding: 12px 18px 10px;
+        }
+
+        .pf-tabs {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .pf-tab {
+            background: rgba(20, 23, 40, 0.8);
+            border: 2px solid #2a2f45;
+            border-radius: 10px;
+            padding: 4px 14px;
+            font-size: 0.78em;
+            font-weight: 600;
+            color: #94a3b8;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            user-select: none;
+        }
+
+        .pf-tab:hover {
+            border-color: #3b82f6;
+            transform: translateY(-1px);
+        }
+
+        .pf-tab.active {
+            background: rgba(0, 212, 255, 0.15);
+            border-color: #00d4ff;
+            color: #00d4ff;
+            box-shadow: 0 0 16px rgba(0, 212, 255, 0.25);
+        }
+
+        .pf-controls {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+
+        .pf-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            padding: 4px 10px;
+            color: #94a3b8;
+            cursor: pointer;
+            font-size: 0.78em;
+            transition: all 0.2s;
+            user-select: none;
+        }
+
+        .pf-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #e2e8f0;
+        }
+
+        .pf-btn.pf-btn-active {
+            background: rgba(0, 212, 255, 0.15);
+            border-color: #00d4ff;
+            color: #00d4ff;
+        }
+
+        .pf-step-info {
+            flex: 1;
+            text-align: right;
+            font-size: 0.75em;
+            color: #64748b;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .pf-narration {
+            font-size: 0.82em;
+            color: #e2e8f0;
+            line-height: 1.4;
+            min-height: 1.4em;
+            margin-bottom: 8px;
+            padding: 0 2px;
+        }
+
+        .pf-progress {
+            height: 3px;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .pf-progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #00d4ff, #3b82f6, #8b5cf6, #e879f9);
+            border-radius: 2px;
+            transition: width 0.4s ease;
+            width: 0%;
+        }
+
+        /* Node animation highlight states */
+        .arch-node.anim-active {
+            box-shadow: 0 0 20px var(--node-glow-color, #3b82f6), 0 0 40px var(--node-glow-color, #3b82f6);
+            transform: scale(1.08);
+            border-color: var(--node-glow-color, #3b82f6) !important;
+            z-index: 10;
+            transition: all 0.4s ease;
+        }
+
+        .arch-node.anim-dim {
+            opacity: 0.35;
+            filter: grayscale(0.5);
+            transition: all 0.4s ease;
+        }
+
+        .arch-layer--user   .arch-node.anim-active { --node-glow-color: #00d4ff; }
+        .arch-layer--server .arch-node.anim-active { --node-glow-color: #3b82f6; }
+        .arch-layer--ai     .arch-node.anim-active { --node-glow-color: #8b5cf6; }
+        .arch-layer--data   .arch-node.anim-active { --node-glow-color: #e879f9; }
+        .arch-layer--ext    .arch-node.anim-active { --node-glow-color: #fbbf24; }
+
+        @keyframes pfGlowPulse {
+            0%, 100% { box-shadow: 0 0 20px var(--node-glow-color, #3b82f6), 0 0 40px var(--node-glow-color, #3b82f6); }
+            50% { box-shadow: 0 0 28px var(--node-glow-color, #3b82f6), 0 0 56px var(--node-glow-color, #3b82f6); }
+        }
+
+        .arch-node.anim-active { animation: pfGlowPulse 1.5s ease-in-out infinite; }
+
         /* ===== SLIDE 5 — GET STARTED ===== */
         /* ===== SLIDE 5 — GET STARTED (AI Café style) ===== */
         .get-started-slide {
@@ -1627,8 +1761,8 @@
                 <div class="arch-layer arch-layer--user">
                     <div class="arch-layer-label">User</div>
                     <div class="arch-layer-nodes">
-                        <div class="arch-node" data-tip="Single-page app in &lt;strong&gt;index.html&lt;/strong&gt; — no React, no bundler, no framework. Pure Vanilla JS with fetch() for all server communication." data-tip-color="#00d4ff">🖥️ Vanilla JS SPA</div>
-                        <div class="arch-node" data-tip="All client→server communication via standard &lt;strong&gt;fetch()&lt;/strong&gt; calls to Express endpoints. JSON payloads, no WebSocket, no GraphQL." data-tip-color="#00d4ff">📡 fetch() REST</div>
+                        <div class="arch-node" data-anim-id="spa" data-tip="Single-page app in &lt;strong&gt;index.html&lt;/strong&gt; — no React, no bundler, no framework. Pure Vanilla JS with fetch() for all server communication." data-tip-color="#00d4ff">🖥️ Vanilla JS SPA</div>
+                        <div class="arch-node" data-anim-id="fetch" data-tip="All client→server communication via standard &lt;strong&gt;fetch()&lt;/strong&gt; calls to Express endpoints. JSON payloads, no WebSocket, no GraphQL." data-tip-color="#00d4ff">📡 fetch() REST</div>
                     </div>
                 </div>
 
@@ -1641,9 +1775,9 @@
                 <div class="arch-layer arch-layer--server">
                     <div class="arch-layer-label">Server</div>
                     <div class="arch-layer-nodes">
-                        <div class="arch-node" data-tip="&lt;strong&gt;Express 5 on Node.js v18+&lt;/strong&gt; (ES Modules). Local-only server — your data never touches the cloud. Zero external dependencies." data-tip-color="#3b82f6">⚡ Express 5</div>
-                        <div class="arch-node" data-tip="Full REST API: task CRUD, AI phase triggers (scan, enrich, update, search, consolidate, correct), chat, manual add — &lt;strong&gt;20+ endpoints&lt;/strong&gt; in server.js." data-tip-color="#3b82f6">🔌 20+ API Routes</div>
-                        <div class="arch-node" data-tip="Creates &lt;strong&gt;fresh Copilot sessions per request&lt;/strong&gt; via CopilotClient. Auto-reaps orphans after 10 min. Graceful shutdown on SIGTERM/SIGINT." data-tip-color="#3b82f6">🔄 Session Manager</div>
+                        <div class="arch-node" data-anim-id="express" data-tip="&lt;strong&gt;Express 5 on Node.js v18+&lt;/strong&gt; (ES Modules). Local-only server — your data never touches the cloud. Zero external dependencies." data-tip-color="#3b82f6">⚡ Express 5</div>
+                        <div class="arch-node" data-anim-id="api-routes" data-tip="Full REST API: task CRUD, AI phase triggers (scan, enrich, update, search, consolidate, correct), chat, manual add — &lt;strong&gt;20+ endpoints&lt;/strong&gt; in server.js." data-tip-color="#3b82f6">🔌 20+ API Routes</div>
+                        <div class="arch-node" data-anim-id="session-mgr" data-tip="Creates &lt;strong&gt;fresh Copilot sessions per request&lt;/strong&gt; via CopilotClient. Auto-reaps orphans after 10 min. Graceful shutdown on SIGTERM/SIGINT." data-tip-color="#3b82f6">🔄 Session Manager</div>
                     </div>
                 </div>
 
@@ -1656,8 +1790,8 @@
                 <div class="arch-layer arch-layer--ai">
                     <div class="arch-layer-label">AI Brain</div>
                     <div class="arch-layer-nodes">
-                        <div class="arch-node" data-tip="&lt;strong&gt;@github/copilot-sdk&lt;/strong&gt; — CopilotClient creates sessions, sendAndWait() for AI reasoning. Powers all 7 skill phases." data-tip-color="#8b5cf6">🧠 Copilot SDK</div>
-                        <div class="arch-node" data-tip="&lt;strong&gt;7 .md files&lt;/strong&gt; loaded at startup, prepended to every prompt: SCAN_DISCOVERY, ENRICH, UPDATE_CHECK, SEARCH, CONSOLIDATE, CORRECT, LOG_WORK." data-tip-color="#8b5cf6">📜 7 Skill Files</div>
+                        <div class="arch-node" data-anim-id="copilot-sdk" data-tip="&lt;strong&gt;@github/copilot-sdk&lt;/strong&gt; — CopilotClient creates sessions, sendAndWait() for AI reasoning. Powers all 7 skill phases." data-tip-color="#8b5cf6">🧠 Copilot SDK</div>
+                        <div class="arch-node" data-anim-id="skills" data-tip="&lt;strong&gt;7 .md files&lt;/strong&gt; loaded at startup, prepended to every prompt: SCAN_DISCOVERY, ENRICH, UPDATE_CHECK, SEARCH, CONSOLIDATE, CORRECT, LOG_WORK." data-tip-color="#8b5cf6">📜 7 Skill Files</div>
                     </div>
                 </div>
 
@@ -1670,8 +1804,8 @@
                 <div class="arch-layer arch-layer--data">
                     <div class="arch-layer-label">Data</div>
                     <div class="arch-layer-nodes">
-                        <div class="arch-node" data-tip="&lt;strong&gt;Microsoft's M365 connector&lt;/strong&gt; via Model Context Protocol. Reads emails, Teams chats, calendar events, OneDrive files — all read-only." data-tip-color="#e879f9">🔗 Work IQ MCP</div>
-                        <div class="arch-node" data-tip="Local &lt;strong&gt;tasks.json&lt;/strong&gt; — JSON persistence with full audit trail, version 3 schema, merge tracking, offline-capable." data-tip-color="#e879f9">💾 Task Store</div>
+                        <div class="arch-node" data-anim-id="workiq" data-tip="&lt;strong&gt;Microsoft's M365 connector&lt;/strong&gt; via Model Context Protocol. Reads emails, Teams chats, calendar events, OneDrive files — all read-only." data-tip-color="#e879f9">🔗 Work IQ MCP</div>
+                        <div class="arch-node" data-anim-id="task-store" data-tip="Local &lt;strong&gt;tasks.json&lt;/strong&gt; — JSON persistence with full audit trail, version 3 schema, merge tracking, offline-capable." data-tip-color="#e879f9">💾 Task Store</div>
                     </div>
                 </div>
 
@@ -1684,8 +1818,29 @@
                 <div class="arch-layer arch-layer--ext">
                     <div class="arch-layer-label">External</div>
                     <div class="arch-layer-nodes">
-                        <div class="arch-node" data-tip="Your &lt;strong&gt;M365 tenant&lt;/strong&gt; — Outlook inbox, Teams messages, Calendar events, OneDrive/SharePoint files. Accessed &lt;strong&gt;read-only&lt;/strong&gt; via Work IQ." data-tip-color="#fbbf24">☁️ Microsoft 365</div>
+                        <div class="arch-node" data-anim-id="m365" data-tip="Your &lt;strong&gt;M365 tenant&lt;/strong&gt; — Outlook inbox, Teams messages, Calendar events, OneDrive/SharePoint files. Accessed &lt;strong&gt;read-only&lt;/strong&gt; via Work IQ." data-tip-color="#fbbf24">☁️ Microsoft 365</div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Phase Flow Animation Panel -->
+            <div class="phase-flow-panel" id="phaseFlowPanel">
+                <div class="pf-tabs">
+                    <button class="pf-tab active" data-pf-phase="1">① Discovery</button>
+                    <button class="pf-tab" data-pf-phase="2">② Enrichment</button>
+                    <button class="pf-tab" data-pf-phase="3">③ Update Check</button>
+                    <button class="pf-tab" data-pf-phase="4">④ Consolidation</button>
+                </div>
+                <div class="pf-controls">
+                    <button class="pf-btn" id="pfPlay" title="Play">▶ Start</button>
+                    <button class="pf-btn" id="pfPause" title="Pause">⏸ Pause</button>
+                    <button class="pf-btn" id="pfStop" title="Stop">⏹ Stop</button>
+                    <button class="pf-btn" id="pfReset" title="Reset">↺ Reset</button>
+                    <span class="pf-step-info" id="pfStepInfo">Step 0/8</span>
+                </div>
+                <div class="pf-narration" id="pfNarration">Select a phase and press ▶ Start to animate the data flow.</div>
+                <div class="pf-progress">
+                    <div class="pf-progress-bar" id="pfProgressBar"></div>
                 </div>
             </div>
 
@@ -1756,6 +1911,191 @@
                         tip.style.display = 'none';
                     });
                 });
+            })();
+            </script>
+
+            <!-- Phase Flow Animation Controller -->
+            <script>
+            (function() {
+                /* ── Phase animation data ── */
+                const PHASES = {
+                    1: { name: 'Discovery', emoji: '🔍', steps: [
+                        { label: 'User', text: "🖥️ User clicks 'Scan' in the SPA", nodes: ['spa'] },
+                        { label: 'SPA → Server', text: '📡 SPA sends POST /api/scan to Express', nodes: ['fetch', 'express', 'api-routes'] },
+                        { label: 'Server prepares', text: '📜 Express loads SCAN_DISCOVERY_SKILL.md prompt', nodes: ['skills'] },
+                        { label: 'Session created', text: '🔄 Session Manager creates a fresh CopilotClient + Work IQ MCP session', nodes: ['session-mgr'] },
+                        { label: 'AI + M365', text: '🧠 Copilot SDK scans Outlook & Teams subject lines via Work IQ', nodes: ['copilot-sdk', 'workiq', 'm365'] },
+                        { label: 'AI decides', text: '🧠 AI returns per-item decisions: create new, update existing, or skip', nodes: ['copilot-sdk'] },
+                        { label: 'Dedup & save', text: '⚡ Express deduplicates (Jaccard similarity), saves to tasks.json', nodes: ['express', 'task-store'] },
+                        { label: 'UI updates', text: '🖥️ SPA refreshes — new action items appear in the list', nodes: ['spa'] }
+                    ]},
+                    2: { name: 'Enrichment', emoji: '📋', steps: [
+                        { label: 'Trigger', text: '🖥️ Runs automatically for each new task after Discovery', nodes: ['spa'] },
+                        { label: 'API call', text: '📡 SPA sends POST /api/tasks/:id/enrich', nodes: ['fetch', 'api-routes'] },
+                        { label: 'Skill loaded', text: '📜 Express loads ENRICH_SKILL.md with temporal reasoning instructions', nodes: ['skills'] },
+                        { label: 'Full thread', text: '🧠 Copilot SDK reads the full email thread via Work IQ MCP', nodes: ['copilot-sdk', 'workiq', 'm365'] },
+                        { label: 'Summary', text: '🧠 AI creates structured summary with key decisions & next steps', nodes: ['copilot-sdk'] },
+                        { label: 'Ambiguity', text: '🧠 If information is unclear, flags ambiguities for human review', nodes: ['copilot-sdk'] },
+                        { label: 'Persist', text: '💾 Summary + status saved to tasks.json', nodes: ['task-store'] },
+                        { label: 'UI shows', text: '🖥️ Task card now shows rich summary — click to expand', nodes: ['spa'] }
+                    ]},
+                    3: { name: 'Update Check', emoji: '🔄', steps: [
+                        { label: 'Trigger', text: '🖥️ Runs for enriched tasks during each scan cycle', nodes: ['spa'] },
+                        { label: 'API call', text: '📡 SPA sends POST /api/tasks/:id/check-update', nodes: ['fetch', 'api-routes'] },
+                        { label: 'Skill loaded', text: '📜 Express loads UPDATE_CHECK_SKILL.md — only searches AFTER last check date', nodes: ['skills'] },
+                        { label: 'Search new', text: '🔗 Work IQ searches M365 for messages newer than last update', nodes: ['workiq', 'm365'] },
+                        { label: 'New found?', text: '🧠 AI analyzes: is there genuinely new information?', nodes: ['copilot-sdk'] },
+                        { label: 'Append', text: '💾 New findings appended as timestamped update notes', nodes: ['task-store'] },
+                        { label: 'Re-evaluate', text: '🧠 Second AI pass: should title or summary be revised?', nodes: ['copilot-sdk', 'session-mgr'] },
+                        { label: 'Updated', text: "🖥️ Task shows 'Updated' badge — summary stays current", nodes: ['spa'] }
+                    ]},
+                    4: { name: 'Consolidation', emoji: '🔗', steps: [
+                        { label: 'Trigger', text: "🖥️ Runs after scan, or user clicks 'Find Duplicates'", nodes: ['spa'] },
+                        { label: 'API call', text: '📡 SPA sends POST /api/consolidate', nodes: ['fetch', 'api-routes'] },
+                        { label: 'Collect tasks', text: '⚡ Express collects all active enriched tasks with summaries', nodes: ['express', 'task-store'] },
+                        { label: 'Skill loaded', text: '📜 CONSOLIDATE_SKILL.md instructs semantic grouping analysis', nodes: ['skills'] },
+                        { label: 'LLM analysis', text: '🧠 Copilot SDK analyzes semantic overlap between all tasks', nodes: ['copilot-sdk'] },
+                        { label: 'Suggestions', text: '🧠 AI returns merge group suggestions (filtered against vetoed pairs)', nodes: ['copilot-sdk'] },
+                        { label: 'User decides', text: '🖥️ User reviews: merge or dismiss each suggestion', nodes: ['spa'] },
+                        { label: 'Merge', text: '🧠💾 If approved: AI builds unified summary, merges histories & links', nodes: ['task-store', 'copilot-sdk'] }
+                    ]}
+                };
+
+                /* ── DOM refs ── */
+                const panel     = document.getElementById('phaseFlowPanel');
+                if (!panel) return;
+                const btnPlay   = document.getElementById('pfPlay');
+                const btnPause  = document.getElementById('pfPause');
+                const btnStop   = document.getElementById('pfStop');
+                const btnReset  = document.getElementById('pfReset');
+                const elStep    = document.getElementById('pfStepInfo');
+                const elNarr    = document.getElementById('pfNarration');
+                const elBar     = document.getElementById('pfProgressBar');
+                const allNodes  = document.querySelectorAll('.architecture-slide .arch-node[data-anim-id]');
+                const tabs      = panel.querySelectorAll('.pf-tab');
+
+                /* ── State ── */
+                let currentPhase = 1;
+                let currentStep  = -1;   // -1 = idle
+                let playing      = false;
+                let timer        = null;
+                const INTERVAL   = 2500;
+
+                /* ── Helpers ── */
+                function nodeById(id) {
+                    return document.querySelector('.architecture-slide .arch-node[data-anim-id="' + id + '"]');
+                }
+
+                function clearHighlights() {
+                    allNodes.forEach(n => { n.classList.remove('anim-active', 'anim-dim'); });
+                }
+
+                function applyStep(stepIdx) {
+                    const phase = PHASES[currentPhase];
+                    if (!phase || stepIdx < 0 || stepIdx >= phase.steps.length) return;
+                    const step = phase.steps[stepIdx];
+                    currentStep = stepIdx;
+
+                    // Dim all, then activate targets
+                    allNodes.forEach(n => {
+                        n.classList.remove('anim-active');
+                        n.classList.add('anim-dim');
+                    });
+                    step.nodes.forEach(id => {
+                        const el = nodeById(id);
+                        if (el) { el.classList.remove('anim-dim'); el.classList.add('anim-active'); }
+                    });
+
+                    // UI updates
+                    elStep.textContent = 'Step ' + (stepIdx + 1) + '/' + phase.steps.length;
+                    elNarr.textContent = step.text;
+                    elBar.style.width = ((stepIdx + 1) / phase.steps.length * 100) + '%';
+                }
+
+                function advance() {
+                    const phase = PHASES[currentPhase];
+                    if (!phase) return;
+                    const next = currentStep + 1;
+                    if (next >= phase.steps.length) {
+                        stop();
+                        elNarr.textContent = '✅ ' + phase.name + ' phase complete!';
+                        return;
+                    }
+                    applyStep(next);
+                }
+
+                /* ── Controls ── */
+                function play() {
+                    if (playing) return;
+                    playing = true;
+                    btnPlay.classList.add('pf-btn-active');
+                    btnPause.classList.remove('pf-btn-active');
+                    // If at end or idle, start from beginning
+                    const phase = PHASES[currentPhase];
+                    if (!phase) return;
+                    if (currentStep < 0 || currentStep >= phase.steps.length - 1) {
+                        currentStep = -1;
+                    }
+                    advance();
+                    timer = setInterval(advance, INTERVAL);
+                }
+
+                function pause() {
+                    playing = false;
+                    clearInterval(timer);
+                    timer = null;
+                    btnPlay.classList.remove('pf-btn-active');
+                    btnPause.classList.add('pf-btn-active');
+                }
+
+                function stop() {
+                    playing = false;
+                    clearInterval(timer);
+                    timer = null;
+                    currentStep = -1;
+                    clearHighlights();
+                    btnPlay.classList.remove('pf-btn-active');
+                    btnPause.classList.remove('pf-btn-active');
+                    elStep.textContent = 'Step 0/' + PHASES[currentPhase].steps.length;
+                    elBar.style.width = '0%';
+                }
+
+                function reset() {
+                    stop();
+                    elNarr.textContent = 'Select a phase and press ▶ Start to animate the data flow.';
+                }
+
+                function selectPhase(p) {
+                    stop();
+                    currentPhase = p;
+                    tabs.forEach(t => t.classList.toggle('active', +t.dataset.pfPhase === p));
+                    elStep.textContent = 'Step 0/' + PHASES[p].steps.length;
+                    elNarr.textContent = PHASES[p].emoji + ' ' + PHASES[p].name + ' — press ▶ Start to begin.';
+                    elBar.style.width = '0%';
+                }
+
+                /* ── Event bindings ── */
+                btnPlay.addEventListener('click', play);
+                btnPause.addEventListener('click', pause);
+                btnStop.addEventListener('click', stop);
+                btnReset.addEventListener('click', reset);
+                tabs.forEach(t => t.addEventListener('click', function() { selectPhase(+this.dataset.pfPhase); }));
+
+                // Keyboard: Space = play/pause, Escape = stop
+                panel.addEventListener('keydown', function(e) {
+                    if (e.code === 'Space') { e.preventDefault(); playing ? pause() : play(); }
+                    if (e.code === 'Escape') { reset(); }
+                });
+
+                // Clean up when scrolling away from Slide 4
+                const slide = document.querySelector('.architecture-slide');
+                if (slide && window.IntersectionObserver) {
+                    new IntersectionObserver(function(entries) {
+                        entries.forEach(function(entry) {
+                            if (!entry.isIntersecting && playing) { stop(); }
+                        });
+                    }, { threshold: 0.1 }).observe(slide);
+                }
             })();
             </script>
         </section>
