@@ -175,19 +175,27 @@
         }
 
         /* ===== SLIDE 2 — FOUR PHASES ===== */
+        .phases-slide {
+            padding: 20px 30px 15px 30px;
+            display: flex;
+            flex-direction: column;
+        }
+
         .phases-slide h2 {
             font-size: 2.2em;
             text-align: center;
-            margin-bottom: 15px;
+            margin-bottom: 8px;
             color: #00d4ff;
+            flex-shrink: 0;
         }
 
         .phase-navigator {
             display: flex;
             justify-content: center;
             gap: 15px;
-            margin-bottom: 20px;
+            margin-bottom: 10px;
             flex-wrap: wrap;
+            flex-shrink: 0;
         }
 
         .phase-tab {
@@ -217,7 +225,10 @@
 
         .phase-content-area {
             position: relative;
-            min-height: 450px;
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
         }
 
         .phase-content {
@@ -226,15 +237,17 @@
         }
 
         .phase-content.active {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 40px;
-            align-items: start;
-            transition: grid-template-columns 0.4s ease;
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-height: 0;
+            gap: 0;
+            transition: all 0.4s ease;
         }
 
         .phase-content.active.expanded {
-            grid-template-columns: 2fr 1fr;
+            flex-direction: row;
+            gap: 20px;
         }
 
         @keyframes fadeIn {
@@ -248,16 +261,13 @@
 
         .screenshot-container {
             position: relative;
-            background: #0d1117;
-            border: 2px solid #2a2f45;
+            background: transparent;
+            border: none;
             border-radius: 12px;
-            padding: 20px;
-            min-height: 400px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            padding: 0;
+            flex: 1;
+            min-height: 0;
             overflow: hidden;
-            transition: border-color 0.3s ease;
         }
 
         /* Click-to-expand hint only on Slide 2 phase screenshots */
@@ -265,7 +275,7 @@
             cursor: pointer;
         }
 
-        .phases-slide .screenshot-container:hover {
+        .phases-slide .screenshot-container:hover img {
             border-color: #3b82f6;
         }
 
@@ -308,8 +318,19 @@
         }
 
         .screenshot-container img {
-            max-width: 100%;
-            border-radius: 8px;
+            width: 100%;
+            height: auto;
+            display: block;
+            border-radius: 10px;
+            border: 2px solid #2a2f45;
+            transition: border-color 0.3s ease;
+        }
+
+        /* Phase images: fill container height, contain (no crop), top-aligned */
+        .phases-slide .screenshot-container img {
+            height: 100%;
+            object-fit: contain;
+            object-position: top center;
         }
 
         .phase-description {
@@ -320,9 +341,15 @@
             transition: opacity 0.4s ease;
         }
 
+        .phase-content.active.expanded .screenshot-container {
+            flex: 2;
+        }
+
         .phase-content.active.expanded .phase-description {
             display: flex;
+            flex: 1;
             opacity: 1;
+            overflow-y: auto;
         }
 
         .phase-description h3 {
@@ -917,8 +944,8 @@
                 font-size: 4em;
             }
 
-            .phase-content.active {
-                grid-template-columns: 1fr;
+            .phase-content.active.expanded {
+                flex-direction: column;
             }
 
             .gh-box-violet {
