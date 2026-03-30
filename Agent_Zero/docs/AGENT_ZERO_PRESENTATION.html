@@ -2418,23 +2418,36 @@
 
                 // Set border direction
                 const oppositeAngle = (angle + 180) % 360;
-                const borderSize = '10px';
-                pointer.style.borderTop = 'none';
-                pointer.style.borderRight = 'none';
-                pointer.style.borderBottom = 'none';
-                pointer.style.borderLeft = 'none';
+                const bsz = '10px';
 
                 const color = bubbleElement.getAttribute('data-color');
                 const borderColor = COLORS[color] || COLORS.cyan;
 
+                // CSS triangle: colored border + transparent perpendicular borders
                 if (oppositeAngle >= 315 || oppositeAngle < 45) {
-                    pointer.style.borderLeft = `${borderSize} solid ${borderColor}`;
+                    // Points RIGHT
+                    pointer.style.borderTop = `${bsz} solid transparent`;
+                    pointer.style.borderBottom = `${bsz} solid transparent`;
+                    pointer.style.borderLeft = `${bsz} solid ${borderColor}`;
+                    pointer.style.borderRight = 'none';
                 } else if (oppositeAngle >= 45 && oppositeAngle < 135) {
-                    pointer.style.borderTop = `${borderSize} solid ${borderColor}`;
+                    // Points DOWN
+                    pointer.style.borderLeft = `${bsz} solid transparent`;
+                    pointer.style.borderRight = `${bsz} solid transparent`;
+                    pointer.style.borderTop = `${bsz} solid ${borderColor}`;
+                    pointer.style.borderBottom = 'none';
                 } else if (oppositeAngle >= 135 && oppositeAngle < 225) {
-                    pointer.style.borderRight = `${borderSize} solid ${borderColor}`;
+                    // Points LEFT
+                    pointer.style.borderTop = `${bsz} solid transparent`;
+                    pointer.style.borderBottom = `${bsz} solid transparent`;
+                    pointer.style.borderRight = `${bsz} solid ${borderColor}`;
+                    pointer.style.borderLeft = 'none';
                 } else {
-                    pointer.style.borderBottom = `${borderSize} solid ${borderColor}`;
+                    // Points UP
+                    pointer.style.borderLeft = `${bsz} solid transparent`;
+                    pointer.style.borderRight = `${bsz} solid transparent`;
+                    pointer.style.borderBottom = `${bsz} solid ${borderColor}`;
+                    pointer.style.borderTop = 'none';
                 }
             }
 
