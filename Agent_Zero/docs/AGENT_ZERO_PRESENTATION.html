@@ -1201,6 +1201,16 @@
             box-shadow: 0 0 8px #ef4444, 0 0 16px #ef4444, 0 0 32px #ef4444, 0 4px 15px rgba(0, 0, 0, 0.5);
         }
 
+        .editor-bubble[data-color="pink"] {
+            border-color: #ff6eb4;
+            box-shadow: 0 0 8px #ff6eb4, 0 0 16px #ff6eb4, 0 0 32px #ff6eb4, 0 4px 15px rgba(0, 0, 0, 0.5);
+        }
+
+        .editor-bubble[data-color="silver"] {
+            border-color: #c0c0d0;
+            box-shadow: 0 0 8px #c0c0d0, 0 0 16px #c0c0d0, 0 0 32px #e0e0f0, 0 4px 15px rgba(0, 0, 0, 0.5);
+        }
+
         /* Edit mode enhancements */
         .editor-bubble.edit-mode {
             cursor: move;
@@ -1979,7 +1989,9 @@
                 green: '#34d399',
                 amber: '#fbbf24',
                 indigo: '#6366f1',
-                red: '#ef4444'
+                red: '#ef4444',
+                pink: '#ff6eb4',
+                silver: '#c0c0d0'
             };
 
             let allBubbles = {}; // { 'slide-1': [...], 'slide-2-phase-1': [...], ... }
