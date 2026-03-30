@@ -283,25 +283,41 @@
 
         .phases-slide .expand-btn {
             position: absolute;
-            bottom: 15px;
-            right: 15px;
-            background: rgba(59, 130, 246, 0.9);
-            color: white;
-            padding: 8px 16px;
-            border-radius: 8px;
-            font-size: 0.85em;
-            font-weight: 600;
+            bottom: 12px;
+            right: 12px;
+            width: 44px;
+            height: 44px;
+            background: rgba(0, 212, 255, 0.15);
+            border: 2px solid rgba(0, 212, 255, 0.5);
+            border-radius: 50%;
             cursor: pointer;
-            opacity: 0.8;
             z-index: 10;
-            transition: opacity 0.3s ease, transform 0.2s ease;
-            border: none;
+            transition: all 0.3s ease;
             user-select: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+
+        .phases-slide .expand-btn::before {
+            content: '⤢';
+            font-size: 22px;
+            color: #00d4ff;
+            transition: transform 0.3s ease;
+            line-height: 1;
+        }
+
+        .phases-slide .expand-btn.is-expanded::before {
+            content: '⤡';
         }
 
         .phases-slide .expand-btn:hover {
-            opacity: 1;
-            transform: scale(1.05);
+            background: rgba(0, 212, 255, 0.3);
+            border-color: #00d4ff;
+            box-shadow: 0 0 12px rgba(0, 212, 255, 0.4), 0 0 24px rgba(0, 212, 255, 0.2);
+            transform: scale(1.1);
         }
 
         .phase-content.active.expanded .screenshot-container::before {
@@ -1885,7 +1901,7 @@
         document.querySelectorAll('.phases-slide .screenshot-container').forEach(container => {
             const btn = document.createElement('div');
             btn.className = 'expand-btn';
-            btn.textContent = '🔍 Click to expand';
+            btn.title = 'Expand / Collapse';
             container.appendChild(btn);
 
             // Expand/collapse ONLY via this button
@@ -1896,7 +1912,7 @@
                 if (slide && slide.querySelector('.bubble-editor-toolbar')) return;
                 if (phaseContent && phaseContent.classList.contains('active')) {
                     phaseContent.classList.toggle('expanded');
-                    btn.textContent = phaseContent.classList.contains('expanded') ? '🔍 Click to collapse' : '🔍 Click to expand';
+                    btn.classList.toggle('is-expanded', phaseContent.classList.contains('expanded'));
                     setTimeout(resizePhaseImages, 50);
                 }
             });
@@ -2743,7 +2759,7 @@
                                 if (expanded) expanded.classList.remove('expanded');
                                 // Reset expand button text
                                 const btn = slide.querySelector('.phase-content.active .expand-btn');
-                                if (btn) btn.textContent = '🔍 Click to expand';
+                                if (btn) btn.classList.remove('is-expanded');
                                 const toolbar = slide.querySelector('.bubble-editor-toolbar');
                                 if (toolbar) {
                                     selectedSlideId = getSlideId(slide);
