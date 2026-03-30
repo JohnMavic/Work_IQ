@@ -283,8 +283,8 @@
 
         .phases-slide .expand-btn {
             position: absolute;
-            bottom: 12px;
-            right: 12px;
+            bottom: 20px;
+            right: 20px;
             width: 48px;
             height: 48px;
             background: rgba(0, 212, 255, 0.12);
@@ -1343,7 +1343,7 @@
             position: absolute;
             width: 0;
             height: 0;
-            border: 15px solid transparent;
+            border: 10px solid transparent;
             pointer-events: none;
         }
 
@@ -2378,7 +2378,7 @@
             function updatePointer(bubbleElement, angle) {
                 let pointer = bubbleElement.querySelector('.bubble-pointer');
                 
-                if (angle === -1) {
+                if (angle === -1 || angle === undefined || angle === null) {
                     if (pointer) pointer.remove();
                     return;
                 }
@@ -2391,30 +2391,26 @@
 
                 const width = bubbleElement.offsetWidth;
                 const height = bubbleElement.offsetHeight;
-                const rad = (angle * Math.PI) / 180;
+                const sz = 10;
                 
                 // Calculate position on perimeter
                 let x, y;
                 if (angle >= 0 && angle < 90) {
-                    // Right to bottom
                     const t = angle / 90;
-                    x = width + 15;
+                    x = width + sz;
                     y = (height / 2) * (1 + t);
                 } else if (angle >= 90 && angle < 180) {
-                    // Bottom to left
                     const t = (angle - 90) / 90;
                     x = width * (1 - t);
-                    y = height + 15;
+                    y = height + sz;
                 } else if (angle >= 180 && angle < 270) {
-                    // Left to top
                     const t = (angle - 180) / 90;
-                    x = -15;
+                    x = -sz;
                     y = height * (1 - t);
                 } else {
-                    // Top to right
                     const t = (angle - 270) / 90;
                     x = width * t;
-                    y = -15;
+                    y = -sz;
                 }
 
                 pointer.style.left = `${x}px`;
@@ -2422,7 +2418,7 @@
 
                 // Set border direction
                 const oppositeAngle = (angle + 180) % 360;
-                const borderSize = '15px';
+                const borderSize = '10px';
                 pointer.style.borderTop = 'none';
                 pointer.style.borderRight = 'none';
                 pointer.style.borderBottom = 'none';
