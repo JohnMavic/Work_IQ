@@ -27,7 +27,7 @@
 
         /* ===== PRESENTATION CONTAINER ===== */
         .presentation-container {
-            max-width: 1400px;
+            max-width: 100%;
             margin: 0 auto;
             padding: 20px;
         }
@@ -227,8 +227,6 @@
             position: relative;
             flex: 1;
             min-height: 0;
-            display: flex;
-            flex-direction: column;
         }
 
         .phase-content {
@@ -237,17 +235,15 @@
         }
 
         .phase-content.active {
-            display: flex;
-            flex-direction: column;
-            flex: 1;
-            min-height: 0;
-            gap: 0;
+            display: block;
             transition: all 0.4s ease;
         }
 
         .phase-content.active.expanded {
+            display: flex;
             flex-direction: row;
             gap: 20px;
+            height: 100%;
         }
 
         @keyframes fadeIn {
@@ -265,9 +261,9 @@
             border: none;
             border-radius: 12px;
             padding: 0;
-            flex: 1;
-            min-height: 0;
             overflow: hidden;
+            display: flex;
+            justify-content: center;
         }
 
         /* Click-to-expand hint only on Slide 2 phase screenshots */
@@ -317,20 +313,25 @@
             padding: 40px;
         }
 
+        /* Phase screenshot placeholders: no padding — JS sizes the image */
+        .phases-slide .screenshot-placeholder {
+            padding: 0;
+            align-items: flex-start;
+        }
+
         .screenshot-container img {
-            width: 100%;
-            height: auto;
             display: block;
             border-radius: 10px;
             border: 2px solid #2a2f45;
             transition: border-color 0.3s ease;
+            width: 100%;
+            height: auto;
         }
 
-        /* Phase images: fill container height, contain (no crop), top-aligned */
+        /* Phase images: sized dynamically by JS — override the default */
         .phases-slide .screenshot-container img {
-            height: 100%;
-            object-fit: contain;
-            object-position: top center;
+            width: auto;
+            height: auto;
         }
 
         .phase-description {
@@ -343,6 +344,7 @@
 
         .phase-content.active.expanded .screenshot-container {
             flex: 2;
+            min-width: 0;
         }
 
         .phase-content.active.expanded .phase-description {
@@ -1503,7 +1505,7 @@
                 <div class="phase-content" data-phase="4">
                     <div class="screenshot-container">
                         <div class="screenshot-placeholder">
-                            <img src="presentation-assets/phase-4.png" alt="Phase 4: Consolidation" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                            <img src="presentation-assets/phase-4-full.png" alt="Phase 4: Consolidation" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                             <div style="display:none;">📸 Screenshot: Phase 4 — Consolidation</div>
                         </div>
 
@@ -1840,6 +1842,7 @@
                     if (targetContent) {
                         targetContent.classList.add('active');
                     }
+                    resizePhaseImages();
                 }, 50);
             });
         });
@@ -1850,9 +1853,75 @@
                 const phaseContent = container.closest('.phase-content');
                 if (phaseContent && phaseContent.classList.contains('active')) {
                     phaseContent.classList.toggle('expanded');
+                    // Re-run sizing after expand/collapse
+                    setTimeout(resizePhaseImages, 50);
                 }
             });
         });
+
+        // ===== DYNAMIC PHASE IMAGE SIZING =====
+        function resizePhaseImages() {
+            const slide = document.querySelector('.phases-slide');
+            if (!slide) return;
+
+            // Read actual dimensions from the DOM
+            const slideRect = slide.getBoundingClientRect();
+            const slideStyle = getComputedStyle(slide);
+            const padLeft = parseFloat(slideStyle.paddingLeft);
+            const padRight = parseFloat(slideStyle.paddingRight);
+            const padTop = parseFloat(slideStyle.paddingTop);
+            const padBottom = parseFloat(slideStyle.paddingBottom);
+
+            // Measure header + tabs
+            const h2 = slide.querySelector('h2');
+            const nav = slide.querySelector('.phase-navigator');
+            const h2H = h2 ? h2.offsetHeight + parseFloat(getComputedStyle(h2).marginBottom) : 0;
+            const navH = nav ? nav.offsetHeight + parseFloat(getComputedStyle(nav).marginBottom) : 0;
+
+            const availableHeight = slideRect.height - padTop - padBottom - h2H - navH;
+            const availableWidth = slideRect.width - padLeft - padRight;
+
+            slide.querySelectorAll('.phase-content').forEach(pc => {
+                const img = pc.querySelector('.screenshot-container img');
+                if (!img || !img.naturalWidth) return;
+
+                const isExpanded = pc.classList.contains('expanded');
+                const aspectRatio = img.naturalWidth / img.naturalHeight;
+
+                let containerWidth, containerHeight;
+
+                if (isExpanded) {
+                    containerWidth = availableWidth * 0.65 - 20;
+                    containerHeight = availableHeight;
+                } else {
+                    containerWidth = availableWidth;
+                    containerHeight = availableHeight;
+                }
+
+                // Fit image as large as possible without cropping
+                let imgW, imgH;
+                if (containerWidth / containerHeight > aspectRatio) {
+                    imgH = containerHeight;
+                    imgW = imgH * aspectRatio;
+                } else {
+                    imgW = containerWidth;
+                    imgH = imgW / aspectRatio;
+                }
+
+                img.style.width = Math.floor(imgW) + 'px';
+                img.style.height = Math.floor(imgH) + 'px';
+            });
+        }
+
+        // Run on load (wait for images), resize, and phase switch
+        window.addEventListener('resize', resizePhaseImages);
+        window.addEventListener('load', resizePhaseImages);
+        // Also run when images finish loading
+        document.querySelectorAll('.phases-slide .screenshot-container img').forEach(img => {
+            img.addEventListener('load', resizePhaseImages);
+        });
+        // Initial call
+        resizePhaseImages();
 
         // ===== COPY TO CLIPBOARD =====
         function copyToClipboard(text, button) {
