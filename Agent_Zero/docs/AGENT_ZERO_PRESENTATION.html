@@ -176,17 +176,17 @@
 
         /* ===== SLIDE 2 — FOUR PHASES ===== */
         .phases-slide h2 {
-            font-size: 3em;
+            font-size: 2.2em;
             text-align: center;
-            margin-bottom: 40px;
+            margin-bottom: 15px;
             color: #00d4ff;
         }
 
         .phase-navigator {
             display: flex;
             justify-content: center;
-            gap: 20px;
-            margin-bottom: 50px;
+            gap: 15px;
+            margin-bottom: 20px;
             flex-wrap: wrap;
         }
 
@@ -194,8 +194,8 @@
             background: rgba(20, 23, 40, 0.8);
             border: 2px solid #2a2f45;
             border-radius: 12px;
-            padding: 16px 32px;
-            font-size: 1.1em;
+            padding: 10px 24px;
+            font-size: 1em;
             font-weight: 600;
             color: #94a3b8;
             cursor: pointer;
@@ -217,7 +217,7 @@
 
         .phase-content-area {
             position: relative;
-            min-height: 500px;
+            min-height: 450px;
         }
 
         .phase-content {
@@ -227,9 +227,14 @@
 
         .phase-content.active {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr;
             gap: 40px;
             align-items: start;
+            transition: grid-template-columns 0.4s ease;
+        }
+
+        .phase-content.active.expanded {
+            grid-template-columns: 2fr 1fr;
         }
 
         @keyframes fadeIn {
@@ -252,6 +257,41 @@
             align-items: center;
             justify-content: center;
             overflow: hidden;
+            transition: border-color 0.3s ease;
+        }
+
+        /* Click-to-expand hint only on Slide 2 phase screenshots */
+        .phases-slide .screenshot-container {
+            cursor: pointer;
+        }
+
+        .phases-slide .screenshot-container:hover {
+            border-color: #3b82f6;
+        }
+
+        .phases-slide .screenshot-container::before {
+            content: '🔍 Click to expand';
+            position: absolute;
+            bottom: 15px;
+            right: 15px;
+            background: rgba(59, 130, 246, 0.9);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 0.85em;
+            font-weight: 600;
+            pointer-events: none;
+            opacity: 0.8;
+            z-index: 5;
+            transition: opacity 0.3s ease;
+        }
+
+        .phase-content.active.expanded .screenshot-container::before {
+            content: '🔍 Click to collapse';
+        }
+
+        .phases-slide .screenshot-container:hover::before {
+            opacity: 1;
         }
 
         .screenshot-placeholder {
@@ -273,9 +313,16 @@
         }
 
         .phase-description {
-            display: flex;
+            display: none;
             flex-direction: column;
             gap: 20px;
+            opacity: 0;
+            transition: opacity 0.4s ease;
+        }
+
+        .phase-content.active.expanded .phase-description {
+            display: flex;
+            opacity: 1;
         }
 
         .phase-description h3 {
@@ -921,6 +968,419 @@
                 right: 15px;
             }
         }
+
+        /* ===== BUBBLE EDITOR SYSTEM ===== */
+        
+        /* Editor Toggle Button (per slide) */
+        .bubble-editor-toggle {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 42px;
+            height: 42px;
+            background: rgba(59, 130, 246, 0.15);
+            border: 2px solid rgba(59, 130, 246, 0.4);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.4em;
+            cursor: pointer;
+            opacity: 0.3;
+            transition: all 0.3s ease;
+            z-index: 100;
+            user-select: none;
+        }
+
+        .bubble-editor-toggle:hover {
+            opacity: 1;
+            background: rgba(59, 130, 246, 0.25);
+            border-color: #3b82f6;
+            transform: scale(1.05);
+        }
+
+        .bubble-editor-toggle.active {
+            opacity: 1;
+            background: rgba(59, 130, 246, 0.35);
+            border-color: #00d4ff;
+            box-shadow: 0 0 15px rgba(0, 212, 255, 0.5);
+        }
+
+        /* Editor Toolbar */
+        .bubble-editor-toolbar {
+            position: absolute;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(10px);
+            border: 2px solid rgba(59, 130, 246, 0.4);
+            border-radius: 16px;
+            padding: 20px 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            z-index: 100;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            min-width: 380px;
+        }
+
+        .bubble-editor-toolbar .toolbar-section {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .bubble-editor-toolbar .toolbar-section-title {
+            font-size: 0.85em;
+            color: #94a3b8;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .bubble-editor-toolbar .toolbar-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .bubble-editor-toolbar .add-bubble-btn {
+            background: linear-gradient(135deg, #3b82f6 0%, #00d4ff 100%);
+            border: none;
+            border-radius: 8px;
+            padding: 10px 20px;
+            color: white;
+            font-weight: 600;
+            font-size: 0.95em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+
+        .bubble-editor-toolbar .add-bubble-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(59, 130, 246, 0.5);
+        }
+
+        .bubble-editor-toolbar .color-palette {
+            display: flex;
+            gap: 10px;
+        }
+
+        .bubble-editor-toolbar .color-swatch {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: 3px solid transparent;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .bubble-editor-toolbar .color-swatch:hover {
+            transform: scale(1.15);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        .bubble-editor-toolbar .color-swatch.selected {
+            border-color: white;
+            box-shadow: 0 0 12px currentColor;
+        }
+
+        .bubble-editor-toolbar .color-swatch::after {
+            content: '✓';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-weight: bold;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .bubble-editor-toolbar .color-swatch.selected::after {
+            opacity: 1;
+        }
+
+        /* Editor-managed Bubbles */
+        .editor-bubble {
+            position: absolute;
+            background: rgba(20, 23, 40, 0.95);
+            border: 3px solid;
+            border-radius: 16px;
+            padding: 12px 18px;
+            font-family: 'Comic Sans MS', 'Comic Sans', cursive;
+            color: #fff;
+            z-index: 10;
+            min-width: 80px;
+            min-height: 40px;
+            transform: rotate(-1deg);
+            cursor: default;
+            user-select: none;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Neon Glow Animation */
+        @keyframes neonPulse {
+            0%, 100% {
+                opacity: 0.6;
+            }
+            50% {
+                opacity: 1;
+            }
+        }
+
+        .editor-bubble.glow {
+            animation: neonPulse 2s ease-in-out infinite;
+        }
+
+        /* Color variants */
+        .editor-bubble[data-color="cyan"] {
+            border-color: #00d4ff;
+            box-shadow: 0 0 8px #00d4ff, 0 0 16px #00d4ff, 0 0 32px #00d4ff, 0 4px 15px rgba(0, 0, 0, 0.5);
+        }
+
+        .editor-bubble[data-color="blue"] {
+            border-color: #3b82f6;
+            box-shadow: 0 0 8px #3b82f6, 0 0 16px #3b82f6, 0 0 32px #3b82f6, 0 4px 15px rgba(0, 0, 0, 0.5);
+        }
+
+        .editor-bubble[data-color="green"] {
+            border-color: #34d399;
+            box-shadow: 0 0 8px #34d399, 0 0 16px #34d399, 0 0 32px #34d399, 0 4px 15px rgba(0, 0, 0, 0.5);
+        }
+
+        .editor-bubble[data-color="amber"] {
+            border-color: #fbbf24;
+            box-shadow: 0 0 8px #fbbf24, 0 0 16px #fbbf24, 0 0 32px #fbbf24, 0 4px 15px rgba(0, 0, 0, 0.5);
+        }
+
+        .editor-bubble[data-color="indigo"] {
+            border-color: #6366f1;
+            box-shadow: 0 0 8px #6366f1, 0 0 16px #6366f1, 0 0 32px #6366f1, 0 4px 15px rgba(0, 0, 0, 0.5);
+        }
+
+        .editor-bubble[data-color="red"] {
+            border-color: #ef4444;
+            box-shadow: 0 0 8px #ef4444, 0 0 16px #ef4444, 0 0 32px #ef4444, 0 4px 15px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Edit mode enhancements */
+        .editor-bubble.edit-mode {
+            cursor: move;
+            box-shadow: 0 0 20px currentColor, 0 4px 20px rgba(0, 0, 0, 0.7);
+            z-index: 50;
+        }
+
+        .editor-bubble.selected {
+            outline: 2px dashed rgba(255, 255, 255, 0.6);
+            outline-offset: 3px;
+        }
+
+        .editor-bubble .bubble-text {
+            position: relative;
+            font-size: 0.95em;
+            line-height: 1.4;
+            word-wrap: break-word;
+            cursor: text;
+        }
+
+        .editor-bubble .bubble-text[contenteditable="true"] {
+            outline: 2px dashed rgba(255, 255, 255, 0.5);
+            outline-offset: 4px;
+            padding: 4px;
+            margin: -4px;
+        }
+
+        /* Resize Handle */
+        .editor-bubble .resize-handle {
+            position: absolute;
+            bottom: -6px;
+            right: -6px;
+            width: 20px;
+            height: 20px;
+            background: white;
+            border: 2px solid currentColor;
+            border-radius: 50%;
+            cursor: nwse-resize;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 10;
+        }
+
+        .editor-bubble.edit-mode .resize-handle {
+            opacity: 1;
+        }
+
+        .editor-bubble .resize-handle:hover {
+            transform: scale(1.3);
+            background: currentColor;
+        }
+
+        /* Delete Button */
+        .editor-bubble .delete-btn {
+            position: absolute;
+            top: -12px;
+            right: -12px;
+            width: 28px;
+            height: 28px;
+            background: #ef4444;
+            border: 2px solid white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 0.9em;
+            cursor: pointer;
+            opacity: 0;
+            transition: all 0.3s ease;
+            z-index: 10;
+        }
+
+        .editor-bubble.edit-mode .delete-btn {
+            opacity: 1;
+        }
+
+        .editor-bubble .delete-btn:hover {
+            transform: scale(1.2);
+            background: #dc2626;
+        }
+
+        /* Animation Order Badge */
+        .editor-bubble .order-badge {
+            position: absolute;
+            top: -12px;
+            left: -12px;
+            width: 32px;
+            height: 32px;
+            background: rgba(59, 130, 246, 0.9);
+            border: 2px solid white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 0.85em;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 10;
+        }
+
+        .editor-bubble.edit-mode .order-badge {
+            opacity: 1;
+        }
+
+        /* Bubble Pointer (Triangle) */
+        .editor-bubble .bubble-pointer {
+            position: absolute;
+            width: 0;
+            height: 0;
+            border: 15px solid transparent;
+            pointer-events: none;
+        }
+
+        /* Pointer positions calculated dynamically via JS */
+
+        /* Animation for bubble appearance */
+        .editor-bubble.animating {
+            animation: bubblePop 0.6s ease-out;
+        }
+
+        /* Selected Bubble Controls in Toolbar */
+        .bubble-editor-toolbar .selected-controls {
+            display: none;
+            flex-direction: column;
+            gap: 15px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(148, 163, 184, 0.2);
+        }
+
+        .bubble-editor-toolbar .selected-controls.active {
+            display: flex;
+        }
+
+        .bubble-editor-toolbar .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .bubble-editor-toolbar .control-label {
+            font-size: 0.8em;
+            color: #94a3b8;
+            font-weight: 500;
+        }
+
+        .bubble-editor-toolbar .order-input {
+            width: 80px;
+            padding: 6px 12px;
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            border-radius: 6px;
+            color: white;
+            font-size: 0.95em;
+        }
+
+        .bubble-editor-toolbar .pointer-controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .bubble-editor-toolbar .angle-slider {
+            flex: 1;
+            height: 6px;
+            background: rgba(30, 41, 59, 0.8);
+            border-radius: 3px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .bubble-editor-toolbar .angle-display {
+            min-width: 50px;
+            color: #00d4ff;
+            font-weight: 600;
+            font-size: 0.9em;
+        }
+
+        .bubble-editor-toolbar .pointer-none-btn {
+            padding: 6px 12px;
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid #ef4444;
+            border-radius: 6px;
+            color: #ef4444;
+            font-size: 0.85em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .bubble-editor-toolbar .pointer-none-btn:hover {
+            background: rgba(239, 68, 68, 0.3);
+        }
+
+        .bubble-editor-toolbar .delete-bubble-btn {
+            padding: 8px 16px;
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid #ef4444;
+            border-radius: 6px;
+            color: #ef4444;
+            font-weight: 600;
+            font-size: 0.9em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .bubble-editor-toolbar .delete-bubble-btn:hover {
+            background: #ef4444;
+            color: white;
+            transform: translateY(-2px);
+        }
     </style>
 </head>
 <body>
@@ -968,15 +1428,10 @@
                 <div class="phase-content active" data-phase="1">
                     <div class="screenshot-container">
                         <div class="screenshot-placeholder">
-                            <img src="presentation-assets/phase-1.png" alt="Phase 1: Discovery" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                            <img src="presentation-assets/phase-1-full.png" alt="Phase 1: Discovery" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                             <div style="display:none;">📸 Screenshot: Phase 1 — Discovery</div>
                         </div>
-                        <div class="comic-bubble green arrow-down" style="top: 50px; left: 30px;">
-                            📡 New tasks auto-created from your inbox!
-                        </div>
-                        <div class="comic-bubble amber arrow-up" style="bottom: 60px; right: 40px;">
-                            Subjects only — no email bodies read
-                        </div>
+
                     </div>
                     <div class="phase-description">
                         <h3>📡 Discovery</h3>
@@ -989,15 +1444,10 @@
                 <div class="phase-content" data-phase="2">
                     <div class="screenshot-container">
                         <div class="screenshot-placeholder">
-                            <img src="presentation-assets/phase-2.png" alt="Phase 2: Enrichment" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                            <img src="presentation-assets/Phase%202%20Screenshot%202026-03-30%20164234.png" alt="Phase 2: Enrichment" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                             <div style="display:none;">📸 Screenshot: Phase 2 — Enrichment</div>
                         </div>
-                        <div class="comic-bubble blue arrow-left" style="top: 80px; right: 20px;">
-                            📋 AI reads the full thread & summarizes
-                        </div>
-                        <div class="comic-bubble indigo arrow-right" style="bottom: 100px; left: 20px;">
-                            Temporal awareness: current vs. historical
-                        </div>
+
                     </div>
                     <div class="phase-description">
                         <h3>📋 Enrichment</h3>
@@ -1010,15 +1460,10 @@
                 <div class="phase-content" data-phase="3">
                     <div class="screenshot-container">
                         <div class="screenshot-placeholder">
-                            <img src="presentation-assets/phase-3.png" alt="Phase 3: Update Check" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                            <img src="presentation-assets/Phase%203%20Screenshot%202026-03-30%20164615.png" alt="Phase 3: Update Check" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                             <div style="display:none;">📸 Screenshot: Phase 3 — Update Check</div>
                         </div>
-                        <div class="comic-bubble green arrow-down" style="top: 60px; left: 50px;">
-                            🔍 New replies detected automatically!
-                        </div>
-                        <div class="comic-bubble amber arrow-up" style="bottom: 80px; right: 50px;">
-                            📌 Updates prepended to summary
-                        </div>
+
                     </div>
                     <div class="phase-description">
                         <h3>🔍 Update Check</h3>
@@ -1034,12 +1479,7 @@
                             <img src="presentation-assets/phase-4.png" alt="Phase 4: Consolidation" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                             <div style="display:none;">📸 Screenshot: Phase 4 — Consolidation</div>
                         </div>
-                        <div class="comic-bubble blue arrow-left" style="top: 70px; right: 30px;">
-                            🔗 Same topic? Merge suggested!
-                        </div>
-                        <div class="comic-bubble indigo arrow-right" style="bottom: 90px; left: 30px;">
-                            You decide — approve or keep separate
-                        </div>
+
                     </div>
                     <div class="phase-description">
                         <h3>🔗 Consolidation</h3>
@@ -1061,12 +1501,7 @@
                         <img src="presentation-assets/conversation.png" alt="Conversation Interface" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                         <div style="display:none;">📸 Screenshot: Conversation Interface</div>
                     </div>
-                    <div class="comic-bubble green arrow-down" style="top: 30px; left: 30px;">
-                        💬 Ask anything about your tasks!
-                    </div>
-                    <div class="comic-bubble blue arrow-up" style="bottom: 40px; right: 30px;">
-                        🤖 AI searches M365 for answers
-                    </div>
+
                 </div>
 
                 <div class="feature-grid">
@@ -1370,6 +1805,7 @@
                 // Update content with fade transition
                 document.querySelectorAll('.phase-content').forEach(content => {
                     content.classList.remove('active');
+                    content.classList.remove('expanded'); // Reset expanded state when switching phases
                 });
                 
                 setTimeout(() => {
@@ -1378,6 +1814,16 @@
                         targetContent.classList.add('active');
                     }
                 }, 50);
+            });
+        });
+
+        // ===== SCREENSHOT CLICK TO EXPAND =====
+        document.querySelectorAll('.screenshot-container').forEach(container => {
+            container.addEventListener('click', () => {
+                const phaseContent = container.closest('.phase-content');
+                if (phaseContent && phaseContent.classList.contains('active')) {
+                    phaseContent.classList.toggle('expanded');
+                }
             });
         });
 
@@ -1405,9 +1851,701 @@
             });
         }
 
+        // ===== BUBBLE EDITOR SYSTEM =====
+        const BubbleEditor = (function() {
+            const STORAGE_KEY = 'agent-zero-bubbles';
+            const COLORS = {
+                cyan: '#00d4ff',
+                blue: '#3b82f6',
+                green: '#34d399',
+                amber: '#fbbf24',
+                indigo: '#6366f1',
+                red: '#ef4444'
+            };
+
+            let allBubbles = {}; // { 'slide-1': [...], 'slide-2-phase-1': [...], ... }
+            let selectedBubble = null;
+            let selectedSlideId = null;
+            let dragState = null;
+            let resizeState = null;
+
+            // Initialize the editor system
+            function init() {
+                loadBubbles();
+                setupSlides();
+                setupIntersectionObserver();
+            }
+
+            // Load bubbles from localStorage
+            function loadBubbles() {
+                try {
+                    const stored = localStorage.getItem(STORAGE_KEY);
+                    if (stored) {
+                        allBubbles = JSON.parse(stored);
+                    }
+                } catch (e) {
+                    console.error('Failed to load bubbles:', e);
+                    allBubbles = {};
+                }
+            }
+
+            // Save bubbles to localStorage
+            function saveBubbles() {
+                try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(allBubbles));
+                } catch (e) {
+                    console.error('Failed to save bubbles:', e);
+                }
+            }
+
+            // Setup all slides with editor toggles
+            function setupSlides() {
+                const slides = document.querySelectorAll('.slide');
+                slides.forEach((slide, index) => {
+                    const slideNum = index + 1;
+                    slide.setAttribute('data-slide-id', `slide-${slideNum}`);
+                    
+                    // Add editor toggle button
+                    const toggle = document.createElement('div');
+                    toggle.className = 'bubble-editor-toggle';
+                    toggle.innerHTML = '✏️';
+                    toggle.title = 'Toggle Bubble Editor';
+                    toggle.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        toggleEditor(slide);
+                    });
+                    slide.appendChild(toggle);
+
+                    // Click on slide background to deselect bubble
+                    slide.addEventListener('click', (e) => {
+                        if (selectedBubble && !e.target.closest('.editor-bubble') && !e.target.closest('.bubble-editor-toolbar')) {
+                            selectedBubble = null;
+                            updateToolbarSelection(slide);
+                        }
+                    });
+
+                    // Render existing bubbles
+                    renderBubbles(slide);
+                });
+            }
+
+            // Toggle editor for a slide
+            function toggleEditor(slide) {
+                const slideId = getSlideId(slide);
+                const toggle = slide.querySelector('.bubble-editor-toggle');
+                const existingToolbar = slide.querySelector('.bubble-editor-toolbar');
+
+                if (existingToolbar) {
+                    // Close editor
+                    existingToolbar.remove();
+                    toggle.classList.remove('active');
+                    selectedBubble = null;
+                    selectedSlideId = null;
+                    renderBubbles(slide); // Re-render without event listeners
+                } else {
+                    // Open editor
+                    toggle.classList.add('active');
+                    createToolbar(slide);
+                    selectedSlideId = slideId;
+                    renderBubbles(slide); // Re-render with event listeners
+                }
+            }
+
+            // Get slide ID (handles phase-aware slides)
+            function getSlideId(slide) {
+                const slideNum = slide.getAttribute('data-slide-id');
+                
+                // For slide 2, check active phase
+                if (slideNum === 'slide-2') {
+                    const activePhase = slide.querySelector('.phase-content.active');
+                    if (activePhase) {
+                        const phaseNum = activePhase.getAttribute('data-phase');
+                        return `slide-2-phase-${phaseNum}`;
+                    }
+                }
+                
+                return slideNum;
+            }
+
+            // Create editor toolbar
+            function createToolbar(slide) {
+                const toolbar = document.createElement('div');
+                toolbar.className = 'bubble-editor-toolbar';
+                toolbar.innerHTML = `
+                    <div class="toolbar-section">
+                        <div class="toolbar-row">
+                            <button class="add-bubble-btn">+ Add Bubble</button>
+                        </div>
+                    </div>
+                    
+                    <div class="toolbar-section">
+                        <div class="toolbar-section-title">Bubble Color</div>
+                        <div class="toolbar-row color-palette">
+                            ${Object.keys(COLORS).map(color => 
+                                `<div class="color-swatch ${color === 'cyan' ? 'selected' : ''}" 
+                                     data-color="${color}" 
+                                     style="background: ${COLORS[color]}"></div>`
+                            ).join('')}
+                        </div>
+                    </div>
+
+                    <div class="toolbar-section selected-controls">
+                        <div class="toolbar-section-title">Selected Bubble</div>
+                        
+                        <div class="control-group">
+                            <label class="control-label">Animation Order (0 = immediate)</label>
+                            <input type="number" class="order-input" min="0" max="99" value="0">
+                        </div>
+
+                        <div class="control-group">
+                            <label class="control-label">Pointer Angle</label>
+                            <div class="pointer-controls">
+                                <input type="range" class="angle-slider" min="0" max="360" value="90">
+                                <span class="angle-display">90°</span>
+                                <button class="pointer-none-btn">None</button>
+                            </div>
+                        </div>
+
+                        <button class="delete-bubble-btn">🗑️ Delete Bubble</button>
+                    </div>
+                `;
+
+                slide.appendChild(toolbar);
+
+                // Setup toolbar event listeners
+                const addBtn = toolbar.querySelector('.add-bubble-btn');
+                addBtn.addEventListener('click', () => addBubble(slide));
+
+                const colorSwatches = toolbar.querySelectorAll('.color-swatch');
+                colorSwatches.forEach(swatch => {
+                    swatch.addEventListener('click', () => {
+                        colorSwatches.forEach(s => s.classList.remove('selected'));
+                        swatch.classList.add('selected');
+                        if (selectedBubble) {
+                            changeBubbleColor(selectedBubble, swatch.getAttribute('data-color'));
+                        }
+                    });
+                });
+
+                const orderInput = toolbar.querySelector('.order-input');
+                orderInput.addEventListener('change', () => {
+                    if (selectedBubble) {
+                        changeBubbleOrder(selectedBubble, parseInt(orderInput.value));
+                    }
+                });
+
+                const angleSlider = toolbar.querySelector('.angle-slider');
+                const angleDisplay = toolbar.querySelector('.angle-display');
+                angleSlider.addEventListener('input', () => {
+                    angleDisplay.textContent = `${angleSlider.value}°`;
+                    if (selectedBubble) {
+                        changeBubblePointer(selectedBubble, parseInt(angleSlider.value));
+                    }
+                });
+
+                const pointerNoneBtn = toolbar.querySelector('.pointer-none-btn');
+                pointerNoneBtn.addEventListener('click', () => {
+                    if (selectedBubble) {
+                        changeBubblePointer(selectedBubble, -1);
+                    }
+                });
+
+                const deleteBtn = toolbar.querySelector('.delete-bubble-btn');
+                deleteBtn.addEventListener('click', () => {
+                    if (selectedBubble) {
+                        deleteBubble(slide, selectedBubble);
+                    }
+                });
+            }
+
+            // Set edit mode for all bubbles in slide
+            function setEditMode(slide, enabled) {
+                const bubbles = slide.querySelectorAll('.editor-bubble');
+                bubbles.forEach(bubble => {
+                    if (enabled) {
+                        bubble.classList.add('edit-mode');
+                    } else {
+                        bubble.classList.remove('edit-mode');
+                        const text = bubble.querySelector('.bubble-text');
+                        if (text) text.contentEditable = 'false';
+                    }
+                });
+            }
+
+            // Add new bubble
+            function addBubble(slide) {
+                const slideId = getSlideId(slide);
+                if (!allBubbles[slideId]) allBubbles[slideId] = [];
+
+                const bubble = {
+                    id: `bubble-${Date.now()}`,
+                    x: 50, // percentage
+                    y: 50, // percentage
+                    width: 200,
+                    height: 80,
+                    text: 'New bubble text',
+                    color: 'cyan',
+                    pointerAngle: 90,
+                    animationOrder: 0,
+                    textOffsetX: 0,
+                    textOffsetY: 0
+                };
+
+                allBubbles[slideId].push(bubble);
+                saveBubbles();
+                renderBubbles(slide);
+            }
+
+            // Delete bubble
+            function deleteBubble(slide, bubbleElement) {
+                const slideId = getSlideId(slide);
+                const bubbleId = bubbleElement.getAttribute('data-bubble-id');
+                
+                if (allBubbles[slideId]) {
+                    allBubbles[slideId] = allBubbles[slideId].filter(b => b.id !== bubbleId);
+                    saveBubbles();
+                    renderBubbles(slide);
+                    selectedBubble = null;
+                    updateToolbarSelection(slide);
+                }
+            }
+
+            // Change bubble color
+            function changeBubbleColor(bubbleElement, color) {
+                const slideId = selectedSlideId;
+                const bubbleId = bubbleElement.getAttribute('data-bubble-id');
+                const bubble = allBubbles[slideId]?.find(b => b.id === bubbleId);
+                
+                if (bubble) {
+                    bubble.color = color;
+                    bubbleElement.setAttribute('data-color', color);
+                    saveBubbles();
+                }
+            }
+
+            // Change bubble animation order
+            function changeBubbleOrder(bubbleElement, order) {
+                const slideId = selectedSlideId;
+                const bubbleId = bubbleElement.getAttribute('data-bubble-id');
+                const bubble = allBubbles[slideId]?.find(b => b.id === bubbleId);
+                
+                if (bubble) {
+                    bubble.animationOrder = order;
+                    const badge = bubbleElement.querySelector('.order-badge');
+                    if (badge) badge.textContent = order || '0';
+                    saveBubbles();
+                }
+            }
+
+            // Change bubble pointer angle
+            function changeBubblePointer(bubbleElement, angle) {
+                const slideId = selectedSlideId;
+                const bubbleId = bubbleElement.getAttribute('data-bubble-id');
+                const bubble = allBubbles[slideId]?.find(b => b.id === bubbleId);
+                
+                if (bubble) {
+                    bubble.pointerAngle = angle;
+                    updatePointer(bubbleElement, angle);
+                    saveBubbles();
+                }
+            }
+
+            // Update pointer triangle position
+            function updatePointer(bubbleElement, angle) {
+                let pointer = bubbleElement.querySelector('.bubble-pointer');
+                
+                if (angle === -1) {
+                    if (pointer) pointer.remove();
+                    return;
+                }
+
+                if (!pointer) {
+                    pointer = document.createElement('div');
+                    pointer.className = 'bubble-pointer';
+                    bubbleElement.appendChild(pointer);
+                }
+
+                const width = bubbleElement.offsetWidth;
+                const height = bubbleElement.offsetHeight;
+                const rad = (angle * Math.PI) / 180;
+                
+                // Calculate position on perimeter
+                let x, y;
+                if (angle >= 0 && angle < 90) {
+                    // Right to bottom
+                    const t = angle / 90;
+                    x = width + 15;
+                    y = (height / 2) * (1 + t);
+                } else if (angle >= 90 && angle < 180) {
+                    // Bottom to left
+                    const t = (angle - 90) / 90;
+                    x = width * (1 - t);
+                    y = height + 15;
+                } else if (angle >= 180 && angle < 270) {
+                    // Left to top
+                    const t = (angle - 180) / 90;
+                    x = -15;
+                    y = height * (1 - t);
+                } else {
+                    // Top to right
+                    const t = (angle - 270) / 90;
+                    x = width * t;
+                    y = -15;
+                }
+
+                pointer.style.left = `${x}px`;
+                pointer.style.top = `${y}px`;
+
+                // Set border direction
+                const oppositeAngle = (angle + 180) % 360;
+                const borderSize = '15px';
+                pointer.style.borderTop = 'none';
+                pointer.style.borderRight = 'none';
+                pointer.style.borderBottom = 'none';
+                pointer.style.borderLeft = 'none';
+
+                const color = bubbleElement.getAttribute('data-color');
+                const borderColor = COLORS[color] || COLORS.cyan;
+
+                if (oppositeAngle >= 315 || oppositeAngle < 45) {
+                    pointer.style.borderLeft = `${borderSize} solid ${borderColor}`;
+                } else if (oppositeAngle >= 45 && oppositeAngle < 135) {
+                    pointer.style.borderTop = `${borderSize} solid ${borderColor}`;
+                } else if (oppositeAngle >= 135 && oppositeAngle < 225) {
+                    pointer.style.borderRight = `${borderSize} solid ${borderColor}`;
+                } else {
+                    pointer.style.borderBottom = `${borderSize} solid ${borderColor}`;
+                }
+            }
+
+            // Render all bubbles for a slide
+            function renderBubbles(slide) {
+                const slideId = getSlideId(slide);
+                
+                // Remove existing editor bubbles
+                const existingBubbles = slide.querySelectorAll('.editor-bubble');
+                existingBubbles.forEach(b => b.remove());
+
+                // Get container for bubbles (screenshot-container for phases, slide itself for others)
+                let container = slide;
+                if (slideId.includes('phase')) {
+                    const activePhase = slide.querySelector('.phase-content.active');
+                    container = activePhase?.querySelector('.screenshot-container') || slide;
+                }
+
+                const bubbles = allBubbles[slideId] || [];
+                const isEditMode = slide.querySelector('.bubble-editor-toolbar') !== null;
+
+                bubbles.forEach(bubbleData => {
+                    const bubble = createBubbleElement(bubbleData, isEditMode, slide);
+                    container.appendChild(bubble);
+                });
+            }
+
+            // Create bubble DOM element
+            function createBubbleElement(data, isEditMode, slide) {
+                const bubble = document.createElement('div');
+                bubble.className = 'editor-bubble glow';
+                if (isEditMode) bubble.classList.add('edit-mode');
+                bubble.setAttribute('data-bubble-id', data.id);
+                bubble.setAttribute('data-color', data.color);
+                bubble.style.left = `${data.x}%`;
+                bubble.style.top = `${data.y}%`;
+                bubble.style.width = `${data.width}px`;
+                bubble.style.height = `${data.height}px`;
+
+                // Bubble text
+                const text = document.createElement('div');
+                text.className = 'bubble-text';
+                text.innerHTML = data.text;
+                text.style.left = `${data.textOffsetX || 0}px`;
+                text.style.top = `${data.textOffsetY || 0}px`;
+                bubble.appendChild(text);
+
+                // Resize handle
+                const resize = document.createElement('div');
+                resize.className = 'resize-handle';
+                bubble.appendChild(resize);
+
+                // Delete button
+                const deleteBtn = document.createElement('div');
+                deleteBtn.className = 'delete-btn';
+                deleteBtn.textContent = '×';
+                bubble.appendChild(deleteBtn);
+
+                // Order badge
+                const orderBadge = document.createElement('div');
+                orderBadge.className = 'order-badge';
+                orderBadge.textContent = data.animationOrder || '0';
+                bubble.appendChild(orderBadge);
+
+                // Pointer
+                updatePointer(bubble, data.pointerAngle);
+
+                // Event listeners (only in edit mode)
+                if (isEditMode) {
+                    setupBubbleInteractions(bubble, text, resize, deleteBtn, slide);
+                }
+
+                return bubble;
+            }
+
+            // Setup bubble interactions
+            function setupBubbleInteractions(bubble, text, resize, deleteBtn, slide) {
+                // Click to select (any click inside bubble except delete/resize)
+                bubble.addEventListener('click', (e) => {
+                    if (e.target === resize || e.target === deleteBtn) return;
+                    selectBubble(bubble, slide);
+                    e.stopPropagation();
+                });
+
+                // Double-click text to edit
+                text.addEventListener('dblclick', (e) => {
+                    e.stopPropagation();
+                    text.contentEditable = 'true';
+                    text.focus();
+                    
+                    // Select all text
+                    const range = document.createRange();
+                    range.selectNodeContents(text);
+                    const sel = window.getSelection();
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                });
+
+                // Save text on blur
+                text.addEventListener('blur', () => {
+                    text.contentEditable = 'false';
+                    const slideId = getSlideId(slide);
+                    const bubbleId = bubble.getAttribute('data-bubble-id');
+                    const bubbleData = allBubbles[slideId]?.find(b => b.id === bubbleId);
+                    if (bubbleData) {
+                        bubbleData.text = text.innerHTML;
+                        saveBubbles();
+                    }
+                });
+
+                // Prevent Enter from saving (allow multi-line)
+                text.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.stopPropagation();
+                        // Allow default behavior (new line)
+                    }
+                });
+
+                // Drag to move
+                bubble.addEventListener('mousedown', (e) => {
+                    if (e.target === resize || e.target === deleteBtn || e.target === text) return;
+                    
+                    const rect = bubble.parentElement.getBoundingClientRect();
+                    dragState = {
+                        bubble,
+                        startX: e.clientX,
+                        startY: e.clientY,
+                        startLeft: (parseFloat(bubble.style.left) / 100) * rect.width,
+                        startTop: (parseFloat(bubble.style.top) / 100) * rect.height,
+                        containerRect: rect
+                    };
+                    
+                    e.preventDefault();
+                });
+
+                // Resize handle
+                resize.addEventListener('mousedown', (e) => {
+                    resizeState = {
+                        bubble,
+                        startX: e.clientX,
+                        startY: e.clientY,
+                        startWidth: bubble.offsetWidth,
+                        startHeight: bubble.offsetHeight
+                    };
+                    e.preventDefault();
+                    e.stopPropagation();
+                });
+
+                // Delete button
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    deleteBubble(slide, bubble);
+                });
+            }
+
+            // Global mouse handlers
+            document.addEventListener('mousemove', (e) => {
+                if (dragState) {
+                    const dx = e.clientX - dragState.startX;
+                    const dy = e.clientY - dragState.startY;
+                    const newLeft = dragState.startLeft + dx;
+                    const newTop = dragState.startTop + dy;
+                    
+                    // Convert to percentage
+                    const leftPercent = (newLeft / dragState.containerRect.width) * 100;
+                    const topPercent = (newTop / dragState.containerRect.height) * 100;
+                    
+                    dragState.bubble.style.left = `${Math.max(0, Math.min(95, leftPercent))}%`;
+                    dragState.bubble.style.top = `${Math.max(0, Math.min(95, topPercent))}%`;
+                }
+
+                if (resizeState) {
+                    const dx = e.clientX - resizeState.startX;
+                    const dy = e.clientY - resizeState.startY;
+                    const newWidth = Math.max(80, resizeState.startWidth + dx);
+                    const newHeight = Math.max(40, resizeState.startHeight + dy);
+                    
+                    resizeState.bubble.style.width = `${newWidth}px`;
+                    resizeState.bubble.style.height = `${newHeight}px`;
+                    
+                    // Update pointer position
+                    const bubbleData = getBubbleData(resizeState.bubble);
+                    if (bubbleData) {
+                        updatePointer(resizeState.bubble, bubbleData.pointerAngle);
+                    }
+                }
+            });
+
+            document.addEventListener('mouseup', () => {
+                if (dragState) {
+                    // Save position
+                    const slideId = selectedSlideId;
+                    const bubbleId = dragState.bubble.getAttribute('data-bubble-id');
+                    const bubbleData = allBubbles[slideId]?.find(b => b.id === bubbleId);
+                    if (bubbleData) {
+                        bubbleData.x = parseFloat(dragState.bubble.style.left);
+                        bubbleData.y = parseFloat(dragState.bubble.style.top);
+                        saveBubbles();
+                    }
+                    dragState = null;
+                }
+
+                if (resizeState) {
+                    // Save size
+                    const slideId = selectedSlideId;
+                    const bubbleId = resizeState.bubble.getAttribute('data-bubble-id');
+                    const bubbleData = allBubbles[slideId]?.find(b => b.id === bubbleId);
+                    if (bubbleData) {
+                        bubbleData.width = resizeState.bubble.offsetWidth;
+                        bubbleData.height = resizeState.bubble.offsetHeight;
+                        saveBubbles();
+                    }
+                    resizeState = null;
+                }
+            });
+
+            // Select a bubble
+            function selectBubble(bubble, slide) {
+                // Remove selected from all bubbles in this slide
+                slide.querySelectorAll('.editor-bubble.selected').forEach(b => b.classList.remove('selected'));
+                selectedBubble = bubble;
+                if (bubble) bubble.classList.add('selected');
+                updateToolbarSelection(slide);
+            }
+
+            // Update toolbar with selected bubble data
+            function updateToolbarSelection(slide) {
+                const toolbar = slide.querySelector('.bubble-editor-toolbar');
+                if (!toolbar) return;
+
+                const selectedControls = toolbar.querySelector('.selected-controls');
+                
+                if (selectedBubble) {
+                    const data = getBubbleData(selectedBubble);
+                    if (data) {
+                        selectedControls.classList.add('active');
+                        
+                        const orderInput = toolbar.querySelector('.order-input');
+                        orderInput.value = data.animationOrder || 0;
+                        
+                        const angleSlider = toolbar.querySelector('.angle-slider');
+                        const angleDisplay = toolbar.querySelector('.angle-display');
+                        if (data.pointerAngle === -1) {
+                            angleSlider.value = 90;
+                            angleDisplay.textContent = 'None';
+                        } else {
+                            angleSlider.value = data.pointerAngle;
+                            angleDisplay.textContent = `${data.pointerAngle}°`;
+                        }
+
+                        // Update color selection
+                        const colorSwatches = toolbar.querySelectorAll('.color-swatch');
+                        colorSwatches.forEach(s => s.classList.remove('selected'));
+                        const selectedSwatch = toolbar.querySelector(`[data-color="${data.color}"]`);
+                        if (selectedSwatch) selectedSwatch.classList.add('selected');
+                    }
+                } else {
+                    selectedControls.classList.remove('active');
+                }
+            }
+
+            // Get bubble data from element
+            function getBubbleData(bubbleElement) {
+                const bubbleId = bubbleElement.getAttribute('data-bubble-id');
+                for (const slideId in allBubbles) {
+                    const bubble = allBubbles[slideId].find(b => b.id === bubbleId);
+                    if (bubble) return bubble;
+                }
+                return null;
+            }
+
+            // Setup intersection observer for animations
+            function setupIntersectionObserver() {
+                const observer = new IntersectionObserver((entries) => {
+                    entries.forEach(entry => {
+                        if (entry.isIntersecting) {
+                            animateBubbles(entry.target);
+                        }
+                    });
+                }, { threshold: 0.5 });
+
+                const slides = document.querySelectorAll('.slide');
+                slides.forEach(slide => observer.observe(slide));
+            }
+
+            // Animate bubbles when slide comes into view
+            function animateBubbles(slide) {
+                const bubbles = slide.querySelectorAll('.editor-bubble');
+                bubbles.forEach(bubble => {
+                    const data = getBubbleData(bubble);
+                    if (data) {
+                        const delay = data.animationOrder * 400;
+                        bubble.classList.remove('animating');
+                        setTimeout(() => {
+                            bubble.classList.add('animating');
+                        }, delay);
+                    }
+                });
+            }
+
+            // Handle phase switching for Slide 2
+            document.addEventListener('DOMContentLoaded', () => {
+                const phaseTabs = document.querySelectorAll('.phase-tab');
+                phaseTabs.forEach(tab => {
+                    tab.addEventListener('click', () => {
+                        setTimeout(() => {
+                            const slide = document.querySelector('[data-slide-id="slide-2"]');
+                            if (slide) {
+                                renderBubbles(slide);
+                                const toolbar = slide.querySelector('.bubble-editor-toolbar');
+                                if (toolbar) {
+                                    selectedSlideId = getSlideId(slide);
+                                }
+                            }
+                        }, 100);
+                    });
+                });
+            });
+
+            return {
+                init,
+                loadBubbles,
+                saveBubbles,
+                renderBubbles
+            };
+        })();
+
         // ===== INITIALIZE =====
         window.addEventListener('load', () => {
             updateProgressIndicator();
+            BubbleEditor.init();
         });
     </script>
 </body>
