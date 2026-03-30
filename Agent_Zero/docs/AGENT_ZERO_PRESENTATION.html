@@ -2459,6 +2459,8 @@
                 bubbles.forEach(bubbleData => {
                     const bubble = createBubbleElement(bubbleData, isEditMode, slide);
                     container.appendChild(bubble);
+                    // Update pointer AFTER bubble is in DOM (needs real dimensions)
+                    updatePointer(bubble, bubbleData.pointerAngle);
                 });
             }
 
@@ -2500,7 +2502,8 @@
                 bubble.appendChild(orderBadge);
 
                 // Pointer
-                updatePointer(bubble, data.pointerAngle);
+                // Pointer — deferred to after DOM insertion (needs offsetWidth/Height)
+                // updatePointer is called in renderBubbles after appendChild
 
                 // Event listeners (only in edit mode)
                 if (isEditMode) {
