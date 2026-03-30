@@ -1855,6 +1855,9 @@
         document.querySelectorAll('.screenshot-container').forEach(container => {
             container.addEventListener('click', () => {
                 const phaseContent = container.closest('.phase-content');
+                // Disable expand/collapse while Bubble Editor is active
+                const slide = container.closest('.slide');
+                if (slide && slide.querySelector('.bubble-editor-toolbar')) return;
                 if (phaseContent && phaseContent.classList.contains('active')) {
                     phaseContent.classList.toggle('expanded');
                     // Re-run sizing after expand/collapse
