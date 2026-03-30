@@ -1069,12 +1069,43 @@
             border: 2px solid rgba(59, 130, 246, 0.4);
             border-radius: 16px;
             padding: 20px 30px;
+            padding-top: 10px;
             display: flex;
             flex-direction: column;
             gap: 20px;
             z-index: 100;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
             min-width: 380px;
+        }
+        .bubble-editor-toolbar.is-dragged {
+            transform: none;
+        }
+        .toolbar-drag-handle {
+            width: 100%;
+            height: 18px;
+            cursor: grab;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 4px;
+            border-radius: 8px;
+            transition: background 0.2s;
+        }
+        .toolbar-drag-handle:hover {
+            background: rgba(59, 130, 246, 0.15);
+        }
+        .toolbar-drag-handle:active {
+            cursor: grabbing;
+        }
+        .toolbar-drag-handle::after {
+            content: '';
+            width: 48px;
+            height: 4px;
+            border-radius: 2px;
+            background: rgba(148, 163, 184, 0.4);
+        }
+        .toolbar-drag-handle:hover::after {
+            background: rgba(59, 130, 246, 0.6);
         }
 
         .bubble-editor-toolbar .toolbar-section {
@@ -2088,6 +2119,30 @@
             let dragState = null;
             let resizeState = null;
 
+            // Default bubbles embedded in HTML — used when localStorage is empty
+            const DEFAULT_BUBBLES = {
+                "slide-2-phase-1": [
+                    { id: "p1-b1", text: "📡 Scans subject lines only — email bodies are never read in this phase", x: 5, y: 8, width: 22, height: 12, color: "cyan", pointerAngle: 135, animationOrder: 0 },
+                    { id: "p1-b2", text: "🤖 AI decides per item: create new task, update existing, or skip if already done", x: 40, y: 6, width: 24, height: 12, color: "blue", pointerAngle: 180, animationOrder: 1 },
+                    { id: "p1-b3", text: "🔁 Duplicates are detected and skipped — no double entries", x: 70, y: 8, width: 22, height: 12, color: "green", pointerAngle: 225, animationOrder: 2 }
+                ],
+                "slide-2-phase-2": [
+                    { id: "p2-b1", text: "📖 Now reads the full conversation thread for each task", x: 5, y: 8, width: 22, height: 12, color: "cyan", pointerAngle: 135, animationOrder: 0 },
+                    { id: "p2-b2", text: "📋 Creates a structured summary with key decisions and next steps", x: 40, y: 6, width: 24, height: 12, color: "indigo", pointerAngle: 180, animationOrder: 1 },
+                    { id: "p2-b3", text: "⚠️ Flags ambiguities and conflicting information for human review", x: 70, y: 8, width: 22, height: 12, color: "amber", pointerAngle: 225, animationOrder: 2 }
+                ],
+                "slide-2-phase-3": [
+                    { id: "p3-b1", text: "🔍 Searches for new messages since last enrichment", x: 5, y: 8, width: 22, height: 12, color: "cyan", pointerAngle: 135, animationOrder: 0 },
+                    { id: "p3-b2", text: "📌 Appends new findings as update notes to the task summary", x: 40, y: 6, width: 24, height: 12, color: "blue", pointerAngle: 180, animationOrder: 1 },
+                    { id: "p3-b3", text: "🔄 Runs automatically with every scan cycle — tasks stay current", x: 70, y: 8, width: 22, height: 12, color: "green", pointerAngle: 225, animationOrder: 2 }
+                ],
+                "slide-2-phase-4": [
+                    { id: "p4-b1", text: "🔗 Analyzes semantic overlap between all open tasks", x: 5, y: 8, width: 22, height: 12, color: "indigo", pointerAngle: 135, animationOrder: 0 },
+                    { id: "p4-b2", text: "💡 Suggests intelligent merges when topics overlap", x: 40, y: 6, width: 24, height: 12, color: "cyan", pointerAngle: 180, animationOrder: 1 },
+                    { id: "p4-b3", text: "🛡️ Requires your approval — Agent Zero never auto-merges", x: 70, y: 8, width: 22, height: 12, color: "amber", pointerAngle: 225, animationOrder: 2 }
+                ]
+            };
+
             // Initialize the editor system
             function init() {
                 loadBubbles();
@@ -2095,17 +2150,24 @@
                 setupIntersectionObserver();
             }
 
-            // Load bubbles from localStorage
+            // Load bubbles from localStorage, falling back to embedded defaults
             function loadBubbles() {
                 try {
                     const stored = localStorage.getItem(STORAGE_KEY);
                     if (stored) {
-                        allBubbles = JSON.parse(stored);
+                        const parsed = JSON.parse(stored);
+                        // Only use stored data if it actually has bubble entries
+                        if (Object.keys(parsed).length > 0) {
+                            allBubbles = parsed;
+                            return;
+                        }
                     }
                 } catch (e) {
                     console.error('Failed to load bubbles:', e);
-                    allBubbles = {};
                 }
+                // Fall back to embedded defaults and persist them
+                allBubbles = JSON.parse(JSON.stringify(DEFAULT_BUBBLES));
+                saveBubbles();
             }
 
             // Save bubbles to localStorage
@@ -2191,6 +2253,7 @@
                 const toolbar = document.createElement('div');
                 toolbar.className = 'bubble-editor-toolbar';
                 toolbar.innerHTML = `
+                    <div class="toolbar-drag-handle" title="Drag to move"></div>
                     <div class="toolbar-section">
                         <div class="toolbar-row">
                             <button class="add-bubble-btn">+ Add Bubble</button>
@@ -2230,6 +2293,28 @@
                 `;
 
                 slide.appendChild(toolbar);
+
+                // Drag handle for toolbar repositioning
+                const dragHandle = toolbar.querySelector('.toolbar-drag-handle');
+                let tbDrag = null;
+                dragHandle.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const rect = toolbar.getBoundingClientRect();
+                    const slideRect = slide.getBoundingClientRect();
+                    tbDrag = { startX: e.clientX, startY: e.clientY, origLeft: rect.left - slideRect.left, origTop: rect.top - slideRect.top };
+                    toolbar.classList.add('is-dragged');
+                    toolbar.style.left = tbDrag.origLeft + 'px';
+                    toolbar.style.top = tbDrag.origTop + 'px';
+                });
+                document.addEventListener('mousemove', (e) => {
+                    if (!tbDrag) return;
+                    const dx = e.clientX - tbDrag.startX;
+                    const dy = e.clientY - tbDrag.startY;
+                    toolbar.style.left = (tbDrag.origLeft + dx) + 'px';
+                    toolbar.style.top = (tbDrag.origTop + dy) + 'px';
+                });
+                document.addEventListener('mouseup', () => { tbDrag = null; });
 
                 // Setup toolbar event listeners
                 const addBtn = toolbar.querySelector('.add-bubble-btn');
