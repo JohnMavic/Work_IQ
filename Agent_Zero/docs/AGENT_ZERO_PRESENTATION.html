@@ -2208,6 +2208,11 @@
                 const slideId = getSlideId(slide);
                 if (!allBubbles[slideId]) allBubbles[slideId] = [];
 
+                // Read preselected color from toolbar
+                const toolbar = slide.querySelector('.bubble-editor-toolbar');
+                const selectedSwatch = toolbar?.querySelector('.color-swatch.selected');
+                const preselectedColor = selectedSwatch ? selectedSwatch.getAttribute('data-color') : 'cyan';
+
                 const bubble = {
                     id: `bubble-${Date.now()}`,
                     x: 50, // percentage
@@ -2215,7 +2220,7 @@
                     width: 200,
                     height: 80,
                     text: 'New bubble text',
-                    color: 'cyan',
+                    color: preselectedColor,
                     pointerAngle: 90,
                     animationOrder: 0,
                     textOffsetX: 0,
