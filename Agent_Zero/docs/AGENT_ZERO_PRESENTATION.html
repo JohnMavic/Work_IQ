@@ -626,120 +626,224 @@
         }
 
         /* ===== SLIDE 4 — ARCHITECTURE ===== */
+        .architecture-slide {
+            overflow: visible !important;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
         .architecture-slide h2 {
-            font-size: 3em;
+            font-size: 2.5em;
             text-align: center;
-            margin-bottom: 50px;
-            color: #00d4ff;
+            margin-bottom: 32px;
+            background: linear-gradient(135deg, #00d4ff 0%, #3b82f6 30%, #8b5cf6 55%, #e879f9 80%, #fbbf24 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            font-weight: 800;
+            letter-spacing: -0.02em;
         }
 
         .arch-diagram {
             display: flex;
             flex-direction: column;
-            gap: 40px;
             align-items: center;
-            margin: 50px 0;
-        }
-
-        .arch-layer {
-            display: flex;
-            justify-content: center;
-            gap: 30px;
-            flex-wrap: wrap;
             width: 100%;
+            max-width: 860px;
+            margin: 0 auto;
         }
 
-        .arch-node {
-            background: #141728;
-            border: 2px solid #2a2f45;
-            border-radius: 12px;
-            padding: 20px 30px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            position: relative;
-            min-width: 200px;
-            text-align: center;
-            font-weight: 600;
-            font-size: 1.1em;
-        }
-
-        .arch-node:hover {
-            border-color: #3b82f6;
-            transform: translateY(-4px);
-            box-shadow: 0 0 25px rgba(59, 130, 246, 0.3);
-            z-index: 50;
-        }
-
-        .arch-tooltip {
-            display: none;
-            position: absolute;
-            top: calc(100% + 18px);
-            left: 50%;
-            transform: translateX(-50%);
-            background: #1a1d2e;
-            border: 2px solid #3b82f6;
+        /* Layer band */
+        .arch-layer {
+            width: 100%;
+            border-left: 3px solid;
             border-radius: 10px;
-            padding: 15px 20px;
-            min-width: 320px;
-            max-width: 400px;
-            color: #e2e8f0;
-            font-size: 0.9em;
-            z-index: 100;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-            font-weight: 400;
-            line-height: 1.6;
-            text-align: left;
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            position: relative;
+            transition: background 0.3s ease;
         }
 
-        .arch-tooltip::before {
+        .arch-layer-label {
+            font-size: 0.68em;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            font-weight: 700;
+            min-width: 62px;
+            flex-shrink: 0;
+        }
+
+        .arch-layer-nodes {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            flex: 1;
+        }
+
+        /* Layer colors */
+        .arch-layer--user   { border-color: #00d4ff; background: rgba(0, 212, 255, 0.03); }
+        .arch-layer--server { border-color: #3b82f6; background: rgba(59, 130, 246, 0.03); }
+        .arch-layer--ai     { border-color: #8b5cf6; background: rgba(139, 92, 246, 0.03); }
+        .arch-layer--data   { border-color: #e879f9; background: rgba(232, 121, 249, 0.03); }
+        .arch-layer--ext    { border-color: #fbbf24; background: rgba(251, 191, 36, 0.03); }
+
+        .arch-layer--user   .arch-layer-label { color: #00d4ff; }
+        .arch-layer--server .arch-layer-label { color: #3b82f6; }
+        .arch-layer--ai     .arch-layer-label { color: #8b5cf6; }
+        .arch-layer--data   .arch-layer-label { color: #e879f9; }
+        .arch-layer--ext    .arch-layer-label { color: #fbbf24; }
+
+        /* Node chip */
+        .arch-node {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 8px 15px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            position: relative;
+            font-weight: 600;
+            font-size: 0.85em;
+            color: #e2e8f0;
+            white-space: nowrap;
+        }
+
+        .arch-layer--user   .arch-node:hover { border-color: #00d4ff; box-shadow: 0 0 18px rgba(0,212,255,0.18); background: rgba(0,212,255,0.08); transform: translateY(-2px); }
+        .arch-layer--server .arch-node:hover { border-color: #3b82f6; box-shadow: 0 0 18px rgba(59,130,246,0.18); background: rgba(59,130,246,0.08); transform: translateY(-2px); }
+        .arch-layer--ai     .arch-node:hover { border-color: #8b5cf6; box-shadow: 0 0 18px rgba(139,92,246,0.18); background: rgba(139,92,246,0.08); transform: translateY(-2px); }
+        .arch-layer--data   .arch-node:hover { border-color: #e879f9; box-shadow: 0 0 18px rgba(232,121,249,0.18); background: rgba(232,121,249,0.08); transform: translateY(-2px); }
+        .arch-layer--ext    .arch-node:hover { border-color: #fbbf24; box-shadow: 0 0 18px rgba(251,191,36,0.18); background: rgba(251,191,36,0.08); transform: translateY(-2px); }
+
+        /* Tooltip — JS-positioned floating panel at slide level */
+        .arch-tip-float {
+            display: none;
+            position: fixed;
+            background: #111425;
+            border: 1px solid #3b82f6;
+            border-radius: 10px;
+            padding: 10px 14px;
+            max-width: 330px;
+            color: #cbd5e1;
+            font-size: 13px;
+            z-index: 9999;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.7);
+            font-weight: 400;
+            line-height: 1.5;
+            text-align: left;
+            pointer-events: none;
+            white-space: normal;
+        }
+
+        .arch-tip-float::after {
             content: '';
             position: absolute;
             bottom: 100%;
-            left: 50%;
-            transform: translateX(-50%);
-            border: 8px solid transparent;
-            border-bottom-color: #3b82f6;
+            left: 24px;
+            border: 6px solid transparent;
+            border-bottom-color: var(--tip-color, #3b82f6);
         }
 
-        .arch-node:hover .arch-tooltip {
-            display: block;
-            animation: tooltipFade 0.3s ease;
+        .arch-tip-float.arch-tip-above::after {
+            bottom: auto;
+            top: 100%;
+            border-bottom-color: transparent;
+            border-top-color: var(--tip-color, #3b82f6);
         }
 
-        @keyframes tooltipFade {
-            from {
-                opacity: 0;
-                transform: translateX(-50%) translateY(-5px);
-            }
-            to {
-                opacity: 1;
-                transform: translateX(-50%) translateY(0);
-            }
-        }
-
-        .arch-connector {
-            width: 2px;
+        /* Connection arrow */
+        .arch-arrow {
             height: 30px;
-            background: linear-gradient(to bottom, #2a2f45, transparent);
-            margin: -10px auto;
-        }
-
-        .tech-badges {
             display: flex;
+            align-items: center;
             justify-content: center;
-            gap: 15px;
-            flex-wrap: wrap;
-            margin-top: 50px;
         }
 
-        .tech-badge {
-            background: rgba(59, 130, 246, 0.1);
-            border: 1px solid rgba(59, 130, 246, 0.3);
-            border-radius: 20px;
-            padding: 8px 20px;
-            font-size: 0.95em;
-            color: #3b82f6;
+        .arch-arrow svg {
+            width: 18px;
+            height: 30px;
+            filter: drop-shadow(0 0 4px rgba(139, 92, 246, 0.3));
+        }
+
+        /* Superpowers */
+        .arch-superpowers {
+            margin-top: 30px;
+            text-align: center;
+            width: 100%;
+            max-width: 860px;
+        }
+
+        .arch-superpowers-label {
+            font-size: 0.65em;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            color: #475569;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .arch-powers-row {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 7px;
+        }
+
+        .arch-power {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 16px;
+            padding: 5px 12px;
+            font-size: 0.75em;
+            color: #94a3b8;
+            cursor: default;
+            transition: all 0.25s ease;
+            position: relative;
+        }
+
+        .arch-power:hover {
+            color: #e2e8f0;
+            transform: translateY(-2px);
+            border-color: rgba(139, 92, 246, 0.4);
+            background: rgba(139, 92, 246, 0.06);
+        }
+
+        /* Flow bar */
+        .arch-flow {
+            margin-top: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            width: 100%;
+            max-width: 860px;
+            padding: 8px 16px;
+            background: rgba(255, 255, 255, 0.015);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 8px;
+        }
+
+        .arch-flow-step {
+            font-size: 0.68em;
             font-weight: 600;
+            color: #94a3b8;
+            padding: 2px 6px;
+            white-space: nowrap;
+        }
+
+        .arch-flow-sep {
+            color: #334155;
+            font-size: 0.75em;
+            padding: 0 3px;
+            animation: archPulse 2s ease-in-out infinite;
+        }
+
+        @keyframes archPulse {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 1; }
         }
 
         /* ===== SLIDE 5 — GET STARTED ===== */
@@ -871,7 +975,33 @@
 
             .arch-layer {
                 flex-direction: column;
-                align-items: center;
+                align-items: stretch;
+                gap: 6px;
+            }
+
+            .arch-layer-label {
+                min-width: auto;
+            }
+
+            .arch-layer-nodes {
+                flex-direction: column;
+            }
+
+            .arch-node {
+                white-space: normal;
+            }
+
+            .arch-powers-row {
+                gap: 5px;
+            }
+
+            .arch-flow {
+                flex-direction: column;
+                gap: 2px;
+            }
+
+            .arch-flow-sep {
+                display: none;
             }
 
             .slide-progress {
@@ -1487,82 +1617,147 @@
 
         <!-- ===== SLIDE 4 — UNDER THE HOOD ===== -->
         <section class="slide architecture-slide" data-slide="4">
-            <h2>Technical Architecture</h2>
+            <h2>🏗️ Technical Architecture</h2>
+
+            <!-- Floating tooltip (positioned by JS) -->
+            <div class="arch-tip-float" id="archTipFloat"></div>
 
             <div class="arch-diagram">
-                <!-- Top Layer -->
-                <div class="arch-layer">
-                    <div class="arch-node">
-                        GitHub Copilot SDK
-                        <div class="arch-tooltip">
-                            GitHub Copilot's AI reasoning engine. Powers intent classification, summarization, and evidence-based verification.
-                        </div>
-                    </div>
-                    <div class="arch-node">
-                        Work IQ MCP
-                        <div class="arch-tooltip">
-                            Microsoft's M365 connector via Model Context Protocol. Reads emails, Teams chats, calendar events, and documents.
-                        </div>
+                <!-- USER LAYER -->
+                <div class="arch-layer arch-layer--user">
+                    <div class="arch-layer-label">User</div>
+                    <div class="arch-layer-nodes">
+                        <div class="arch-node" data-tip="Single-page app in &lt;strong&gt;index.html&lt;/strong&gt; — no React, no bundler, no framework. Pure Vanilla JS with fetch() for all server communication." data-tip-color="#00d4ff">🖥️ Vanilla JS SPA</div>
+                        <div class="arch-node" data-tip="All client→server communication via standard &lt;strong&gt;fetch()&lt;/strong&gt; calls to Express endpoints. JSON payloads, no WebSocket, no GraphQL." data-tip-color="#00d4ff">📡 fetch() REST</div>
                     </div>
                 </div>
 
-                <div class="arch-connector"></div>
+                <!-- Arrow: User → Server -->
+                <div class="arch-arrow">
+                    <svg viewBox="0 0 18 30" fill="none"><line x1="9" y1="0" x2="9" y2="22" stroke="url(#arch-g1)" stroke-width="2"/><polygon points="5,20 9,30 13,20" fill="#3b82f6"/><defs><linearGradient id="arch-g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#00d4ff"/><stop offset="100%" stop-color="#3b82f6"/></linearGradient></defs></svg>
+                </div>
 
-                <!-- Middle Layer -->
-                <div class="arch-layer">
-                    <div class="arch-node">
-                        Express Server (Node.js)
-                        <div class="arch-tooltip">
-                            Local Node.js v18+ backend. Your data never leaves your machine. Zero cloud dependencies.
-                        </div>
-                    </div>
-                    <div class="arch-node">
-                        7 Skill Files (.md)
-                        <div class="arch-tooltip">
-                            Specialized AI prompts: Scan Discovery, Enrich, Update Check, Search, Consolidate, Correct, Log Work. Each is a carefully crafted .md file.
-                        </div>
+                <!-- SERVER LAYER -->
+                <div class="arch-layer arch-layer--server">
+                    <div class="arch-layer-label">Server</div>
+                    <div class="arch-layer-nodes">
+                        <div class="arch-node" data-tip="&lt;strong&gt;Express 5 on Node.js v18+&lt;/strong&gt; (ES Modules). Local-only server — your data never touches the cloud. Zero external dependencies." data-tip-color="#3b82f6">⚡ Express 5</div>
+                        <div class="arch-node" data-tip="Full REST API: task CRUD, AI phase triggers (scan, enrich, update, search, consolidate, correct), chat, manual add — &lt;strong&gt;20+ endpoints&lt;/strong&gt; in server.js." data-tip-color="#3b82f6">🔌 20+ API Routes</div>
+                        <div class="arch-node" data-tip="Creates &lt;strong&gt;fresh Copilot sessions per request&lt;/strong&gt; via CopilotClient. Auto-reaps orphans after 10 min. Graceful shutdown on SIGTERM/SIGINT." data-tip-color="#3b82f6">🔄 Session Manager</div>
                     </div>
                 </div>
 
-                <div class="arch-connector"></div>
+                <!-- Arrow: Server → AI -->
+                <div class="arch-arrow">
+                    <svg viewBox="0 0 18 30" fill="none"><line x1="9" y1="0" x2="9" y2="22" stroke="url(#arch-g2)" stroke-width="2"/><polygon points="5,20 9,30 13,20" fill="#8b5cf6"/><defs><linearGradient id="arch-g2" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#3b82f6"/><stop offset="100%" stop-color="#8b5cf6"/></linearGradient></defs></svg>
+                </div>
 
-                <!-- Bottom Layer -->
-                <div class="arch-layer">
-                    <div class="arch-node">
-                        Local Task Store (JSON)
-                        <div class="arch-tooltip">
-                            Persistent JSON file. Full history, versioning, merge tracking. Fully offline-capable.
-                        </div>
-                    </div>
-                    <div class="arch-node">
-                        Session Manager
-                        <div class="arch-tooltip">
-                            Fresh AI sessions per API request. Automatic cleanup, orphan reaping, graceful shutdown.
-                        </div>
+                <!-- AI BRAIN LAYER -->
+                <div class="arch-layer arch-layer--ai">
+                    <div class="arch-layer-label">AI Brain</div>
+                    <div class="arch-layer-nodes">
+                        <div class="arch-node" data-tip="&lt;strong&gt;@github/copilot-sdk&lt;/strong&gt; — CopilotClient creates sessions, sendAndWait() for AI reasoning. Powers all 7 skill phases." data-tip-color="#8b5cf6">🧠 Copilot SDK</div>
+                        <div class="arch-node" data-tip="&lt;strong&gt;7 .md files&lt;/strong&gt; loaded at startup, prepended to every prompt: SCAN_DISCOVERY, ENRICH, UPDATE_CHECK, SEARCH, CONSOLIDATE, CORRECT, LOG_WORK." data-tip-color="#8b5cf6">📜 7 Skill Files</div>
                     </div>
                 </div>
 
-                <div class="arch-connector"></div>
+                <!-- Arrow: AI → Data -->
+                <div class="arch-arrow">
+                    <svg viewBox="0 0 18 30" fill="none"><line x1="9" y1="0" x2="9" y2="22" stroke="url(#arch-g3)" stroke-width="2"/><polygon points="5,20 9,30 13,20" fill="#e879f9"/><defs><linearGradient id="arch-g3" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#8b5cf6"/><stop offset="100%" stop-color="#e879f9"/></linearGradient></defs></svg>
+                </div>
 
-                <!-- External Layer -->
-                <div class="arch-layer">
-                    <div class="arch-node">
-                        Microsoft 365
-                        <div class="arch-tooltip">
-                            Outlook emails, Teams messages, Calendar events, OneDrive files. Accessed read-only via Work IQ.
-                        </div>
+                <!-- DATA LAYER -->
+                <div class="arch-layer arch-layer--data">
+                    <div class="arch-layer-label">Data</div>
+                    <div class="arch-layer-nodes">
+                        <div class="arch-node" data-tip="&lt;strong&gt;Microsoft's M365 connector&lt;/strong&gt; via Model Context Protocol. Reads emails, Teams chats, calendar events, OneDrive files — all read-only." data-tip-color="#e879f9">🔗 Work IQ MCP</div>
+                        <div class="arch-node" data-tip="Local &lt;strong&gt;tasks.json&lt;/strong&gt; — JSON persistence with full audit trail, version 3 schema, merge tracking, offline-capable." data-tip-color="#e879f9">💾 Task Store</div>
+                    </div>
+                </div>
+
+                <!-- Arrow: Data → External -->
+                <div class="arch-arrow">
+                    <svg viewBox="0 0 18 30" fill="none"><line x1="9" y1="0" x2="9" y2="22" stroke="url(#arch-g4)" stroke-width="2"/><polygon points="5,20 9,30 13,20" fill="#fbbf24"/><defs><linearGradient id="arch-g4" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#e879f9"/><stop offset="100%" stop-color="#fbbf24"/></linearGradient></defs></svg>
+                </div>
+
+                <!-- EXTERNAL LAYER -->
+                <div class="arch-layer arch-layer--ext">
+                    <div class="arch-layer-label">External</div>
+                    <div class="arch-layer-nodes">
+                        <div class="arch-node" data-tip="Your &lt;strong&gt;M365 tenant&lt;/strong&gt; — Outlook inbox, Teams messages, Calendar events, OneDrive/SharePoint files. Accessed &lt;strong&gt;read-only&lt;/strong&gt; via Work IQ." data-tip-color="#fbbf24">☁️ Microsoft 365</div>
                     </div>
                 </div>
             </div>
 
-            <div class="tech-badges">
-                <div class="tech-badge">Node.js v18+</div>
-                <div class="tech-badge">Express 5</div>
-                <div class="tech-badge">Copilot SDK</div>
-                <div class="tech-badge">Work IQ MCP</div>
-                <div class="tech-badge">ES Modules</div>
-                <div class="tech-badge">Vanilla JS</div>
+            <!-- Superpowers -->
+            <div class="arch-superpowers">
+                <div class="arch-superpowers-label">⚡ Superpowers This Architecture Enables</div>
+                <div class="arch-powers-row">
+                    <div class="arch-power" data-tip="Scans your inbox metadata to find action items automatically — no manual searching" data-tip-color="#8b5cf6">🔍 AI Discovery</div>
+                    <div class="arch-power" data-tip="Reads full email threads with temporal reasoning to create structured task summaries" data-tip-color="#8b5cf6">📋 Smart Enrichment</div>
+                    <div class="arch-power" data-tip="Detects only NEW activity since the last check — keeps summaries current without re-reading" data-tip-color="#8b5cf6">🔄 Auto Updates</div>
+                    <div class="arch-power" data-tip="LLM-based overlap detection finds duplicate tasks and suggests intelligent merges" data-tip-color="#8b5cf6">🔗 Semantic Merging</div>
+                    <div class="arch-power" data-tip="Chat naturally to discuss, rename, verify, or search your tasks — the AI understands context" data-tip-color="#8b5cf6">💬 Conversational AI</div>
+                    <div class="arch-power" data-tip="Disputes are checked against actual M365 data — truth hierarchy ensures accuracy" data-tip-color="#8b5cf6">🛡️ Evidence Check</div>
+                    <div class="arch-power" data-tip="Everything runs on your machine. No cloud storage, no telemetry — your data never leaves localhost" data-tip-color="#8b5cf6">🔒 100% Local</div>
+                </div>
             </div>
+
+            <!-- Flow indicator -->
+            <div class="arch-flow">
+                <span class="arch-flow-step">👤 User</span>
+                <span class="arch-flow-sep">→</span>
+                <span class="arch-flow-step">SPA</span>
+                <span class="arch-flow-sep">→</span>
+                <span class="arch-flow-step">Express API</span>
+                <span class="arch-flow-sep">→</span>
+                <span class="arch-flow-step">Copilot SDK + Skill</span>
+                <span class="arch-flow-sep">→</span>
+                <span class="arch-flow-step">Work IQ MCP</span>
+                <span class="arch-flow-sep">→</span>
+                <span class="arch-flow-step">M365</span>
+                <span class="arch-flow-sep">→</span>
+                <span class="arch-flow-step">AI Response</span>
+                <span class="arch-flow-sep">→</span>
+                <span class="arch-flow-step">tasks.json</span>
+                <span class="arch-flow-sep">→</span>
+                <span class="arch-flow-step">SPA Update ✨</span>
+            </div>
+
+            <script>
+            (function() {
+                const tip = document.getElementById('archTipFloat');
+                if (!tip) return;
+                document.querySelectorAll('.architecture-slide [data-tip]').forEach(el => {
+                    el.addEventListener('mouseenter', function() {
+                        const color = this.dataset.tipColor || '#3b82f6';
+                        tip.innerHTML = this.dataset.tip;
+                        tip.style.borderColor = color;
+                        tip.style.setProperty('--tip-color', color);
+                        tip.classList.remove('arch-tip-above');
+                        tip.style.display = 'block';
+                        const r = this.getBoundingClientRect();
+                        let left = r.left;
+                        let top = r.bottom + 8;
+                        tip.style.left = left + 'px';
+                        tip.style.top = top + 'px';
+                        const tipRect = tip.getBoundingClientRect();
+                        // Flip above if overflowing bottom
+                        if (tipRect.bottom > window.innerHeight - 12) {
+                            tip.classList.add('arch-tip-above');
+                            tip.style.top = (r.top - tipRect.height - 8) + 'px';
+                        }
+                        // Adjust if overflowing right
+                        if (tipRect.right > window.innerWidth - 16) {
+                            tip.style.left = (window.innerWidth - tipRect.width - 16) + 'px';
+                        }
+                    });
+                    el.addEventListener('mouseleave', function() {
+                        tip.style.display = 'none';
+                    });
+                });
+            })();
+            </script>
         </section>
 
         <!-- ===== SLIDE 5 — HOW TO GET STARTED ===== -->
