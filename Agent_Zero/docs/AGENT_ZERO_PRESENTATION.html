@@ -2069,9 +2069,9 @@
             <div class="arch-diagram">
                 <!-- USER LAYER -->
                 <div class="arch-layer arch-layer--user">
-                    <div class="arch-layer-label">User</div>
+                    <div class="arch-layer-label">Frontend</div>
                     <div class="arch-layer-nodes">
-                        <div class="arch-node" data-anim-id="spa" data-tip="Single-page app in &lt;strong&gt;index.html&lt;/strong&gt; — no React, no bundler, no framework. Pure Vanilla JS with fetch() for all server communication." data-tip-color="#00d4ff">🖥️ Vanilla JS SPA</div>
+                        <div class="arch-node" data-anim-id="spa" data-tip="Single-page application — the &lt;strong&gt;Agent Zero&lt;/strong&gt; interface you see in your browser. Pure Vanilla JS, no framework." data-tip-color="#00d4ff">🖥️ Agent Zero UI</div>
                         <div class="arch-node" data-anim-id="fetch" data-tip="All client→server communication via standard &lt;strong&gt;fetch()&lt;/strong&gt; calls to Express endpoints. JSON payloads, no WebSocket, no GraphQL." data-tip-color="#00d4ff">📡 fetch() REST</div>
                     </div>
                 </div>
@@ -2173,9 +2173,9 @@
 
             <!-- Flow indicator -->
             <div class="arch-flow">
-                <span class="arch-flow-step">👤 User</span>
+                <span class="arch-flow-step">🖥️ Agent Zero UI</span>
                 <span class="arch-flow-sep">→</span>
-                <span class="arch-flow-step">SPA</span>
+                <span class="arch-flow-step">Frontend</span>
                 <span class="arch-flow-sep">→</span>
                 <span class="arch-flow-step">Express API</span>
                 <span class="arch-flow-sep">→</span>
@@ -2189,7 +2189,7 @@
                 <span class="arch-flow-sep">→</span>
                 <span class="arch-flow-step">tasks.json</span>
                 <span class="arch-flow-sep">→</span>
-                <span class="arch-flow-step">SPA Update ✨</span>
+                <span class="arch-flow-step">Frontend Update ✨</span>
             </div>
 
             <script>
@@ -2233,43 +2233,43 @@
                 /* ── Phase animation data ── */
                 const PHASES = {
                     1: { name: 'Discovery', emoji: '🔍', steps: [
-                        { label: 'User', text: "🖥️ User clicks 'Scan' in the Single Page App (SPA)", nodes: ['spa'] },
-                        { label: 'SPA → Server', text: '📡 SPA sends POST /api/scan to Express', nodes: ['fetch', 'express', 'api-routes'] },
+                        { label: 'User', text: "🖥️ User clicks 'Scan' in the Agent Zero UI", nodes: ['spa'] },
+                        { label: 'Frontend → Server', text: '📡 Frontend sends POST /api/scan to Express', nodes: ['fetch', 'express', 'api-routes'] },
                         { label: 'Server prepares', text: '📜 Express loads SCAN_DISCOVERY_SKILL.md', nodes: ['skills'] },
                         { label: 'Session created', text: '🔄 Session Manager creates CopilotClient + Work IQ Model Context Protocol (MCP) session', nodes: ['session-mgr'] },
                         { label: 'AI + Microsoft 365', text: '🧠 Copilot SDK scans Outlook & Teams subject lines via Work IQ MCP', nodes: ['copilot-sdk', 'workiq', 'm365'] },
                         { label: 'AI decides', text: '🧠 AI returns decisions: create new, update existing, or skip', nodes: ['copilot-sdk'] },
                         { label: 'Dedup & save', text: '⚡ Express deduplicates (Jaccard similarity > 0.6), saves to tasks.json', nodes: ['express', 'task-store'] },
-                        { label: 'UI updates', text: '🖥️ SPA refreshes — new action items appear', nodes: ['spa'] }
+                        { label: 'UI updates', text: '🖥️ Agent Zero UI refreshes — new action items appear', nodes: ['spa'] }
                     ]},
                     2: { name: 'Enrichment', emoji: '📋', steps: [
                         { label: 'Trigger', text: '🖥️ Runs automatically for each new task after Discovery', nodes: ['spa'] },
-                        { label: 'API call', text: '📡 SPA sends POST /api/tasks/:id/enrich', nodes: ['fetch', 'api-routes'] },
+                        { label: 'API call', text: '📡 Frontend sends POST /api/tasks/:id/enrich', nodes: ['fetch', 'api-routes'] },
                         { label: 'Skill loaded', text: '📜 Express loads ENRICH_SKILL.md with temporal reasoning', nodes: ['skills'] },
                         { label: 'Full thread', text: '🧠 Copilot SDK reads full conversation thread via Work IQ Model Context Protocol (MCP)', nodes: ['copilot-sdk', 'workiq', 'm365'] },
                         { label: 'Summary', text: '🧠 AI creates structured summary with key decisions & next steps', nodes: ['copilot-sdk'] },
                         { label: 'Ambiguity', text: '🧠 Flags ambiguities for human review if information is unclear', nodes: ['copilot-sdk'] },
                         { label: 'Persist', text: '💾 Summary + enrichment status saved to tasks.json', nodes: ['task-store'] },
-                        { label: 'UI shows', text: '🖥️ Task card shows rich summary in SPA', nodes: ['spa'] }
+                        { label: 'UI shows', text: '🖥️ Task card shows rich summary in Agent Zero UI', nodes: ['spa'] }
                     ]},
                     3: { name: 'Update Check', emoji: '🔄', steps: [
                         { label: 'Trigger', text: '🖥️ Runs for enriched tasks during each scan cycle', nodes: ['spa'] },
-                        { label: 'API call', text: '📡 SPA sends POST /api/tasks/:id/check-update', nodes: ['fetch', 'api-routes'] },
+                        { label: 'API call', text: '📡 Frontend sends POST /api/tasks/:id/check-update', nodes: ['fetch', 'api-routes'] },
                         { label: 'Skill loaded', text: '📜 Express loads UPDATE_CHECK_SKILL.md — searches only AFTER last check date', nodes: ['skills'] },
                         { label: 'Search new', text: '🔗 Work IQ Model Context Protocol (MCP) searches Microsoft 365 for newer messages', nodes: ['workiq', 'm365'] },
                         { label: 'New found?', text: '🧠 AI analyzes: is there genuinely new information?', nodes: ['copilot-sdk'] },
                         { label: 'Append', text: '💾 New findings appended as timestamped update notes', nodes: ['task-store'] },
                         { label: 'Re-evaluate', text: '🧠 Second AI pass: should title or summary be revised?', nodes: ['copilot-sdk', 'session-mgr'] },
-                        { label: 'Updated', text: "🖥️ Task shows 'Updated' badge in SPA", nodes: ['spa'] }
+                        { label: 'Updated', text: "🖥️ Task shows 'Updated' badge in Agent Zero UI", nodes: ['spa'] }
                     ]},
                     4: { name: 'Consolidation', emoji: '🔗', steps: [
                         { label: 'Trigger', text: "🖥️ User clicks 'Find Duplicates' or runs after scan", nodes: ['spa'] },
-                        { label: 'API call', text: '📡 SPA sends POST /api/consolidate', nodes: ['fetch', 'api-routes'] },
+                        { label: 'API call', text: '📡 Frontend sends POST /api/consolidate', nodes: ['fetch', 'api-routes'] },
                         { label: 'Collect tasks', text: '⚡ Express collects all active enriched tasks with summaries', nodes: ['express', 'task-store'] },
                         { label: 'Skill loaded', text: '📜 Express loads CONSOLIDATE_SKILL.md for semantic grouping', nodes: ['skills'] },
                         { label: 'LLM analysis', text: '🧠 Copilot SDK analyzes semantic overlap between all tasks', nodes: ['copilot-sdk'] },
                         { label: 'Suggestions', text: '🧠 AI returns merge group suggestions (filtered against vetoed pairs)', nodes: ['copilot-sdk'] },
-                        { label: 'User decides', text: '🖥️ User reviews: merge or dismiss each suggestion in SPA', nodes: ['spa'] },
+                        { label: 'User decides', text: '🖥️ User reviews: merge or dismiss each suggestion in Agent Zero UI', nodes: ['spa'] },
                         { label: 'Merge', text: '🧠💾 If approved: AI builds unified summary, merges histories & links', nodes: ['task-store', 'copilot-sdk'] }
                     ]}
                 };
@@ -2368,13 +2368,17 @@
                     if (!phase) return;
                     const next = currentStep + 1;
                     if (next >= phase.steps.length) {
-                        // Animation finished
-                        playing = false;
-                        paused = false;
+                        // Show completion message, then loop back after a brief pause
+                        elNarr.textContent = '✅ ' + phase.name + ' phase complete!';
                         clearInterval(timer);
                         timer = null;
-                        updatePlayBtn();
-                        elNarr.textContent = '✅ ' + phase.name + ' phase complete!';
+                        timer = setTimeout(function() {
+                            timer = null;
+                            if (!playing) return;
+                            currentStep = -1;
+                            advance();
+                            startTimer();
+                        }, 1000);
                         return;
                     }
                     applyStep(next);
