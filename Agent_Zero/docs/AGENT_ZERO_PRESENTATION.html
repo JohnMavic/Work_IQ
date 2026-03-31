@@ -1728,8 +1728,8 @@
             align-items: center;
             justify-content: center;
             flex-shrink: 0;
-            width: 160px;
-            height: 160px;
+            width: 240px;
+            height: 240px;
             background: rgba(0,212,255,0.06);
             border: 2px solid rgba(0,212,255,0.45);
             border-radius: 24px;
@@ -1738,7 +1738,7 @@
             position: relative;
         }
         .silo-logo img {
-            height: 130px;
+            height: 200px;
             width: auto;
             border-radius: 16px;
         }
@@ -1772,10 +1772,11 @@
         .silo-transform.revealed .silo-box {
             opacity: 0.55;
         }
-        .silo-transform.revealed .silo-box:hover {
+        .silo-box:hover {
             box-shadow: 0 0 20px rgba(192,192,208,0.6);
             border-color: rgba(192,192,208,0.7);
             opacity: 0.85;
+            transform: translateY(-3px);
         }
 
         @keyframes siloEnginePulse {
@@ -1842,21 +1843,25 @@
             border-color: rgba(255,110,180,0.5);
             box-shadow: 0 0 8px rgba(255,110,180,0.15);
         }
-        .silo-transform.revealed .knowledge-box.kb-cyan:hover {
+        .knowledge-box.kb-cyan:hover {
             box-shadow: 0 0 20px rgba(0,212,255,0.5);
             border-color: rgba(0,212,255,0.8);
+            transform: translateY(-3px);
         }
-        .silo-transform.revealed .knowledge-box.kb-green:hover {
+        .knowledge-box.kb-green:hover {
             box-shadow: 0 0 20px rgba(52,211,153,0.5);
             border-color: rgba(52,211,153,0.8);
+            transform: translateY(-3px);
         }
-        .silo-transform.revealed .knowledge-box.kb-amber:hover {
+        .knowledge-box.kb-amber:hover {
             box-shadow: 0 0 20px rgba(251,191,36,0.5);
             border-color: rgba(251,191,36,0.8);
+            transform: translateY(-3px);
         }
-        .silo-transform.revealed .knowledge-box.kb-pink:hover {
+        .knowledge-box.kb-pink:hover {
             box-shadow: 0 0 20px rgba(255,110,180,0.5);
             border-color: rgba(255,110,180,0.8);
+            transform: translateY(-3px);
         }
 
         /* ===== SILO PARTICLE CANVAS ===== */
@@ -1880,7 +1885,19 @@
     <div class="presentation-container">
         <!-- ===== SLIDE 1 — WHAT IS AGENT ZERO ===== -->
         <section class="slide hero-slide" data-slide="1">
-            <h1 class="hero-title">📋 Agent Zero</h1>
+            <!-- Data Silos → Knowledge Transform Strip (hero visual) -->
+            <div class="silo-transform" id="siloTransform">
+                <canvas id="siloParticleCanvas" class="silo-particle-canvas"></canvas>
+                <div class="silo-box"><span class="silo-icon">📧</span>Outlook</div>
+                <div class="silo-box"><span class="silo-icon">📱</span>Teams</div>
+                <div class="silo-box"><span class="silo-icon">📅</span>Calendar</div>
+                <div class="silo-logo"><img src="presentation-assets/agent-zero-logo.png" alt="Agent Zero"></div>
+                <div class="knowledge-box kb-cyan"><span class="silo-icon">🔍</span>Action Items</div>
+                <div class="knowledge-box kb-green"><span class="silo-icon">📋</span>Summaries</div>
+                <div class="knowledge-box kb-amber"><span class="silo-icon">🔄</span>Updates</div>
+                <div class="knowledge-box kb-pink"><span class="silo-icon">💬</span>Discussions</div>
+            </div>
+
             <p class="hero-subtitle">Your AI-powered action item manager for Microsoft 365</p>
             <div class="version-badge">v3.0.0</div>
 
@@ -1894,22 +1911,6 @@
                     <p>Agent Zero automatically discovers action items in Outlook & Teams, enriches them with full context, keeps them updated — and lets you discuss each one with AI.</p>
                 </div>
             </div>
-
-            <!-- Data Silos → Knowledge Transform Strip -->
-            <div class="silo-transform" id="siloTransform">
-                <canvas id="siloParticleCanvas" class="silo-particle-canvas"></canvas>
-                <div class="silo-box"><span class="silo-icon">📧</span>Outlook</div>
-                <div class="silo-box"><span class="silo-icon">📱</span>Teams</div>
-                <div class="silo-box"><span class="silo-icon">📅</span>Calendar</div>
-                <div class="silo-logo"><img src="presentation-assets/agent-zero-logo.png" alt="Agent Zero"></div>
-                <div class="knowledge-box kb-cyan"><span class="silo-icon">🔍</span>Action Items</div>
-                <div class="knowledge-box kb-green"><span class="silo-icon">📋</span>Summaries</div>
-                <div class="knowledge-box kb-amber"><span class="silo-icon">🔄</span>Updates</div>
-                <div class="knowledge-box kb-pink"><span class="silo-icon">💬</span>Discussions</div>
-            </div>
-
-
-            <div class="scroll-arrow">↓</div>
         </section>
 
         <!-- ===== SLIDE 2 — THE FOUR PHASES ===== -->
@@ -2807,7 +2808,7 @@
                             p.vy += scatter * dt;
 
                             // Fade based on horizontal distance past center
-                            var fadeProgress = distRight / (maxDist * 0.7);
+                            var fadeProgress = distRight / (maxDist * 1.0);
                             p.opacity = Math.max(0, (0.8 + Math.random() * 0.05) * (1.0 - fadeProgress));
 
                             if (p.opacity < 0.05) {
