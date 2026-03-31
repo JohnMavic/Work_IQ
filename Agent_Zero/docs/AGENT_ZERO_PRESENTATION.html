@@ -1916,6 +1916,23 @@
             border-color: rgba(255,110,180,0.5);
             box-shadow: 0 0 8px rgba(255,110,180,0.15);
         }
+
+        /* ===== SILO PARTICLE CANVAS ===== */
+        .silo-particle-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+        }
+        .silo-transform .silo-group,
+        .silo-transform .silo-arrow,
+        .silo-transform .silo-engine {
+            position: relative;
+            z-index: 1;
+        }
     </style>
 </head>
 <body>
@@ -1939,6 +1956,7 @@
 
             <!-- Data Silos → Knowledge Transform Strip -->
             <div class="silo-transform" id="siloTransform">
+                <canvas id="siloParticleCanvas" class="silo-particle-canvas"></canvas>
                 <div class="silo-group">
                     <div class="silo-group-row">
                         <div class="silo-box"><span class="silo-icon">📧</span>Outlook</div>
@@ -2659,6 +2677,291 @@
                 });
             }, { threshold: 0.4 });
             observer.observe(el);
+        })();
+
+        // ===== SILO PARTICLE DATA FLOW (Canvas) =====
+        (function() {
+            var canvas = document.getElementById('siloParticleCanvas');
+            var container = document.getElementById('siloTransform');
+            if (!canvas || !container) return;
+            var ctx = canvas.getContext('2d');
+
+            var POOL_SIZE = 120;
+            var MAX_ACTIVE = 100;
+            var SPAWN_INTERVAL = 80;
+            var SPAWN_COUNT_MIN = 3;
+            var SPAWN_COUNT_MAX = 5;
+            var CENTER_RADIUS = 40;
+            var GRAVITY_STRENGTH = 120;
+            var PERPENDICULAR_STRENGTH = 0.35;
+            var MAX_VELOCITY = 4.5;
+            var TRAIL_LENGTH = 3;
+            var TRANSFORM_COLORS = ['#00d4ff','#34d399','#fbbf24','#e879f9'];
+
+            var dpr = window.devicePixelRatio || 1;
+            var animId = null;
+            var isVisible = false;
+            var sources = [];
+            var destinations = [];
+            var center = {x:0, y:0};
+            var pool = [];
+            var lastSpawn = 0;
+
+            function Particle() {
+                this.active = false;
+                this.x = 0; this.y = 0;
+                this.vx = 0; this.vy = 0;
+                this.radius = 2;
+                this.opacity = 0.5;
+                this.color = '#999';
+                this.transformed = false;
+                this.destIdx = 0;
+                this.trail = [];
+                this.life = 0;
+            }
+
+            for (var i = 0; i < POOL_SIZE; i++) pool.push(new Particle());
+
+            function sizeCanvas() {
+                var rect = container.getBoundingClientRect();
+                canvas.width = rect.width * dpr;
+                canvas.height = rect.height * dpr;
+                canvas.style.width = rect.width + 'px';
+                canvas.style.height = rect.height + 'px';
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            }
+
+            function calcPositions() {
+                var cRect = container.getBoundingClientRect();
+                sources = [];
+                var siloBoxes = container.querySelectorAll('.silo-box');
+                siloBoxes.forEach(function(el) {
+                    var r = el.getBoundingClientRect();
+                    sources.push({
+                        x: r.left + r.width / 2 - cRect.left,
+                        y: r.top + r.height / 2 - cRect.top
+                    });
+                });
+                var eng = container.querySelector('.silo-engine');
+                if (eng) {
+                    var er = eng.getBoundingClientRect();
+                    center.x = er.left + er.width / 2 - cRect.left;
+                    center.y = er.top + er.height / 2 - cRect.top;
+                }
+                destinations = [];
+                var kBoxes = container.querySelectorAll('.knowledge-box');
+                kBoxes.forEach(function(el) {
+                    var r = el.getBoundingClientRect();
+                    destinations.push({
+                        x: r.left + r.width / 2 - cRect.left,
+                        y: r.top + r.height / 2 - cRect.top
+                    });
+                });
+            }
+
+            function spawnParticle() {
+                if (sources.length === 0) return;
+                for (var i = 0; i < pool.length; i++) {
+                    if (!pool[i].active) {
+                        var p = pool[i];
+                        var src = sources[Math.floor(Math.random() * sources.length)];
+                        p.active = true;
+                        p.x = src.x + (Math.random() - 0.5) * 16;
+                        p.y = src.y + (Math.random() - 0.5) * 16;
+                        p.vx = (Math.random() - 0.5) * 0.8;
+                        p.vy = (Math.random() - 0.5) * 0.8;
+                        p.radius = 2 + Math.random();
+                        p.opacity = 0.4 + Math.random() * 0.2;
+                        p.color = '#999';
+                        p.transformed = false;
+                        p.destIdx = Math.floor(Math.random() * Math.max(destinations.length, 1));
+                        p.trail = [];
+                        p.life = 0;
+                        return;
+                    }
+                }
+            }
+
+            function activeCount() {
+                var c = 0;
+                for (var i = 0; i < pool.length; i++) if (pool[i].active) c++;
+                return c;
+            }
+
+            function clampVec(vx, vy, max) {
+                var mag = Math.sqrt(vx * vx + vy * vy);
+                if (mag > max) { vx = vx / mag * max; vy = vy / mag * max; }
+                return {x: vx, y: vy};
+            }
+
+            function update(dt) {
+                for (var i = 0; i < pool.length; i++) {
+                    var p = pool[i];
+                    if (!p.active) continue;
+                    p.life++;
+
+                    if (!p.transformed) {
+                        // Attract toward center
+                        var dx = center.x - p.x;
+                        var dy = center.y - p.y;
+                        var dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                        var force = GRAVITY_STRENGTH / (dist + 30);
+                        var nx = dx / dist;
+                        var ny = dy / dist;
+                        // Perpendicular for curved paths
+                        var px = -ny * PERPENDICULAR_STRENGTH;
+                        var py = nx * PERPENDICULAR_STRENGTH;
+                        p.vx += (nx * force + px) * dt;
+                        p.vy += (ny * force + py) * dt;
+
+                        // Check if reached center
+                        if (dist < CENTER_RADIUS) {
+                            p.transformed = true;
+                            p.color = TRANSFORM_COLORS[Math.floor(Math.random() * TRANSFORM_COLORS.length)];
+                            p.radius = 3 + Math.random();
+                            p.opacity = 0.8 + Math.random() * 0.2;
+                        }
+                    } else {
+                        // Push toward destination
+                        if (destinations.length > 0) {
+                            var dest = destinations[p.destIdx % destinations.length];
+                            var ddx = dest.x - p.x;
+                            var ddy = dest.y - p.y;
+                            var ddist = Math.sqrt(ddx * ddx + ddy * ddy) || 1;
+                            var dforce = GRAVITY_STRENGTH * 0.8 / (ddist + 20);
+                            p.vx += (ddx / ddist) * dforce * dt;
+                            p.vy += (ddy / ddist) * dforce * dt;
+
+                            // Fade out near destination
+                            if (ddist < 25) {
+                                p.opacity -= 0.05;
+                                if (p.opacity <= 0) { p.active = false; continue; }
+                            }
+                        }
+                    }
+
+                    var clamped = clampVec(p.vx, p.vy, MAX_VELOCITY);
+                    p.vx = clamped.x; p.vy = clamped.y;
+                    p.x += p.vx;
+                    p.y += p.vy;
+
+                    // Store trail
+                    p.trail.push({x: p.x, y: p.y, o: p.opacity});
+                    if (p.trail.length > TRAIL_LENGTH) p.trail.shift();
+
+                    // Kill if out of bounds or too old
+                    var cw = canvas.width / dpr;
+                    var ch = canvas.height / dpr;
+                    if (p.x < -20 || p.x > cw + 20 || p.y < -20 || p.y > ch + 20 || p.life > 600) {
+                        p.active = false;
+                    }
+                }
+            }
+
+            function draw() {
+                var w = canvas.width / dpr;
+                var h = canvas.height / dpr;
+                ctx.clearRect(0, 0, w, h);
+
+                // Center vortex glow
+                var grad = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, 50);
+                grad.addColorStop(0, 'rgba(0,212,255,0.12)');
+                grad.addColorStop(0.5, 'rgba(0,212,255,0.04)');
+                grad.addColorStop(1, 'rgba(0,212,255,0)');
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.arc(center.x, center.y, 50, 0, Math.PI * 2);
+                ctx.fill();
+
+                for (var i = 0; i < pool.length; i++) {
+                    var p = pool[i];
+                    if (!p.active) continue;
+
+                    // Draw trail
+                    for (var t = 0; t < p.trail.length - 1; t++) {
+                        var tp = p.trail[t];
+                        var trailOpacity = (t / p.trail.length) * p.opacity * 0.4;
+                        var trailRadius = p.radius * (0.4 + 0.3 * (t / p.trail.length));
+                        ctx.globalAlpha = trailOpacity;
+                        ctx.fillStyle = p.color;
+                        ctx.beginPath();
+                        ctx.arc(tp.x, tp.y, trailRadius, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+
+                    // Draw particle with glow if transformed
+                    ctx.globalAlpha = p.opacity;
+                    if (p.transformed) {
+                        ctx.shadowColor = p.color;
+                        ctx.shadowBlur = 8;
+                    } else {
+                        ctx.shadowColor = 'transparent';
+                        ctx.shadowBlur = 0;
+                    }
+                    ctx.fillStyle = p.color;
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                }
+                ctx.globalAlpha = 1;
+            }
+
+            var lastTime = 0;
+            function loop(ts) {
+                if (!isVisible || document.hidden) {
+                    animId = requestAnimationFrame(loop);
+                    lastTime = ts;
+                    return;
+                }
+                var dt = Math.min((ts - (lastTime || ts)) / 16.67, 3);
+                lastTime = ts;
+
+                // Spawn particles
+                if (ts - lastSpawn > SPAWN_INTERVAL && activeCount() < MAX_ACTIVE) {
+                    var count = SPAWN_COUNT_MIN + Math.floor(Math.random() * (SPAWN_COUNT_MAX - SPAWN_COUNT_MIN + 1));
+                    for (var s = 0; s < count; s++) spawnParticle();
+                    lastSpawn = ts;
+                }
+
+                update(dt);
+                draw();
+                animId = requestAnimationFrame(loop);
+            }
+
+            function start() {
+                if (animId) return;
+                sizeCanvas();
+                calcPositions();
+                lastTime = 0;
+                animId = requestAnimationFrame(loop);
+            }
+
+            function stop() {
+                if (animId) { cancelAnimationFrame(animId); animId = null; }
+            }
+
+            // Visibility observer
+            var visObserver = new IntersectionObserver(function(entries) {
+                entries.forEach(function(entry) {
+                    isVisible = entry.isIntersecting;
+                    if (isVisible) {
+                        sizeCanvas();
+                        calcPositions();
+                        if (!animId) start();
+                    }
+                });
+            }, { threshold: 0.1 });
+            visObserver.observe(container);
+
+            window.addEventListener('resize', function() {
+                sizeCanvas();
+                calcPositions();
+            });
+
+            document.addEventListener('visibilitychange', function() {
+                if (!document.hidden && isVisible && !animId) start();
+            });
         })();
     </script>
 
