@@ -1710,6 +1710,212 @@
             color: white;
             transform: translateY(-2px);
         }
+
+        /* ===== SILO TRANSFORM STRIP (Slide 1) ===== */
+        .silo-transform {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin: 18px auto 10px;
+            max-width: 900px;
+            height: 110px;
+            position: relative;
+        }
+        .silo-group {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-direction: column;
+        }
+        .silo-group-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .silo-box {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 72px;
+            height: 52px;
+            background: rgba(30,35,50,0.8);
+            border: 1px solid rgba(100,116,139,0.3);
+            border-radius: 8px;
+            color: #64748b;
+            font-size: 0.7em;
+            opacity: 0.45;
+            transition: opacity 0.6s ease, border-color 0.6s ease;
+        }
+        .silo-box .silo-icon {
+            font-size: 1.4em;
+            margin-bottom: 2px;
+        }
+        .silo-transform.revealed .silo-box {
+            opacity: 0.55;
+        }
+        .silo-label {
+            font-size: 0.6em;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            margin-top: 4px;
+            color: #64748b;
+            opacity: 0;
+            transition: opacity 0.5s ease 0.3s;
+        }
+        .silo-label.bright {
+            background: linear-gradient(90deg, #00d4ff, #34d399, #fbbf24, #ff6eb4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .silo-transform.revealed .silo-label {
+            opacity: 1;
+        }
+
+        /* Arrows */
+        .silo-arrow {
+            display: flex;
+            align-items: center;
+            font-size: 1.1em;
+            position: relative;
+            width: 48px;
+            height: 4px;
+            border-radius: 2px;
+            overflow: hidden;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+        }
+        .silo-arrow::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 2px;
+        }
+        .silo-arrow.left::before {
+            background: linear-gradient(90deg, #475569, #00d4ff);
+        }
+        .silo-arrow.right::before {
+            background: linear-gradient(90deg, #00d4ff, #34d399, #fbbf24, #ff6eb4);
+        }
+        .silo-arrow::after {
+            content: '▶';
+            position: absolute;
+            right: -10px;
+            font-size: 0.7em;
+            color: #00d4ff;
+            opacity: 0;
+            transition: opacity 0.4s ease 0.2s;
+        }
+        .silo-arrow.right::after {
+            color: #ff6eb4;
+        }
+        .silo-transform.revealed .silo-arrow {
+            opacity: 1;
+        }
+        .silo-transform.revealed .silo-arrow::after {
+            opacity: 1;
+        }
+        @keyframes arrowFlow {
+            0% { background-position: -48px 0; }
+            100% { background-position: 48px 0; }
+        }
+        .silo-transform.revealed .silo-arrow::before {
+            background-size: 200% 100%;
+            animation: arrowFlow 1.5s linear infinite;
+        }
+
+        /* Agent Zero Engine */
+        .silo-engine {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 82px;
+            height: 58px;
+            background: rgba(0,212,255,0.08);
+            border: 1.5px solid rgba(0,212,255,0.4);
+            border-radius: 12px;
+            color: #00d4ff;
+            font-size: 0.7em;
+            font-weight: 700;
+            opacity: 0.3;
+            transition: opacity 0.6s ease 0.6s, box-shadow 0.6s ease 0.6s, border-color 0.6s ease 0.6s;
+            position: relative;
+        }
+        .silo-engine .silo-icon {
+            font-size: 1.5em;
+            margin-bottom: 2px;
+        }
+        .silo-transform.revealed .silo-engine {
+            opacity: 1;
+            border-color: rgba(0,212,255,0.7);
+            box-shadow: 0 0 18px rgba(0,212,255,0.25), 0 0 6px rgba(0,212,255,0.15);
+            animation: siloEnginePulse 2.5s ease-in-out infinite 1.5s;
+        }
+        @keyframes siloEnginePulse {
+            0%, 100% { box-shadow: 0 0 18px rgba(0,212,255,0.25), 0 0 6px rgba(0,212,255,0.15); }
+            50% { box-shadow: 0 0 28px rgba(0,212,255,0.4), 0 0 12px rgba(0,212,255,0.25); }
+        }
+
+        /* Knowledge boxes */
+        .knowledge-box {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 66px;
+            height: 46px;
+            background: rgba(30,35,50,0.7);
+            border: 1px solid rgba(100,116,139,0.2);
+            border-radius: 8px;
+            font-size: 0.6em;
+            font-weight: 600;
+            opacity: 0;
+            transform: translateY(4px);
+            transition: opacity 0.5s ease, transform 0.5s ease, border-color 0.5s ease, box-shadow 0.5s ease;
+        }
+        .knowledge-box .silo-icon {
+            font-size: 1.3em;
+            margin-bottom: 1px;
+        }
+        .knowledge-box.kb-cyan {
+            color: #00d4ff;
+            transition-delay: 1.2s;
+        }
+        .knowledge-box.kb-green {
+            color: #34d399;
+            transition-delay: 1.4s;
+        }
+        .knowledge-box.kb-amber {
+            color: #fbbf24;
+            transition-delay: 1.6s;
+        }
+        .knowledge-box.kb-pink {
+            color: #ff6eb4;
+            transition-delay: 1.8s;
+        }
+        .silo-transform.revealed .knowledge-box {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .silo-transform.revealed .knowledge-box.kb-cyan {
+            border-color: rgba(0,212,255,0.5);
+            box-shadow: 0 0 8px rgba(0,212,255,0.15);
+        }
+        .silo-transform.revealed .knowledge-box.kb-green {
+            border-color: rgba(52,211,153,0.5);
+            box-shadow: 0 0 8px rgba(52,211,153,0.15);
+        }
+        .silo-transform.revealed .knowledge-box.kb-amber {
+            border-color: rgba(251,191,36,0.5);
+            box-shadow: 0 0 8px rgba(251,191,36,0.15);
+        }
+        .silo-transform.revealed .knowledge-box.kb-pink {
+            border-color: rgba(255,110,180,0.5);
+            box-shadow: 0 0 8px rgba(255,110,180,0.15);
+        }
     </style>
 </head>
 <body>
@@ -1728,6 +1934,30 @@
                 <div class="ps-card solution">
                     <h3>✨ The Solution</h3>
                     <p>Agent Zero automatically discovers action items in Outlook & Teams, enriches them with full context, keeps them updated — and lets you discuss each one with AI.</p>
+                </div>
+            </div>
+
+            <!-- Data Silos → Knowledge Transform Strip -->
+            <div class="silo-transform" id="siloTransform">
+                <div class="silo-group">
+                    <div class="silo-group-row">
+                        <div class="silo-box"><span class="silo-icon">📧</span>Outlook</div>
+                        <div class="silo-box"><span class="silo-icon">📱</span>Teams</div>
+                        <div class="silo-box"><span class="silo-icon">📅</span>Calendar</div>
+                    </div>
+                    <div class="silo-label">Silent Data Silos</div>
+                </div>
+                <div class="silo-arrow left"></div>
+                <div class="silo-engine"><span class="silo-icon">📋</span>Agent Zero</div>
+                <div class="silo-arrow right"></div>
+                <div class="silo-group">
+                    <div class="silo-group-row">
+                        <div class="knowledge-box kb-cyan"><span class="silo-icon">🔍</span>Tasks</div>
+                        <div class="knowledge-box kb-green"><span class="silo-icon">📋</span>Summaries</div>
+                        <div class="knowledge-box kb-amber"><span class="silo-icon">🔄</span>Updates</div>
+                        <div class="knowledge-box kb-pink"><span class="silo-icon">💬</span>Discussion</div>
+                    </div>
+                    <div class="silo-label bright">Actionable Knowledge</div>
                 </div>
             </div>
 
@@ -2415,6 +2645,22 @@
         <div class="progress-dot" data-slide="4"></div>
         <div class="progress-dot" data-slide="5"></div>
     </div>
+
+    <script>
+        // ===== SILO TRANSFORM REVEAL (IntersectionObserver) =====
+        (function() {
+            const el = document.getElementById('siloTransform');
+            if (!el) return;
+            const observer = new IntersectionObserver(function(entries) {
+                entries.forEach(function(entry) {
+                    if (entry.isIntersecting) {
+                        el.classList.add('revealed');
+                    }
+                });
+            }, { threshold: 0.4 });
+            observer.observe(el);
+        })();
+    </script>
 
     <script>
         // ===== SNAP-IN SCROLL SYSTEM =====
