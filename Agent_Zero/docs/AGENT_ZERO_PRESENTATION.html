@@ -888,6 +888,7 @@
             color: #94a3b8;
             padding: 2px 6px;
             white-space: nowrap;
+            transition: color 0.3s ease, text-shadow 0.3s ease;
         }
 
         .arch-flow-sep {
@@ -1092,9 +1093,12 @@
 
         .arch-flow-step.flow-active {
             color: var(--flow-glow-color, #3b82f6);
-            text-shadow: 0 0 10px var(--flow-glow-color, #3b82f6);
-            font-weight: 700;
-            transition: all 0.3s ease;
+            text-shadow: 0 0 8px var(--flow-glow-color, #3b82f6), 0 0 16px var(--flow-glow-color, #3b82f6);
+            animation: flowGlowPulse 1.5s ease-in-out infinite;
+        }
+        @keyframes flowGlowPulse {
+            0%, 100% { text-shadow: 0 0 8px var(--flow-glow-color, #3b82f6), 0 0 16px var(--flow-glow-color, #3b82f6); }
+            50% { text-shadow: 0 0 12px var(--flow-glow-color, #3b82f6), 0 0 24px var(--flow-glow-color, #3b82f6), 0 0 36px var(--flow-glow-color, #3b82f6); }
         }
 
         /* ===== SLIDE 5 — GET STARTED ===== */
