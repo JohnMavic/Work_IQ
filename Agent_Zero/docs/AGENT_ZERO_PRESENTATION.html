@@ -1714,12 +1714,13 @@
         /* ===== SILO TRANSFORM STRIP (Slide 1) ===== */
         .silo-transform {
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: 18px;
+            gap: 24px;
             margin: 18px auto 10px;
             max-width: 1050px;
-            height: 220px;
+            min-height: 580px;
             position: relative;
             overflow: visible;
         }
@@ -1728,36 +1729,31 @@
             align-items: center;
             justify-content: center;
             flex-shrink: 0;
-            width: 110px;
-            height: 110px;
+            width: 300px;
+            height: 300px;
             background: rgba(0,212,255,0.06);
             border: 2px solid rgba(0,212,255,0.45);
-            border-radius: 18px;
+            border-radius: 24px;
             opacity: 0.3;
             transition: opacity 0.6s ease 0.4s, box-shadow 0.6s ease 0.4s, border-color 0.6s ease 0.4s;
             position: relative;
         }
         .silo-logo img {
-            height: 90px;
+            height: 260px;
             width: auto;
-            border-radius: 10px;
+            border-radius: 16px;
         }
         .silo-transform.revealed .silo-logo {
             opacity: 1;
             border-color: rgba(0,212,255,0.7);
-            box-shadow: 0 0 24px rgba(0,212,255,0.3), 0 0 8px rgba(0,212,255,0.18);
+            box-shadow: 0 0 32px rgba(0,212,255,0.35), 0 0 12px rgba(0,212,255,0.2);
             animation: siloEnginePulse 2.5s ease-in-out infinite 1.5s;
         }
-        .silo-group {
+        .silo-row {
             display: flex;
-            gap: 10px;
+            gap: 16px;
             align-items: center;
-            flex-direction: column;
-        }
-        .silo-group-row {
-            display: flex;
-            gap: 12px;
-            align-items: center;
+            justify-content: center;
         }
         .silo-box {
             display: flex;
@@ -1772,7 +1768,8 @@
             color: #64748b;
             font-size: 1em;
             opacity: 0.45;
-            transition: opacity 0.6s ease, border-color 0.6s ease;
+            transition: all 0.3s ease;
+            cursor: default;
         }
         .silo-box .silo-icon {
             font-size: 2em;
@@ -1781,88 +1778,18 @@
         .silo-transform.revealed .silo-box {
             opacity: 0.55;
         }
-        .silo-label {
-            font-size: 0.75em;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-            margin-top: 4px;
-            color: #64748b;
-            opacity: 0;
-            transition: opacity 0.5s ease 0.3s;
-        }
-        .silo-label.bright {
-            background: linear-gradient(90deg, #00d4ff, #34d399, #fbbf24, #ff6eb4);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-        .silo-transform.revealed .silo-label {
-            opacity: 1;
-        }
-
-        /* Arrows */
-        .silo-arrow {
-            display: flex;
-            align-items: center;
-            font-size: 1.1em;
-            position: relative;
-            width: 48px;
-            height: 4px;
-            border-radius: 2px;
-            overflow: hidden;
-            opacity: 0;
-            transition: opacity 0.5s ease;
-        }
-        .silo-arrow::before {
-            content: '';
-            position: absolute;
-            inset: 0;
-            border-radius: 2px;
-        }
-        .silo-arrow.left::before {
-            background: linear-gradient(90deg, #475569, #00d4ff);
-        }
-        .silo-arrow.right::before {
-            background: linear-gradient(90deg, #00d4ff, #34d399, #fbbf24, #ff6eb4);
-        }
-        .silo-arrow::after {
-            content: '▶';
-            position: absolute;
-            right: -10px;
-            font-size: 0.7em;
-            color: #00d4ff;
-            opacity: 0;
-            transition: opacity 0.4s ease 0.2s;
-        }
-        .silo-arrow.right::after {
-            color: #ff6eb4;
-        }
-        .silo-transform.revealed .silo-arrow {
-            opacity: 1;
-        }
-        .silo-transform.revealed .silo-arrow::after {
-            opacity: 1;
-        }
-        @keyframes arrowFlow {
-            0% { background-position: -48px 0; }
-            100% { background-position: 48px 0; }
-        }
-        .silo-transform.revealed .silo-arrow::before {
-            background-size: 200% 100%;
-            animation: arrowFlow 1.5s linear infinite;
-        }
-
-        /* Agent Zero Engine (legacy, kept for particle JS center calc) */
-        .silo-engine {
-            display: none;
+        .silo-transform.revealed .silo-box:hover {
+            box-shadow: 0 0 20px rgba(192,192,208,0.5);
+            border-color: #c0c0d0;
+            opacity: 0.85;
         }
 
         @keyframes siloEnginePulse {
-            0%, 100% { box-shadow: 0 0 24px rgba(0,212,255,0.3), 0 0 8px rgba(0,212,255,0.18); }
-            50% { box-shadow: 0 0 36px rgba(0,212,255,0.45), 0 0 14px rgba(0,212,255,0.3); }
+            0%, 100% { box-shadow: 0 0 32px rgba(0,212,255,0.35), 0 0 12px rgba(0,212,255,0.2); }
+            50% { box-shadow: 0 0 48px rgba(0,212,255,0.5), 0 0 20px rgba(0,212,255,0.35); }
         }
 
-        /* Knowledge boxes — 2x size */
+        /* Knowledge boxes */
         .knowledge-box {
             display: flex;
             flex-direction: column;
@@ -1877,7 +1804,8 @@
             font-weight: 600;
             opacity: 0;
             transform: translateY(4px);
-            transition: opacity 0.5s ease, transform 0.5s ease, border-color 0.5s ease, box-shadow 0.5s ease;
+            transition: all 0.3s ease;
+            cursor: default;
         }
         .knowledge-box .silo-icon {
             font-size: 2em;
@@ -1919,19 +1847,34 @@
             border-color: rgba(255,110,180,0.5);
             box-shadow: 0 0 8px rgba(255,110,180,0.15);
         }
+        .silo-transform.revealed .knowledge-box.kb-cyan:hover {
+            box-shadow: 0 0 20px rgba(0,212,255,0.5);
+            border-color: rgba(0,212,255,0.8);
+        }
+        .silo-transform.revealed .knowledge-box.kb-green:hover {
+            box-shadow: 0 0 20px rgba(52,211,153,0.5);
+            border-color: rgba(52,211,153,0.8);
+        }
+        .silo-transform.revealed .knowledge-box.kb-amber:hover {
+            box-shadow: 0 0 20px rgba(251,191,36,0.5);
+            border-color: rgba(251,191,36,0.8);
+        }
+        .silo-transform.revealed .knowledge-box.kb-pink:hover {
+            box-shadow: 0 0 20px rgba(255,110,180,0.5);
+            border-color: rgba(255,110,180,0.8);
+        }
 
         /* ===== SILO PARTICLE CANVAS ===== */
         .silo-particle-canvas {
             position: absolute;
-            top: -40px;
+            top: -60px;
             left: 0;
             width: 100%;
-            height: calc(100% + 80px);
+            height: calc(100% + 120px);
             pointer-events: none;
             z-index: 0;
         }
-        .silo-transform .silo-group,
-        .silo-transform .silo-arrow,
+        .silo-transform .silo-row,
         .silo-transform .silo-logo {
             position: relative;
             z-index: 1;
@@ -1960,24 +1903,17 @@
             <!-- Data Silos → Knowledge Transform Strip -->
             <div class="silo-transform" id="siloTransform">
                 <canvas id="siloParticleCanvas" class="silo-particle-canvas"></canvas>
-                <div class="silo-logo"><img src="presentation-assets/agent-zero-logo.png" alt="Agent Zero"></div>
-                <div class="silo-group">
-                    <div class="silo-group-row">
-                        <div class="silo-box"><span class="silo-icon">📧</span>Outlook</div>
-                        <div class="silo-box"><span class="silo-icon">📱</span>Teams</div>
-                        <div class="silo-box"><span class="silo-icon">📅</span>Calendar</div>
-                    </div>
-                    <div class="silo-label">Silent Data Silos</div>
+                <div class="silo-row">
+                    <div class="silo-box"><span class="silo-icon">📧</span>Outlook</div>
+                    <div class="silo-box"><span class="silo-icon">📱</span>Teams</div>
+                    <div class="silo-box"><span class="silo-icon">📅</span>Calendar</div>
                 </div>
-                <div class="silo-arrow right"></div>
-                <div class="silo-group">
-                    <div class="silo-group-row">
-                        <div class="knowledge-box kb-cyan"><span class="silo-icon">🔍</span>Tasks</div>
-                        <div class="knowledge-box kb-green"><span class="silo-icon">📋</span>Summaries</div>
-                        <div class="knowledge-box kb-amber"><span class="silo-icon">🔄</span>Updates</div>
-                        <div class="knowledge-box kb-pink"><span class="silo-icon">💬</span>Discussion</div>
-                    </div>
-                    <div class="silo-label bright">Actionable Knowledge</div>
+                <div class="silo-logo"><img src="presentation-assets/agent-zero-logo.png" alt="Agent Zero"></div>
+                <div class="silo-row">
+                    <div class="knowledge-box kb-cyan"><span class="silo-icon">🔍</span>Action Items</div>
+                    <div class="knowledge-box kb-green"><span class="silo-icon">📋</span>Summaries</div>
+                    <div class="knowledge-box kb-amber"><span class="silo-icon">🔄</span>Updates</div>
+                    <div class="knowledge-box kb-pink"><span class="silo-icon">💬</span>Discussions</div>
                 </div>
             </div>
 
@@ -2693,14 +2629,15 @@
             var SPAWN_INTERVAL = 80;
             var SPAWN_COUNT_MIN = 3;
             var SPAWN_COUNT_MAX = 5;
-            var CENTER_RADIUS = 40;
-            var GRAVITY_STRENGTH = 60;          // halved from 120
-            var PERPENDICULAR_STRENGTH = 0.18;  // halved from 0.35
-            var MAX_VELOCITY = 2.25;            // halved from 4.5
+            var CENTER_RADIUS = 50;
+            var GRAVITY_STRENGTH = 60;
+            var PERPENDICULAR_STRENGTH = 0.18;
+            var MAX_VELOCITY = 2.25;
             var TRAIL_LENGTH = 3;
             var TRANSFORM_COLORS = ['#00d4ff','#34d399','#fbbf24','#e879f9'];
-            var SPREAD_FORCE = 0.12;            // vertical scatter after transform
-            var SPREAD_RAMP = 0.004;            // how fast scatter increases with distance
+            var SPREAD_FORCE = 0.12;
+            var SPREAD_RAMP = 0.004;
+            var SPARKLE_INTERVAL = 200;
 
             var dpr = window.devicePixelRatio || 1;
             var animId = null;
@@ -2710,25 +2647,30 @@
             var center = {x:0, y:0};
             var pool = [];
             var lastSpawn = 0;
+            var lastSparkle = 0;
 
             function Particle() {
                 this.active = false;
                 this.x = 0; this.y = 0;
                 this.vx = 0; this.vy = 0;
                 this.radius = 2;
+                this.baseRadius = 2;
                 this.opacity = 0.5;
                 this.color = '#999';
+                this.baseColor = '#999';
                 this.transformed = false;
                 this.destIdx = 0;
                 this.trail = [];
                 this.life = 0;
+                this.sparkling = false;
+                this.sparkleTimer = 0;
             }
 
             for (var i = 0; i < POOL_SIZE; i++) pool.push(new Particle());
 
             function sizeCanvas() {
                 var rect = container.getBoundingClientRect();
-                var extra = 80; // canvas extends 40px above and below
+                var extra = 120;
                 canvas.width = rect.width * dpr;
                 canvas.height = (rect.height + extra) * dpr;
                 canvas.style.width = rect.width + 'px';
@@ -2738,18 +2680,17 @@
 
             function calcPositions() {
                 var cRect = container.getBoundingClientRect();
-                var yOff = 40; // offset for extended canvas
+                var yOff = 60;
                 sources = [];
                 var siloBoxes = container.querySelectorAll('.silo-box');
                 siloBoxes.forEach(function(el) {
                     var r = el.getBoundingClientRect();
                     sources.push({
                         x: r.left + r.width / 2 - cRect.left,
-                        y: r.top + r.height / 2 - cRect.top + yOff
+                        y: r.top + r.height - cRect.top + yOff
                     });
                 });
-                // Use silo-logo as center reference (replaces silo-engine)
-                var eng = container.querySelector('.silo-logo') || container.querySelector('.silo-engine');
+                var eng = container.querySelector('.silo-logo');
                 if (eng) {
                     var er = eng.getBoundingClientRect();
                     center.x = er.left + er.width / 2 - cRect.left;
@@ -2761,7 +2702,7 @@
                     var r = el.getBoundingClientRect();
                     destinations.push({
                         x: r.left + r.width / 2 - cRect.left,
-                        y: r.top + r.height / 2 - cRect.top + yOff
+                        y: r.top - cRect.top + yOff
                     });
                 });
             }
@@ -2774,16 +2715,20 @@
                         var src = sources[Math.floor(Math.random() * sources.length)];
                         p.active = true;
                         p.x = src.x + (Math.random() - 0.5) * 16;
-                        p.y = src.y + (Math.random() - 0.5) * 16;
-                        p.vx = (Math.random() - 0.5) * 0.4;  // halved
-                        p.vy = (Math.random() - 0.5) * 0.4;  // halved
+                        p.y = src.y + (Math.random() - 0.5) * 8;
+                        p.vx = (Math.random() - 0.5) * 0.4;
+                        p.vy = 0.3 + Math.random() * 0.3;
                         p.radius = 2 + Math.random();
+                        p.baseRadius = p.radius;
                         p.opacity = 0.4 + Math.random() * 0.2;
                         p.color = '#999';
+                        p.baseColor = '#999';
                         p.transformed = false;
                         p.destIdx = Math.floor(Math.random() * Math.max(destinations.length, 1));
                         p.trail = [];
                         p.life = 0;
+                        p.sparkling = false;
+                        p.sparkleTimer = 0;
                         return;
                     }
                 }
@@ -2801,17 +2746,48 @@
                 return {x: vx, y: vy};
             }
 
-            function update(dt) {
+            function update(dt, ts) {
                 var cw = canvas.width / dpr;
                 var ch = canvas.height / dpr;
+
+                // Sparkle: pick a random transformed particle to flash
+                if (ts - lastSparkle > SPARKLE_INTERVAL) {
+                    lastSparkle = ts;
+                    var candidates = [];
+                    for (var si = 0; si < pool.length; si++) {
+                        if (pool[si].active && pool[si].transformed && !pool[si].sparkling) {
+                            candidates.push(si);
+                        }
+                    }
+                    if (candidates.length > 0) {
+                        var idx = candidates[Math.floor(Math.random() * candidates.length)];
+                        pool[idx].sparkling = true;
+                        pool[idx].sparkleTimer = 100;
+                    }
+                }
 
                 for (var i = 0; i < pool.length; i++) {
                     var p = pool[i];
                     if (!p.active) continue;
                     p.life++;
 
+                    // Handle sparkle timer
+                    if (p.sparkling) {
+                        p.sparkleTimer -= dt * 16.67;
+                        if (p.sparkleTimer <= 0) {
+                            p.sparkling = false;
+                            p.radius = p.baseRadius;
+                            p.color = p.baseColor;
+                            p.opacity = Math.min(p.opacity, 0.9);
+                        } else {
+                            p.color = '#ffffff';
+                            p.opacity = 1.0;
+                            p.radius = p.baseRadius * 2;
+                        }
+                    }
+
                     if (!p.transformed) {
-                        // Attract toward center
+                        // Attract downward toward center
                         var dx = center.x - p.x;
                         var dy = center.y - p.y;
                         var dist = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -2826,29 +2802,25 @@
                         if (dist < CENTER_RADIUS) {
                             p.transformed = true;
                             p.color = TRANSFORM_COLORS[Math.floor(Math.random() * TRANSFORM_COLORS.length)];
+                            p.baseColor = p.color;
                             p.radius = 3 + Math.random();
+                            p.baseRadius = p.radius;
                             p.opacity = 0.8 + Math.random() * 0.2;
                         }
-                    } else {
-                        // SPREAD + DISSOLVE after transformation
-                        // Push rightward with gentle force
-                        p.vx += 0.06 * dt;
+                    } else if (!p.sparkling) {
+                        // Flow DOWNWARD after transformation
+                        p.vy += 0.06 * dt;
 
-                        // Calculate distance from center
-                        var distFromCenter = p.x - center.x;
-                        var maxSpreadDist = cw - center.x;
+                        var distBelow = p.y - center.y;
+                        var maxDist = ch - center.y;
 
-                        if (distFromCenter > 0 && maxSpreadDist > 0) {
-                            // Progressive vertical scatter — increases with distance
-                            var spreadFactor = distFromCenter / maxSpreadDist;
-                            var scatter = (SPREAD_FORCE + distFromCenter * SPREAD_RAMP) * (Math.random() - 0.5) * 2;
-                            p.vy += scatter * dt;
+                        if (distBelow > 0 && maxDist > 0) {
+                            var scatter = (SPREAD_FORCE + distBelow * SPREAD_RAMP) * (Math.random() - 0.5) * 2;
+                            p.vx += scatter * dt;
 
-                            // Fade opacity as particles spread out
-                            var fadeProgress = distFromCenter / (maxSpreadDist * 0.7);
+                            var fadeProgress = distBelow / (maxDist * 0.7);
                             p.opacity = Math.max(0, (0.8 + Math.random() * 0.05) * (1.0 - fadeProgress));
 
-                            // Remove fully faded particles
                             if (p.opacity < 0.05) {
                                 p.active = false;
                                 continue;
@@ -2861,11 +2833,9 @@
                     p.x += p.vx;
                     p.y += p.vy;
 
-                    // Store trail
                     p.trail.push({x: p.x, y: p.y, o: p.opacity});
                     if (p.trail.length > TRAIL_LENGTH) p.trail.shift();
 
-                    // No vertical confinement — only kill if way out of horizontal bounds or too old
                     if (p.x < -40 || p.x > cw + 40 || p.y < -80 || p.y > ch + 80 || p.life > 800) {
                         p.active = false;
                     }
@@ -2877,21 +2847,20 @@
                 var h = canvas.height / dpr;
                 ctx.clearRect(0, 0, w, h);
 
-                // Center vortex glow
-                var grad = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, 50);
+                // Center vortex glow (larger for 3x logo)
+                var grad = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, 80);
                 grad.addColorStop(0, 'rgba(0,212,255,0.12)');
                 grad.addColorStop(0.5, 'rgba(0,212,255,0.04)');
                 grad.addColorStop(1, 'rgba(0,212,255,0)');
                 ctx.fillStyle = grad;
                 ctx.beginPath();
-                ctx.arc(center.x, center.y, 50, 0, Math.PI * 2);
+                ctx.arc(center.x, center.y, 80, 0, Math.PI * 2);
                 ctx.fill();
 
                 for (var i = 0; i < pool.length; i++) {
                     var p = pool[i];
                     if (!p.active) continue;
 
-                    // Draw trail
                     for (var t = 0; t < p.trail.length - 1; t++) {
                         var tp = p.trail[t];
                         var trailOpacity = (t / p.trail.length) * p.opacity * 0.4;
@@ -2903,11 +2872,10 @@
                         ctx.fill();
                     }
 
-                    // Draw particle with glow if transformed
                     ctx.globalAlpha = p.opacity;
-                    if (p.transformed) {
-                        ctx.shadowColor = p.color;
-                        ctx.shadowBlur = 8;
+                    if (p.transformed || p.sparkling) {
+                        ctx.shadowColor = p.sparkling ? '#ffffff' : p.color;
+                        ctx.shadowBlur = p.sparkling ? 16 : 8;
                     } else {
                         ctx.shadowColor = 'transparent';
                         ctx.shadowBlur = 0;
@@ -2931,14 +2899,13 @@
                 var dt = Math.min((ts - (lastTime || ts)) / 16.67, 3);
                 lastTime = ts;
 
-                // Spawn particles
                 if (ts - lastSpawn > SPAWN_INTERVAL && activeCount() < MAX_ACTIVE) {
                     var count = SPAWN_COUNT_MIN + Math.floor(Math.random() * (SPAWN_COUNT_MAX - SPAWN_COUNT_MIN + 1));
                     for (var s = 0; s < count; s++) spawnParticle();
                     lastSpawn = ts;
                 }
 
-                update(dt);
+                update(dt, ts);
                 draw();
                 animId = requestAnimationFrame(loop);
             }
@@ -2955,7 +2922,6 @@
                 if (animId) { cancelAnimationFrame(animId); animId = null; }
             }
 
-            // Visibility observer
             var visObserver = new IntersectionObserver(function(entries) {
                 entries.forEach(function(entry) {
                     isVisible = entry.isIntersecting;
@@ -4042,7 +4008,8 @@
                 }
                 return null;
             }
-
+
+
             // Apply initial bubble visibility — delegates to external resetBubbleAnimation
             function applyBubbleVisibility(slide) {
                 if (typeof resetBubbleAnimation === 'function') {
