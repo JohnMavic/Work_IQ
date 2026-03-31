@@ -2641,8 +2641,8 @@
             var MAX_VELOCITY = 2.25;
             var TRAIL_LENGTH = 3;
             var TRANSFORM_COLORS = ['#00d4ff','#34d399','#fbbf24','#e879f9'];
-            var SPREAD_FORCE = 0.12;
-            var SPREAD_RAMP = 0.004;
+            var SPREAD_FORCE = 0.06;
+            var SPREAD_RAMP = 0.002;
             var SPARKLE_INTERVAL = 200;
 
             var dpr = window.devicePixelRatio || 1;
@@ -2823,9 +2823,11 @@
                         var maxDist = cw - center.x;
 
                         if (distRight > 0 && maxDist > 0) {
-                            // Vertical scatter (spread up/down)
+                            // Gentle vertical scatter (spread up/down)
                             var scatter = (SPREAD_FORCE + distRight * SPREAD_RAMP) * (Math.random() - 0.5) * 2;
                             p.vy += scatter * dt;
+                            // Dampen vertical velocity slightly so particles drift calmly
+                            p.vy *= 0.97;
 
                             // Fade based on horizontal distance past center
                             var fadeProgress = distRight / (maxDist * 1.0);
