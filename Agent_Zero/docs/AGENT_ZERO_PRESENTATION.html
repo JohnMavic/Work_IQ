@@ -1090,6 +1090,13 @@
 
         .arch-node.anim-active { animation: pfGlowPulse 1.5s ease-in-out infinite; }
 
+        .arch-flow-step.flow-active {
+            color: var(--flow-glow-color, #3b82f6);
+            text-shadow: 0 0 10px var(--flow-glow-color, #3b82f6);
+            font-weight: 700;
+            transition: all 0.3s ease;
+        }
+
         /* ===== SLIDE 5 — GET STARTED ===== */
         /* ===== SLIDE 5 — GET STARTED (AI Café style) ===== */
         .get-started-slide {
@@ -2173,23 +2180,23 @@
 
             <!-- Flow indicator -->
             <div class="arch-flow">
-                <span class="arch-flow-step">🖥️ Agent Zero UI</span>
+                <span class="arch-flow-step" data-anim-id="spa">🖥️ Agent Zero UI</span>
                 <span class="arch-flow-sep">→</span>
-                <span class="arch-flow-step">Frontend</span>
+                <span class="arch-flow-step" data-anim-id="fetch">Frontend</span>
                 <span class="arch-flow-sep">→</span>
-                <span class="arch-flow-step">Express API</span>
+                <span class="arch-flow-step" data-anim-id="express,api-routes">Express API</span>
                 <span class="arch-flow-sep">→</span>
-                <span class="arch-flow-step">Copilot SDK + Skill</span>
+                <span class="arch-flow-step" data-anim-id="copilot-sdk,skills">Copilot SDK + Skill</span>
                 <span class="arch-flow-sep">→</span>
-                <span class="arch-flow-step">Work IQ MCP</span>
+                <span class="arch-flow-step" data-anim-id="workiq">Work IQ MCP</span>
                 <span class="arch-flow-sep">→</span>
-                <span class="arch-flow-step">M365</span>
+                <span class="arch-flow-step" data-anim-id="m365">M365</span>
                 <span class="arch-flow-sep">→</span>
-                <span class="arch-flow-step">AI Response</span>
+                <span class="arch-flow-step" data-anim-id="copilot-sdk">AI Response</span>
                 <span class="arch-flow-sep">→</span>
-                <span class="arch-flow-step">tasks.json</span>
+                <span class="arch-flow-step" data-anim-id="task-store">tasks.json</span>
                 <span class="arch-flow-sep">→</span>
-                <span class="arch-flow-step">Frontend Update ✨</span>
+                <span class="arch-flow-step" data-anim-id="spa">Frontend Update ✨</span>
             </div>
 
             <script>
@@ -2290,6 +2297,16 @@
                 const elBar     = document.getElementById('pfProgressBar');
                 const allNodes  = document.querySelectorAll('.architecture-slide .arch-node[data-anim-id]');
                 const tabs      = panel.querySelectorAll('.pf-tab');
+                const allFlowSteps = document.querySelectorAll('.arch-flow .arch-flow-step[data-anim-id]');
+
+                /* ── Node-ID → layer glow color ── */
+                const FLOW_COLORS = {
+                    'spa': '#00d4ff', 'fetch': '#00d4ff',
+                    'express': '#3b82f6', 'api-routes': '#3b82f6',
+                    'copilot-sdk': '#8b5cf6', 'skills': '#8b5cf6',
+                    'workiq': '#e879f9', 'task-store': '#e879f9',
+                    'm365': '#fbbf24', 'session-mgr': '#8b5cf6'
+                };
 
                 /* ── State ── */
                 let currentPhase = 1;
@@ -2318,6 +2335,7 @@
 
                 function clearHighlights() {
                     allNodes.forEach(n => { n.classList.remove('anim-active', 'anim-dim'); });
+                    allFlowSteps.forEach(s => { s.classList.remove('flow-active'); s.style.removeProperty('--flow-glow-color'); });
                 }
 
                 function updatePlayBtn() {
@@ -2350,6 +2368,20 @@
                     step.nodes.forEach(id => {
                         const el = nodeById(id);
                         if (el) { el.classList.remove('anim-dim'); el.classList.add('anim-active'); }
+                    });
+
+                    // Sync flow bar — highlight matching steps
+                    allFlowSteps.forEach(s => { s.classList.remove('flow-active'); s.style.removeProperty('--flow-glow-color'); });
+                    var activeSet = new Set(step.nodes);
+                    allFlowSteps.forEach(function(s) {
+                        var ids = s.getAttribute('data-anim-id').split(',');
+                        for (var i = 0; i < ids.length; i++) {
+                            if (activeSet.has(ids[i])) {
+                                s.classList.add('flow-active');
+                                s.style.setProperty('--flow-glow-color', FLOW_COLORS[ids[i]] || '#3b82f6');
+                                break;
+                            }
+                        }
                     });
 
                     // UI updates
