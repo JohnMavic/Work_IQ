@@ -1716,20 +1716,20 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 30px;
+            gap: 16px;
             margin: 18px auto 10px;
-            max-width: 1050px;
-            min-height: 320px;
+            max-width: 1400px;
+            min-height: 200px;
             position: relative;
-            /* NO overflow:hidden — particles must bleed into adjacent sections */
+            flex-wrap: wrap;
         }
         .silo-logo {
             display: flex;
             align-items: center;
             justify-content: center;
             flex-shrink: 0;
-            width: 260px;
-            height: 260px;
+            width: 160px;
+            height: 160px;
             background: rgba(0,212,255,0.06);
             border: 2px solid rgba(0,212,255,0.45);
             border-radius: 24px;
@@ -1738,7 +1738,7 @@
             position: relative;
         }
         .silo-logo img {
-            height: 220px;
+            height: 130px;
             width: auto;
             border-radius: 16px;
         }
@@ -1748,28 +1748,22 @@
             box-shadow: 0 0 32px rgba(0,212,255,0.35), 0 0 12px rgba(0,212,255,0.2);
             animation: siloEnginePulse 2.5s ease-in-out infinite 1.5s;
         }
-        .silo-column {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            align-items: center;
-            justify-content: center;
-        }
         .silo-box {
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            width: 120px;
+            width: 90px;
             height: 80px;
             background: rgba(30,35,50,0.8);
             border: 1.5px solid rgba(100,116,139,0.3);
             border-radius: 12px;
             color: #64748b;
-            font-size: 1em;
+            font-size: 0.85em;
             opacity: 0.45;
             transition: all 0.3s ease;
             cursor: default;
+            flex-shrink: 0;
         }
         .silo-box .silo-icon {
             font-size: 2em;
@@ -1795,17 +1789,18 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            width: 110px;
+            width: 95px;
             height: 80px;
             background: rgba(30,35,50,0.7);
             border: 1.5px solid rgba(100,116,139,0.2);
             border-radius: 12px;
-            font-size: 0.9em;
+            font-size: 0.78em;
             font-weight: 600;
             opacity: 0;
             transform: translateX(4px);
             transition: all 0.3s ease;
             cursor: default;
+            flex-shrink: 0;
         }
         .knowledge-box .silo-icon {
             font-size: 2em;
@@ -1903,26 +1898,16 @@
             <!-- Data Silos → Knowledge Transform Strip -->
             <div class="silo-transform" id="siloTransform">
                 <canvas id="siloParticleCanvas" class="silo-particle-canvas"></canvas>
-                <div class="silo-column">
-                    <div class="silo-box"><span class="silo-icon">📧</span>Outlook</div>
-                    <div class="silo-box"><span class="silo-icon">📱</span>Teams</div>
-                    <div class="silo-box"><span class="silo-icon">📅</span>Calendar</div>
-                </div>
+                <div class="silo-box"><span class="silo-icon">📧</span>Outlook</div>
+                <div class="silo-box"><span class="silo-icon">📱</span>Teams</div>
+                <div class="silo-box"><span class="silo-icon">📅</span>Calendar</div>
                 <div class="silo-logo"><img src="presentation-assets/agent-zero-logo.png" alt="Agent Zero"></div>
-                <div class="silo-column">
-                    <div class="knowledge-box kb-cyan"><span class="silo-icon">🔍</span>Action Items</div>
-                    <div class="knowledge-box kb-green"><span class="silo-icon">📋</span>Summaries</div>
-                    <div class="knowledge-box kb-amber"><span class="silo-icon">🔄</span>Updates</div>
-                    <div class="knowledge-box kb-pink"><span class="silo-icon">💬</span>Discussions</div>
-                </div>
+                <div class="knowledge-box kb-cyan"><span class="silo-icon">🔍</span>Action Items</div>
+                <div class="knowledge-box kb-green"><span class="silo-icon">📋</span>Summaries</div>
+                <div class="knowledge-box kb-amber"><span class="silo-icon">🔄</span>Updates</div>
+                <div class="knowledge-box kb-pink"><span class="silo-icon">💬</span>Discussions</div>
             </div>
 
-            <div class="phase-teaser">
-                <div class="phase-icon" data-phase="1" data-label="Discovery" data-desc="Scans Outlook & Teams subjects to find action items automatically">📡<span class="phase-icon-tip">📡 <strong>Discovery</strong><br>Scans your inbox subjects — click to explore</span></div>
-                <div class="phase-icon" data-phase="2" data-label="Enrichment" data-desc="Reads full threads, creates structured summaries with key decisions">📋<span class="phase-icon-tip">📋 <strong>Enrichment</strong><br>Reads full threads & summarizes — click to explore</span></div>
-                <div class="phase-icon" data-phase="3" data-label="Update Check" data-desc="Detects new activity since last check — keeps summaries current">🔍<span class="phase-icon-tip">🔍 <strong>Update Check</strong><br>Finds new activity automatically — click to explore</span></div>
-                <div class="phase-icon" data-phase="4" data-label="Consolidation" data-desc="Finds semantic overlaps between tasks, suggests intelligent merges">🔗<span class="phase-icon-tip">🔗 <strong>Consolidation</strong><br>Merges duplicate tasks — click to explore</span></div>
-            </div>
 
             <div class="scroll-arrow">↓</div>
         </section>
