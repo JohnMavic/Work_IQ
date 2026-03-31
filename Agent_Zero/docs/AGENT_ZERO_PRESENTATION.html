@@ -1716,21 +1716,47 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 12px;
+            gap: 18px;
             margin: 18px auto 10px;
-            max-width: 900px;
-            height: 110px;
+            max-width: 1050px;
+            height: 220px;
             position: relative;
+            overflow: visible;
+        }
+        .silo-logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            width: 110px;
+            height: 110px;
+            background: rgba(0,212,255,0.06);
+            border: 2px solid rgba(0,212,255,0.45);
+            border-radius: 18px;
+            opacity: 0.3;
+            transition: opacity 0.6s ease 0.4s, box-shadow 0.6s ease 0.4s, border-color 0.6s ease 0.4s;
+            position: relative;
+        }
+        .silo-logo img {
+            height: 90px;
+            width: auto;
+            border-radius: 10px;
+        }
+        .silo-transform.revealed .silo-logo {
+            opacity: 1;
+            border-color: rgba(0,212,255,0.7);
+            box-shadow: 0 0 24px rgba(0,212,255,0.3), 0 0 8px rgba(0,212,255,0.18);
+            animation: siloEnginePulse 2.5s ease-in-out infinite 1.5s;
         }
         .silo-group {
             display: flex;
-            gap: 8px;
+            gap: 10px;
             align-items: center;
             flex-direction: column;
         }
         .silo-group-row {
             display: flex;
-            gap: 8px;
+            gap: 12px;
             align-items: center;
         }
         .silo-box {
@@ -1738,25 +1764,25 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            width: 72px;
-            height: 52px;
+            width: 120px;
+            height: 90px;
             background: rgba(30,35,50,0.8);
-            border: 1px solid rgba(100,116,139,0.3);
-            border-radius: 8px;
+            border: 1.5px solid rgba(100,116,139,0.3);
+            border-radius: 12px;
             color: #64748b;
-            font-size: 0.7em;
+            font-size: 1em;
             opacity: 0.45;
             transition: opacity 0.6s ease, border-color 0.6s ease;
         }
         .silo-box .silo-icon {
-            font-size: 1.4em;
-            margin-bottom: 2px;
+            font-size: 2em;
+            margin-bottom: 4px;
         }
         .silo-transform.revealed .silo-box {
             opacity: 0.55;
         }
         .silo-label {
-            font-size: 0.6em;
+            font-size: 0.75em;
             letter-spacing: 0.5px;
             text-transform: uppercase;
             margin-top: 4px;
@@ -1826,59 +1852,36 @@
             animation: arrowFlow 1.5s linear infinite;
         }
 
-        /* Agent Zero Engine */
+        /* Agent Zero Engine (legacy, kept for particle JS center calc) */
         .silo-engine {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            width: 82px;
-            height: 58px;
-            background: rgba(0,212,255,0.08);
-            border: 1.5px solid rgba(0,212,255,0.4);
-            border-radius: 12px;
-            color: #00d4ff;
-            font-size: 0.7em;
-            font-weight: 700;
-            opacity: 0.3;
-            transition: opacity 0.6s ease 0.6s, box-shadow 0.6s ease 0.6s, border-color 0.6s ease 0.6s;
-            position: relative;
-        }
-        .silo-engine .silo-icon {
-            font-size: 1.5em;
-            margin-bottom: 2px;
-        }
-        .silo-transform.revealed .silo-engine {
-            opacity: 1;
-            border-color: rgba(0,212,255,0.7);
-            box-shadow: 0 0 18px rgba(0,212,255,0.25), 0 0 6px rgba(0,212,255,0.15);
-            animation: siloEnginePulse 2.5s ease-in-out infinite 1.5s;
-        }
-        @keyframes siloEnginePulse {
-            0%, 100% { box-shadow: 0 0 18px rgba(0,212,255,0.25), 0 0 6px rgba(0,212,255,0.15); }
-            50% { box-shadow: 0 0 28px rgba(0,212,255,0.4), 0 0 12px rgba(0,212,255,0.25); }
+            display: none;
         }
 
-        /* Knowledge boxes */
+        @keyframes siloEnginePulse {
+            0%, 100% { box-shadow: 0 0 24px rgba(0,212,255,0.3), 0 0 8px rgba(0,212,255,0.18); }
+            50% { box-shadow: 0 0 36px rgba(0,212,255,0.45), 0 0 14px rgba(0,212,255,0.3); }
+        }
+
+        /* Knowledge boxes — 2x size */
         .knowledge-box {
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            width: 66px;
-            height: 46px;
+            width: 110px;
+            height: 80px;
             background: rgba(30,35,50,0.7);
-            border: 1px solid rgba(100,116,139,0.2);
-            border-radius: 8px;
-            font-size: 0.6em;
+            border: 1.5px solid rgba(100,116,139,0.2);
+            border-radius: 12px;
+            font-size: 0.9em;
             font-weight: 600;
             opacity: 0;
             transform: translateY(4px);
             transition: opacity 0.5s ease, transform 0.5s ease, border-color 0.5s ease, box-shadow 0.5s ease;
         }
         .knowledge-box .silo-icon {
-            font-size: 1.3em;
-            margin-bottom: 1px;
+            font-size: 2em;
+            margin-bottom: 3px;
         }
         .knowledge-box.kb-cyan {
             color: #00d4ff;
@@ -1920,16 +1923,16 @@
         /* ===== SILO PARTICLE CANVAS ===== */
         .silo-particle-canvas {
             position: absolute;
-            top: 0;
+            top: -40px;
             left: 0;
             width: 100%;
-            height: 100%;
+            height: calc(100% + 80px);
             pointer-events: none;
             z-index: 0;
         }
         .silo-transform .silo-group,
         .silo-transform .silo-arrow,
-        .silo-transform .silo-engine {
+        .silo-transform .silo-logo {
             position: relative;
             z-index: 1;
         }
@@ -1957,6 +1960,7 @@
             <!-- Data Silos → Knowledge Transform Strip -->
             <div class="silo-transform" id="siloTransform">
                 <canvas id="siloParticleCanvas" class="silo-particle-canvas"></canvas>
+                <div class="silo-logo"><img src="presentation-assets/agent-zero-logo.png" alt="Agent Zero"></div>
                 <div class="silo-group">
                     <div class="silo-group-row">
                         <div class="silo-box"><span class="silo-icon">📧</span>Outlook</div>
@@ -1965,8 +1969,6 @@
                     </div>
                     <div class="silo-label">Silent Data Silos</div>
                 </div>
-                <div class="silo-arrow left"></div>
-                <div class="silo-engine"><span class="silo-icon">📋</span>Agent Zero</div>
                 <div class="silo-arrow right"></div>
                 <div class="silo-group">
                     <div class="silo-group-row">
@@ -2692,11 +2694,13 @@
             var SPAWN_COUNT_MIN = 3;
             var SPAWN_COUNT_MAX = 5;
             var CENTER_RADIUS = 40;
-            var GRAVITY_STRENGTH = 120;
-            var PERPENDICULAR_STRENGTH = 0.35;
-            var MAX_VELOCITY = 4.5;
+            var GRAVITY_STRENGTH = 60;          // halved from 120
+            var PERPENDICULAR_STRENGTH = 0.18;  // halved from 0.35
+            var MAX_VELOCITY = 2.25;            // halved from 4.5
             var TRAIL_LENGTH = 3;
             var TRANSFORM_COLORS = ['#00d4ff','#34d399','#fbbf24','#e879f9'];
+            var SPREAD_FORCE = 0.12;            // vertical scatter after transform
+            var SPREAD_RAMP = 0.004;            // how fast scatter increases with distance
 
             var dpr = window.devicePixelRatio || 1;
             var animId = null;
@@ -2724,29 +2728,32 @@
 
             function sizeCanvas() {
                 var rect = container.getBoundingClientRect();
+                var extra = 80; // canvas extends 40px above and below
                 canvas.width = rect.width * dpr;
-                canvas.height = rect.height * dpr;
+                canvas.height = (rect.height + extra) * dpr;
                 canvas.style.width = rect.width + 'px';
-                canvas.style.height = rect.height + 'px';
+                canvas.style.height = (rect.height + extra) + 'px';
                 ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             }
 
             function calcPositions() {
                 var cRect = container.getBoundingClientRect();
+                var yOff = 40; // offset for extended canvas
                 sources = [];
                 var siloBoxes = container.querySelectorAll('.silo-box');
                 siloBoxes.forEach(function(el) {
                     var r = el.getBoundingClientRect();
                     sources.push({
                         x: r.left + r.width / 2 - cRect.left,
-                        y: r.top + r.height / 2 - cRect.top
+                        y: r.top + r.height / 2 - cRect.top + yOff
                     });
                 });
-                var eng = container.querySelector('.silo-engine');
+                // Use silo-logo as center reference (replaces silo-engine)
+                var eng = container.querySelector('.silo-logo') || container.querySelector('.silo-engine');
                 if (eng) {
                     var er = eng.getBoundingClientRect();
                     center.x = er.left + er.width / 2 - cRect.left;
-                    center.y = er.top + er.height / 2 - cRect.top;
+                    center.y = er.top + er.height / 2 - cRect.top + yOff;
                 }
                 destinations = [];
                 var kBoxes = container.querySelectorAll('.knowledge-box');
@@ -2754,7 +2761,7 @@
                     var r = el.getBoundingClientRect();
                     destinations.push({
                         x: r.left + r.width / 2 - cRect.left,
-                        y: r.top + r.height / 2 - cRect.top
+                        y: r.top + r.height / 2 - cRect.top + yOff
                     });
                 });
             }
@@ -2768,8 +2775,8 @@
                         p.active = true;
                         p.x = src.x + (Math.random() - 0.5) * 16;
                         p.y = src.y + (Math.random() - 0.5) * 16;
-                        p.vx = (Math.random() - 0.5) * 0.8;
-                        p.vy = (Math.random() - 0.5) * 0.8;
+                        p.vx = (Math.random() - 0.5) * 0.4;  // halved
+                        p.vy = (Math.random() - 0.5) * 0.4;  // halved
                         p.radius = 2 + Math.random();
                         p.opacity = 0.4 + Math.random() * 0.2;
                         p.color = '#999';
@@ -2795,6 +2802,9 @@
             }
 
             function update(dt) {
+                var cw = canvas.width / dpr;
+                var ch = canvas.height / dpr;
+
                 for (var i = 0; i < pool.length; i++) {
                     var p = pool[i];
                     if (!p.active) continue;
@@ -2808,13 +2818,11 @@
                         var force = GRAVITY_STRENGTH / (dist + 30);
                         var nx = dx / dist;
                         var ny = dy / dist;
-                        // Perpendicular for curved paths
                         var px = -ny * PERPENDICULAR_STRENGTH;
                         var py = nx * PERPENDICULAR_STRENGTH;
                         p.vx += (nx * force + px) * dt;
                         p.vy += (ny * force + py) * dt;
 
-                        // Check if reached center
                         if (dist < CENTER_RADIUS) {
                             p.transformed = true;
                             p.color = TRANSFORM_COLORS[Math.floor(Math.random() * TRANSFORM_COLORS.length)];
@@ -2822,20 +2830,28 @@
                             p.opacity = 0.8 + Math.random() * 0.2;
                         }
                     } else {
-                        // Push toward destination
-                        if (destinations.length > 0) {
-                            var dest = destinations[p.destIdx % destinations.length];
-                            var ddx = dest.x - p.x;
-                            var ddy = dest.y - p.y;
-                            var ddist = Math.sqrt(ddx * ddx + ddy * ddy) || 1;
-                            var dforce = GRAVITY_STRENGTH * 0.8 / (ddist + 20);
-                            p.vx += (ddx / ddist) * dforce * dt;
-                            p.vy += (ddy / ddist) * dforce * dt;
+                        // SPREAD + DISSOLVE after transformation
+                        // Push rightward with gentle force
+                        p.vx += 0.06 * dt;
 
-                            // Fade out near destination
-                            if (ddist < 25) {
-                                p.opacity -= 0.05;
-                                if (p.opacity <= 0) { p.active = false; continue; }
+                        // Calculate distance from center
+                        var distFromCenter = p.x - center.x;
+                        var maxSpreadDist = cw - center.x;
+
+                        if (distFromCenter > 0 && maxSpreadDist > 0) {
+                            // Progressive vertical scatter — increases with distance
+                            var spreadFactor = distFromCenter / maxSpreadDist;
+                            var scatter = (SPREAD_FORCE + distFromCenter * SPREAD_RAMP) * (Math.random() - 0.5) * 2;
+                            p.vy += scatter * dt;
+
+                            // Fade opacity as particles spread out
+                            var fadeProgress = distFromCenter / (maxSpreadDist * 0.7);
+                            p.opacity = Math.max(0, (0.8 + Math.random() * 0.05) * (1.0 - fadeProgress));
+
+                            // Remove fully faded particles
+                            if (p.opacity < 0.05) {
+                                p.active = false;
+                                continue;
                             }
                         }
                     }
@@ -2849,10 +2865,8 @@
                     p.trail.push({x: p.x, y: p.y, o: p.opacity});
                     if (p.trail.length > TRAIL_LENGTH) p.trail.shift();
 
-                    // Kill if out of bounds or too old
-                    var cw = canvas.width / dpr;
-                    var ch = canvas.height / dpr;
-                    if (p.x < -20 || p.x > cw + 20 || p.y < -20 || p.y > ch + 20 || p.life > 600) {
+                    // No vertical confinement — only kill if way out of horizontal bounds or too old
+                    if (p.x < -40 || p.x > cw + 40 || p.y < -80 || p.y > ch + 80 || p.life > 800) {
                         p.active = false;
                     }
                 }
