@@ -6,23 +6,67 @@
 
 Scans your emails and Teams messages, extracts content summaries, and monitors threads for updates — all locally, all AI-driven.
 
-## Quick Start
-
-**Double-click** `START-AGENT-ZERO.bat` — starts the server and opens the browser.
-
-**Or manually:**
-```powershell
-cd E:\Work_IQ\Agent_Zero
-node server.js
-```
-Then open [http://localhost:3000](http://localhost:3000).
-
 ## Prerequisites
 
 - **Node.js** v18+ — [nodejs.org](https://nodejs.org/)
 - **Git** — [git-scm.com](https://git-scm.com/) (or `winget install Git.Git`)
 - **Active GitHub Copilot subscription** — [Copilot plans](https://github.com/features/copilot/plans)
 - **M365 account** — Work IQ needs access to your Microsoft 365
+
+## Installation
+
+**Step 1 — Clone the repository** (run from any directory):
+```powershell
+git clone https://github.com/JohnMavic/Work_IQ.git
+```
+
+**Step 2 — Install project dependencies** (run from the Agent Zero directory):
+```powershell
+cd Work_IQ\Agent_Zero
+npm install
+```
+This single command installs everything Agent Zero needs — including components you never see directly:
+- `@github/copilot-sdk` — the TypeScript library imported in `server.js`
+- `@github/copilot` — the Copilot CLI, automatically pulled in as a sub-dependency of the SDK
+- `copilot.exe` — the native AI engine binary (~110 MB), automatically pulled in as a platform-specific sub-dependency of the CLI (`@github/copilot-win32-x64` on Windows, `copilot-darwin-arm64` on Mac, etc.)
+- `@microsoft/workiq` — the Work IQ library + CLI (available locally via `node_modules/.bin/workiq`)
+- `express`, `uuid` — web server and ID generation
+
+There is no separate installation step for the Copilot CLI or the native binary — `npm install` handles the entire chain.
+
+**Step 3 — (Optional) Install Work IQ globally** (run from any directory):
+```powershell
+npm install -g @microsoft/workiq
+```
+This makes the `workiq` command available system-wide, which can be useful for running `workiq accept-eula` from any directory.
+
+**Step 4 — Authenticate** (first-time only):
+```powershell
+workiq accept-eula
+```
+This opens a browser window to log in with your Microsoft 365 account. Run from the Agent Zero directory (uses local install) or from anywhere if installed globally.
+
+GitHub Copilot authentication happens automatically on first server start — you'll see a one-time device code prompt in the terminal.
+
+## Quick Start
+
+**Double-click** `START-AGENT-ZERO.bat` — starts the server and opens the browser.
+
+**Or manually:**
+```powershell
+cd Agent_Zero
+node server.js
+```
+Then open [http://localhost:3000](http://localhost:3000).
+
+### First Run
+
+When you start the server for the first time, two things happen:
+
+1. **GitHub Copilot device code prompt** — the terminal displays a URL and a one-time code. Open the URL in your browser, enter the code, and authorize with your GitHub account. This only happens once; subsequent starts reuse the cached token.
+2. **M365 authentication** — if you haven't run `workiq accept-eula` yet (Step 4 above), the first scan will fail. Complete the M365 login before scanning.
+
+After both authentications are complete, click **Scan** in the browser to start discovering action items from your emails and Teams messages.
 
 ## Architecture Overview
 
@@ -74,41 +118,6 @@ The SDK is a thin TypeScript wrapper. The actual AI engine is `copilot.exe` — 
 | **Work IQ** (`@microsoft/workiq`) | Library | Installed as a local npm dependency (`package.json`) and optionally as a global CLI. Provides the `workiq` command used to start MCP servers and to run the initial EULA/auth setup. | The bridge to your Microsoft 365. This npm package is installed and provides the `workiq` command. It enables Agent Zero to access your emails and Teams messages. Without this package, Agent Zero is blind to your M365 data. | Microsoft Entra ID — `workiq accept-eula` (one-time browser login to your M365 account). |
 | **workiq mcp** | Engine | Spawned by the SDK's `createSession()` as a stdio subprocess (`command: 'workiq', args: ['mcp']`). Runs as an MCP server that gives the AI model direct tool access to search emails, Teams messages, and meetings. Only started for sessions that need M365 data (scan, enrich, update-check, search) — not for pure reasoning sessions. | The active data channel. When the AI needs to search your emails, the SDK starts a Work IQ process in the background. This process acts as a translator: the AI says "find emails about project X", the translator converts that into an M365 query and delivers the results back. For pure thinking tasks (e.g. "summarize this text") it is not started at all. | Uses the token from `workiq accept-eula`. |
 | **Microsoft 365** | Cloud | Your M365 tenant (Exchange Online, Teams). Work IQ accesses it via the Microsoft Graph API using the token obtained during `workiq accept-eula`. | Your mailbox and Teams chats. Work IQ reads your emails and messages here — read-only, it never modifies or sends anything. | M365 account with Exchange Online. |
-
-## Installation
-
-**Step 1 — Clone the repository** (run from any directory):
-```powershell
-git clone https://github.com/JohnMavic/Work_IQ.git
-```
-
-**Step 2 — Install project dependencies** (run from the Agent Zero directory):
-```powershell
-cd Work_IQ\Agent_Zero
-npm install
-```
-This single command installs everything Agent Zero needs — including components you never see directly:
-- `@github/copilot-sdk` — the TypeScript library imported in `server.js`
-- `@github/copilot` — the Copilot CLI, automatically pulled in as a sub-dependency of the SDK
-- `copilot.exe` — the native AI engine binary (~110 MB), automatically pulled in as a platform-specific sub-dependency of the CLI (`@github/copilot-win32-x64` on Windows, `copilot-darwin-arm64` on Mac, etc.)
-- `@microsoft/workiq` — the Work IQ library + CLI (available locally via `node_modules/.bin/workiq`)
-- `express`, `uuid` — web server and ID generation
-
-There is no separate installation step for the Copilot CLI or the native binary — `npm install` handles the entire chain.
-
-**Step 3 — (Optional) Install Work IQ globally** (run from any directory):
-```powershell
-npm install -g @microsoft/workiq
-```
-This makes the `workiq` command available system-wide, which can be useful for running `workiq accept-eula` from any directory.
-
-**Step 4 — Authenticate** (first-time only):
-```powershell
-workiq accept-eula
-```
-This opens a browser window to log in with your Microsoft 365 account. Run from the Agent Zero directory (uses local install) or from anywhere if installed globally.
-
-GitHub Copilot authentication happens automatically on first server start — you'll see a one-time device code prompt in the terminal.
 
 ## How It Works
 
@@ -234,8 +243,8 @@ $LogFile = "E:\Work_IQ\Agent_Zero\scan-log.txt"            # ← your path
 
 Open `WorkIQ-Scan-Task.xml` and replace the username with your Windows user:
 ```xml
-<Author>europe\martih</Author>         <!-- ← your domain\username -->
-<UserId>europe\martih</UserId>         <!-- ← your domain\username -->
+<Author>YOUR_DOMAIN\YOUR_USERNAME</Author>         <!-- ← your domain\username -->
+<UserId>YOUR_DOMAIN\YOUR_USERNAME</UserId>         <!-- ← your domain\username -->
 ```
 
 You can find your username by running `whoami` in PowerShell.
