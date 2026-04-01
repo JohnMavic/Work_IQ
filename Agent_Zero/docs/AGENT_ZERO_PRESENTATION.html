@@ -83,7 +83,20 @@
             font-size: 1.6em;
             color: #94a3b8;
             font-weight: 300;
-            margin-bottom: 8px;
+            margin-bottom: 4px;
+        }
+
+        .hero-slogan {
+            font-size: 1.15em;
+            font-weight: 600;
+            font-style: italic;
+            letter-spacing: 1px;
+            background: linear-gradient(90deg, #ffed00 0%, #ffaa00 35%, #ff2d95 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 12px;
+            filter: drop-shadow(0 0 14px rgba(255, 237, 0, 0.45));
         }
 
         .version-badge {
@@ -133,6 +146,65 @@
             font-size: 1.15em;
             color: #cbd5e1;
             line-height: 1.7;
+        }
+
+        .ps-card .problem-list {
+            list-style: none;
+            padding: 0;
+            margin: 12px 0 14px 0;
+        }
+
+        .ps-card .problem-list li {
+            font-size: 1.05em;
+            color: #cbd5e1;
+            line-height: 1.6;
+            padding: 5px 0;
+        }
+
+        .ps-card .problem-list li .bullet-icon {
+            margin-right: 6px;
+            font-size: 1.1em;
+        }
+
+        .ps-card .problem-list li .keyword {
+            font-size: 1.2em;
+            font-weight: 700;
+            display: inline;
+            margin-right: 8px;
+            transition: text-shadow 0.3s ease, filter 0.3s ease;
+            cursor: default;
+        }
+
+        .ps-card.problem .keyword {
+            color: #f87171;
+        }
+
+        .ps-card.solution .keyword {
+            color: #34d399;
+        }
+
+        .ps-card.problem .keyword:hover {
+            text-shadow: 0 0 10px #ff4444, 0 0 25px #ff4444, 0 0 50px #ff4444, 0 0 80px rgba(255, 68, 68, 0.6);
+            color: #ff6b6b;
+        }
+
+        .ps-card.solution .keyword:hover {
+            text-shadow: 0 0 10px #00ff88, 0 0 25px #00ff88, 0 0 50px #00ff88, 0 0 80px rgba(0, 255, 136, 0.6);
+            color: #5cffb1;
+        }
+
+        .ps-card .problem-summary {
+            font-size: 1.05em;
+            color: #f87171;
+            font-weight: 500;
+            margin-top: 10px;
+        }
+
+        .ps-card .solution-summary {
+            font-size: 1.05em;
+            color: #34d399;
+            font-weight: 500;
+            margin-top: 10px;
         }
 
         .phase-teaser {
@@ -1209,6 +1281,10 @@
                 font-size: 1.3em;
             }
 
+            .hero-slogan {
+                font-size: 0.9em;
+            }
+
             .problem-solution-grid {
                 grid-template-columns: 1fr;
             }
@@ -1940,16 +2016,27 @@
             </div>
 
             <p class="hero-subtitle">Your AI-powered action item manager for Microsoft 365</p>
+            <p class="hero-slogan">Built with AI, powered by curiosity.</p>
             <div class="version-badge">v3.0.0</div>
 
             <div class="problem-solution-grid">
                 <div class="ps-card problem">
                     <h3>🚨 The Problem</h3>
-                    <p>Copilot for Microsoft 365 lets you chat about emails and meetings — but it can't filter, track, or auto-update your action items. They still get buried in threads and forgotten.</p>
+                    <p class="problem-summary" style="margin-top: 0; margin-bottom: 8px;">Copilot answers questions.</p>
+                    <ul class="problem-list">
+                        <li><span class="bullet-icon">📌</span><span class="keyword">No Navigation</span> You can ask about one item, but switching between items means rebuilding context every time.</li>
+                        <li><span class="bullet-icon">📌</span><span class="keyword">Static</span> When a thread gets new replies, your action item list stays frozen in time.</li>
+                    </ul>
                 </div>
                 <div class="ps-card solution">
                     <h3>✨ The Solution</h3>
-                    <p>Agent Zero automatically discovers action items in Outlook & Teams, enriches them with full context, keeps them updated — and lets you discuss each one with AI.</p>
+                    <p class="solution-summary" style="margin-top: 0; margin-bottom: 8px;">Agent Zero manages the work.</p>
+                    <ul class="problem-list">
+                        <li><span class="bullet-icon">✅</span><span class="keyword">Discovery</span> Automatically finds action items in Outlook and Teams.</li>
+                        <li><span class="bullet-icon">✅</span><span class="keyword">Enrichment</span> Reads the full thread and builds a summary with context.</li>
+                        <li><span class="bullet-icon">✅</span><span class="keyword">Live Updates</span> Detects new replies and keeps each item current.</li>
+                        <li><span class="bullet-icon">✅</span><span class="keyword">Discussion</span> Lets you talk to each action item with AI, correct it, or veto.</li>
+                    </ul>
                 </div>
             </div>
         </section>
