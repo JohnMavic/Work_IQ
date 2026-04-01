@@ -237,8 +237,8 @@ Agent Zero can automatically scan your emails and Teams messages twice a day (de
 
 Open `Start-WorkIQ-Scan.ps1` and update the paths to match your installation:
 ```powershell
-$BatFile = "E:\Work_IQ\Agent_Zero\START-AGENT-ZERO.bat"   # ← your path
-$LogFile = "E:\Work_IQ\Agent_Zero\scan-log.txt"            # ← your path
+$BatFile = "C:\your\path\to\Agent_Zero\START-AGENT-ZERO.bat"   # ← your path
+$LogFile = "C:\your\path\to\Agent_Zero\scan-log.txt"            # ← your path
 ```
 
 Open `WorkIQ-Scan-Task.xml` and replace the username with your Windows user:

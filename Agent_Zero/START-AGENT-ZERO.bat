@@ -10,7 +10,7 @@ setlocal EnableDelayedExpansion
 
 set PORT=3000
 set HEALTH_URL=http://localhost:%PORT%/api/health
-set SERVER_DIR=E:\Work_IQ\Agent_Zero
+set SERVER_DIR=%~dp0.
 
 :: Step 1: Check if server is already running and healthy
 curl -s -f -o nul --connect-timeout 3 %HEALTH_URL% 2>nul

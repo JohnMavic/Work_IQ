@@ -7,9 +7,12 @@
 param(
     [int]$ScanDays = 4,
     [string]$ServerUrl = "http://localhost:3000",
-    [string]$LogFile = "E:\Work_IQ\Agent_Zero\scan-log.txt",
-    [string]$ServerDir = "E:\Work_IQ\Agent_Zero"
+    [string]$LogFile = "",
+    [string]$ServerDir = ""
 )
+
+if (-not $LogFile) { $LogFile = Join-Path $PSScriptRoot "scan-log.txt" }
+if (-not $ServerDir) { $ServerDir = $PSScriptRoot }
 
 function Write-Log($msg) {
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"

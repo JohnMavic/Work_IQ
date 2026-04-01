@@ -262,7 +262,7 @@ The agent uses a two-phase approach:
 - `checkServerHealth()` with `AbortController` (3-second timeout) on `/api/tasks`
 - **Offline banner** (amber) with startup instructions:
   - Option 1: Double-click `START-AGENT-ZERO.bat`
-  - Option 2: Terminal command `cd E:\Work_IQ\Agent_Zero && node server.js`
+  - Option 2: Terminal command `cd Agent_Zero && node server.js`
 - **Auto-reconnect polling** every 5 seconds when offline
 - **Reconnect notification:** "✅ Server verbunden" when connection is restored
 - **Status dot** in header (12px circle):

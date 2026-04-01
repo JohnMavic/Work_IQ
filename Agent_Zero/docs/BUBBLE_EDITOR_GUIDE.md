@@ -217,7 +217,7 @@ location.reload();
 - Touch device support
 
 ## Files Modified
-- `E:\Work_IQ\Agent_Zero\docs\AGENT_ZERO_PRESENTATION.html` (single file)
+- `docs/AGENT_ZERO_PRESENTATION.html` (single file)
   - Removed all hardcoded `.comic-bubble` divs
   - Added ~350 lines of CSS (lines 974-1323)
   - Added ~670 lines of JavaScript (lines 1850-2520)
