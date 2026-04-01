@@ -68,6 +68,11 @@
             padding-top: 70px;
         }
 
+        /* Prevent flex from compressing children — JS controls all sizing */
+        .hero-slide > * {
+            flex-shrink: 0;
+        }
+
         .hero-title {
             font-size: 4.5em;
             font-weight: 800;
@@ -1217,7 +1222,15 @@
         .frozen-link-box .copied-msg { display: none; color: #39ff14; font-size: 0.85em; font-weight: 600; margin-top: 4px; text-shadow: 0 0 10px rgba(57,255,20,0.6); }
         .gs-takeaway { margin-top: 16px; background: linear-gradient(90deg, rgba(139, 92, 246, 0.15), rgba(232, 121, 249, 0.15)); border-radius: 12px; padding: 16px 24px; border: 1px solid rgba(255,255,255,0.15); position: relative; z-index: 2; }
         .gs-takeaway p { margin: 0; font-size: 1.15em; text-align: center; color: #fff; }
-        .gs-content { position: relative; z-index: 2; display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 14px; max-width: 700px; margin-left: auto; margin-right: auto; }
+        .gs-content { position: relative; z-index: 2; display: grid; grid-template-columns: 1fr auto; grid-template-rows: auto 1fr; gap: 16px; margin-top: 14px; max-width: 1100px; margin-left: auto; margin-right: auto; align-items: start; }
+        .gs-content .gs-what-you-get { grid-column: 1; grid-row: 1; }
+        .gs-content .gh-box-violet { grid-column: 1; grid-row: 2; }
+        .gs-content .gs-qr-container { grid-column: 2; grid-row: 1 / -1; align-self: center; }
+        .gs-qr-container { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px; background: rgba(255,255,255,0.97); border-radius: 16px; box-shadow: 0 0 30px rgba(139, 92, 246, 0.25), 0 4px 20px rgba(0,0,0,0.3); opacity: 0; transform: scale(0.85); pointer-events: none; transition: opacity 0.5s ease, transform 0.5s ease; }
+        .gs-qr-container.revealed { opacity: 1; transform: scale(1); pointer-events: auto; }
+        .gs-qr-container canvas { display: block; border-radius: 4px; }
+        .gs-qr-label { color: #0d1117; font-size: 0.78em; font-weight: 700; text-align: center; letter-spacing: 0.5px; }
+        .gs-qr-url { color: #8b5cf6; font-size: 0.7em; font-weight: 600; text-align: center; font-family: 'Consolas', monospace; }
 
         /* ===== SLIDE PROGRESS INDICATOR ===== */
         .slide-progress {
@@ -2021,7 +2034,7 @@
 
             <div class="problem-solution-grid">
                 <div class="ps-card problem">
-                    <h3>🚨 The Problem</h3>
+                    <h3>🚨 The Challenge</h3>
                     <p class="problem-summary" style="margin-top: 0; margin-bottom: 8px;">Copilot answers questions.</p>
                     <ul class="problem-list">
                         <li><span class="bullet-icon">📌</span><span class="keyword">No Navigation</span> You can ask about one item, but switching between items means rebuilding context every time.</li>
@@ -2722,6 +2735,13 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- QR Code with Octocat modules -->
+                <div class="gs-qr-container">
+                    <canvas id="octocatQR" width="350" height="350"></canvas>
+                    <div class="gs-qr-label">Scan to get started</div>
+                    <div class="gs-qr-url">aka.ms/copilot</div>
+                </div>
             </div>
 
             <!-- Bottom takeaway -->
@@ -3327,6 +3347,135 @@
             });
         }
 
+        // ===== DYNAMIC HERO SLIDE SIZING (Slide 1) =====
+        function applyHeroScale(slide, s) {
+            // Slide padding
+            slide.style.paddingTop = Math.max(12, Math.round(70 * s)) + 'px';
+            slide.style.paddingBottom = Math.max(10, Math.round(60 * s)) + 'px';
+            slide.style.paddingLeft = Math.max(20, Math.round(80 * s)) + 'px';
+            slide.style.paddingRight = Math.max(20, Math.round(80 * s)) + 'px';
+            slide.style.gap = Math.max(3, Math.round(10 * s)) + 'px';
+
+            // Silo transform container
+            var siloTransform = slide.querySelector('.silo-transform');
+            if (siloTransform) {
+                siloTransform.style.gap = Math.max(4, Math.round(16 * s)) + 'px';
+                siloTransform.style.minHeight = '0';
+                siloTransform.style.marginBottom = Math.round(6 * s) + 'px';
+            }
+
+            // Silo left/right gaps
+            var siloLeft = slide.querySelector('.silo-left');
+            var siloRight = slide.querySelector('.silo-right');
+            if (siloLeft) siloLeft.style.gap = Math.max(3, Math.round(16 * s)) + 'px';
+            if (siloRight) siloRight.style.gap = Math.max(3, Math.round(16 * s)) + 'px';
+
+            // Logo container
+            var logo = slide.querySelector('.silo-logo');
+            if (logo) {
+                var logoSize = Math.round(360 * s);
+                logo.style.width = logoSize + 'px';
+                logo.style.height = logoSize + 'px';
+                logo.style.borderRadius = Math.round(28 * s) + 'px';
+            }
+
+            // Logo image
+            var logoImg = slide.querySelector('.silo-logo img');
+            if (logoImg) {
+                logoImg.style.height = Math.round(300 * s) + 'px';
+                logoImg.style.width = 'auto';
+                logoImg.style.borderRadius = Math.round(20 * s) + 'px';
+            }
+
+            // Silo boxes
+            slide.querySelectorAll('.silo-box').forEach(function(box) {
+                box.style.width = Math.round(90 * s) + 'px';
+                box.style.height = Math.round(80 * s) + 'px';
+                box.style.fontSize = Math.max(0.5, 0.85 * s) + 'em';
+                box.style.borderRadius = Math.round(12 * s) + 'px';
+            });
+
+            // Knowledge boxes
+            slide.querySelectorAll('.knowledge-box').forEach(function(box) {
+                box.style.width = Math.round(95 * s) + 'px';
+                box.style.height = Math.round(80 * s) + 'px';
+                box.style.fontSize = Math.max(0.45, 0.78 * s) + 'em';
+                box.style.borderRadius = Math.round(12 * s) + 'px';
+            });
+
+            // Text elements
+            var subtitle = slide.querySelector('.hero-subtitle');
+            if (subtitle) {
+                subtitle.style.fontSize = Math.max(0.75, 1.6 * s) + 'em';
+                subtitle.style.marginBottom = Math.round(4 * s) + 'px';
+            }
+
+            var slogan = slide.querySelector('.hero-slogan');
+            if (slogan) {
+                slogan.style.fontSize = Math.max(0.6, 1.15 * s) + 'em';
+                slogan.style.marginBottom = Math.round(6 * s) + 'px';
+            }
+
+            var badge = slide.querySelector('.version-badge');
+            if (badge) {
+                badge.style.fontSize = Math.max(0.55, 1 * s) + 'em';
+                badge.style.padding = Math.round(6 * s) + 'px ' + Math.round(20 * s) + 'px';
+                badge.style.marginBottom = Math.round(8 * s) + 'px';
+                badge.style.borderRadius = Math.round(25 * s) + 'px';
+            }
+
+            // Problem/Solution grid
+            var grid = slide.querySelector('.problem-solution-grid');
+            if (grid) {
+                grid.style.gap = Math.max(6, Math.round(30 * s)) + 'px';
+                grid.style.margin = Math.round(4 * s) + 'px 0 ' + Math.round(6 * s) + 'px 0';
+            }
+
+            // PS Cards — scale card base font-size; em-based children cascade
+            slide.querySelectorAll('.ps-card').forEach(function(card) {
+                card.style.fontSize = Math.max(0.6, s) + 'em';
+                card.style.padding = Math.max(6, Math.round(24 * s)) + 'px';
+                card.style.borderRadius = Math.round(16 * s) + 'px';
+            });
+        }
+
+        function resizeHeroSlide() {
+            var slide = document.querySelector('.hero-slide');
+            if (!slide) return;
+
+            var vh = window.innerHeight;
+            var vw = window.innerWidth;
+
+            // Reference: viewport where scale=1 content fits perfectly
+            var REF_H = 1100;
+            var REF_W = 1400;
+
+            var scaleH = vh / REF_H;
+            var scaleW = vw / REF_W;
+            var s = Math.max(0.35, Math.min(1.0, Math.min(scaleH, scaleW)));
+
+            // First pass: apply calculated scale
+            applyHeroScale(slide, s);
+
+            // Second pass: verify fit, adjust if content overflows
+            var grid = slide.querySelector('.problem-solution-grid');
+            if (grid) {
+                var slideRect = slide.getBoundingClientRect();
+                var gridRect = grid.getBoundingClientRect();
+                if (gridRect.bottom > slideRect.bottom - 2) {
+                    var totalContentH = gridRect.bottom - slideRect.top;
+                    var corrected = s * (slideRect.height / totalContentH) * 0.97;
+                    s = Math.max(0.35, corrected);
+                    applyHeroScale(slide, s);
+                }
+            }
+        }
+
+        // Attach hero resize to events
+        window.addEventListener('resize', resizeHeroSlide);
+        window.addEventListener('load', resizeHeroSlide);
+        resizeHeroSlide();
+
         // ===== DYNAMIC PHASE IMAGE SIZING =====
         function resizePhaseImages() {
             const slide = document.querySelector('.phases-slide');
@@ -3457,6 +3606,79 @@
                 if (msg) msg.style.display = 'none';
             }, 1500);
         }
+
+        // ===== OCTOCAT QR CODE RENDERER =====
+        (function drawOctocatQR() {
+            var canvas = document.getElementById('octocatQR');
+            if (!canvas) return;
+            var ctx = canvas.getContext('2d');
+            var QR_SIZE = 29;
+            var QR_DATA = [1,1,1,1,1,1,1,0,0,1,0,1,1,1,0,1,0,0,1,1,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,1,0,1,0,0,0,1,0,0,0,1,0,1,0,1,0,1,0,0,0,0,0,1,1,0,1,1,1,0,1,0,0,0,1,0,0,1,1,0,1,1,1,1,1,0,1,0,1,1,1,0,1,1,0,1,1,1,0,1,0,0,1,1,1,1,1,0,1,1,0,0,1,0,0,1,0,1,1,1,0,1,1,0,1,1,1,0,1,0,0,1,0,0,0,0,0,1,0,0,1,0,0,0,1,0,1,1,1,0,1,1,0,0,0,0,0,1,0,1,1,1,1,0,0,0,0,1,0,1,1,0,0,1,0,0,0,0,0,1,1,1,1,1,1,1,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,0,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,1,0,0,0,0,1,1,1,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,1,0,0,1,1,1,0,1,0,1,0,1,0,1,1,0,0,0,1,0,1,0,1,1,1,1,0,0,0,1,0,0,0,1,1,0,0,0,0,1,1,0,1,1,1,1,1,1,1,0,1,1,1,0,1,1,1,0,0,0,1,0,0,1,1,1,0,0,0,0,1,0,1,0,1,1,0,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0,1,1,0,1,1,0,1,0,0,0,1,1,0,1,0,1,1,1,1,0,1,1,1,1,1,1,1,0,1,1,0,1,1,0,0,1,0,1,0,0,1,1,0,1,1,0,1,0,1,1,1,1,1,0,1,1,0,1,1,1,0,0,0,1,0,1,0,1,1,1,0,1,1,0,1,1,1,1,0,1,0,0,1,1,1,1,1,0,1,0,1,1,0,0,1,0,0,0,1,1,1,0,0,0,1,0,0,0,0,1,1,0,1,1,0,1,1,0,0,0,0,1,1,0,1,0,0,1,1,1,0,1,0,1,1,0,0,1,0,1,0,1,0,1,0,0,0,1,0,1,0,1,0,0,0,1,1,1,1,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,1,1,0,0,0,1,1,1,0,0,0,1,0,0,1,1,0,1,1,1,0,0,1,0,0,1,1,0,0,0,0,0,1,0,0,0,1,1,1,0,1,0,0,0,0,1,1,0,1,1,0,1,1,1,1,0,0,1,0,1,1,1,0,0,0,1,1,0,1,0,1,1,1,0,1,0,1,0,1,1,1,0,1,1,0,0,0,1,1,0,1,1,1,1,1,1,0,1,0,0,0,0,0,0,0,0,0,1,0,1,0,0,1,0,0,1,1,0,1,1,0,0,0,1,0,1,0,1,1,1,1,1,1,1,1,0,1,0,1,0,1,0,0,1,1,0,1,1,1,0,1,0,1,0,0,0,1,1,0,0,0,0,0,1,0,1,1,1,1,0,1,0,0,0,1,0,1,1,0,0,0,1,1,0,1,0,1,0,1,1,1,0,1,0,1,1,1,0,0,1,1,1,0,1,0,1,1,1,1,1,1,0,0,1,1,1,0,1,1,1,0,1,0,0,1,1,0,0,0,0,1,1,1,0,0,0,0,0,1,0,1,1,1,0,1,0,1,1,1,0,1,0,0,1,0,1,0,0,0,1,1,0,1,1,1,1,0,0,0,1,1,1,1,1,0,0,0,0,0,1,0,0,1,1,1,1,0,1,0,0,1,0,0,1,0,0,1,0,1,0,1,1,1,1,1,1,1,1,1,0,0,1,0,0,1,0,1,1,0,0,0,0,1,0,0,0,1,1,0,1,0];
+
+            var cw = canvas.width;
+            var ch = canvas.height;
+            var quiet = 1; // minimal quiet zone
+            var totalModules = QR_SIZE + quiet * 2;
+            var cellSize = Math.floor(Math.min(cw, ch) / totalModules);
+            var gridSize = cellSize * totalModules;
+            var offsetX = Math.floor((cw - gridSize) / 2);
+            var offsetY = Math.floor((ch - gridSize) / 2);
+
+            // White background
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, cw, ch);
+
+            // Octocat SVG path (GitHub mark, viewBox 0 0 16 16)
+            var octocatPath = new Path2D('M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z');
+
+            // BRANDED QR: Standard scannable code + large Octocat logo in center
+            // Step 1: Draw standard QR code (black squares)
+            ctx.fillStyle = '#0d1117';
+            for (var y = 0; y < QR_SIZE; y++) {
+                for (var x = 0; x < QR_SIZE; x++) {
+                    if (QR_DATA[y * QR_SIZE + x]) {
+                        var px = offsetX + (x + quiet) * cellSize;
+                        var py = offsetY + (y + quiet) * cellSize;
+                        ctx.fillRect(px, py, cellSize, cellSize);
+                    }
+                }
+            }
+
+            // Step 2: Clear circular area in center for Octocat logo
+            var centerX = cw / 2;
+            var centerY = ch / 2;
+            var logoRadius = cellSize * 4.5; // ~9 modules diameter — within 30% ECC H budget
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, logoRadius + 2, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+            ctx.restore();
+
+            // Step 3: Draw large Octocat in the cleared area
+            var octocatSize = logoRadius * 1.85;
+            var logoScale = octocatSize / 16;
+            ctx.save();
+            ctx.translate(centerX - octocatSize / 2, centerY - octocatSize / 2);
+            ctx.scale(logoScale, logoScale);
+            ctx.fillStyle = '#0d1117';
+            ctx.fill(octocatPath);
+            ctx.restore();
+        })();
+
+        // ===== QR CODE CLICK-TO-REVEAL =====
+        (function() {
+            var gsSlide = document.querySelector('.get-started-slide');
+            var qrBox = gsSlide ? gsSlide.querySelector('.gs-qr-container') : null;
+            if (!gsSlide || !qrBox) return;
+            gsSlide.addEventListener('click', function(e) {
+                if (e.target.closest('.gs-qr-container') || e.target.closest('.frozen-link-box') ||
+                    e.target.closest('.cli-copy-btn') || e.target.closest('.gs-copy-btn') ||
+                    e.target.closest('a') || e.target.closest('.bubble-editor-toolbar') ||
+                    e.target.closest('.bubble-editor-toggle') || e.target.closest('.editor-bubble')) return;
+                qrBox.classList.toggle('revealed');
+            });
+        })();
 
         // ===== BUBBLE EDITOR SYSTEM =====
         const BubbleEditor = (function() {

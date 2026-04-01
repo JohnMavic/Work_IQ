@@ -1523,7 +1523,7 @@ app.post('/api/consolidate', async (req, res) => {
     linkClientToSession(session, client);
     const startTime = Date.now();
     console.log(`[CONSOLIDATE] Analyzing ${activeTasks.length} tasks for merge suggestions (prompt: ${prompt.length} chars)`);
-    const response = await session.sendAndWait({ prompt }, 30000);
+    const response = await session.sendAndWait({ prompt }, 90000);
     console.log(`[CONSOLIDATE] Response in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
     await destroySession(session);
 
