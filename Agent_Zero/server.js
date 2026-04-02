@@ -605,7 +605,7 @@ app.patch('/api/tasks/:id', async (req, res) => {
         });
       }
 
-      const allowedFields = ['status', 'notes', 'title', 'summary', 'enrichmentStatus', 'updateCheckStatus'];
+      const allowedFields = ['status', 'notes', 'title', 'summary', 'enrichmentStatus', 'updateCheckStatus', 'pendingPlan'];
       for (const field of allowedFields) {
         if (updates[field] !== undefined) {
           t[field] = typeof updates[field] === 'string' ? updates[field].trim() : updates[field];

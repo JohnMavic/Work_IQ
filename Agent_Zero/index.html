@@ -981,6 +981,58 @@
     .notification-error { background: #2a0f0f; color: #f87171; border: 1px solid #7f1d1d; }
     @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
+    /* --- Deferred Result Indicator (📬 badge on task card) --- */
+    .result-ready-badge {
+      display: none;
+      font-size: 0.72rem;
+      padding: 2px 6px;
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: #fff;
+      border-radius: 4px;
+      font-weight: 600;
+      animation: resultReadyPulse 2s ease-in-out infinite;
+      margin-left: 6px;
+      white-space: nowrap;
+    }
+    .task-card.has-result .result-ready-badge { display: inline-flex; align-items: center; gap: 3px; }
+    @keyframes resultReadyPulse {
+      0%, 100% { box-shadow: 0 0 4px rgba(16, 185, 129, 0.3); }
+      50% { box-shadow: 0 0 12px rgba(16, 185, 129, 0.6); }
+    }
+
+    /* --- Task-Specific Persistent Notification --- */
+    .notification-stack {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-width: 420px;
+    }
+    .notification-task {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      background: #0f2a1f;
+      color: #34d399;
+      border: 1px solid #166534;
+      animation: slideIn 0.3s ease;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .notification-task:hover { background: #143726; }
+    .notification-task .task-link { color: #6ee7b7; text-decoration: underline; cursor: pointer; }
+    .notification-task .close-btn {
+      background: none; border: none; color: inherit; cursor: pointer;
+      font-size: 1rem; opacity: 0.7; padding: 0 0 0 8px; flex-shrink: 0;
+    }
+    .notification-task .close-btn:hover { opacity: 1; }
+
     /* Phase 4: Consolidation banner */
     .consolidation-banner {
       position: fixed; bottom: 0; left: 0; right: 0; z-index: 180;
@@ -1284,6 +1336,12 @@
       for (const taskId of frozenTasks) {
         const card = document.getElementById('card-' + taskId);
         if (card) card.classList.add('frozen');
+      }
+      // Hydrate pendingPlans from server-persisted task.pendingPlan
+      for (const task of tasks) {
+        if (task.pendingPlan && !pendingPlans[task.id]) {
+          pendingPlans[task.id] = task.pendingPlan;
+        }
       }
       // Restore pending plan displays for selected task
       if (selectedTaskId && pendingPlans[selectedTaskId]) {
@@ -1825,6 +1883,41 @@
     setTimeout(() => { if (el.parentElement) el.remove(); }, 5000);
   }
 
+  // --- Deferred Response Queue: Task-Specific Notifications ---
+
+  function showTaskNotification(message, taskId, taskTitle) {
+    let stack = document.querySelector('.notification-stack');
+    if (!stack) {
+      stack = document.createElement('div');
+      stack.className = 'notification-stack';
+      document.body.appendChild(stack);
+    }
+    stack.querySelectorAll(`[data-task-id="${taskId}"]`).forEach(n => n.remove());
+
+    const el = document.createElement('div');
+    el.className = 'notification-task';
+    el.dataset.taskId = taskId;
+
+    const shortTitle = taskTitle && taskTitle.length > 40 ? taskTitle.substring(0, 37) + '...' : (taskTitle || 'Task');
+    el.innerHTML = `
+      <span>${message} — <span class="task-link">${escHtml(shortTitle)}</span></span>
+      <button class="close-btn" onclick="event.stopPropagation(); this.parentElement.remove()">✕</button>
+    `;
+    el.addEventListener('click', (e) => {
+      if (!e.target.classList.contains('close-btn')) {
+        navigateToResult(taskId);
+        el.remove();
+      }
+    });
+
+    stack.appendChild(el);
+    setTimeout(() => { if (el.parentElement) el.remove(); }, 30000);
+  }
+
+  function navigateToResult(taskId) {
+    selectTask(taskId);
+  }
+
   // --- Header Progress Helpers ---
   let headerProgressTimer = null;
 
@@ -2170,7 +2263,23 @@
     }
     // Don't overwrite detail panel if selected task is frozen (agent working)
     if (!frozenTasks.has(selectedTaskId)) {
+      // Preserve user input before re-render
+      const activeInput = detailPanel.querySelector('.panel-log-form input');
+      const savedInputValue = activeInput ? activeInput.value : '';
+      const activeNoteInput = detailPanel.querySelector('.panel-note-form input, .panel-note-form textarea');
+      const savedNoteValue = activeNoteInput ? activeNoteInput.value : '';
+
       detailPanel.innerHTML = renderTaskDetail(tasks.find(t => t.id === selectedTaskId));
+
+      // Restore user input after re-render
+      if (savedInputValue) {
+        const restoredInput = detailPanel.querySelector('.panel-log-form input');
+        if (restoredInput) restoredInput.value = savedInputValue;
+      }
+      if (savedNoteValue) {
+        const restoredNote = detailPanel.querySelector('.panel-note-form input, .panel-note-form textarea');
+        if (restoredNote) restoredNote.value = savedNoteValue;
+      }
     }
     // Highlight selected item
     document.getElementById('card-' + selectedTaskId)?.classList.add('selected');
@@ -2259,12 +2368,14 @@
       const ambiguityBadge = ambiguityOpenCount > 0
         ? `<span style="color:#fbbf24;font-size:0.72rem;margin-left:4px" title="${ambiguityOpenCount} review item(s)">⚠️ ${ambiguityOpenCount}</span>`
         : '';
+      const hasResultClass = task.pendingPlan ? ' has-result' : '';
+      const resultBadge = task.pendingPlan ? '<span class="result-ready-badge">📬</span>' : '';
 
       return `
-        <div class="task-card${doneClass}${isFrozen ? ' frozen' : ''}${selClass}${mergeMode && selectedForMerge.has(task.id) ? ' merge-selected' : ''}" id="card-${task.id}" onclick="${mergeMode ? `toggleMergeSelect('${task.id}')` : `selectTask('${task.id}')`}">
+        <div class="task-card${doneClass}${isFrozen ? ' frozen' : ''}${selClass}${hasResultClass}${mergeMode && selectedForMerge.has(task.id) ? ' merge-selected' : ''}" id="card-${task.id}" onclick="${mergeMode ? `toggleMergeSelect('${task.id}')` : `selectTask('${task.id}')`}">
           <input type="checkbox" class="merge-checkbox" ${selectedForMerge.has(task.id) ? 'checked' : ''} onclick="event.stopPropagation(); toggleMergeSelect('${task.id}')">
           <div class="task-main">
-            <div class="task-title">${escHtml(task.title)} ${stepIndicator}${ambiguityBadge}${pinnedTaskId === task.id ? '<span class="pinned-indicator" onclick="event.stopPropagation(); unpinTask()" title="Unpin task">📌 ✕</span>' : ''}</div>
+            <div class="task-title">${escHtml(task.title)} ${stepIndicator}${ambiguityBadge}${resultBadge}${pinnedTaskId === task.id ? '<span class="pinned-indicator" onclick="event.stopPropagation(); unpinTask()" title="Unpin task">📌 ✕</span>' : ''}</div>
             <div class="task-meta">
               ${sourceBadge}
               <span>${fromText}${separator}${dateText}</span>
@@ -2645,6 +2756,18 @@
       detailPanel.innerHTML = renderTaskDetail(task);
     }
     saveUIState();
+    // Restore pending plan if this task has one (server-persisted)
+    const pending = pendingPlans[taskId] || task?.pendingPlan;
+    if (pending) {
+      if (!pendingPlans[taskId]) pendingPlans[taskId] = pending;
+      setTimeout(() => {
+        if (pending.intent === 'correct') {
+          showCorrectionPlanUI(taskId, pending.plan);
+        } else {
+          showPlanUI(taskId, pending.plan, pending.fallback);
+        }
+      }, 50);
+    }
     // Scroll selected card into view in middle panel
     const card = document.getElementById('card-' + taskId);
     if (card) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -2714,6 +2837,41 @@
       // Re-acquire DOM refs (may have been rebuilt by another task's fetchTasks)
       planEl = document.getElementById('plan-' + taskId);
       clarifyEl = document.getElementById('clarify-' + taskId);
+
+      // Check if user navigated away during async call
+      if (selectedTaskId !== taskId) {
+        const task = tasks.find(t => t.id === taskId);
+        const taskTitle = task?.title || 'Task';
+        const intent = data.intent || 'search';
+
+        if (res.ok) {
+          if ((intent === 'summarize' || intent === 'answer' || intent === 'rename' || intent === 'update') && (data.result || intent === 'update')) {
+            // Immediate results — data already saved on server, just notify
+            const msgs = { summarize: '✏️ Summary updated', answer: '💬 Answer saved', rename: '📝 Title updated', update: '🔄 Task updated' };
+            showTaskNotification(msgs[intent] || '✅ Done', taskId, taskTitle);
+            await fetchTasks();
+          } else if (intent === 'correct' && data.plan) {
+            // Correction plan — persist to server so it survives navigation + refresh
+            const planData = { plan: data.plan, originalText: text, intent: 'correct' };
+            pendingPlans[taskId] = planData;
+            await fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: planData }) });
+            showTaskNotification('🔍 Correction plan ready', taskId, taskTitle);
+            await fetchTasks();
+          } else if (data.plan && !data.plan.needsClarification) {
+            // Search plan — persist to server so it survives navigation + refresh
+            const planData = { plan: data.plan, originalText: text, fallback: !!data.fallback, intent: 'search' };
+            pendingPlans[taskId] = planData;
+            await fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: planData }) });
+            showTaskNotification('💡 Search plan ready', taskId, taskTitle);
+            await fetchTasks();
+          }
+        }
+        unfreezeTask(taskId);
+        const freshInput = document.querySelector(`#panel-${taskId} .panel-log-form input`);
+        if (freshInput) freshInput.disabled = false;
+        return;
+      }
+
       if (!planEl) return;
 
       if (!res.ok) {
@@ -2764,7 +2922,9 @@
 
       // --- Intent: correct → show correction plan with Verify button ---
       if (intent === 'correct' && data.plan) {
-        pendingPlans[taskId] = { plan: data.plan, originalText: text, intent: 'correct' };
+        const planData = { plan: data.plan, originalText: text, intent: 'correct' };
+        pendingPlans[taskId] = planData;
+        fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: planData }) });
         showCorrectionPlanUI(taskId, data.plan);
         return;
       }
@@ -2776,7 +2936,11 @@
         showNotification('Agent returned no actionable plan', 'error');
         return;
       }
-      pendingPlans[taskId] = { plan, originalText: text, fallback: !!data.fallback };
+      const planData = { plan, originalText: text, fallback: !!data.fallback, intent: 'search' };
+      pendingPlans[taskId] = planData;
+      if (!plan.needsClarification) {
+        fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: planData }) });
+      }
 
       if (plan.needsClarification && plan.clarificationQuestion) {
         planEl.innerHTML = `<div class="log-plan-understanding">❓ ${plan.clarificationQuestion}</div>`;
@@ -2847,6 +3011,23 @@
       // Re-acquire DOM ref (may have been rebuilt by another task's fetchTasks)
       planEl = document.getElementById('plan-' + taskId);
 
+      // Check if user navigated away during async search
+      if (selectedTaskId !== taskId) {
+        const task = tasks.find(t => t.id === taskId);
+        const taskTitle = task?.title || 'Task';
+        const commCount = data.history?.[data.history.length - 1]?.communications?.length || 0;
+
+        delete pendingPlans[taskId];
+        fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: null }) }).catch(() => {});
+
+        const msg = commCount > 0 ? `✅ ${commCount} result(s) found` : '🔍 No results found';
+        showTaskNotification(msg, taskId, taskTitle);
+
+        try { await fetchTasks(); } catch {}
+        unfreezeTask(taskId);
+        return;
+      }
+
       if (!res.ok) {
         if (planEl) planEl.innerHTML = `<div class="log-plan-understanding">❌ ${friendlyError(data)}</div>`;
         showNotification(friendlyError(data), 'error');
@@ -2875,6 +3056,7 @@
 
       // Clear pending plan BEFORE re-render so showPlanUI() won't restore it
       delete pendingPlans[taskId];
+      fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: null }) });
 
       // Re-render but keep panels open
       await fetchTasks();
@@ -2892,7 +3074,8 @@
       if (freshPlanEl) freshPlanEl.innerHTML = `<div class="log-plan-understanding">❌ Search failed: ${escHtml(err.message)}</div>`;
       showNotification('Failed to log work: ' + err.message, 'error');
     } finally {
-      delete pendingPlans[taskId]; // safe to call even if already deleted above
+      delete pendingPlans[taskId];
+      fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: null }) }).catch(() => {});
       unfreezeTask(taskId);
     }
   }
@@ -2901,6 +3084,7 @@
     document.getElementById('plan-' + taskId).classList.remove('visible');
     document.getElementById('clarify-' + taskId).classList.remove('visible');
     delete pendingPlans[taskId];
+    fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: null }) });
   }
 
   async function addNote(taskId, input) {
