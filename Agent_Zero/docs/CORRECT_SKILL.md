@@ -116,7 +116,7 @@ Return ONLY a JSON object:
     }
   ],
   "suggestedTitle": "If verdict is user_correct: the corrected title. Otherwise: null",
-  "suggestedSummary": "If verdict is user_correct: the corrected summary. Otherwise: null"
+  "suggestedSummary": "If verdict is user_correct: the corrected summary in STRUCTURED FORMAT (3 sections: [context] --- 🔴 Nächste Schritte --- ✅ Bisheriger Verlauf, separated by '---'). NEVER use '📌 Update' format. If the existing summary uses old format, migrate it. Otherwise: null"
 }
 ```
 

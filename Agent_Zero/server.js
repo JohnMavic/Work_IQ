@@ -10,7 +10,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT, 10) || 3000;
 const TASKS_FILE = path.join(__dirname, 'tasks.json');
 
 // --- Global Error Handlers (crash prevention) ---
@@ -1310,10 +1310,9 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
           type: 'thread-update',
           text: historyLines.join('\n')
         });
-        // Prepend update with timestamp (newest on top — may be refined by evaluation below)
-        const updateTs = formatUpdateTimestamp(new Date());
-        const updateLine = `📌 Update (${updateTs}): ${String(result.updateSummary).trim()}`;
-        t.summary = updateLine + '\n\n' + (t.summary || '');
+        // Store raw update text for evaluation — do NOT prepend to summary (eval will integrate structurally)
+        t._pendingUpdate = String(result.updateSummary).trim();
+        t._pendingUpdateTs = formatUpdateTimestamp(new Date());
         t.updatedAt = now;
         return { hasUpdate: true, updateSummary: result.updateSummary };
       } else {
@@ -1340,7 +1339,7 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
         evalSession = trackSession(await evalClient.createSession({}));
 
         linkClientToSession(evalSession, evalClient);
-        const evalPrompt = `You are evaluating whether a task's title and summary need updating based on new information from an update check.
+        const evalPrompt = `You are updating a task's title and summary based on new information.
 
 CURRENT TASK:
 Title: "${originalTitle}"
@@ -1355,34 +1354,40 @@ INSTRUCTIONS:
    - The title must reflect the CURRENT state of this action item, not the original request.
    - If the situation has evolved in ANY way (reply received, decision made, deadline passed, request fulfilled, meeting confirmed), UPDATE the title to reflect what is happening NOW.
    - Example: "Please prepare slides by Friday" → "Slides submitted — awaiting review from Jawad"
-   - Example: "Harshitha asks for presentation topic" → "Learn & Grow session confirmed for April 17"
    - Be decisive: if the latest update changes the situation, the title MUST change.
    - Keep it concise: max 15 words, factual, no emojis.
 
-2. SUMMARY evaluation — maintain REVERSE CHRONOLOGICAL structure:
-   The summary MUST follow this structure:
-   - NEWEST updates at the TOP, each with a timestamp marker: "📌 Update (DD.MM.YYYY, HH:MM): ..."
-   - OLDER updates below, also with timestamp markers
-   - The ORIGINAL base summary at the BOTTOM
-   - Each update is separated by a blank line
+2. SUMMARY — use STRUCTURED FORMAT with 3 visually separated sections:
 
-   Example structure:
-   📌 Update (11.03.2026, 11:40): Session confirmed for April 17, Martin as co-organizer...
+   The summary MUST follow this exact structure:
 
-   📌 Update (10.03.2026, 14:22): Martin provided title and description...
+   [1-2 sentence context: what this task is about]
 
-   📌 Update (09.03.2026, 08:15): Harshitha agreed to the proposal...
+   ---
 
-   Harshitha Digumarthi hat Martin als Guest Speaker eingeladen...
+   🔴 **Nächste Schritte:** (or **Next steps:** if content is in English)
+   - What needs to happen NOW based on latest information
+   - Who must act, what are we waiting for
+   - 📧 *Source reference if known*
 
-   Rules:
-   - Preserve ALL existing updates and the base summary — do NOT drop any information.
-   - You may MERGE or DEDUPLICATE genuinely redundant updates, but never silently remove information.
-   - If an existing update already has a timestamp, keep it. If it lacks one, leave it without rather than guessing.
-   - The new update has already been prepended with a timestamp. Ensure it stays at the top.
+   ---
+
+   ✅ **Bisheriger Verlauf:** (or **History:** if content is in English)
+   - DD.MM. — One-line milestone (most recent first)
+   - DD.MM. — One-line milestone
+
+   RULES:
+   - The CONTEXT section (top) stays stable — only update if the core nature of the task changed.
+   - The 🔴 section reflects the NEW current state after this update.
+   - Items that WERE in 🔴 and are now resolved → move to ✅ as a one-liner.
+   - Add the new update as the TOP entry in ✅ with today's date.
+   - Use "---" (Markdown horizontal rule) between each section.
+   - NEVER use "📌 Update (date):" block format — that is deprecated.
+   - Do NOT duplicate information between sections.
    - Write in the SAME language as the existing content.
+   - If the existing summary uses the old format (stacked 📌 Update blocks), MIGRATE it to the new structured format. Extract the context, identify what is current vs. completed, and restructure.
 
-3. Only set *Changed to true when there is a GENUINE reason to update.
+3. ALWAYS set summaryChanged to true when a new update was found — the 🔴 and ✅ sections must reflect the new information.
 
 Return ONLY valid JSON, no markdown:
 {
@@ -1431,6 +1436,8 @@ Return ONLY valid JSON, no markdown:
                 }
 
                 t.updatedAt = now;
+                delete t._pendingUpdate;
+                delete t._pendingUpdateTs;
                 return t;
               });
             }
@@ -1438,6 +1445,16 @@ Return ONLY valid JSON, no markdown:
         }
       } catch (evalErr) {
         console.error(`[EVAL-P3] Post-update evaluation failed (non-fatal): ${evalErr.message}`);
+        // Fallback: if eval fails, integrate update with minimal formatting so it's not lost
+        await safeWriteTasks((data) => {
+          const t = data.tasks.find(t => t.id === id);
+          if (t && t._pendingUpdate) {
+            const ts = t._pendingUpdateTs || formatUpdateTimestamp(new Date());
+            t.summary = `🔴 **Update ${ts}:** ${t._pendingUpdate}\n\n---\n\n${t.summary || ''}`;
+            delete t._pendingUpdate;
+            delete t._pendingUpdateTs;
+          }
+        });
       } finally {
         await destroySession(evalSession);
         if (evalClient) {
@@ -1598,16 +1615,29 @@ TASKS TO MERGE:
 ${tasksToMerge.map((t, i) => `\n--- Task ${i + 1}: "${t.title}" ---\nSummary: ${t.summary || '(no summary)'}\nFrom: ${t.from || 'unknown'}\nSource: ${t.source}`).join('\n')}
 
 INSTRUCTIONS:
-1. Create a UNIFIED SUMMARY that combines all information from all tasks.
-2. Preserve ALL important details: names, dates, decisions, action items, updates.
-3. Maintain reverse chronological order: newest updates at top with "📌 Update" markers.
-4. Write in the SAME LANGUAGE as the original summaries.
-5. Do NOT lose any information from any task.
+1. Create a UNIFIED SUMMARY in STRUCTURED FORMAT with 3 visually separated sections:
+
+   [1-2 sentence context: what this merged task is about]
+
+   ---
+
+   🔴 **Nächste Schritte:** (or **Next steps:** if content is in English)
+   - All currently pending items from all tasks combined
+
+   ---
+
+   ✅ **Bisheriger Verlauf:** (or **History:** if content is in English)
+   - DD.MM. — One-line milestone (most recent first)
+
+2. Preserve ALL important details: names, dates, decisions, action items.
+3. Use "---" (Markdown horizontal rule) between sections.
+4. NEVER use "📌 Update (date):" format — that is deprecated.
+5. Write in the SAME LANGUAGE as the original summaries.
 6. If different people have different perspectives, attribute them clearly.
 
 Return ONLY valid JSON:
 {
-  "mergedSummary": "The complete unified summary text",
+  "mergedSummary": "The complete unified summary in structured format",
   "mergedTitle": "A concise title (max 15 words) for the merged task"
 }`;
 
@@ -1823,7 +1853,7 @@ app.post('/api/tasks/:id/log/analyze', async (req, res) => {
       preSession = trackSession(await client.createSession({}));
       linkClientToSession(preSession, client);
       try {
-        const updateOnlyPrompt = `You are updating a task tracker. The user is providing information and wants the task updated. Generate an appropriate update that MERGES the new information with the existing content.
+        const updateOnlyPrompt = `You are updating a task tracker. The user is providing information and wants the task updated.
 
 TASK:
 Title: "${task.title}"
@@ -1832,18 +1862,36 @@ ${recentHistory ? `\nHistory:\n${recentHistory}\n` : ''}
 USER'S MESSAGE:
 "${text.trim()}"
 
-RULES FOR THE SUMMARY:
-- By default, keep ALL existing summary content intact
-- ADD the new information at the TOP with a timestamp: "📌 Update (DD.MM.YYYY, HH:MM): [new info]"
-- Then include ALL existing content below unchanged
-- EXCEPTION: If the user says content is FALSE/WRONG and must be REMOVED — remove that specific false content, add an update note explaining the removal, keep all OTHER content
+RULES FOR THE SUMMARY — STRUCTURED FORMAT:
+The summary MUST follow this exact structure with 3 visually separated sections:
+
+[1-2 sentence context: what this task is about]
+
+---
+
+🔴 **Nächste Schritte:** (or **Next steps:** if content is in English)
+- What needs to happen NOW based on latest information
+- Who must act, what are we waiting for
+
+---
+
+✅ **Bisheriger Verlauf:** (or **History:** if content is in English)
+- DD.MM. — One-line milestone (most recent first)
+
+RULES:
+- Integrate the user's new information into the appropriate section
+- If something was completed → move from 🔴 to ✅
+- If something new is pending → add to 🔴
+- NEVER use "📌 Update (date):" block format — that is deprecated
+- If the existing summary uses the old format (stacked 📌 Update blocks), MIGRATE it to the new structured format
+- EXCEPTION: If the user says content is FALSE/WRONG → remove that specific false content, add a note in ✅ explaining the correction
 - Write in the same language as the existing content
 
 Return ONLY this JSON (no markdown, no explanation):
 {
   "intent": "update",
   "newTitle": "Updated title reflecting current state (max ~15 words). Keep the original title if it still fits: ${JSON.stringify(task.title)}",
-  "newSummary": "The COMPLETE updated summary with new info at top + ALL existing content below",
+  "newSummary": "The COMPLETE updated summary in structured format",
   "changeDescription": "Brief description of what changed based on the user's message"
 }`;
         const updateResponse = await preSession.sendAndWait({ prompt: updateOnlyPrompt }, 30000);
@@ -1987,7 +2035,7 @@ For "update":
   "_reasoning": "The user says 'Ich habe...' / reports an action / provides new information → update",
   "intent": "update",
   "newTitle": "Short, factual title reflecting the current state of the action item (max ~15 words). If the user doesn't ask for a title change, keep the original: ${JSON.stringify(task.title)}",
-  "newSummary": "IMPORTANT: By default, keep ALL existing summary content and ADD new information at the top using '📌 Update (DD.MM.YYYY, HH:MM): ...'. EXCEPTION: If the user explicitly states that specific content is FALSE, WRONG, or must be REMOVED — then REMOVE that specific false content from the summary and title, add an update note explaining what was removed and why, and keep all OTHER content intact.",
+  "newSummary": "IMPORTANT: The summary MUST use the STRUCTURED FORMAT with 3 sections separated by '---' (Markdown horizontal rules):\n\n[1-2 sentence context]\n\n---\n\n🔴 **Nächste Schritte:**\n- Current pending items\n\n---\n\n✅ **Bisheriger Verlauf:**\n- DD.MM. — Milestone\n\nIntegrate new information into the appropriate section. Move completed items from 🔴 to ✅. NEVER use '📌 Update (date):' format — it is deprecated. If the existing summary uses the old stacked update format, MIGRATE it to the structured format. EXCEPTION: If the user says content is FALSE/WRONG → remove it and note the correction in ✅.",
   "changeDescription": "Brief human-readable description of what you changed and why"
 }
 
@@ -2687,25 +2735,38 @@ CRITICAL RULE: If the user EXPLICITLY asks you to update the title and/or summar
    - The title must reflect the CURRENT state of this action item, not the original request.
    - If the search reveals that the situation has evolved (reply received, decision made, deadline passed, request fulfilled, meeting confirmed), UPDATE the title.
    - If the user explicitly asked to update the title, you MUST update it to reflect the latest findings.
-   - Example: "Please prepare slides by Friday" → "Slides submitted — awaiting review from Jawad"
    - Be decisive: if the search reveals a changed situation, the title MUST change.
    - Keep it concise: max 15 words, factual, no emojis.
 
-2. SUMMARY evaluation — maintain REVERSE CHRONOLOGICAL structure:
-   The summary MUST follow this structure:
-   - NEWEST updates at the TOP, each with a timestamp marker: "📌 Update (DD.MM.YYYY, HH:MM): ..."
-   - OLDER updates below, also with timestamp markers
-   - The ORIGINAL base summary at the BOTTOM
-   - Each update is separated by a blank line
+2. SUMMARY — use STRUCTURED FORMAT with 3 visually separated sections:
 
-   Rules:
-   - When NEW information is found (new replies, status changes, decisions), add it as a NEW update at the TOP with today's timestamp: "📌 Update (${formatUpdateTimestamp(new Date())}): ..."
-   - If the user explicitly asked to update the summary, integrate the search results even if some information already exists — add timestamps, new details, or restructure.
-   - Preserve ALL existing updates and the base summary — do NOT drop any information.
-   - You may MERGE or DEDUPLICATE genuinely redundant updates, but never silently remove information.
-   - If existing updates already have timestamps, keep them. If they lack timestamps, leave them without rather than guessing.
-   - Only skip summary changes if the search returned zero results AND the user did NOT explicitly request an update.
+   The summary MUST follow this exact structure:
+
+   [1-2 sentence context: what this task is about]
+
+   ---
+
+   🔴 **Nächste Schritte:** (or **Next steps:** if content is in English)
+   - What needs to happen NOW based on latest information
+   - Who must act, what are we waiting for
+   - 📧 *Source reference if known*
+
+   ---
+
+   ✅ **Bisheriger Verlauf:** (or **History:** if content is in English)
+   - DD.MM. — One-line milestone (most recent first)
+   - DD.MM. — One-line milestone
+
+   RULES:
+   - The CONTEXT section (top) stays stable — only update if the core nature of the task changed.
+   - The 🔴 section reflects the CURRENT state after integrating search results.
+   - Move resolved items from 🔴 to ✅ as one-liners.
+   - Use "---" (Markdown horizontal rule) between each section.
+   - NEVER use "📌 Update (date):" block format — that is deprecated.
+   - Do NOT duplicate information between sections.
    - Write in the SAME language as the existing content.
+   - If the existing summary uses the old format (stacked 📌 Update blocks), MIGRATE it to the new structured format.
+   - Only skip summary changes if the search returned zero results AND the user did NOT explicitly request an update.
 
 3. Only set *Changed to true when there is a GENUINE reason to update. An explicit user request to update IS a genuine reason.
 
@@ -2845,7 +2906,7 @@ CRITICAL INSTRUCTIONS — RESEARCH BEFORE ANSWERING:
 After your analysis, return ONLY this JSON:
 {
   "resolvedIndices": [0, 2],
-  "updatedSummary": "The complete updated summary incorporating the user's clarifications AND your research findings. Write in the same language as the current summary. If no changes needed, return null.",
+  "updatedSummary": "The complete updated summary in STRUCTURED FORMAT. Use 3 sections separated by '---': [context paragraph] --- 🔴 **Nächste Schritte:** [pending items] --- ✅ **Bisheriger Verlauf:** [milestones]. NEVER use '📌 Update' format. If the existing summary uses old format, MIGRATE it. Write in the same language as the current summary. If no changes needed, return null.",
   "remainingQuestions": ["Any new or still-open question — only if truly unresolved"],
   "allResolved": true,
   "researchPerformed": true

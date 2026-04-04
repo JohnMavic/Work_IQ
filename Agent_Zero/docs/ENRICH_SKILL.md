@@ -66,12 +66,36 @@ When you find the conversation:
 
 ## Summary Requirements
 
-- Write 2-4 sentences that capture: what the conversation is about, what is being asked, and key details (deadlines, amounts, names, decisions)
+The summary MUST follow this structured format with visually separated sections:
+
+### Structure (MANDATORY)
+
+```
+[1-2 sentence context: what this task is about — the "elevator pitch"]
+
+---
+
+🔴 **Nächste Schritte:** / **Next steps:**
+- What needs to happen now, who must act, what are we waiting for
+- Include source reference: 📧 *[Sender, Date]* or 💬 *[Teams sender, Date]*
+
+---
+
+✅ **Bisheriger Verlauf:** / **History:**
+- DD.MM. — One-line milestone (most recent first)
+- DD.MM. — One-line milestone
+```
+
+### Rules
 - **Write in the SAME LANGUAGE as the original message.** If in German, write in German. If in English, write in English.
-- Include specific details: names, dates, numbers, project names, invoice numbers, links mentioned
+- The CONTEXT section (top) must be 1-2 sentences max — what is this about, who is involved, what is the goal
+- The 🔴 section must answer: "What do I need to do or know RIGHT NOW?"
+- The ✅ section contains compact one-liners per milestone — no full paragraphs
+- Use `---` (Markdown horizontal rule) to visually separate each section
+- Include specific details: names, dates, numbers, project names, invoice numbers
 - The summary must enable the user to understand the full situation WITHOUT opening the original message
-- Start with the CURRENT situation, then add historical context if relevant
-- This is the **base summary** — future updates will be prepended above it with "📌 Update (date, time):" markers. Do NOT use that marker format in the initial summary.
+- **NEVER** use "📌 Update (date):" block format — that pattern is deprecated
+- If this is the initial extraction and there is no history yet, the ✅ section can be omitted
 
 ### Perspective Attribution — IMPORTANT
 
