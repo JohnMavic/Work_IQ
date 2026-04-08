@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
-import { CopilotClient } from '@github/copilot-sdk';
+import { CopilotClient, approveAll, defineTool } from '@github/copilot-sdk';
 import { spawn } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -12,6 +12,162 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const TASKS_FILE = path.join(__dirname, 'tasks.json');
+
+// --- Work IQ Persistent MCP Client (v3.2) ---
+// Spawns ONE workiq MCP subprocess at startup with proper stdio settings.
+// The SDK's own MCP spawning uses windowsHide:true + all-piped stdio which
+// blocks WAM auth. We spawn it ourselves with stderr inherited so WAM works.
+// Auth happens ONCE, EULA accepted ONCE, then cached for the server lifetime.
+
+let wiqProc = null;
+let wiqStdout = '';
+let wiqReady = false;
+let wiqRequestId = 0;
+const wiqPending = new Map(); // id → { resolve, reject, timer }
+
+function startWorkIQMCP() {
+  return new Promise((resolve, reject) => {
+    // Use locally installed @microsoft/workiq@0.2.8 (pinned in package.json)
+    // instead of npx which resolves to the latest cached version (0.4.0+).
+    // The newer versions repeatedly prompt for WAM auth, causing timeouts.
+    const workiqScript = path.join(__dirname, 'node_modules', '@microsoft', 'workiq', 'bin', 'workiq.js');
+    console.log(`[WORKIQ] Starting persistent MCP subprocess (local: ${workiqScript})...`);
+    wiqProc = spawn(process.execPath, [workiqScript, 'mcp'], {
+      cwd: __dirname,
+      stdio: ['pipe', 'pipe', 'inherit'], // stderr inherited → WAM can auth
+    });
+
+    wiqProc.on('error', (err) => {
+      console.error('[WORKIQ] Subprocess error:', err.message);
+      wiqReady = false;
+    });
+
+    wiqProc.on('close', (code) => {
+      console.warn(`[WORKIQ] Subprocess exited (code ${code}) — will auto-restart in 3s`);
+      wiqReady = false;
+      wiqProc = null;
+      // Reject all pending requests
+      for (const [id, pending] of wiqPending) {
+        pending.reject(new Error('Work IQ subprocess exited'));
+        clearTimeout(pending.timer);
+      }
+      wiqPending.clear();
+      // Auto-restart after 3 seconds
+      setTimeout(() => {
+        console.log('[WORKIQ] Auto-restarting persistent MCP subprocess...');
+        startWorkIQMCP().then(() => {
+          console.log('[WORKIQ] ✅ Auto-restart successful');
+        }).catch(err => {
+          console.error(`[WORKIQ] ⚠️ Auto-restart failed: ${err.message}`);
+        });
+      }, 3000);
+    });
+
+    // Parse JSON-RPC responses from stdout
+    wiqProc.stdout.on('data', (data) => {
+      wiqStdout += data.toString();
+      const lines = wiqStdout.split('\n');
+      wiqStdout = lines.pop(); // keep incomplete line
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const msg = JSON.parse(line.trim());
+          if (msg.id !== undefined && wiqPending.has(msg.id)) {
+            const pending = wiqPending.get(msg.id);
+            clearTimeout(pending.timer);
+            wiqPending.delete(msg.id);
+            pending.resolve(msg);
+          }
+        } catch {}
+      }
+    });
+
+    // Step 1: Initialize MCP
+    const initId = ++wiqRequestId;
+    wiqPending.set(initId, {
+      resolve: (msg) => {
+        console.log('[WORKIQ] MCP initialized:', msg.result?.serverInfo?.name || 'OK');
+        // Step 2: Accept EULA
+        const eulaId = ++wiqRequestId;
+        wiqPending.set(eulaId, {
+          resolve: (msg2) => {
+            const text = msg2.result?.content?.[0]?.text || '';
+            console.log('[WORKIQ] EULA:', text.substring(0, 60));
+            wiqReady = true;
+            resolve();
+          },
+          reject,
+          timer: setTimeout(() => { wiqPending.delete(eulaId); reject(new Error('EULA timeout')); }, 15000)
+        });
+        wiqProc.stdin.write(JSON.stringify({
+          jsonrpc: '2.0', id: eulaId, method: 'tools/call',
+          params: { name: 'accept_eula', arguments: { eulaUrl: 'https://github.com/microsoft/work-iq-mcp' } }
+        }) + '\n');
+      },
+      reject,
+      timer: setTimeout(() => { wiqPending.delete(initId); reject(new Error('MCP init timeout')); }, 15000)
+    });
+
+    setTimeout(() => {
+      wiqProc.stdin.write(JSON.stringify({
+        jsonrpc: '2.0', id: initId, method: 'initialize',
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'agent-zero', version: '3.0' } }
+      }) + '\n');
+    }, 1500);
+  });
+}
+
+function askWorkIQDirect(question, timeoutMs = 90000) {
+  return new Promise(async (resolve, reject) => {
+    // If not ready, wait up to 10s for auto-restart
+    if (!wiqReady || !wiqProc) {
+      console.log('[WORKIQ] Not ready, waiting up to 10s for auto-restart...');
+      for (let i = 0; i < 10; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+        if (wiqReady && wiqProc) break;
+      }
+      if (!wiqReady || !wiqProc) {
+        return reject(new Error('Work IQ MCP not ready'));
+      }
+      console.log('[WORKIQ] Recovered — proceeding with query');
+    }
+    const id = ++wiqRequestId;
+    wiqPending.set(id, {
+      resolve: (msg) => {
+        const text = msg.result?.content?.[0]?.text || '';
+        if (text) resolve(text);
+        else reject(new Error('Empty response from Work IQ'));
+      },
+      reject,
+      timer: setTimeout(() => {
+        wiqPending.delete(id);
+        reject(new Error(`Work IQ timeout after ${Math.round(timeoutMs / 1000)}s`));
+      }, timeoutMs)
+    });
+    wiqProc.stdin.write(JSON.stringify({
+      jsonrpc: '2.0', id, method: 'tools/call',
+      params: { name: 'ask_work_iq', arguments: { question } }
+    }) + '\n');
+  });
+}
+
+const askWorkIQTool = defineTool('ask_work_iq', {
+  description: 'Search Microsoft 365 emails, Teams messages, calendar, and documents. Pass a natural language question.',
+  parameters: { type: 'object', properties: { question: { type: 'string', description: 'The question to ask Work IQ' } }, required: ['question'] },
+  skipPermission: true,
+  handler: async ({ question }) => {
+    console.log(`[M365] Query: "${question.substring(0, 80)}..."`);
+    const start = Date.now();
+    try {
+      const result = await askWorkIQDirect(question);
+      console.log(`[M365] OK in ${((Date.now() - start) / 1000).toFixed(1)}s (${result.length} chars)`);
+      return result;
+    } catch (e) {
+      console.error(`[M365] Failed in ${((Date.now() - start) / 1000).toFixed(1)}s: ${e.message}`);
+      return `Error: ${e.message}`;
+    }
+  }
+});
 
 // --- Global Error Handlers (crash prevention) ---
 // Prevent server termination from unhandled errors in SDK child processes.
@@ -103,6 +259,8 @@ function setupGracefulShutdown() {
     shuttingDown = true;
     console.log(`\n[SHUTDOWN] ${signal} received — cleaning up ${activeSessions.size} active session(s)...`);
     await destroyAllSessions();
+    // Kill persistent Work IQ MCP subprocess
+    if (wiqProc) { try { wiqProc.kill(); } catch {} wiqProc = null; }
     // Also kill any remaining SDK subprocesses
     try { await reapOrphanedSessions(); } catch {}
     console.log('[SHUTDOWN] All sessions destroyed. Exiting.');
@@ -348,82 +506,6 @@ function extractKeywords(title) {
     .split(/[\s|,;:–—]+/)
     .map(w => w.replace(/[^a-zA-Z0-9#]/g, ''))
     .filter(w => w.length > 1 && !stopWords.has(w.toLowerCase()));
-}
-
-// --- Work IQ Direct CLI (v1.4) ---
-
-function runWorkIQAsk(question, timeoutMs = 90000) {
-  return new Promise((resolve, reject) => {
-    let stdout = '';
-    let stderr = '';
-    // Interactive mode via stdin — workiq ask without -q writes to stdout properly
-    // (workiq ask -q writes to console/TTY directly, bypassing stdout capture)
-    const proc = spawn('workiq', ['ask'], { stdio: ['pipe', 'pipe', 'pipe'], shell: true });
-
-    const timer = setTimeout(() => {
-      proc.kill();
-      reject(new Error(`Timeout after ${timeoutMs / 1000}s waiting for workiq ask`));
-    }, timeoutMs);
-
-    proc.stdout.on('data', d => { stdout += d.toString(); });
-    proc.stderr.on('data', d => { stderr += d.toString(); });
-
-    proc.on('close', (code) => {
-      clearTimeout(timer);
-      if (code === 0) resolve(stdout.trim());
-      else reject(new Error(stderr.trim() || `workiq ask exited with code ${code}`));
-    });
-    proc.on('error', (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-
-    // Send question via stdin after brief init delay
-    setTimeout(() => {
-      proc.stdin.write(question + '\n');
-      proc.stdin.end();
-    }, 500);
-  });
-}
-
-function buildSearchQuestion(plan, taskContext, userText) {
-  const targets = plan.searchTargets || 'inbox';
-
-  // Calculate time window as "last N days" with explicit date range in parentheses
-  function timeWindow(tw) {
-    const now = new Date();
-    const months = ['January','February','March','April','May','June',
-      'July','August','September','October','November','December'];
-    const fmtDate = d => `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
-
-    if (!tw?.from) {
-      const from = new Date(now); from.setDate(from.getDate() - 7);
-      return `from the last 7 days (${fmtDate(from)}-${fmtDate(now)})`;
-    }
-    const fromDate = new Date(tw.from);
-    const days = Math.max(2, Math.ceil((now - fromDate) / (1000 * 60 * 60 * 24)) + 1);
-    return `from the last ${days} days (${fmtDate(fromDate)}-${fmtDate(now)})`;
-  }
-
-  const tw = timeWindow(plan.timeWindow);
-  const keywords = plan.keywords || [];
-
-  // AI-determined sender (person name or domain) takes priority
-  const sender = plan.searchFrom || null;
-
-  let question;
-  if (sender) {
-    question = `Find all emails from ${sender} in my ${targets} ${tw}.`;
-  } else if (keywords.length > 0) {
-    question = `Find all emails in my ${targets} ${tw} about ${keywords.join(' or ')}.`;
-  } else {
-    // Last resort: use task title context
-    question = `Find all emails in my ${targets} ${tw} related to "${taskContext.title}".`;
-  }
-
-  question += ` For each email show: subject line, date, and the full email body content. Order by date descending.`;
-
-  return question;
 }
 
 // --- Schema Migration ---
@@ -731,140 +813,96 @@ app.post('/api/tasks/:id/note', async (req, res) => {
   }
 });
 
-// POST /api/scan — scan M365 emails and Teams via Copilot SDK + Work IQ
+// POST /api/scan — scan M365 emails and Teams via Work IQ
+// v5.0: Direct M365 scan — no Copilot SDK needed.
+// WorkIQ (M365 Copilot) already classifies actionable messages.
+// We just ask the right question, parse the response, and create tasks.
 app.post('/api/scan', async (req, res) => {
-  let client, session;
   const scanDays = Math.min(14, Math.max(1, parseInt(req.body?.scanDays) || 4));
   try {
-    client = new CopilotClient();
-    session = trackSession(await client.createSession({
-      mcpServers: {
-        workiq: {
-          type: 'stdio',
-          command: 'workiq',
-          args: ['mcp'],
-          tools: '*'
-        }
-      }
-    }));
-
-    linkClientToSession(session, client);
-    // Build context-aware prompt with existing tasks (v1.3, dedup fix v1.5)
-    const data = readTasks();
-    const activeTasks = data.tasks
-      .filter(t => t.status === 'new' || t.status === 'needs-attention' || t.status === 'escalated' || t.status === 'in-progress')
-      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
-      .slice(0, 50)
-      .map(t => ({ id: t.id, title: t.title, source: t.source, from: t.from }));
-
-    // Include recent done tasks so AI won't re-create them (dedup fix)
-    const doneTasks = data.tasks
-      .filter(t => t.status === 'done')
-      .sort((a, b) => (b.doneAt || b.updatedAt || '').localeCompare(a.doneAt || a.updatedAt || ''))
-      .slice(0, 30)
-      .map(t => ({ id: t.id, title: t.title, source: t.source, from: t.from, status: 'done' }));
-
-    const allContextTasks = [...activeTasks, ...doneTasks];
-
-    let scanPrompt;
+    const scanStart = Date.now();
     const daysText = `last ${scanDays} day${scanDays === 1 ? '' : 's'}`;
 
-    // Build dedup context: compact list of existing task titles for matching
-    const contextLines = allContextTasks.map(t => {
-      const status = t.status === 'done' ? ' [DONE]' : '';
-      return `- "${t.title}" (${t.source}, from ${t.from || 'unknown'})${status}`;
-    }).join('\n');
+    // ── STEP 1: Ask M365 for actionable messages (email + Teams in PARALLEL) ──
+    console.log(`[SCAN] Fetching actionable messages (${daysText}, parallel)...`);
 
-    // Hybrid approach: naive question + dedup context + structured JSON output
-    scanPrompt = `Which of my emails and Teams messages from the ${daysText} require me to take action?
+    const emailQuery = `Which of my emails from the ${daysText} require me to take action — respond, approve, review, call back, deliver, decide, or follow up? Include emails from external senders. For each actionable email show: exact Subject line, From (sender name), Date received, and a direct Outlook Web link to open it.`;
+    const teamsQuery = `Which of my Teams messages from the ${daysText} require me to take action — respond, review, deliver, or follow up? Only include messages with explicit requests. For each show: who sent it, date, topic, and what action is needed.`;
 
-I need to respond, approve, review, decide, deliver, or follow up on something. Find ALL such messages.
+    const [emailResult, teamsResult] = await Promise.allSettled([
+      askWorkIQDirect(emailQuery, 90000),
+      askWorkIQDirect(teamsQuery, 90000),
+    ]);
 
-${allContextTasks.length > 0 ? `IMPORTANT — I already have these action items tracked. Do NOT return items that match an existing one (same topic, same thread, same request — even if worded differently or with different prefixes like Re:, Fw:, [EXTERN]):
-${contextLines}
+    const emailRaw = emailResult.status === 'fulfilled' ? emailResult.value : '';
+    const teamsRaw = teamsResult.status === 'fulfilled' ? teamsResult.value : '';
+    const fetchMs = Date.now() - scanStart;
+    console.log(`[SCAN] M365 responded in ${(fetchMs / 1000).toFixed(1)}s (emails: ${emailRaw.length} chars, teams: ${teamsRaw.length} chars)`);
 
-For items matching an EXISTING active task, return: {"action": "update", "existingId": "<id>", "changes": {"date": "...", "link": "..."}, "reason": "why"}
-For items matching a DONE task, return: {"action": "skip"} — do NOT re-create them unless there is genuinely NEW activity.
-For NEW items not yet tracked, return the full object below.
-` : ''}
-For each NEW actionable message, return:
-{
-  "action": "new",
-  "title": "EXACT email subject line or Teams message topic — copy character by character, do NOT rephrase",
-  "source": "email" or "teams",
-  "from": "Sender's display name",
-  "date": "ISO 8601 date string",
-  "link": "Direct URL to open this specific message (Outlook link or Teams deep link), or null",
-  "actionNeeded": "What exactly I need to do (1-2 sentences)",
-  "deadline": "Deadline if mentioned, or null"
-}
-
-RULES:
-1. Subject lines must be EXACT — copy them character by character. Do NOT rephrase or summarize.
-2. Each link must be the specific URL for THAT message. Wrong link = set to null.
-3. Ignore purely informational messages (FYI, newsletters, automated notifications with no action).
-4. Ignore calendar invitations unless they contain an explicit action request.
-5. Ignore messages where I am only in CC with no expectation to act.
-
-Return ONLY a JSON array. No markdown, no explanation, no code blocks.
-If nothing requires action, return [].`;
-
-    const scanStart = Date.now();
-    let response = null;
-    let lastError = null;
-
-    // Attempt 1: full context
-    console.log(`[SCAN] Attempt 1: Prompt size: ${scanPrompt.length} chars, timeout: 300s, scanDays: ${scanDays}`);
-    try {
-      response = await session.sendAndWait({ prompt: scanPrompt }, 300000);
-      console.log(`[SCAN] Response received in ${((Date.now() - scanStart) / 1000).toFixed(1)}s`);
-    } catch (err1) {
-      lastError = err1;
-      console.warn(`[SCAN] Attempt 1 failed: ${err1.message}`);
-      await destroySession(session);
-
-      // Attempt 2: reduced context, shorter scan range
-      const reducedDays = Math.min(scanDays, 2);
-      const reducedContext = allContextTasks.slice(0, 10).map(t => `- "${t.title}"${t.status === 'done' ? ' [DONE]' : ''}`).join('\n');
-      const reducedPrompt = `Which of my emails and Teams messages from the last ${reducedDays} day${reducedDays === 1 ? '' : 's'} require me to take action?
-${reducedContext ? `\nAlready tracked (do NOT duplicate):\n${reducedContext}\n` : ''}
-For each NEW actionable message, return: {"action":"new","title":"EXACT subject","source":"email"/"teams","from":"sender","date":"ISO date","link":"URL or null","actionNeeded":"what to do","deadline":"deadline or null"}
-Return ONLY a JSON array. If nothing, return [].`;
-
-      console.log(`[SCAN] Attempt 2: Reduced prompt ${reducedPrompt.length} chars, ${reducedDays} days, ${allContextTasks.slice(0, 10).length} context tasks`);
-      try {
-        // Dispose first client before creating a new one to prevent resource leak
-        if (client) { try { await client.dispose(); } catch {} }
-        client = new CopilotClient();
-        session = trackSession(await client.createSession({
-          mcpServers: { workiq: { type: 'stdio', command: 'workiq', args: ['mcp'], tools: '*' } }
-        }));
-        linkClientToSession(session, client);
-        response = await session.sendAndWait({ prompt: reducedPrompt }, 300000);
-        console.log(`[SCAN] Attempt 2 succeeded in ${((Date.now() - scanStart) / 1000).toFixed(1)}s`);
-      } catch (err2) {
-        lastError = err2;
-        console.error(`[SCAN] Attempt 2 also failed: ${err2.message}`);
-      }
-    }
-
-    await destroySession(session);
-
-    if (!response) {
-      return res.status(502).json({ error: `Scan timed out after 2 attempts: ${lastError?.message || 'No response'}` });
-    }
-
-    const rawContent = response.data.content;
-    const items = parseJsonFromResponse(rawContent);
-
-    if (!Array.isArray(items)) {
+    if (!emailRaw && !teamsRaw) {
       return res.status(502).json({
-        error: 'AI returned unexpected format',
-        raw: rawContent
+        error: `Both M365 queries failed — Email: ${emailResult.reason?.message || 'empty'}, Teams: ${teamsResult.reason?.message || 'empty'}`
       });
     }
 
-    // Process AI results: context-aware dedup (v1.3)
+    // ── STEP 2: Parse M365 Markdown responses into structured items ──
+    const items = [];
+
+    // Parse emails — filter out M365 response header artifacts
+    const parsedEmails = (parseMarkdownEmails(emailRaw) || []).filter(e => {
+      // Reject M365 response metadata that parser mistakes for emails
+      const title = (e.summary || '').toLowerCase();
+      if (/^actionable\s+(emails?|messages?)/i.test(title)) return false;
+      if (/^(here|below|the following|i found|these are|summary)/i.test(title)) return false;
+      if (!e.summary || e.summary.length < 5) return false;
+      return true;
+    });
+    console.log(`[SCAN] Parsed ${parsedEmails.length} actionable emails from M365 response`);
+    if (parsedEmails.length === 0 && emailRaw.length > 100) {
+      console.log(`[SCAN] Email parser found 0 items. Raw response (first 800 chars):\n${emailRaw.substring(0, 800)}`);
+    }
+    for (const e of parsedEmails) {
+      if (!e.summary && !e.from) continue;
+      items.push({
+        action: 'new',
+        title: e.summary || '(no subject)',
+        source: 'email',
+        from: e.from || null,
+        date: e.date || null,
+        link: e.link || null,
+        actionNeeded: null,
+        deadline: null
+      });
+    }
+
+    // Parse Teams (simpler format — extract from numbered/bulleted items)
+    if (teamsRaw && !teamsRaw.includes('did not find') && !teamsRaw.includes('no Teams')) {
+      const teamsItems = parseTeamsMessages(teamsRaw);
+      console.log(`[SCAN] Parsed ${teamsItems.length} actionable Teams messages`);
+      for (const t of teamsItems) {
+        items.push({
+          action: 'new',
+          title: t.summary || t.from || '(Teams message)',
+          source: 'teams',
+          from: t.from || null,
+          date: t.date || null,
+          link: t.link || null,
+          actionNeeded: t.action || null,
+          deadline: null
+        });
+      }
+    }
+
+    console.log(`[SCAN] Total items to process: ${items.length} (${(fetchMs / 1000).toFixed(1)}s elapsed)`);
+
+    if (items.length === 0 && !emailRaw.includes('no actionable') && emailRaw.length > 100) {
+      // M365 returned data but parser couldn't extract items — log for debugging
+      console.warn(`[SCAN] Parser returned 0 items but M365 had data. First 500 chars of email response:`);
+      console.warn(emailRaw.substring(0, 500));
+    }
+
+    // ── STEP 3: Process items — dedup and create tasks ──
+    // Process parsed items: context-aware dedup (v1.3)
     const result = await safeWriteTasks((data) => {
       const now = new Date().toISOString();
       let added = 0;
@@ -1020,11 +1058,6 @@ Return ONLY a JSON array. If nothing, return [].`;
   } catch (err) {
     console.error('Scan failed:', err);
     res.status(500).json({ error: 'Scan failed', detail: err.message });
-  } finally {
-    await destroySession(session);
-    if (client) {
-      try { await client.dispose(); } catch {}
-    }
   }
 });
 
@@ -1052,21 +1085,8 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
 
   let client, session;
   try {
-    client = new CopilotClient();
-    session = trackSession(await client.createSession({
-      mcpServers: {
-        workiq: {
-          type: 'stdio',
-          command: 'workiq',
-          args: ['mcp'],
-          tools: '*'
-        }
-      }
-    }));
-
-    linkClientToSession(session, client);
     // Extract keywords from title (drop common words, keep distinctive terms)
-    const stopWords = new Set(['the', 'a', 'an', 'to', 'for', 'of', 'in', 'on', 'at', 'by', 'and', 'or', 'via', 'with', 'from', 'my', 'your', 'is', 'are', 'was', 'be', 'has', 'have', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'this', 'that', 'these', 'those', 'it', 'its']);
+    const stopWords= new Set(['the', 'a', 'an', 'to', 'for', 'of', 'in', 'on', 'at', 'by', 'and', 'or', 'via', 'with', 'from', 'my', 'your', 'is', 'are', 'was', 'be', 'has', 'have', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'this', 'that', 'these', 'those', 'it', 'its']);
     const keywords = task.title
       .replace(/[^a-zA-Z0-9äöüÄÖÜß\s-]/g, ' ')
       .split(/\s+/)
@@ -1101,7 +1121,15 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
 
     const enrichStart = Date.now();
     console.log(`[ENRICH] Task "${task.title}" — starting enrichment (prompt: ${enrichPrompt.length} chars)`);
-    const response = await session.sendAndWait({ prompt: enrichPrompt }, 300000);
+
+    client = new CopilotClient();
+    session = trackSession(await client.createSession({
+      tools: [askWorkIQTool],
+      onPermissionRequest: approveAll
+    }));
+    linkClientToSession(session, client);
+
+    const response = await session.sendAndWait({ prompt: enrichPrompt }, 600000);
     const enrichDuration = Date.now() - enrichStart;
     console.log(`[ENRICH] Response in ${(enrichDuration / 1000).toFixed(1)}s`);
     await destroySession(session);
@@ -1217,14 +1245,8 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
   try {
     client = new CopilotClient();
     session = trackSession(await client.createSession({
-      mcpServers: {
-        workiq: {
-          type: 'stdio',
-          command: 'workiq',
-          args: ['mcp'],
-          tools: '*'
-        }
-      }
+      tools: [askWorkIQTool],
+      onPermissionRequest: approveAll
     }));
 
     linkClientToSession(session, client);
@@ -1267,7 +1289,7 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
 
     const checkStart = Date.now();
     console.log(`[UPDATE-CHECK] Task "${task.title}" — checking for updates since ${lastChecked} (prompt: ${checkPrompt.length} chars)`);
-    const response = await session.sendAndWait({ prompt: checkPrompt }, 300000);
+    const response = await session.sendAndWait({ prompt: checkPrompt }, 600000);
     console.log(`[UPDATE-CHECK] Response in ${((Date.now() - checkStart) / 1000).toFixed(1)}s`);
     await destroySession(session);
 
@@ -1336,7 +1358,7 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
       try {
         console.log(`[EVAL-P3] Starting post-update evaluation for task "${originalTitle}" (${id})`);
         evalClient = new CopilotClient();
-        evalSession = trackSession(await evalClient.createSession({}));
+        evalSession = trackSession(await evalClient.createSession({ onPermissionRequest: approveAll }));
 
         linkClientToSession(evalSession, evalClient);
         const evalPrompt = `You are updating a task's title and summary based on new information.
@@ -1535,7 +1557,7 @@ app.post('/api/consolidate', async (req, res) => {
         : '');
 
     client = new CopilotClient();
-    session = trackSession(await client.createSession({}));
+    session = trackSession(await client.createSession({ onPermissionRequest: approveAll }));
 
     linkClientToSession(session, client);
     const startTime = Date.now();
@@ -1606,7 +1628,7 @@ app.post('/api/tasks/merge', async (req, res) => {
 
     // Generate merged summary via AI (no MCP needed)
     client = new CopilotClient();
-    session = trackSession(await client.createSession({}));
+    session = trackSession(await client.createSession({ onPermissionRequest: approveAll }));
 
     linkClientToSession(session, client);
     const mergePrompt = `You are merging multiple action items into one unified summary.
@@ -1850,7 +1872,7 @@ app.post('/api/tasks/:id/log/analyze', async (req, res) => {
     
     if (ichHabeAction || iDidAction) {
       console.log(`[ANALYZE] Pre-filter: detected "Ich habe..." action report → forcing update-only prompt`);
-      preSession = trackSession(await client.createSession({}));
+      preSession = trackSession(await client.createSession({ onPermissionRequest: approveAll }));
       linkClientToSession(preSession, client);
       try {
         const updateOnlyPrompt = `You are updating a task tracker. The user is providing information and wants the task updated.
@@ -1930,7 +1952,7 @@ Return ONLY this JSON (no markdown, no explanation):
       }
     }
 
-    session = trackSession(await client.createSession({}));
+    session = trackSession(await client.createSession({ onPermissionRequest: approveAll }));
 
     linkClientToSession(session, client);
     const analyzePrompt = `You are an intelligent assistant managing a task tracker. The user sends you messages about a specific task. Your job is to UNDERSTAND what the user wants and act accordingly.
@@ -2221,7 +2243,7 @@ Return ONLY the JSON object. No markdown, no explanation.`;
           try {
             for (let attempt = 1; attempt <= 2; attempt++) {
               verifyClient = new CopilotClient();
-              verifySession = trackSession(await verifyClient.createSession({}));
+              verifySession = trackSession(await verifyClient.createSession({ onPermissionRequest: approveAll }));
 
               linkClientToSession(verifySession, verifyClient);
               const verifyPrompt = `You are a quality reviewer. A user gave an instruction to update a task. An agent produced changes. Your job is to verify whether the agent's changes correctly fulfil the user's instruction.
@@ -2265,7 +2287,7 @@ Return ONLY valid JSON:
                   let retryClient, retrySession;
                   try {
                     retryClient = new CopilotClient();
-                    retrySession = trackSession(await retryClient.createSession({}));
+                    retrySession = trackSession(await retryClient.createSession({ onPermissionRequest: approveAll }));
                     
                     const retryPrompt = `You previously tried to update a task but the result was not correct. Fix the issues and try again.
 
@@ -2563,9 +2585,8 @@ app.post('/api/tasks/:id/log', async (req, res) => {
 
     client = new CopilotClient();
     session = trackSession(await client.createSession({
-      mcpServers: {
-        workiq: { type: 'stdio', command: 'workiq', args: ['mcp'], tools: '*' }
-      }
+      tools: [askWorkIQTool],
+      onPermissionRequest: approveAll
     }));
 
     linkClientToSession(session, client);
@@ -2704,7 +2725,7 @@ app.post('/api/tasks/:id/log', async (req, res) => {
       try {
         console.log(`[EVAL] Starting post-search evaluation for task "${task.title}" (${id})`);
         evalClient = new CopilotClient();
-        evalSession = trackSession(await evalClient.createSession({}));
+        evalSession = trackSession(await evalClient.createSession({ onPermissionRequest: approveAll }));
 
         linkClientToSession(evalSession, evalClient);
         const commSummaries = communications.slice(0, 10).map(c => {
@@ -2872,18 +2893,12 @@ app.post('/api/tasks/:id/review', async (req, res) => {
   try {
     client = new CopilotClient();
     session = trackSession(await client.createSession({
-      mcpServers: {
-        workiq: {
-          type: 'stdio',
-          command: 'workiq',
-          args: ['mcp'],
-          tools: '*'
-        }
-      }
+      tools: [askWorkIQTool],
+      onPermissionRequest: approveAll
     }));
 
     linkClientToSession(session, client);
-    const reviewPrompt = `You are an intelligent assistant for a task management app. The user is responding to review questions that the agent flagged as uncertain during content enrichment.
+    const reviewPrompt= `You are an intelligent assistant for a task management app. The user is responding to review questions that the agent flagged as uncertain during content enrichment.
 
 TASK CONTEXT:
 Title: "${task.title}"
@@ -3044,18 +3059,12 @@ app.post('/api/tasks/:id/correct', async (req, res) => {
   try {
     client = new CopilotClient();
     session = trackSession(await client.createSession({
-      mcpServers: {
-        workiq: {
-          type: 'stdio',
-          command: 'workiq',
-          args: ['mcp'],
-          tools: '*'
-        }
-      }
+      tools: [askWorkIQTool],
+      onPermissionRequest: approveAll
     }));
 
     linkClientToSession(session, client);
-    const taskDate = task.date || task.createdAt || '';
+    const taskDate= task.date || task.createdAt || '';
     const allKeywords = [
       ...(plan.keywords || []),
       ...(plan.keywordsEnglish || [])
@@ -3329,6 +3338,51 @@ function parseMarkdownEmails(text) {
   return emails.length > 0 ? emails : null;
 }
 
+// Parse Work IQ Teams Markdown response into structured messages array
+function parseTeamsMessages(text) {
+  if (!text) return [];
+  const messages = [];
+  const clean = s => s.trim().replace(/\*+/g, '').replace(/\[.*?\]\(https?:[^\)]+\)/g, '').trim();
+
+  // Strategy 1: Look for structured blocks with **From:** or **Sender:**
+  const blocks = text.split(/\n---\n|\n#{2,3}\s/m);
+  for (const block of blocks) {
+    const msg = {};
+    const fromMatch = block.match(/\*\*(?:From|Sender|Who):\*\*\s*(.+)/i);
+    if (fromMatch) msg.from = clean(fromMatch[1]);
+    const dateMatch = block.match(/\*\*(?:Date|When|Sent):\*\*\s*(.+)/i);
+    if (dateMatch) msg.date = clean(dateMatch[1]);
+    const topicMatch = block.match(/\*\*(?:Subject|Topic|Channel|Chat):\*\*\s*(.+)/i);
+    if (topicMatch) msg.summary = clean(topicMatch[1]);
+    const actionMatch = block.match(/\*\*(?:Action|Request|What):\*\*\s*(.+)/i);
+    if (actionMatch) msg.action = clean(actionMatch[1]);
+    const linkMatch = block.match(/\[.*?\]\((https:\/\/teams[^\)]+)\)/);
+    if (linkMatch) msg.link = linkMatch[1];
+    // Need at least a sender or summary to be useful
+    if (msg.from || msg.summary) messages.push(msg);
+  }
+
+  // Strategy 2: if no structured blocks found, try numbered list items
+  if (messages.length === 0) {
+    const lines = text.split('\n');
+    for (const line of lines) {
+      const numbered = line.match(/^\d+[\.\)]\s+(.+)/);
+      if (!numbered) continue;
+      const content = clean(numbered[1]);
+      if (content.length < 10) continue;
+      const fromInLine = content.match(/(?:from|by)\s+([^,\-–]+)/i);
+      messages.push({
+        from: fromInLine ? fromInLine[1].trim() : null,
+        summary: content.substring(0, 200),
+        date: null,
+        link: null
+      });
+    }
+  }
+
+  return messages;
+}
+
 // --- Start Server ---
 
 migrateTasks();
@@ -3358,8 +3412,15 @@ migrateToV3();
 // Startup cleanup: delete done tasks older than default retention (3 days)
 cleanupDoneTasks(3);
 
-app.listen(PORT, 'localhost', () => {
+app.listen(PORT, 'localhost', async () => {
   console.log(`Agent Zero running at http://localhost:${PORT}`);
+  // Start persistent Work IQ MCP subprocess (auth once, EULA once, cached for session)
+  try {
+    await startWorkIQMCP();
+    console.log('[WORKIQ] ✅ Ready — persistent MCP subprocess with cached auth');
+  } catch (e) {
+    console.warn(`[WORKIQ] ⚠️ MCP startup failed: ${e.message} — will retry on first query`);
+  }
 }).on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`\n❌ Port ${PORT} is already in use.`);

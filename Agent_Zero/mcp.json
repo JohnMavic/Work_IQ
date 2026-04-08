@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "workiq": {
-      "command": "npx",
-      "args": ["-y", "@microsoft/workiq", "mcp"],
+      "command": "node",
+      "args": ["node_modules/@microsoft/workiq/bin/workiq.js", "mcp"],
       "tools": ["*"],
       "description": "Microsoft 365 MCP server — provides access to emails, Teams messages, meetings, documents, and SharePoint via the Microsoft Search API."
     }

@@ -22,3 +22,6 @@ Agent_Zero_Claude_Loop/
 .env.*
 .env.local
 .env.production
+
+# MSAL token cache (contains auth tokens — never commit)
+.msal-token-cache.json
