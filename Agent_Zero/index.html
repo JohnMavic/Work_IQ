@@ -1118,10 +1118,12 @@
           <input type="range" id="cleanupDays" min="1" max="30" value="3">
           <span id="cleanupDaysLabel">3 days</span>
         </span>
+        <span class="status-divider">·</span>
+        <span class="scan-range-group" style="cursor:pointer" onclick="toggleDebugLog()" title="Toggle debug logging to logs/debug.log">
+          <span id="debugLogLabel" style="font-size:0.75rem; color:#6b7280;">🪵 Log: Off</span>
+        </span>
       </div>
     </div>
-
-    <!-- Row 2b: Filter Bar + Link Options (combined) -->
     <div class="filter-bar" id="filterBar">
       <button class="btn btn-ghost btn-sm active" data-filter="all" title="All action items" onclick="setFilter('all', this)">All</button>
       <button class="btn btn-ghost btn-sm" data-filter="needs-attention" title="Needs Attention" onclick="setFilter('needs-attention', this)">🔴</button>
@@ -1253,6 +1255,29 @@
       clearTimeout(timeout);
     }
   }
+
+  // Debug log toggle
+  let debugLogEnabled = false;
+  async function toggleDebugLog() {
+    try {
+      debugLogEnabled = !debugLogEnabled;
+      await fetch('/api/debug-log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: debugLogEnabled }) });
+      const label = document.getElementById('debugLogLabel');
+      if (label) {
+        label.textContent = debugLogEnabled ? '🪵 Log: On' : '🪵 Log: Off';
+        label.style.color = debugLogEnabled ? '#34d399' : '#6b7280';
+      }
+    } catch (e) { console.error('Debug log toggle failed:', e); }
+  }
+  // Check initial state on load
+  fetch('/api/debug-log').then(r => r.json()).then(d => {
+    debugLogEnabled = d.enabled;
+    const label = document.getElementById('debugLogLabel');
+    if (label) {
+      label.textContent = d.enabled ? '🪵 Log: On' : '🪵 Log: Off';
+      label.style.color = d.enabled ? '#34d399' : '#6b7280';
+    }
+  }).catch(() => {});
 
   function setServerStatus(online) {
     const wasOffline = !serverOnline;

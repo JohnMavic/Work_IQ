@@ -12,6 +12,38 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const TASKS_FILE = path.join(__dirname, 'tasks.json');
+const NODE_PATH = process.execPath; // Cache once at startup — avoids spawn ENOENT after crash
+
+// --- Debug Logger (v3.1) ---
+// Toggle via /api/debug-log or GUI. Writes to logs/ folder.
+let DEBUG_LOG = false;
+const LOG_DIR = path.join(__dirname, 'logs');
+const MAX_LOG_SIZE = 5 * 1024 * 1024; // 5MB rotation
+
+function debugLog(category, message, data = null) {
+  if (!DEBUG_LOG) return;
+  const ts = new Date().toISOString();
+  const mem = Math.round(process.memoryUsage().rss / 1024 / 1024);
+  const sessions = activeSessions ? activeSessions.size : '?';
+  let line = `[${ts}] [${category}] [mem:${mem}MB sess:${sessions} wiq:${wiqReady ? 'OK' : 'DOWN'}] ${message}`;
+  if (data) line += ` | ${typeof data === 'string' ? data : JSON.stringify(data)}`;
+  line += '\n';
+  try {
+    if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
+    const logFile = path.join(LOG_DIR, 'debug.log');
+    // Rotate if too large
+    try {
+      const stat = fs.statSync(logFile);
+      if (stat.size > MAX_LOG_SIZE) {
+        const rotated = path.join(LOG_DIR, `debug-${ts.replace(/[:.]/g, '-')}.log`);
+        fs.renameSync(logFile, rotated);
+      }
+    } catch {}
+    fs.appendFileSync(logFile, line);
+  } catch (err) {
+    console.error(`[DEBUG-LOG] Write failed: ${err.message}`);
+  }
+}
 
 // --- Work IQ Persistent MCP Client (v3.2) ---
 // Spawns ONE workiq MCP subprocess at startup with proper stdio settings.
@@ -24,6 +56,9 @@ let wiqStdout = '';
 let wiqReady = false;
 let wiqRequestId = 0;
 const wiqPending = new Map(); // id → { resolve, reject, timer }
+let wiq41ErrorCount = 0;    // consecutive 41-char error counter → triggers restart
+let wiqRestartCount = 0;    // auto-restart attempts since last clean start
+const MAX_RESTARTS = 5;     // give up after this many consecutive failures
 
 function startWorkIQMCP() {
   return new Promise((resolve, reject) => {
@@ -32,18 +67,21 @@ function startWorkIQMCP() {
     // The newer versions repeatedly prompt for WAM auth, causing timeouts.
     const workiqScript = path.join(__dirname, 'node_modules', '@microsoft', 'workiq', 'bin', 'workiq.js');
     console.log(`[WORKIQ] Starting persistent MCP subprocess (local: ${workiqScript})...`);
-    wiqProc = spawn(process.execPath, [workiqScript, 'mcp'], {
+    debugLog('WORKIQ', `Starting subprocess`, { script: workiqScript, nodePath: NODE_PATH });
+    wiqProc = spawn(NODE_PATH, [workiqScript, 'mcp'], {
       cwd: __dirname,
       stdio: ['pipe', 'pipe', 'inherit'], // stderr inherited → WAM can auth
     });
 
     wiqProc.on('error', (err) => {
       console.error('[WORKIQ] Subprocess error:', err.message);
+      debugLog('WORKIQ', `Subprocess error: ${err.message}`, { code: err.code });
       wiqReady = false;
     });
 
     wiqProc.on('close', (code) => {
-      console.warn(`[WORKIQ] Subprocess exited (code ${code}) — will auto-restart in 3s`);
+      console.warn(`[WORKIQ] Subprocess exited (code ${code})`);
+      debugLog('WORKIQ', `Subprocess exited (code ${code}), pending requests: ${wiqPending.size}`);
       wiqReady = false;
       wiqProc = null;
       // Reject all pending requests
@@ -52,15 +90,23 @@ function startWorkIQMCP() {
         clearTimeout(pending.timer);
       }
       wiqPending.clear();
-      // Auto-restart after 3 seconds
+      // Auto-restart with exponential backoff (max MAX_RESTARTS attempts)
+      if (wiqRestartCount >= MAX_RESTARTS) {
+        console.error('[WORKIQ] Max restart attempts reached. Manual restart required.');
+        debugLog('WORKIQ', 'Max restart attempts reached — giving up');
+        return;
+      }
+      wiqRestartCount++;
+      const delay = Math.min(3000 * wiqRestartCount, 15000);
+      console.log(`[WORKIQ] Auto-restarting (attempt ${wiqRestartCount}/${MAX_RESTARTS}) in ${delay}ms...`);
       setTimeout(() => {
-        console.log('[WORKIQ] Auto-restarting persistent MCP subprocess...');
         startWorkIQMCP().then(() => {
           console.log('[WORKIQ] ✅ Auto-restart successful');
+          wiqRestartCount = 0;
         }).catch(err => {
           console.error(`[WORKIQ] ⚠️ Auto-restart failed: ${err.message}`);
         });
-      }, 3000);
+      }, delay);
     });
 
     // Parse JSON-RPC responses from stdout
@@ -118,29 +164,50 @@ function startWorkIQMCP() {
 }
 
 function askWorkIQDirect(question, timeoutMs = 90000) {
+  const queryStart = Date.now();
+  const shortQ = question.substring(0, 100);
+  debugLog('WORKIQ-QUERY', `START "${shortQ}..."`, { timeoutMs, questionLen: question.length });
   return new Promise(async (resolve, reject) => {
-    // If not ready, wait up to 10s for auto-restart
     if (!wiqReady || !wiqProc) {
+      debugLog('WORKIQ-QUERY', `Not ready, waiting for recovery...`);
       console.log('[WORKIQ] Not ready, waiting up to 10s for auto-restart...');
       for (let i = 0; i < 10; i++) {
         await new Promise(r => setTimeout(r, 1000));
         if (wiqReady && wiqProc) break;
       }
       if (!wiqReady || !wiqProc) {
+        debugLog('WORKIQ-QUERY', `FAILED: not ready after 10s wait`);
         return reject(new Error('Work IQ MCP not ready'));
       }
+      debugLog('WORKIQ-QUERY', `Recovered after wait`);
       console.log('[WORKIQ] Recovered — proceeding with query');
     }
     const id = ++wiqRequestId;
     wiqPending.set(id, {
       resolve: (msg) => {
         const text = msg.result?.content?.[0]?.text || '';
+        const elapsed = ((Date.now() - queryStart) / 1000).toFixed(1);
+        // Detect the known WorkIQ subprocess health error (exactly 41 chars)
+        if (text === "An error occurred invoking 'ask_work_iq'.") {
+          wiq41ErrorCount++;
+          debugLog('WORKIQ-QUERY', `Got 41-char error (consecutive: ${wiq41ErrorCount}) — triggering subprocess restart "${shortQ}..."`);
+          if (wiqProc) { try { wiqProc.kill(); } catch {} }
+          reject(new Error('WorkIQ subprocess unhealthy — restarting'));
+          return;
+        }
+        wiq41ErrorCount = 0; // Reset on healthy response
+        debugLog('WORKIQ-QUERY', `OK in ${elapsed}s (${text.length} chars) "${shortQ}..."`);
         if (text) resolve(text);
         else reject(new Error('Empty response from Work IQ'));
       },
-      reject,
+      reject: (err) => {
+        const elapsed = ((Date.now() - queryStart) / 1000).toFixed(1);
+        debugLog('WORKIQ-QUERY', `FAILED in ${elapsed}s: ${err.message} "${shortQ}..."`);
+        reject(err);
+      },
       timer: setTimeout(() => {
         wiqPending.delete(id);
+        debugLog('WORKIQ-QUERY', `TIMEOUT after ${Math.round(timeoutMs / 1000)}s "${shortQ}..."`);
         reject(new Error(`Work IQ timeout after ${Math.round(timeoutMs / 1000)}s`));
       }, timeoutMs)
     });
@@ -206,6 +273,7 @@ function trackSession(session) {
   if (session) {
     activeSessions.add(session);
     sessionTimestamps.set(session, Date.now());
+    debugLog('SDK-SESSION', `Created (total active: ${activeSessions.size})`);
   }
   return session;
 }
@@ -217,8 +285,10 @@ function linkClientToSession(session, client) {
 
 async function destroySession(session) {
   if (!session) return;
+  const age = sessionTimestamps.has(session) ? Math.round((Date.now() - sessionTimestamps.get(session)) / 1000) : '?';
   activeSessions.delete(session);
   sessionTimestamps.delete(session);
+  debugLog('SDK-SESSION', `Destroying (age: ${age}s, remaining active: ${activeSessions.size})`);
   const client = sessionClients.has(session) ? sessionClients.get(session) : null;
   try { await session.destroy(); } catch {}
   if (client) {
@@ -583,6 +653,20 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// GET/POST /api/debug-log — toggle debug logging
+app.get('/api/debug-log', (req, res) => {
+  res.json({ enabled: DEBUG_LOG });
+});
+app.post('/api/debug-log', (req, res) => {
+  const { enabled } = req.body;
+  DEBUG_LOG = !!enabled;
+  if (DEBUG_LOG) {
+    debugLog('SYSTEM', `Debug logging ENABLED by user (pid: ${process.pid}, uptime: ${Math.round(process.uptime())}s)`);
+  }
+  console.log(`[DEBUG-LOG] ${DEBUG_LOG ? 'ENABLED' : 'DISABLED'}`);
+  res.json({ enabled: DEBUG_LOG });
+});
+
 // GET /api/version — return app version from package.json
 app.get('/api/version', (req, res) => {
   try {
@@ -825,6 +909,7 @@ app.post('/api/scan', async (req, res) => {
 
     // ── STEP 1: Ask M365 for actionable messages (email + Teams in PARALLEL) ──
     console.log(`[SCAN] Fetching actionable messages (${daysText}, parallel)...`);
+    debugLog('PHASE1', `START scan (${daysText})`);
 
     const emailQuery = `Which of my emails from the ${daysText} require me to take action — respond, approve, review, call back, deliver, decide, or follow up? Include emails from external senders. For each actionable email show: exact Subject line, From (sender name), Date received, and a direct Outlook Web link to open it.`;
     const teamsQuery = `Which of my Teams messages from the ${daysText} require me to take action — respond, review, deliver, or follow up? Only include messages with explicit requests. For each show: who sent it, date, topic, and what action is needed.`;
@@ -838,6 +923,7 @@ app.post('/api/scan', async (req, res) => {
     const teamsRaw = teamsResult.status === 'fulfilled' ? teamsResult.value : '';
     const fetchMs = Date.now() - scanStart;
     console.log(`[SCAN] M365 responded in ${(fetchMs / 1000).toFixed(1)}s (emails: ${emailRaw.length} chars, teams: ${teamsRaw.length} chars)`);
+    debugLog('PHASE1', `M365 responded in ${(fetchMs / 1000).toFixed(1)}s`, { emailChars: emailRaw.length, teamsChars: teamsRaw.length });
 
     if (!emailRaw && !teamsRaw) {
       return res.status(502).json({
@@ -1121,6 +1207,7 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
 
     const enrichStart = Date.now();
     console.log(`[ENRICH] Task "${task.title}" — starting enrichment (prompt: ${enrichPrompt.length} chars)`);
+    debugLog('PHASE2', `START enrich "${task.title.substring(0, 60)}"`, { taskId: id, promptLen: enrichPrompt.length, source: task.source });
 
     client = new CopilotClient();
     session = trackSession(await client.createSession({
@@ -1132,6 +1219,7 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
     const response = await session.sendAndWait({ prompt: enrichPrompt }, 600000);
     const enrichDuration = Date.now() - enrichStart;
     console.log(`[ENRICH] Response in ${(enrichDuration / 1000).toFixed(1)}s`);
+    debugLog('PHASE2', `DONE enrich "${task.title.substring(0, 60)}" in ${(enrichDuration / 1000).toFixed(1)}s`);
     await destroySession(session);
 
     if (!response) {
@@ -1196,6 +1284,7 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
     res.json({ success: true, ...updated });
   } catch (err) {
     console.error(`[ENRICH] Failed for task ${id}:`, err);
+    debugLog('PHASE2', `FAILED enrich "${task.title.substring(0, 60)}": ${err.message}`);
     const isTimeout = err.message && err.message.includes('Timeout');
     await safeWriteTasks((data) => {
       const t = data.tasks.find(t => t.id === id);
@@ -1289,8 +1378,10 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
 
     const checkStart = Date.now();
     console.log(`[UPDATE-CHECK] Task "${task.title}" — checking for updates since ${lastChecked} (prompt: ${checkPrompt.length} chars)`);
+    debugLog('PHASE3', `START check "${task.title.substring(0, 60)}"`, { taskId: id, since: lastChecked, promptLen: checkPrompt.length });
     const response = await session.sendAndWait({ prompt: checkPrompt }, 600000);
     console.log(`[UPDATE-CHECK] Response in ${((Date.now() - checkStart) / 1000).toFixed(1)}s`);
+    debugLog('PHASE3', `DONE check "${task.title.substring(0, 60)}" in ${((Date.now() - checkStart) / 1000).toFixed(1)}s`);
     await destroySession(session);
 
     if (!response) {
@@ -1420,7 +1511,7 @@ Return ONLY valid JSON, no markdown:
   "reasoning": "One sentence explaining why changes were or were not needed"
 }`;
 
-        const evalResponse = await evalSession.sendAndWait({ prompt: evalPrompt }, 30000);
+        const evalResponse = await evalSession.sendAndWait({ prompt: evalPrompt }, 60000);
         await destroySession(evalSession);
 
         if (evalResponse) {
@@ -1488,6 +1579,7 @@ Return ONLY valid JSON, no markdown:
     res.json({ success: true, ...updated, evaluation });
   } catch (err) {
     console.error(`[UPDATE-CHECK] Failed for task ${id}:`, err);
+    debugLog('PHASE3', `FAILED check "${task.title.substring(0, 60)}": ${err.message}`);
     await safeWriteTasks((data) => {
       const t = data.tasks.find(t => t.id === id);
       if (t) {
@@ -1531,7 +1623,7 @@ app.post('/api/consolidate', async (req, res) => {
     const taskContext = activeTasks.map(t => ({
       id: t.id,
       title: t.title,
-      summary: (t.summary || '').substring(0, 500),
+      summary: (t.summary || '').substring(0, 100),  // was 500 — keeps prompt <10k chars
       from: t.from,
       source: t.source
     }));
@@ -1562,8 +1654,10 @@ app.post('/api/consolidate', async (req, res) => {
     linkClientToSession(session, client);
     const startTime = Date.now();
     console.log(`[CONSOLIDATE] Analyzing ${activeTasks.length} tasks for merge suggestions (prompt: ${prompt.length} chars)`);
-    const response = await session.sendAndWait({ prompt }, 90000);
+    debugLog('PHASE4', `START consolidate (${activeTasks.length} tasks, prompt: ${prompt.length} chars)`);
+    const response = await session.sendAndWait({ prompt }, 180000);
     console.log(`[CONSOLIDATE] Response in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
+    debugLog('PHASE4', `DONE consolidate in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
     await destroySession(session);
 
     if (!response) {
@@ -1602,6 +1696,7 @@ app.post('/api/consolidate', async (req, res) => {
     res.json({ success: true, suggestions: enrichedSuggestions });
   } catch (err) {
     console.error('[CONSOLIDATE] Failed:', err);
+    debugLog('PHASE4', `FAILED consolidate: ${err.message}`);
     res.json({ success: true, suggestions: [], reason: err.message });
   } finally {
     await destroySession(session);
@@ -1665,8 +1760,10 @@ Return ONLY valid JSON:
 
     const startTime = Date.now();
     console.log(`[MERGE] Merging ${tasksToMerge.length} tasks`);
-    const response = await session.sendAndWait({ prompt: mergePrompt }, 30000);
+    debugLog('MERGE', `START merge ${tasksToMerge.length} tasks`, { taskIds, suggestedTitle });
+    const response = await session.sendAndWait({ prompt: mergePrompt }, 90000);
     console.log(`[MERGE] Response in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
+    debugLog('MERGE', `DONE merge in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
     await destroySession(session);
 
     let mergedTitle = suggestedTitle || tasksToMerge[0].title;
@@ -1773,6 +1870,7 @@ Return ONLY valid JSON:
     res.json({ success: true, task: mergedTask });
   } catch (err) {
     console.error('[MERGE] Failed:', err);
+    debugLog('MERGE', `FAILED merge: ${err.message}`);
     res.status(500).json({ error: 'Merge failed', detail: err.message });
   } finally {
     await destroySession(session);
@@ -1916,7 +2014,7 @@ Return ONLY this JSON (no markdown, no explanation):
   "newSummary": "The COMPLETE updated summary in structured format",
   "changeDescription": "Brief description of what changed based on the user's message"
 }`;
-        const updateResponse = await preSession.sendAndWait({ prompt: updateOnlyPrompt }, 30000);
+        const updateResponse = await preSession.sendAndWait({ prompt: updateOnlyPrompt }, 60000);
         await destroySession(preSession);
         if (updateResponse) {
           const updateResult = parseJsonFromResponse(updateResponse.data.content);
@@ -2272,7 +2370,7 @@ Return ONLY valid JSON:
   "issues": "If not fulfilled: describe specifically what is wrong or missing. If fulfilled: null"
 }`;
 
-              const verifyResponse = await verifySession.sendAndWait({ prompt: verifyPrompt }, 30000);
+              const verifyResponse = await verifySession.sendAndWait({ prompt: verifyPrompt }, 60000);
               await destroySession(verifySession);
 
               if (verifyResponse) {
@@ -2312,7 +2410,7 @@ Fix these issues. Return ONLY valid JSON:
   "changeDescription": "What you fixed"
 }`;
 
-                    const retryResponse = await retrySession.sendAndWait({ prompt: retryPrompt }, 30000);
+                    const retryResponse = await retrySession.sendAndWait({ prompt: retryPrompt }, 60000);
                     
                     if (retryResponse) {
                       const retryResult = parseJsonFromResponse(retryResponse.data.content);
@@ -2800,7 +2898,7 @@ Return ONLY valid JSON, no markdown:
   "reasoning": "One sentence explaining why changes were or were not needed"
 }`;
 
-        const evalResponse = await evalSession.sendAndWait({ prompt: evalPrompt }, 30000);
+        const evalResponse = await evalSession.sendAndWait({ prompt: evalPrompt }, 60000);
         await destroySession(evalSession);
 
         if (evalResponse) {
