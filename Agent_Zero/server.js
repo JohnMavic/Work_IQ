@@ -56,7 +56,8 @@ let wiqStdout = '';
 let wiqReady = false;
 let wiqRequestId = 0;
 const wiqPending = new Map(); // id → { resolve, reject, timer }
-let wiq41ErrorCount = 0;    // consecutive 41-char error counter → triggers restart
+let wiq41ErrorCount = 0;    // consecutive 41-char error counter (diagnostic)
+let wiqCooldownUntil = 0;   // timestamp: reject all queries until this time
 let wiqRestartCount = 0;    // auto-restart attempts since last clean start
 const MAX_RESTARTS = 5;     // give up after this many consecutive failures
 
@@ -168,6 +169,18 @@ function askWorkIQDirect(question, timeoutMs = 90000) {
   const shortQ = question.substring(0, 100);
   debugLog('WORKIQ-QUERY', `START "${shortQ}..."`, { timeoutMs, questionLen: question.length });
   return new Promise(async (resolve, reject) => {
+    // Cooldown check — stop hammering subprocess after repeated failures
+    if (Date.now() < wiqCooldownUntil) {
+      const remaining = Math.ceil((wiqCooldownUntil - Date.now()) / 1000);
+      debugLog('WORKIQ-QUERY', `In cooldown (${remaining}s remaining) — rejecting "${shortQ}..."`);
+      return reject(new Error('WorkIQ in cooldown — try again later'));
+    }
+    // Cooldown just expired — reset counter so we get 3 fresh chances
+    if (wiqCooldownUntil > 0) {
+      debugLog('WORKIQ-QUERY', `Cooldown expired — resetting error counter, fresh start`);
+      wiq41ErrorCount = 0;
+      wiqCooldownUntil = 0;
+    }
     if (!wiqReady || !wiqProc) {
       debugLog('WORKIQ-QUERY', `Not ready, waiting for recovery...`);
       console.log('[WORKIQ] Not ready, waiting up to 10s for auto-restart...');
@@ -190,9 +203,21 @@ function askWorkIQDirect(question, timeoutMs = 90000) {
         // Detect the known WorkIQ subprocess health error (exactly 41 chars)
         if (text === "An error occurred invoking 'ask_work_iq'.") {
           wiq41ErrorCount++;
-          debugLog('WORKIQ-QUERY', `Got 41-char error (consecutive: ${wiq41ErrorCount}) — triggering subprocess restart "${shortQ}..."`);
-          if (wiqProc) { try { wiqProc.kill(); } catch {} }
-          reject(new Error('WorkIQ subprocess unhealthy — restarting'));
+          debugLog('WORKIQ-QUERY', `Got 41-char error (count: ${wiq41ErrorCount}) "${shortQ}..."`);
+          if (wiq41ErrorCount <= 3) {
+            // First error: reject but DON'T kill — subprocess may be fine, other parallel
+            // queries should not be affected (e.g. Phase 1 email query running in parallel)
+            // 2nd and 3rd errors: subprocess is clearly unhealthy → restart it
+            if (wiq41ErrorCount >= 2) {
+              if (wiqProc) { try { wiqProc.kill(); } catch {} }
+            }
+            reject(new Error('WorkIQ subprocess unhealthy — restarting'));
+          } else {
+            // After 3 failed errors: 60s cooldown, stop restart loop
+            wiqCooldownUntil = Date.now() + 60000;
+            debugLog('WORKIQ-QUERY', `Entering 60s cooldown after ${wiq41ErrorCount} consecutive failures`);
+            reject(new Error('WorkIQ temporarily unavailable — cooling down'));
+          }
           return;
         }
         wiq41ErrorCount = 0; // Reset on healthy response
@@ -268,6 +293,15 @@ process.on('unhandledRejection', (reason, promise) => {
 const activeSessions = new Set();
 const sessionTimestamps = new Map();
 const sessionClients = new WeakMap(); // session → CopilotClient
+
+// Session concurrency limit — prevents WorkIQ subprocess from being overwhelmed
+const MAX_CONCURRENT_SDK = 2;
+async function waitForSDKSlot() {
+  while (activeSessions.size >= MAX_CONCURRENT_SDK) {
+    debugLog('SDK-SESSION', `Waiting for slot (${activeSessions.size}/${MAX_CONCURRENT_SDK} active)`);
+    await new Promise(r => setTimeout(r, 2000));
+  }
+}
 
 function trackSession(session) {
   if (session) {
@@ -1209,6 +1243,7 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
     console.log(`[ENRICH] Task "${task.title}" — starting enrichment (prompt: ${enrichPrompt.length} chars)`);
     debugLog('PHASE2', `START enrich "${task.title.substring(0, 60)}"`, { taskId: id, promptLen: enrichPrompt.length, source: task.source });
 
+    await waitForSDKSlot();
     client = new CopilotClient();
     session = trackSession(await client.createSession({
       tools: [askWorkIQTool],
@@ -1332,6 +1367,7 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
 
   let client, session;
   try {
+    await waitForSDKSlot();
     client = new CopilotClient();
     session = trackSession(await client.createSession({
       tools: [askWorkIQTool],
@@ -1448,6 +1484,7 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
       let evalClient, evalSession;
       try {
         console.log(`[EVAL-P3] Starting post-update evaluation for task "${originalTitle}" (${id})`);
+        await waitForSDKSlot();
         evalClient = new CopilotClient();
         evalSession = trackSession(await evalClient.createSession({ onPermissionRequest: approveAll }));
 
@@ -1511,7 +1548,7 @@ Return ONLY valid JSON, no markdown:
   "reasoning": "One sentence explaining why changes were or were not needed"
 }`;
 
-        const evalResponse = await evalSession.sendAndWait({ prompt: evalPrompt }, 60000);
+        const evalResponse = await evalSession.sendAndWait({ prompt: evalPrompt }, 90000);  // was 60000
         await destroySession(evalSession);
 
         if (evalResponse) {
@@ -1623,7 +1660,7 @@ app.post('/api/consolidate', async (req, res) => {
     const taskContext = activeTasks.map(t => ({
       id: t.id,
       title: t.title,
-      summary: (t.summary || '').substring(0, 100),  // was 500 — keeps prompt <10k chars
+      summary: (t.summary || '').substring(0, 150),  // keeps prompt <12k chars
       from: t.from,
       source: t.source
     }));
@@ -1648,6 +1685,7 @@ app.post('/api/consolidate', async (req, res) => {
           [...dismissedPairs].map(p => p.replace('|', ' and ')).join('\n')
         : '');
 
+    await waitForSDKSlot();
     client = new CopilotClient();
     session = trackSession(await client.createSession({ onPermissionRequest: approveAll }));
 
@@ -1655,7 +1693,7 @@ app.post('/api/consolidate', async (req, res) => {
     const startTime = Date.now();
     console.log(`[CONSOLIDATE] Analyzing ${activeTasks.length} tasks for merge suggestions (prompt: ${prompt.length} chars)`);
     debugLog('PHASE4', `START consolidate (${activeTasks.length} tasks, prompt: ${prompt.length} chars)`);
-    const response = await session.sendAndWait({ prompt }, 180000);
+    const response = await session.sendAndWait({ prompt }, 300000);  // was 180000
     console.log(`[CONSOLIDATE] Response in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
     debugLog('PHASE4', `DONE consolidate in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
     await destroySession(session);
@@ -1722,6 +1760,7 @@ app.post('/api/tasks/merge', async (req, res) => {
     }
 
     // Generate merged summary via AI (no MCP needed)
+    await waitForSDKSlot();
     client = new CopilotClient();
     session = trackSession(await client.createSession({ onPermissionRequest: approveAll }));
 
@@ -1933,8 +1972,7 @@ app.post('/api/tasks/:id/log/analyze', async (req, res) => {
   }
 
   const taskDate = task.date || task.createdAt || '';
-
-  // Build rich conversation history for the agent (full context)
+  debugLog('USER-ACTION', `Log Work analyze: "${text.substring(0, 80)}" for task "${task.title.substring(0, 50)}"`, { taskId: id });
   const recentHistory = (task.history || [])
     .filter(h => h.type === 'update' || h.type === 'note')
     .slice(-8)
@@ -2598,6 +2636,7 @@ app.post('/api/tasks/:id/log', async (req, res) => {
   }
 
   // AI communication search (v2.2: Copilot SDK + Work IQ MCP + SEARCH_SKILL.md)
+  debugLog('USER-ACTION', `Log Work execute: intent=${plan?.intent || 'unknown'} for task "${taskContext.title.substring(0, 50)}"`, { taskId: id });
   let communications = [];
   let rawResponseText = null;
   let promptContext = null;
@@ -2955,6 +2994,7 @@ Return ONLY valid JSON, no markdown:
     }
 
     res.json({ ...task, evaluation });
+    debugLog('USER-ACTION', `Log Work DONE: result=OK`, { taskId: id });
   } catch (err) {
     res.status(500).json({ error: 'Failed to log work', detail: err.message });
   }
@@ -2986,6 +3026,7 @@ app.post('/api/tasks/:id/review', async (req, res) => {
 
   const now = new Date().toISOString();
   console.log(`[${now}] Review response for task "${task.title}" (${id}): "${response.trim().substring(0, 100)}..."`);
+  debugLog('USER-ACTION', `Review response for "${task.title.substring(0, 50)}": "${response.substring(0, 80)}"`, { taskId: id });
 
   let client, session;
   try {
