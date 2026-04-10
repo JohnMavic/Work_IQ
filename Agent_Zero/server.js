@@ -941,6 +941,33 @@ app.post('/api/scan', async (req, res) => {
     const scanStart = Date.now();
     const daysText = `last ${scanDays} day${scanDays === 1 ? '' : 's'}`;
 
+    // ── AUTO-RETRY: Reset error enrichments to pending (max 3 attempts) ──
+    const retryData = readTasks();
+    let retryCount = 0;
+    for (const t of retryData.tasks) {
+      if (t.enrichmentStatus === 'error' && t.status !== 'done') {
+        const errorCount = (t.history || []).filter(h => h.type === 'enrich-error').length;
+        if (errorCount < 3) {
+          t.enrichmentStatus = 'pending';
+          retryCount++;
+          debugLog('PHASE1', `Auto-retry: reset "${t.title.substring(0, 50)}" to pending (attempt ${errorCount + 1}/3)`);
+        } else {
+          debugLog('PHASE1', `Skipping "${t.title.substring(0, 50)}" — max 3 enrichment attempts reached`);
+        }
+      }
+    }
+    if (retryCount > 0) {
+      await safeWriteTasks((data) => {
+        for (const t of data.tasks) {
+          if (t.enrichmentStatus === 'error' && t.status !== 'done') {
+            const errorCount = (t.history || []).filter(h => h.type === 'enrich-error').length;
+            if (errorCount < 3) t.enrichmentStatus = 'pending';
+          }
+        }
+      });
+      console.log(`[SCAN] Auto-retry: reset ${retryCount} failed enrichment(s) to pending`);
+    }
+
     // ── STEP 1: Ask M365 for actionable messages (email + Teams in PARALLEL) ──
     console.log(`[SCAN] Fetching actionable messages (${daysText}, parallel)...`);
     debugLog('PHASE1', `START scan (${daysText})`);
@@ -2937,7 +2964,7 @@ Return ONLY valid JSON, no markdown:
   "reasoning": "One sentence explaining why changes were or were not needed"
 }`;
 
-        const evalResponse = await evalSession.sendAndWait({ prompt: evalPrompt }, 60000);
+        const evalResponse = await evalSession.sendAndWait({ prompt: evalPrompt }, 90000);  // was 60000
         await destroySession(evalSession);
 
         if (evalResponse) {
