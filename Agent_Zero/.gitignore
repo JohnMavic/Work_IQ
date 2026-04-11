@@ -28,3 +28,10 @@ Agent_Zero_Claude_Loop/
 
 # Debug logs (may contain M365 content)
 logs/
+
+# Playwright MCP session artifacts (screenshots, snapshots — not project files)
+.playwright-mcp/
+
+# Squad/agent session artifacts
+.squad/
+.github/agents/

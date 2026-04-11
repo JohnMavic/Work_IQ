@@ -16,3 +16,10 @@ Agent_Zero/WorkIQ-Scan-Task.xml
 .env.production
 
 Agent_Zero_Claude_Loop/
+
+# Playwright MCP session artifacts (screenshots, snapshots)
+.playwright-mcp/
+
+# Squad/agent session artifacts
+.squad/
+.github/agents/
