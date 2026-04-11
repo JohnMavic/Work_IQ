@@ -1174,26 +1174,45 @@ app.post('/api/scan', async (req, res) => {
         // Safety-Net: similarity check against ALL existing tasks (including done)
         const similarTask = data.tasks.find(t => isSimilarTitle(t.title, titleNorm));
         if (similarTask) {
-          // If the matching task is done, reactivate it instead of creating a duplicate
           if (similarTask.status === 'done') {
-            const now2 = new Date().toISOString();
-            similarTask.status = 'needs-attention';
-            similarTask.doneAt = null;
-            if (!similarTask.history) similarTask.history = [];
-            similarTask.history.push({
-              timestamp: now2,
-              type: 'reactivated',
-              text: `🔄 Reactivated: new activity detected in "${titleNorm}" (from ${fromNorm || 'unknown'}). Previous status was done.`
-            });
-            // Update link/date if the new scan has fresher data
-            if (item.link) similarTask.link = String(item.link).trim();
-            if (item.date) similarTask.date = item.date;
-            similarTask.enrichmentStatus = 'pending';
-            similarTask.updateCheckStatus = 'pending';
-            similarTask.updatedAt = now2;
-            newTaskIds.push(similarTask.id);
-            updated++;
-            console.log(`Reactivated done task: "${similarTask.title}" (matched "${titleNorm}")`);
+            // Suppress unless this is verifiably NEW activity after the task was marked done.
+            // Reason: the same email resurfaces on every scan while still in the scan window.
+            // Only reactivate if: no exact link match AND item has a parseable date strictly
+            // after doneAt. Conservative defaults: missing link → no link suppression;
+            // missing/invalid dates → suppress (can't confirm it's new).
+            const exactLinkMatch = !!(item.link && similarTask.link &&
+              String(item.link).trim() === String(similarTask.link).trim());
+            const doneDate = similarTask.doneAt ? new Date(similarTask.doneAt) : null;
+            const itemDate = item.date ? new Date(item.date) : null;
+            const isNewActivity = !exactLinkMatch &&
+              itemDate && !isNaN(itemDate) &&
+              doneDate && !isNaN(doneDate) &&
+              itemDate > doneDate;
+
+            if (!isNewActivity) {
+              debugLog('PHASE1', `Suppressed done task resurface: "${similarTask.title}"`, { exactLinkMatch, itemDate: item.date, doneAt: similarTask.doneAt });
+              console.log(`[SCAN] Suppressed done task: "${similarTask.title}" (matched "${titleNorm}")`);
+              skipped++;
+            } else {
+              // Genuine new activity after done — reactivate
+              const now2 = new Date().toISOString();
+              similarTask.status = 'needs-attention';
+              similarTask.doneAt = null;
+              if (!similarTask.history) similarTask.history = [];
+              similarTask.history.push({
+                timestamp: now2,
+                type: 'reactivated',
+                text: `🔄 Reactivated: new activity after done — "${titleNorm}" (from ${fromNorm || 'unknown'}, dated ${item.date || 'unknown'})`
+              });
+              if (item.link) similarTask.link = String(item.link).trim();
+              if (item.date) similarTask.date = item.date;
+              similarTask.enrichmentStatus = 'pending';
+              similarTask.updateCheckStatus = 'pending';
+              similarTask.updatedAt = now2;
+              newTaskIds.push(similarTask.id);
+              updated++;
+              console.log(`[SCAN] Reactivated done task (new activity): "${similarTask.title}" (item date ${item.date} > doneAt ${similarTask.doneAt})`);
+            }
           } else {
             console.warn(`Safety-Net dedup: "${titleNorm}" is similar to existing "${similarTask.title}", skipping`);
             skipped++;

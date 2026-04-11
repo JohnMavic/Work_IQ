@@ -13,7 +13,13 @@ All notable changes to this project are documented here.
 - New `runWithWiqGuard(session, prompt, timeoutMs)` wraps `session.sendAndWait()` with a race against `wiq-down`
 - All active SDK sessions abort immediately on WorkIQ crash instead of hanging 600s until timeout
 
-### K3 — WorkIQ Error Threshold Fix
+### K4 — Phase 1 Done-Task Suppression Fix
+- Previously: any done task with a similar title was reactivated to `needs-attention` on every scan
+- Root cause: the Safety-Net did not distinguish between "same email resurfaces in scan window" and "genuine new follow-up from sender"
+- Fix: done tasks are now suppressed (not reactivated) unless: no exact link match AND item's date is verifiably after `doneAt`
+- Conservative defaults: missing item date → suppress; missing doneAt → suppress
+- Reactivation still works for genuinely new emails (different link + email date > doneAt)
+- Debug log entry: `[PHASE1] Suppressed done task resurface: "..." | {exactLinkMatch, itemDate, doneAt}`
 - Error threshold increased 3 → 4 before triggering restart
 - Removed premature `wiqProc.kill()` calls on M365 data errors (41-char refusals are not process errors)
 - `wiq41ErrorCount` reset to 0 after each auto-restart

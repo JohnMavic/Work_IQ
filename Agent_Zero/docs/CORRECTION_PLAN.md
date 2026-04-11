@@ -23,6 +23,7 @@
 | 11 | Auto-retry failed enrichments (max 3 attempts via history count) | v3.2.1 | `e2fedb5` | ✅ |
 | 12 | K2: `wiq-down` event + `runWithWiqGuard()` — SDK sessions abort immediately on WorkIQ crash instead of hanging 600s | v3.2.2 | (pending) | ✅ |
 | 13 | K3: Error threshold 3→4; removed premature `wiqProc.kill()` on M365 data errors; reset `wiq41ErrorCount` after auto-restart | v3.2.2 | (pending) | ✅ |
+| 14 | K4: Phase 1 done-task suppression — only reactivates done tasks if item date > doneAt AND different link | v3.2.2 | (pending) | ✅ |
 
 ---
 
