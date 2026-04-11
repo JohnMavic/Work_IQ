@@ -1,9 +1,9 @@
 # Agent Zero — Product Specification
 
-**Version:** 3.0.0
-**Date:** March 14, 2026
+**Version:** 3.2.2
+**Date:** April 11, 2026
 **Author:** Martin Hämmerli
-**Status:** v3.0.0 implemented (naive hybrid Phase 1 scan + verify-and-improve update loop + content removal + server stability hardening)
+**Status:** v3.2.2 — WorkIQ persistent subprocess, direct Phase 1 queries, K2/K3 crash guard, full Verify-and-Improve loop
 
 ---
 

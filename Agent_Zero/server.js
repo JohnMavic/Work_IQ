@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import { CopilotClient, approveAll, defineTool } from '@github/copilot-sdk';
 import { spawn } from 'child_process';
+import { EventEmitter } from 'events';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -61,6 +62,11 @@ let wiqCooldownUntil = 0;   // timestamp: reject all queries until this time
 let wiqRestartCount = 0;    // auto-restart attempts since last clean start
 const MAX_RESTARTS = 5;     // give up after this many consecutive failures
 
+// K2: EventEmitter for WorkIQ crash events — lets all active SDK sessions abort immediately
+// instead of hanging for their full 600s timeout.
+const wiqEvents = new EventEmitter();
+wiqEvents.setMaxListeners(100); // Phase 2+3 can have many concurrent sessions listening
+
 function startWorkIQMCP() {
   return new Promise((resolve, reject) => {
     // Use locally installed @microsoft/workiq@0.2.8 (pinned in package.json)
@@ -91,6 +97,9 @@ function startWorkIQMCP() {
         clearTimeout(pending.timer);
       }
       wiqPending.clear();
+      // K2: Signal all active SDK sessions so they abort immediately instead of hanging
+      // for their full 600s timeout waiting for a WorkIQ that will never respond.
+      wiqEvents.emit('wiq-down', new Error(`WorkIQ subprocess exited (code ${code})`));
       // Auto-restart with exponential backoff (max MAX_RESTARTS attempts)
       if (wiqRestartCount >= MAX_RESTARTS) {
         console.error('[WORKIQ] Max restart attempts reached. Manual restart required.');
@@ -104,6 +113,7 @@ function startWorkIQMCP() {
         startWorkIQMCP().then(() => {
           console.log('[WORKIQ] ✅ Auto-restart successful');
           wiqRestartCount = 0;
+          wiq41ErrorCount = 0; // K3: reset so restarted process doesn't echo-crash immediately
         }).catch(err => {
           console.error(`[WORKIQ] ⚠️ Auto-restart failed: ${err.message}`);
         });
@@ -158,7 +168,7 @@ function startWorkIQMCP() {
     setTimeout(() => {
       wiqProc.stdin.write(JSON.stringify({
         jsonrpc: '2.0', id: initId, method: 'initialize',
-        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'agent-zero', version: '3.0' } }
+        params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'agent-zero', version: '3.2' } }
       }) + '\n');
     }, 1500);
   });
@@ -204,14 +214,11 @@ function askWorkIQDirect(question, timeoutMs = 90000) {
         if (text === "An error occurred invoking 'ask_work_iq'.") {
           wiq41ErrorCount++;
           debugLog('WORKIQ-QUERY', `Got 41-char error (count: ${wiq41ErrorCount}) "${shortQ}..."`);
-          if (wiq41ErrorCount <= 3) {
-            // First error: reject but DON'T kill — subprocess may be fine, other parallel
-            // queries should not be affected (e.g. Phase 1 email query running in parallel)
-            // 2nd and 3rd errors: subprocess is clearly unhealthy → restart it
-            if (wiq41ErrorCount >= 2) {
-              if (wiqProc) { try { wiqProc.kill(); } catch {} }
-            }
-            reject(new Error('WorkIQ subprocess unhealthy — restarting'));
+          if (wiq41ErrorCount <= 4) {
+            // K3: M365 data error for this query — WorkIQ subprocess is healthy (wiq:OK),
+            // M365 just can't find this specific data. Reject without killing WorkIQ.
+            // Killing a healthy process causes cascading failures for all concurrent sessions.
+            reject(new Error('WorkIQ: M365 returned no data for this query'));
           } else {
             // After 3 failed errors: 60s cooldown, stop restart loop
             wiqCooldownUntil = Date.now() + 60000;
@@ -240,6 +247,35 @@ function askWorkIQDirect(question, timeoutMs = 90000) {
       jsonrpc: '2.0', id, method: 'tools/call',
       params: { name: 'ask_work_iq', arguments: { question } }
     }) + '\n');
+  });
+}
+
+// K2: Race session.sendAndWait() against wiq-down crashes.
+// When WorkIQ crashes during an active session, sendAndWait would hang for the full
+// timeout (the SDK's AI agent retries internally and never errors out on its own).
+// This wrapper aborts the session promise immediately when WorkIQ goes down.
+function runWithWiqGuard(session, prompt, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const onWiqDown = (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err || new Error('WorkIQ crashed during session'));
+    };
+    wiqEvents.once('wiq-down', onWiqDown);
+    session.sendAndWait({ prompt }, timeoutMs)
+      .then(result => {
+        if (settled) return;
+        settled = true;
+        wiqEvents.removeListener('wiq-down', onWiqDown);
+        resolve(result);
+      })
+      .catch(err => {
+        if (settled) return;
+        settled = true;
+        wiqEvents.removeListener('wiq-down', onWiqDown);
+        reject(err);
+      });
   });
 }
 
@@ -1217,7 +1253,8 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
     const data = readTasks();
     task = data.tasks.find(t => t.id === id);
     if (!task) return res.status(404).json({ error: 'Task not found' });
-    if (task.enrichmentStatus === 'enriched' || task.enrichmentStatus === 'needs-review') {
+    // K1-A: Guard includes 'enriching' to block duplicate requests that arrive while one is already running
+    if (['enriched', 'needs-review', 'enriching'].includes(task.enrichmentStatus)) {
       return res.json({ success: true, alreadyEnriched: true, summary: task.summary });
     }
   } catch (err) {
@@ -1271,6 +1308,14 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
     debugLog('PHASE2', `START enrich "${task.title.substring(0, 60)}"`, { taskId: id, promptLen: enrichPrompt.length, source: task.source });
 
     await waitForSDKSlot();
+    // K1-B: Re-check status after acquiring the slot — another request may have enriched this task
+    // while we were waiting (race condition between concurrent batch requests for the same task ID)
+    const slotCheck = readTasks();
+    const slotTask = slotCheck.tasks.find(t => t.id === id);
+    if (slotTask && ['enriched', 'needs-review'].includes(slotTask.enrichmentStatus)) {
+      debugLog('PHASE2', `SKIP enrich "${task.title.substring(0, 60)}" — already enriched while waiting for SDK slot`);
+      return res.json({ success: true, alreadyEnriched: true, summary: slotTask.summary });
+    }
     client = new CopilotClient();
     session = trackSession(await client.createSession({
       tools: [askWorkIQTool],
@@ -1278,7 +1323,7 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
     }));
     linkClientToSession(session, client);
 
-    const response = await session.sendAndWait({ prompt: enrichPrompt }, 600000);
+    const response = await runWithWiqGuard(session, enrichPrompt, 600000);
     const enrichDuration = Date.now() - enrichStart;
     console.log(`[ENRICH] Response in ${(enrichDuration / 1000).toFixed(1)}s`);
     debugLog('PHASE2', `DONE enrich "${task.title.substring(0, 60)}" in ${(enrichDuration / 1000).toFixed(1)}s`);
@@ -1382,6 +1427,10 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
     const data = readTasks();
     task = data.tasks.find(t => t.id === id);
     if (!task) return res.status(404).json({ error: 'Task not found' });
+    // K1-A: Skip if already being checked or recently checked (block duplicate concurrent requests)
+    if (task.updateCheckStatus === 'checking') {
+      return res.json({ success: true, alreadyChecking: true });
+    }
   } catch (err) {
     return res.status(500).json({ error: 'Failed to read task', detail: err.message });
   }
@@ -1395,6 +1444,14 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
   let client, session;
   try {
     await waitForSDKSlot();
+    // K1-B: Re-check status after acquiring the slot — another request may have already checked
+    // this task while we were waiting (race condition between concurrent batch requests)
+    const slotCheck = readTasks();
+    const slotTask = slotCheck.tasks.find(t => t.id === id);
+    if (slotTask && slotTask.updateCheckStatus === 'checked') {
+      debugLog('PHASE3', `SKIP check "${task.title.substring(0, 60)}" — already checked while waiting for SDK slot`);
+      return res.json({ success: true, alreadyChecking: true });
+    }
     client = new CopilotClient();
     session = trackSession(await client.createSession({
       tools: [askWorkIQTool],
@@ -1442,7 +1499,7 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
     const checkStart = Date.now();
     console.log(`[UPDATE-CHECK] Task "${task.title}" — checking for updates since ${lastChecked} (prompt: ${checkPrompt.length} chars)`);
     debugLog('PHASE3', `START check "${task.title.substring(0, 60)}"`, { taskId: id, since: lastChecked, promptLen: checkPrompt.length });
-    const response = await session.sendAndWait({ prompt: checkPrompt }, 600000);
+    const response = await runWithWiqGuard(session, checkPrompt, 600000);
     console.log(`[UPDATE-CHECK] Response in ${((Date.now() - checkStart) / 1000).toFixed(1)}s`);
     debugLog('PHASE3', `DONE check "${task.title.substring(0, 60)}" in ${((Date.now() - checkStart) / 1000).toFixed(1)}s`);
     await destroySession(session);

@@ -1,6 +1,6 @@
 # Agent Zero
 
-> Version 3.0.0 · A personal AI-powered action-item tracker for Microsoft 365
+> Version 3.2.2 · A personal AI-powered action-item tracker for Microsoft 365
 
 **Author:** Martin Hämmerli · [martih@microsoft.com](mailto:martih@microsoft.com)
 
@@ -116,7 +116,7 @@ The SDK is a thin TypeScript wrapper. The actual AI engine is `copilot.exe` — 
 | **Copilot CLI** (`@github/copilot` → `copilot.exe`) | Engine | Automatically installed as a sub-dependency of the SDK. Contains a native binary (`copilot.exe` on Windows, platform-specific via `@github/copilot-win32-x64` etc.). The SDK starts this binary internally and communicates with it via JSON-RPC. It handles GitHub OAuth, token management, and the actual HTTPS connection to GitHub's Copilot API. Never called directly in Agent Zero's code. | The engine under the hood. When the SDK starts an AI session, it launches this .exe file in the background. It handles the GitHub login, manages access tokens, and talks to the AI model in the cloud. You never see it directly — it is automatically installed alongside the SDK and controlled by it. | GitHub OAuth — triggered by the SDK on first use. A one-time device code prompt appears in the terminal. |
 | **GitHub Copilot API** | Cloud | The remote AI service hosted by GitHub. Receives prompts from `copilot.exe`, runs them through the AI model, and returns structured responses. Requires an active GitHub Copilot subscription. | The AI brain in the cloud. This is where the actual language model runs — it analyzes your emails, writes summaries, and answers questions. You need a GitHub Copilot subscription for Agent Zero to access it. | Active GitHub Copilot subscription required. |
 | **Work IQ** (`@microsoft/workiq`) | Library | Installed as a local npm dependency (`package.json`) and optionally as a global CLI. Provides the `workiq` command used to start MCP servers and to run the initial EULA/auth setup. | The bridge to your Microsoft 365. This npm package is installed and provides the `workiq` command. It enables Agent Zero to access your emails and Teams messages. Without this package, Agent Zero is blind to your M365 data. | Microsoft Entra ID — `workiq accept-eula` (one-time browser login to your M365 account). |
-| **workiq mcp** | Engine | Spawned by the SDK's `createSession()` as a stdio subprocess (`command: 'workiq', args: ['mcp']`). Runs as an MCP server that gives the AI model direct tool access to search emails, Teams messages, and meetings. Only started for sessions that need M365 data (scan, enrich, update-check, search) — not for pure reasoning sessions. | The active data channel. When the AI needs to search your emails, the SDK starts a Work IQ process in the background. This process acts as a translator: the AI says "find emails about project X", the translator converts that into an M365 query and delivers the results back. For pure thinking tasks (e.g. "summarize this text") it is not started at all. | Uses the token from `workiq accept-eula`. |
+| **workiq mcp** | Engine | Started **once at server startup** as a persistent MCP subprocess (`node_modules/.bin/workiq mcp`, pinned at 0.2.8). Runs for the entire server lifetime with automatic crash recovery. Phase 1 queries it directly via JSON-RPC. Phases 2 and 3 connect to it via SDK `createSession()`. Pure reasoning sessions (Phase 4, intent analysis) do not use Work IQ at all. | The active data channel. The Work IQ process is always running in the background once the server starts. It acts as a translator: the AI says "find emails about project X" and it converts that into an M365 query and returns the results. It restarts automatically if it crashes. | Uses the token from `workiq accept-eula`. |
 | **Microsoft 365** | Cloud | Your M365 tenant (Exchange Online, Teams). Work IQ accesses it via the Microsoft Graph API using the token obtained during `workiq accept-eula`. | Your mailbox and Teams chats. Work IQ reads your emails and messages here — read-only, it never modifies or sends anything. | M365 account with Exchange Online. |
 
 ## How It Works
@@ -131,7 +131,9 @@ Every AI operation follows the same pattern in `server.js`:
 4. The JSON response is parsed and stored in `tasks.json`
 5. The session and client are destroyed
 
-Sessions that need M365 data (scan, enrich, update-check, search, correction verification) include the Work IQ MCP server. Sessions that only need AI reasoning (intent analysis via `/api/tasks/:id/log/analyze`) create sessions without MCP servers. Intent analysis and correction verification now use the default Copilot model selection — the explicit Claude Opus 4.6 override was removed.
+**Exception — Phase 1 (Discovery):** Phase 1 uses `askWorkIQDirect()` which bypasses the Copilot SDK entirely. It sends JSON-RPC requests directly to the persistent Work IQ subprocess and calls Work IQ tools (`ask_work_iq`) without creating a Copilot SDK session. This makes Phase 1 significantly faster than Phases 2/3.
+
+Sessions that need M365 data via SDK (enrich, update-check, search, correction verification) include the Work IQ MCP server. Sessions that only need AI reasoning (intent analysis, Phase 4 consolidation) create sessions without MCP servers. Intent analysis and correction verification use the default Copilot model selection.
 
 ### Four-Phase Scan Pipeline
 
@@ -298,7 +300,7 @@ schtasks /create /xml "WorkIQ-Scan-Task.xml" /tn "WorkIQ-Scan"
 Agent_Zero/
 ├── server.js                    Express backend (API + AI orchestration)
 ├── index.html                   Single-file frontend (HTML + CSS + JS)
-├── package.json                 Dependencies (v3.0.0)
+├── package.json                 Dependencies (v3.2.2)
 ├── mcp.json                     MCP server configuration (Work IQ)
 ├── tasks.json                   Local task storage (gitignored)
 ├── AGENTS.md                    Agent behavior documentation

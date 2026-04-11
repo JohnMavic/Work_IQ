@@ -4,6 +4,35 @@ All notable changes to this project are documented here.
 
 ---
 
+## v3.2.2 — April 11, 2026
+
+**WorkIQ Crash Guard + Dead Code Cleanup + Doc Alignment**
+
+### K2 — WorkIQ Crash Guard (Event-Based Abort)
+- New `EventEmitter` (`wiqEvents`) broadcasts `'wiq-down'` when the WorkIQ subprocess exits
+- New `runWithWiqGuard(session, prompt, timeoutMs)` wraps `session.sendAndWait()` with a race against `wiq-down`
+- All active SDK sessions abort immediately on WorkIQ crash instead of hanging 600s until timeout
+
+### K3 — WorkIQ Error Threshold Fix
+- Error threshold increased 3 → 4 before triggering restart
+- Removed premature `wiqProc.kill()` calls on M365 data errors (41-char refusals are not process errors)
+- `wiq41ErrorCount` reset to 0 after each auto-restart
+
+### Dead Code & Dependency Cleanup
+- Deleted `msal-auth.mjs` (abandoned MSAL/WAM auth experiment, never in production)
+- Deleted `migrate-summaries.js` (one-time migration script, already run)
+- Deleted `tasks.ORIGINAL.json` (orphaned backup)
+- Removed `@azure/msal-node` and `@azure/msal-node-extensions` from `package.json`
+
+### Documentation
+- All doc files updated from v3.0.0 → v3.2.2
+- ARCHITECTURE.md: fixed WorkIQ subprocess model (persistent, not per-session), fixed Phase 4 timeout (300s), fixed SDK version (0.2.1)
+- README.md: fixed `workiq mcp` component description, fixed Session Architecture section
+- AUTH_MIGRATION.md: marked as archived (MSAL experiment was abandoned)
+- CORRECTION_PLAN.md: added K2 (Fix #12) and K3 (Fix #13)
+
+---
+
 ## v3.0.0 — March 16, 2026
 
 **Naive Hybrid Scan + Verify-and-Improve Loop + Server Stability**

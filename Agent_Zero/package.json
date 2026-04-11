@@ -1,6 +1,6 @@
 {
   "name": "agent-zero",
-  "version": "3.2.1",
+  "version": "3.2.2",
   "type": "module",
   "main": "server.js",
   "scripts": {
@@ -12,8 +12,6 @@
   "license": "ISC",
   "description": "Agent Zero — AI-powered action item manager for M365 emails and Teams",
   "dependencies": {
-    "@azure/msal-node": "^5.1.2",
-    "@azure/msal-node-extensions": "^5.1.2",
     "@github/copilot-sdk": "^0.2.1",
     "@microsoft/workiq": "0.2.8",
     "express": "^5.2.1",

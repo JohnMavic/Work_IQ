@@ -1,6 +1,6 @@
 # Agent Zero — Architecture
 
-> Version 3.0.0 · March 16, 2026 · Author: Martin Hämmerli
+> Version 3.2.2 · April 11, 2026 · Author: Martin Hämmerli
 
 Agent Zero is a personal action-item tracker that scans Microsoft 365 emails and Teams messages for tasks,
 extracts content summaries, and monitors threads for updates — all powered by AI.
@@ -47,7 +47,7 @@ extracts content summaries, and monitors threads for updates — all powered by 
 
 **Data flow:** Browser → Express → Copilot SDK → Work IQ MCP → Microsoft 365 → back up the chain.
 
-**Session lifecycle management:** Each scan creates a fresh Copilot SDK session with Work IQ as MCP server. Sessions are independent — one session per API call, no shared state between scan phases. All sessions are tracked in a global `activeSessions` Set and guaranteed to be destroyed via `destroySession()` in finally blocks, graceful shutdown handlers (SIGINT/SIGTERM), and a startup orphan reaper.
+**Session lifecycle management:** Each SDK-based scan operation (Phases 2, 3, search, correction) creates a fresh Copilot SDK session. Phase 1 uses a different path — it communicates with the Work IQ subprocess directly via JSON-RPC (no SDK session needed). All SDK sessions are tracked in a global `activeSessions` Set and guaranteed to be destroyed via `destroySession()` in finally blocks, graceful shutdown handlers (SIGINT/SIGTERM), and a startup orphan reaper. A session slot limiter (`waitForSDKSlot()`) caps concurrent SDK sessions at 2.
 
 ---
 
@@ -57,7 +57,7 @@ extracts content summaries, and monitors threads for updates — all powered by 
 |-----------|-----------|---------|
 | Runtime | Node.js | v22.15.0 |
 | Web framework | Express | 5.2.1 |
-| AI orchestration | @github/copilot-sdk | 0.1.25 |
+| AI orchestration | @github/copilot-sdk | 0.2.1 |
 | M365 data access | @microsoft/workiq | 0.2.8 |
 | ID generation | uuid | 13.0.0 |
 | Frontend | Single-file HTML/CSS/JS | — |
@@ -72,27 +72,30 @@ needed. When Agent Zero starts an AI session, the SDK spawns this bundled CLI as
 and communicates via stdio. The CLI handles authentication, model routing, and API communication
 with GitHub's Copilot service.
 
-Similarly, Work IQ (`@microsoft/workiq`) is spawned as an MCP server subprocess. It authenticates
-independently via MSAL (Microsoft Entra ID) to access the user's Microsoft 365 data.
+Work IQ (`@microsoft/workiq`) is started **once at server startup** as a persistent MCP subprocess. It authenticates independently via MSAL (Microsoft Entra ID) and stays alive for the entire server lifetime. Automatic restarts handle crashes (with backoff up to 5 attempts, then a 60s cooldown). Phase 1 communicates with it directly via JSON-RPC (`askWorkIQDirect()`); Phases 2 and 3 connect to it via SDK `createSession()`.
 
 ```
-server.js
+server.js startup
   ├── new CopilotClient()
   │     └── spawns: bundled CLI (node_modules/@github/copilot/index.js)
   │           └── auth: GitHub OAuth (auto-login on first use, useLoggedInUser: true)
   │           └── connects to: GitHub Copilot API (AI models)
   │
-  └── createSession({ mcpServers: { workiq: { type: 'stdio', command: 'workiq', args: ['mcp'] }}})
-        └── spawns: workiq mcp (from PATH, requires global install)
+  └── startWorkIQMCP()  ← runs ONCE at startup, persistent subprocess
+        └── spawns: node_modules/.bin/workiq mcp (pinned local install, 0.2.8)
               └── auth: MSAL token (stored after `workiq accept-eula`)
               └── connects to: Microsoft Graph / Microsoft Search API
+              └── auto-restarts on crash (max 5, then 60s cooldown)
+
+Phase 1 → askWorkIQDirect()  ← JSON-RPC directly to persistent subprocess
+Phases 2, 3 → createSession({ mcpServers: { workiq: ... } }) ← SDK sessions
 ```
 
 | Component | Install | Role | Auth |
 |---|---|---|---|
 | Copilot SDK | `npm install` (project dep) | Node.js library — manages AI sessions and prompts | — |
 | Copilot CLI | Bundled with SDK (automatic) | AI runtime — spawned by SDK to talk to GitHub's API | GitHub OAuth (auto-login on first start) |
-| Work IQ | `npm install -g @microsoft/workiq` | MCP server for M365 email/Teams/calendar data | MSAL (`workiq accept-eula`) |
+| Work IQ | `npm install` (local dep, pinned 0.2.8) | Persistent MCP subprocess for M365 email/Teams/calendar data | MSAL (`workiq accept-eula`) |
 
 **Model selection:** Intent analysis and correction verification now rely on the Copilot CLI's default model routing. The previous explicit Claude Opus 4.6 override was removed.
 
@@ -187,7 +190,7 @@ Used for update-intent rewriting and post-update refinement when the agent chang
 
 **Endpoint:** `POST /api/consolidate`
 **Skill:** `CONSOLIDATE_SKILL.md`
-**Timeout:** 30s
+**Timeout:** 300s
 **Trigger:** Automatically after Phase 3, or manually via "🔗 Find Duplicates" button
 
 1. Collect all active tasks (status ≠ done) with existing summaries

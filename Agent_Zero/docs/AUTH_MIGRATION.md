@@ -1,5 +1,8 @@
 # AUTH_MIGRATION.md — Von workiq Binary zu MSAL Node.js mit NativeBrokerPlugin
 
+> ⚠️ **ARCHIVED — Diese Implementierung wurde verworfen.**  
+> Das MSAL-Experiment wurde nicht in Produktion übernommen. Agent Zero verwendet weiterhin die `@microsoft/workiq` Binary als M365-Backend. Diese Datei ist historische Dokumentation eines abgebrochenen Experiments (April 2026).
+
 > **Datum:** 8. April 2026  
 > **Autor:** Martin Hämmerli + GitHub Copilot  
 > **Kontext:** Agent Zero v3.0 — M365 Authentication Redesign
