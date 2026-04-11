@@ -1,6 +1,6 @@
 # Agent Zero
 
-> Version 3.2.2 · A personal AI-powered action-item tracker for Microsoft 365
+> Version 3.2.3 · A personal AI-powered action-item tracker for Microsoft 365
 
 **Author:** Martin Hämmerli · [martih@microsoft.com](mailto:martih@microsoft.com)
 
@@ -300,7 +300,7 @@ schtasks /create /xml "WorkIQ-Scan-Task.xml" /tn "WorkIQ-Scan"
 Agent_Zero/
 ├── server.js                    Express backend (API + AI orchestration)
 ├── index.html                   Single-file frontend (HTML + CSS + JS)
-├── package.json                 Dependencies (v3.2.2)
+├── package.json                 Dependencies (v3.2.3)
 ├── mcp.json                     MCP server configuration (Work IQ)
 ├── tasks.json                   Local task storage (gitignored)
 ├── AGENTS.md                    Agent behavior documentation

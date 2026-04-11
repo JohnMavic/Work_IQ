@@ -224,7 +224,7 @@ location.reload();
 
 ## Version
 - Built: March 2026
-- Compatible with: Agent Zero v3.2.2
+- Compatible with: Agent Zero v3.2.3
 - Browser requirements: Modern browsers with ES6+, IntersectionObserver
 
 ---

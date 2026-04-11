@@ -1,9 +1,9 @@
 # Agent Zero — Product Specification
 
-**Version:** 3.2.2
+**Version:** 3.2.3
 **Date:** April 11, 2026
 **Author:** Martin Hämmerli
-**Status:** v3.2.2 — WorkIQ persistent subprocess, direct Phase 1 queries, K2/K3 crash guard, full Verify-and-Improve loop
+**Status:** v3.2.3 — WorkIQ persistent subprocess, direct Phase 1 queries, K2/K3 crash guard, K4 done-task suppression, full Verify-and-Improve loop
 
 ---
 
@@ -101,7 +101,7 @@ First-time setup:
   4. **New items** → added with status `new`
   5. **Matched items with changes** → existing task updated + `scan-update` history entry
   6. **Matched items without changes** → skipped
-  7. **Items matching done tasks** → action `skip`, not re-created
+  7. **Items matching done tasks** → suppressed (K4); only reactivated to `needs-attention` if item has a different link AND item date is verifiably after `doneAt`
   8. Returns updated counts to frontend
 - **Non-blocking scan banner:** inline bar in header row 2 (replaces idle status) with:
   - Spinner + phase text + elapsed time counter (`⏱ MM:SS`)
@@ -176,7 +176,7 @@ Each task is displayed as a card with:
 
 1. **AI Context Dedup:** Active + done tasks (up to 50 active + 30 done) included in scan prompt so AI can return `action: "skip"` or `action: "update"` with `existingId`
 2. **Action-Based Dedup:** Items with `action: "skip"` are counted as skipped. Items with `action: "update"` update the matched existing task
-3. **Jaccard Safety-Net:** All new items are checked against ALL existing tasks using word-level Jaccard similarity (threshold > 0.7). If similar, the item is skipped with a console warning
+3. **Jaccard Safety-Net:** All new items are checked against ALL existing tasks (including done) using word-level Jaccard similarity (threshold > 0.6) or subset ratio ≥ 0.9. If matched against an **active task** → item skipped. If matched against a **done task** (K4): suppressed unless item link differs AND item date is verifiably after `doneAt` (genuine new activity → reactivated to `needs-attention`)
 
 **Backward compatibility:** Items without an `action` field use legacy dedup logic (match by `link`, then by `title + from + source`).
 

@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 
 ---
 
+## v3.2.3 — April 11, 2026
+
+**Spec & Feature Inventory Alignment**
+
+### Documentation
+- `AGENT_ZERO_SPEC.md`: K4 done-task suppression now described in Phase 1 dedup section; Jaccard threshold corrected from >0.7 to >0.6; subset ratio ≥0.9 documented; Safety-Net behavior updated to include done-task handling
+- `FEATURE_INVENTORY.md`: Phase 1 row and `isSimilarTitle` utility row updated — K4 behavior documented, Jaccard threshold corrected to >0.6
+- `CORRECTION_PLAN.md`: K2/K3 commit updated to `43f22bd`; K4 commit updated to `4fdcbba`; version updated to v3.2.3
+
+---
+
 ## v3.2.2 — April 11, 2026
 
 **WorkIQ Crash Guard + Dead Code Cleanup + Doc Alignment**

@@ -2,7 +2,7 @@
 
 > **Created:** 2026-04-09, **Final update:** 2026-04-11 by Martin Hämmerli + Copilot CLI  
 > **Status:** ✅ ALL FIXES IMPLEMENTED AND TESTED  
-> **Current version:** v3.2.2 (pending commit)
+> **Current version:** v3.2.3
 
 ---
 
@@ -21,9 +21,9 @@
 | 9 | Debug logger + GUI toggle | v3.1.0 | `47c1630` | ✅ |
 | 10 | EVAL-P3 timeout 90s (BOTH locations: line 1578 + 2967) | v3.2.1 | `e2fedb5` | ✅ |
 | 11 | Auto-retry failed enrichments (max 3 attempts via history count) | v3.2.1 | `e2fedb5` | ✅ |
-| 12 | K2: `wiq-down` event + `runWithWiqGuard()` — SDK sessions abort immediately on WorkIQ crash instead of hanging 600s | v3.2.2 | (pending) | ✅ |
-| 13 | K3: Error threshold 3→4; removed premature `wiqProc.kill()` on M365 data errors; reset `wiq41ErrorCount` after auto-restart | v3.2.2 | (pending) | ✅ |
-| 14 | K4: Phase 1 done-task suppression — only reactivates done tasks if item date > doneAt AND different link | v3.2.2 | (pending) | ✅ |
+| 12 | K2: `wiq-down` event + `runWithWiqGuard()` — SDK sessions abort immediately on WorkIQ crash instead of hanging 600s | v3.2.2 | `43f22bd` | ✅ |
+| 13 | K3: Error threshold 3→4; removed premature `wiqProc.kill()` on M365 data errors; reset `wiq41ErrorCount` after auto-restart | v3.2.2 | `43f22bd` | ✅ |
+| 14 | K4: Phase 1 done-task suppression — only reactivates done tasks if item date > doneAt AND different link | v3.2.2 | `4fdcbba` | ✅ |
 
 ---
 
