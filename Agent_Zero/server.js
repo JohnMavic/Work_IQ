@@ -279,19 +279,99 @@ function runWithWiqGuard(session, prompt, timeoutMs) {
   });
 }
 
+// ─── Phase 3 Session Tracking ────────────────────────────────────────────
+// Map<sessionId, { taskId, count, stubCount, budgetHit, wiqDown, calls: [...] }>
+// Populated by /api/tasks/:id/check-update before sendAndWait, consumed by
+// askWorkIQTool handler for budget enforcement and outcome classification,
+// then read at the end of the endpoint and finally cleaned up.
+const phase3Sessions = new Map();
+const PHASE3_QUERY_BUDGET = parseInt(process.env.PHASE3_QUERY_BUDGET, 10) || 3;
+
+function phase3Register(sessionId, taskId) {
+  phase3Sessions.set(sessionId, {
+    taskId, count: 0, stubCount: 0, budgetHit: false, wiqDown: false, calls: []
+  });
+}
+function phase3Get(sessionId) { return phase3Sessions.get(sessionId); }
+function phase3Cleanup(sessionId) { phase3Sessions.delete(sessionId); }
+
+// Detect EULA/permission/service-unavailable stubs from WorkIQ responses.
+// Multi-marker fingerprint (≥2 markers) — robust across MCP versions, no length-based check.
+const EULA_MARKERS = [
+  /accept\s+(the\s+)?eula/i,
+  /accept_eula/i,
+  /before\s+using\s+this\s+tool/i,
+  /permission\s+denied/i,
+  /not\s+been\s+accepted/i,
+  /eula\s+not\s+accepted/i,
+  /requires?\s+(eula|consent)/i,
+];
+function isStubResponse(text) {
+  if (!text || typeof text !== 'string') return false;
+  let hits = 0;
+  for (const re of EULA_MARKERS) { if (re.test(text)) hits++; if (hits >= 2) return true; }
+  return false;
+}
+
+// Block model-generated EULA-acceptance attempts (regex on the QUERY itself,
+// not the response — keeps legitimate user queries about the word "EULA" working).
+const SELF_EULA_QUERY = /^\s*(please\s+|i\s+)?(accept|acknowledge|confirm)\s+(the\s+)?eula\b/i;
+
 const askWorkIQTool = defineTool('ask_work_iq', {
   description: 'Search Microsoft 365 emails, Teams messages, calendar, and documents. Pass a natural language question.',
   parameters: { type: 'object', properties: { question: { type: 'string', description: 'The question to ask Work IQ' } }, required: ['question'] },
   skipPermission: true,
-  handler: async ({ question }) => {
-    console.log(`[M365] Query: "${question.substring(0, 80)}..."`);
+  handler: async ({ question }, invocation) => {
+    const sessionId = invocation && invocation.sessionId;
+    const tracking = sessionId ? phase3Get(sessionId) : null;
+    const phase3Ctx = tracking ? `[task=${tracking.taskId} q=${tracking.count + 1}]` : '';
+
+    // Block model-generated EULA acceptance attempts (no MCP round-trip).
+    if (SELF_EULA_QUERY.test(question)) {
+      console.warn(`[M365] BLOCKED self-EULA query ${phase3Ctx}: "${question.substring(0, 80)}"`);
+      debugLog('PHASE3-TOOL', `BLOCKED self-EULA query`, { sessionId, taskId: tracking?.taskId, query: question.substring(0, 120) });
+      if (tracking) tracking.stubCount++;
+      return 'TOOL_GUIDANCE: EULA acceptance is handled by the server at startup, not via this tool. Do not call ask_work_iq with EULA-related queries. Continue with your normal search or return {"hasUpdate": false, "inconclusive": true}.';
+    }
+
+    // Per-session budget enforcement (Phase 3 only — sessions without tracking are unaffected).
+    if (tracking && tracking.count >= PHASE3_QUERY_BUDGET) {
+      tracking.budgetHit = true;
+      console.warn(`[M365] BUDGET_EXHAUSTED ${phase3Ctx} after ${tracking.count} queries`);
+      debugLog('PHASE3-TOOL', `BUDGET_EXHAUSTED`, { sessionId, taskId: tracking.taskId, count: tracking.count, budget: PHASE3_QUERY_BUDGET });
+      return `BUDGET_EXHAUSTED: You have reached the maximum of ${PHASE3_QUERY_BUDGET} ask_work_iq calls for this task. STOP searching. Return your final JSON now: {"hasUpdate": false, "inconclusive": true} — the server will retry this task in the next scan.`;
+    }
+
+    if (tracking) tracking.count++;
+    const queryIndex = tracking ? tracking.count : 0;
+    console.log(`[M365] Query ${phase3Ctx}: "${question.substring(0, 80)}..."`);
     const start = Date.now();
     try {
       const result = await askWorkIQDirect(question);
-      console.log(`[M365] OK in ${((Date.now() - start) / 1000).toFixed(1)}s (${result.length} chars)`);
+      const durationMs = Date.now() - start;
+      const charsReturned = result ? result.length : 0;
+      const stubDetected = isStubResponse(result);
+      if (stubDetected && tracking) {
+        tracking.stubCount++;
+        console.warn(`[M365] STUB detected ${phase3Ctx} (chars=${charsReturned}) — service unavailable`);
+        debugLog('PHASE3-TOOL', `STUB`, { sessionId, taskId: tracking.taskId, queryIndex, durationMs, charsReturned });
+        if (tracking) tracking.calls.push({ queryIndex, outcome: 'stub', durationMs, charsReturned });
+        return 'SERVICE_UNAVAILABLE: M365 search backend returned a permission/EULA stub instead of results. Do NOT retry. Return your final JSON now: {"hasUpdate": false, "inconclusive": true} — the server will retry this task in the next scan.';
+      }
+      console.log(`[M365] OK in ${(durationMs / 1000).toFixed(1)}s (${charsReturned} chars) ${phase3Ctx}`);
+      if (tracking) {
+        tracking.calls.push({ queryIndex, outcome: 'ok', durationMs, charsReturned });
+        debugLog('PHASE3-TOOL', `OK`, { sessionId, taskId: tracking.taskId, queryIndex, durationMs, charsReturned });
+      }
       return result;
     } catch (e) {
-      console.error(`[M365] Failed in ${((Date.now() - start) / 1000).toFixed(1)}s: ${e.message}`);
+      const durationMs = Date.now() - start;
+      console.error(`[M365] Failed in ${(durationMs / 1000).toFixed(1)}s ${phase3Ctx}: ${e.message}`);
+      if (tracking) {
+        tracking.calls.push({ queryIndex, outcome: 'error', durationMs, error: e.message });
+        if (/cooldown|wiq|workiq|exited|crashed|down/i.test(e.message)) tracking.wiqDown = true;
+        debugLog('PHASE3-TOOL', `ERROR ${e.message}`, { sessionId, taskId: tracking.taskId, queryIndex, durationMs });
+      }
       return `Error: ${e.message}`;
     }
   }
@@ -632,6 +712,94 @@ function formatUpdateTimestamp(date) {
   const hours = String(d.getHours()).padStart(2, '0');
   const minutes = String(d.getMinutes()).padStart(2, '0');
   return `${day}.${month}.${year}, ${hours}:${minutes}`;
+}
+
+// ─── Phase 3: Compact Action Item State Builder ──────────────────────────
+// Mirrors the Task_Zero 03 buildProjectMemory pattern: every Phase 3 SDK call
+// receives a compact representation of WHAT IS ALREADY KNOWN, so the model can
+// detect "no new info" without exhaustive M365 searches.
+//
+// Hard size budget: ~2.5 kB total. Each section is truncated independently.
+const PHASE3_STATE_MAX = 2500;
+function _truncate(s, n) {
+  if (!s) return '';
+  s = String(s);
+  return s.length <= n ? s : s.substring(0, n - 1).trimEnd() + '…';
+}
+function buildActionItemState(task) {
+  const lines = [];
+  lines.push('# Action Item State (already known to Agent Zero)');
+  lines.push('');
+  lines.push(`- Title: ${_truncate(task.title, 200)}`);
+  lines.push(`- Source: ${task.source || 'unknown'}`);
+  lines.push(`- Current status field: ${task.status || 'new'}  (allowed: new | on-radar | in-progress | updated | done)`);
+  if (task.from) lines.push(`- Sender: ${_truncate(task.from, 120)}`);
+  if (task.link) lines.push(`- Direct link: ${task.link}`);
+  if (task.link && task.link.includes('teams.microsoft.com')) {
+    const threadMatch = task.link.match(/19:[a-f0-9]+@thread\.[a-z]+/);
+    const msgMatch = task.link.match(/\/(\d{10,})\?/);
+    if (threadMatch) lines.push(`- Teams thread ID: ${threadMatch[0]}`);
+    if (msgMatch) lines.push(`- Teams message ID: ${msgMatch[1]}`);
+  }
+  const anchor = task.lastSuccessfulUpdateCheck || task.lastUpdateCheck || task.enrichedAt || task.createdAt || task.date;
+  lines.push(`- Last successful check (TEMPORAL ANCHOR — only messages AFTER this date are NEW): ${anchor || 'never'}`);
+  lines.push('');
+  lines.push('## Current summary (already integrated into the task)');
+  lines.push(_truncate(task.summary || '(no summary yet)', 1500));
+  lines.push('');
+  // Recent history tail — gives the model concrete proof of what was already captured.
+  if (Array.isArray(task.history) && task.history.length > 0) {
+    lines.push('## Recent history (last 5 entries — these are ALREADY captured, do NOT re-report)');
+    const tail = task.history.slice(-5);
+    for (const h of tail) {
+      const ts = h.timestamp ? h.timestamp.substring(0, 19) : '?';
+      const txt = _truncate((h.text || '').replace(/\s+/g, ' '), 200);
+      lines.push(`- [${ts}] (${h.type || 'note'}) ${txt}`);
+      // Communications fingerprint — list IDs/dates/links only, NEVER bodies.
+      if (Array.isArray(h.communications) && h.communications.length > 0) {
+        for (const c of h.communications.slice(0, 4)) {
+          const cd = c.date ? c.date.substring(0, 10) : '?';
+          const cl = c.link ? ` ${c.link.substring(0, 80)}…` : '';
+          lines.push(`    · ${c.type || '?'} from ${_truncate(c.from || '?', 60)} on ${cd}${cl}`);
+        }
+      }
+    }
+  }
+  let out = lines.join('\n');
+  if (out.length > PHASE3_STATE_MAX) {
+    out = out.substring(0, PHASE3_STATE_MAX - 1) + '…';
+  }
+  return out;
+}
+
+// ─── Phase 3: Pre-Filter Configuration ───────────────────────────────────
+// Skip a Phase 3 check if the last SUCCESSFUL check ran recently. Configurable.
+// Inconclusive runs do NOT update lastSuccessfulUpdateCheck — they are retried
+// at the next scan.
+const PHASE3_MIN_INTERVAL_MS = {
+  'in-progress':  parseInt(process.env.PHASE3_INTERVAL_INPROGRESS, 10) || (1 * 60 * 60 * 1000),  // 1h
+  'needs-review': parseInt(process.env.PHASE3_INTERVAL_NEEDSREVIEW, 10) || (2 * 60 * 60 * 1000), // 2h
+  'default':      parseInt(process.env.PHASE3_INTERVAL_DEFAULT, 10) || (6 * 60 * 60 * 1000),     // 6h
+};
+function phase3MinInterval(task) {
+  if (task.status === 'in-progress') return PHASE3_MIN_INTERVAL_MS['in-progress'];
+  if (task.enrichmentStatus === 'needs-review') return PHASE3_MIN_INTERVAL_MS['needs-review'];
+  return PHASE3_MIN_INTERVAL_MS['default'];
+}
+
+// Dedicated per-day phase3 log file (in addition to debug.log).
+function phase3Log(message, data) {
+  if (!DEBUG_LOG) return;
+  const ts = new Date().toISOString();
+  const day = ts.substring(0, 10);
+  const file = path.join(LOG_DIR, `phase3-${day}.log`);
+  let line = `[${ts}] ${message}`;
+  if (data) line += ` | ${typeof data === 'string' ? data : JSON.stringify(data)}`;
+  line += '\n';
+  try {
+    if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
+    fs.appendFileSync(file, line);
+  } catch {}
 }
 
 function extractKeywords(title) {
@@ -1438,15 +1606,17 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
 });
 
 // POST /api/tasks/:id/check-update — Phase 3: check for thread updates
+// v3.3: Action-Item-State injection, hard query budget, stub detection,
+// tristate outcome (updated/no-update/inconclusive), no eval session, pre-filter.
 app.post('/api/tasks/:id/check-update', async (req, res) => {
   const { id } = req.params;
+  const force = req.query.force === '1' || req.body?.force === true;
 
   let task;
   try {
     const data = readTasks();
     task = data.tasks.find(t => t.id === id);
     if (!task) return res.status(404).json({ error: 'Task not found' });
-    // K1-A: Skip if already being checked or recently checked (block duplicate concurrent requests)
     if (task.updateCheckStatus === 'checking') {
       return res.json({ success: true, alreadyChecking: true });
     }
@@ -1454,20 +1624,37 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
     return res.status(500).json({ error: 'Failed to read task', detail: err.message });
   }
 
-  // Mark as checking
+  // Mark as checking (lock — prevents concurrent duplicates)
   await safeWriteTasks((data) => {
     const t = data.tasks.find(t => t.id === id);
     if (t) t.updateCheckStatus = 'checking';
   });
 
-  let client, session;
+  // ─── Pre-Filter (cheap skip) ────────────────────────────────────────────
+  // Skip if last SUCCESSFUL check is recent enough. Inconclusive runs do NOT
+  // count, so a stuck task gets retried at the next scan instead of being silenced.
+  const lastSuccessTs = task.lastSuccessfulUpdateCheck ? Date.parse(task.lastSuccessfulUpdateCheck) : 0;
+  const minInterval = phase3MinInterval(task);
+  const sinceLastSuccess = Date.now() - lastSuccessTs;
+  if (!force && lastSuccessTs && sinceLastSuccess < minInterval) {
+    const remaining = Math.round((minInterval - sinceLastSuccess) / 60000);
+    debugLog('PHASE3', `SKIP (pre-filter) "${task.title.substring(0, 60)}" — ${Math.round(sinceLastSuccess/60000)}min since last success (min ${Math.round(minInterval/60000)}min)`);
+    phase3Log(`SKIP-PREFILTER taskId=${id} title="${task.title.substring(0,60)}" sinceMin=${Math.round(sinceLastSuccess/60000)} minIntervalMin=${Math.round(minInterval/60000)}`);
+    await safeWriteTasks((data) => {
+      const t = data.tasks.find(t => t.id === id);
+      if (t) { t.updateCheckStatus = 'checked'; }
+    });
+    return res.json({ success: true, skipped: true, reason: 'recent-success', sinceLastSuccessMin: Math.round(sinceLastSuccess/60000), minIntervalMin: Math.round(minInterval/60000) });
+  }
+
+  let client, session, sessionId;
+  const checkStart = Date.now();
   try {
     await waitForSDKSlot();
-    // K1-B: Re-check status after acquiring the slot — another request may have already checked
-    // this task while we were waiting (race condition between concurrent batch requests)
+    // Re-check after acquiring slot (race with concurrent batch)
     const slotCheck = readTasks();
     const slotTask = slotCheck.tasks.find(t => t.id === id);
-    if (slotTask && slotTask.updateCheckStatus === 'checked') {
+    if (slotTask && slotTask.updateCheckStatus === 'checked' && !force) {
       debugLog('PHASE3', `SKIP check "${task.title.substring(0, 60)}" — already checked while waiting for SDK slot`);
       return res.json({ success: true, alreadyChecking: true });
     }
@@ -1476,250 +1663,190 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
       tools: [askWorkIQTool],
       onPermissionRequest: approveAll
     }));
-
     linkClientToSession(session, client);
-    // Extract keywords from title (same technique as Phase 2)
-    const stopWords = new Set(['the', 'a', 'an', 'to', 'for', 'of', 'in', 'on', 'at', 'by', 'and', 'or', 'via', 'with', 'from', 'my', 'your', 'is', 'are', 'was', 'be', 'has', 'have', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'this', 'that', 'these', 'those', 'it', 'its']);
-    const keywords = task.title
-      .replace(/[^a-zA-Z0-9äöüÄÖÜß\s-]/g, ' ')
-      .split(/\s+/)
-      .filter(w => w.length > 2 && !stopWords.has(w.toLowerCase()))
-      .slice(0, 8)
-      .join(' ');
+    sessionId = session.sessionId;
+    phase3Register(sessionId, id);
 
-    // Build link context
-    let linkContext = '';
-    if (task.link) {
-      if (task.link.includes('teams.microsoft.com')) {
-        const threadMatch = task.link.match(/19:[a-f0-9]+@thread\.[a-z]+/);
-        const msgMatch = task.link.match(/\/(\d{10,})\?/);
-        linkContext = `\nDirect Teams link: ${task.link}`;
-        if (threadMatch) linkContext += `\nTeams Thread ID: ${threadMatch[0]}`;
-        if (msgMatch) linkContext += `\nMessage ID: ${msgMatch[1]}`;
-      } else if (task.link.includes('outlook.office365.com') || task.link.includes('ItemID=')) {
-        linkContext = `\nDirect Outlook link: ${task.link}`;
-      }
-    }
-
-    // Temporal anchor: use lastUpdateCheck if available, otherwise enrichedAt or createdAt
-    const lastChecked = task.lastUpdateCheck || task.enrichedAt || task.createdAt || task.date || 'unknown';
-
+    // ─── Build compact prompt ────────────────────────────────────────────
+    // ~700 chars skill + ~2.5 kB action-item state + ~300 chars instructions
+    const actionItemState = buildActionItemState(task);
     const updateSkill = UPDATE_CHECK_SKILL || '';
     const checkPrompt = updateSkill + '\n\n' +
-      `Search for the ${task.source === 'teams' ? 'Teams conversation' : 'email thread'} about: ${keywords}\n` +
-      `Full subject: "${task.title}"\n` +
-      `Sender (hint, may not be exact): ${task.from || 'unknown'}\n` +
-      `Source: ${task.source}\n` +
-      `Last checked date: ${lastChecked}\n` +
-      `Current summary: ${task.summary || '(no summary)'}` +
-      linkContext + '\n\n' +
-      `Find this conversation and check for messages dated AFTER ${lastChecked}. Only report genuinely NEW activity. Everything before that date was already captured.`;
+      '---\n\n' +
+      actionItemState + '\n\n' +
+      '---\n\n' +
+      `## Your task NOW\n\n` +
+      `Determine whether the conversation referenced above has any NEW message(s) dated AFTER the temporal anchor (Last successful check). Use the smallest possible number of ask_work_iq calls (target: 1, hard cap: ${PHASE3_QUERY_BUDGET}). Prefer the Direct link / Thread ID for a focused lookup. Do NOT re-search if your first query returns the same messages already listed in the recent history above.\n\n` +
+      `**MANDATORY:** Your ask_work_iq question MUST literally contain the phrase \`Sent Items\` and explicitly request BOTH incoming messages from the counterpart AND messages that I (Martin) sent or replied with in this thread. A self-sent reply IS an update — do not ignore it.\n\n` +
+      `**STATE RECONCILIATION:** Even if you find no NEW messages, inspect the current summary above against the Current status field. If the summary already documents a terminal/state-change event (approval complete, done, cancelled, abgeschlossen) but Current status is still 'new' or 'in-progress', emit \`newStatus\` (and \`newTitle\` if needed) in your JSON response — even with hasUpdate=false. This brings the lifecycle into sync with what's already known.\n\n` +
+      `Return ONLY the JSON object specified by the skill.`;
 
-    const checkStart = Date.now();
-    console.log(`[UPDATE-CHECK] Task "${task.title}" — checking for updates since ${lastChecked} (prompt: ${checkPrompt.length} chars)`);
-    debugLog('PHASE3', `START check "${task.title.substring(0, 60)}"`, { taskId: id, since: lastChecked, promptLen: checkPrompt.length });
+    const promptLen = checkPrompt.length;
+    const stateBytes = Buffer.byteLength(actionItemState, 'utf8');
+    debugLog('PHASE3', `START check "${task.title.substring(0, 60)}"`, { taskId: id, sessionId, since: task.lastSuccessfulUpdateCheck || task.lastUpdateCheck || task.enrichedAt, promptLen, stateBytes });
+    phase3Log(`START taskId=${id} sessionId=${sessionId} title="${task.title.substring(0,60)}" promptLen=${promptLen} stateBytes=${stateBytes}`);
+    console.log(`[UPDATE-CHECK] Task "${task.title.substring(0, 60)}" — prompt ${promptLen} chars (state ${stateBytes} B)`);
+
     const response = await runWithWiqGuard(session, checkPrompt, 600000);
-    console.log(`[UPDATE-CHECK] Response in ${((Date.now() - checkStart) / 1000).toFixed(1)}s`);
-    debugLog('PHASE3', `DONE check "${task.title.substring(0, 60)}" in ${((Date.now() - checkStart) / 1000).toFixed(1)}s`);
+    const elapsedMs = Date.now() - checkStart;
+    const elapsedS = (elapsedMs / 1000).toFixed(1);
+    debugLog('PHASE3', `DONE check "${task.title.substring(0, 60)}" in ${elapsedS}s`);
     await destroySession(session);
+    session = null;
 
-    if (!response) {
-      await safeWriteTasks((data) => {
-        const t = data.tasks.find(t => t.id === id);
-        if (t) t.updateCheckStatus = 'error';
-      });
-      return res.status(502).json({ error: 'No response from AI engine' });
-    }
+    // ─── Outcome classification (tristate) ───────────────────────────────
+    const tracking = phase3Get(sessionId) || { count: 0, stubCount: 0, budgetHit: false, wiqDown: false, calls: [] };
+    let result = response ? parseJsonFromResponse(response.data?.content) : null;
+    const parseFailed = !result;
+    const inconclusive = tracking.budgetHit
+                      || tracking.stubCount > 0
+                      || tracking.wiqDown
+                      || (parseFailed && tracking.count === 0)
+                      || (parseFailed && tracking.stubCount > 0)
+                      || (result && result.inconclusive === true);
 
-    const rawContent = response.data.content;
-    const result = parseJsonFromResponse(rawContent);
+    phase3Log(`DONE taskId=${id} sessionId=${sessionId} elapsedS=${elapsedS} queries=${tracking.count} stubCount=${tracking.stubCount} budgetHit=${tracking.budgetHit} wiqDown=${tracking.wiqDown} parseFailed=${parseFailed} inconclusive=${inconclusive} hasUpdate=${!!(result && result.hasUpdate)}`);
 
-    // Save original values before modification (for evaluation prompt)
+    // Save original values before potential modification
     const originalTitle = task.title;
     const originalSummary = task.summary || '';
 
+    let outcome;
     const updated = await safeWriteTasks((data) => {
       const t = data.tasks.find(t => t.id === id);
       if (!t) return null;
-
       const now = new Date().toISOString();
       t.lastUpdateCheck = now;
+      if (!t.history) t.history = [];
+
+      if (inconclusive) {
+        outcome = 'inconclusive';
+        t.updateCheckStatus = 'inconclusive';
+        const reasons = [];
+        if (tracking.budgetHit)   reasons.push(`budget-exhausted(${tracking.count})`);
+        if (tracking.stubCount)   reasons.push(`stub×${tracking.stubCount}`);
+        if (tracking.wiqDown)     reasons.push('wiq-down');
+        if (parseFailed)          reasons.push('parse-failed');
+        t.history.push({
+          timestamp: now,
+          type: 'update-check-inconclusive',
+          text: `⚠️ Update check inconclusive (${elapsedS}s, ${tracking.count} queries) — reasons: ${reasons.join(', ') || 'unknown'}. Will retry at next scan.`
+        });
+        t.updatedAt = now;
+        return { hasUpdate: false, inconclusive: true, reasons };
+      }
 
       if (result && result.hasUpdate && result.updateSummary) {
+        outcome = 'updated';
         t.updateCheckStatus = 'updated';
         t.status = 'updated';
-        if (!t.history) t.history = [];
-        const checkDuration = ((Date.now() - checkStart) / 1000).toFixed(1);
+        t.lastSuccessfulUpdateCheck = now;
         const historyLines = [
-          `🔄 Update detected (${checkDuration}s)`,
-          `   Search: "${keywords}"`,
-          `   Since: ${lastChecked}`,
+          `🔄 Update detected (${elapsedS}s, ${tracking.count} queries)`,
+          `   Since: ${task.lastSuccessfulUpdateCheck || task.lastUpdateCheck || 'never'}`,
           `   New messages: ${result.newMessageCount || 'unknown'}`,
           `   Update: ${String(result.updateSummary).trim()}`
         ];
-        t.history.push({
-          timestamp: now,
-          type: 'thread-update',
-          text: historyLines.join('\n')
-        });
-        // Store raw update text for evaluation — do NOT prepend to summary (eval will integrate structurally)
-        t._pendingUpdate = String(result.updateSummary).trim();
-        t._pendingUpdateTs = formatUpdateTimestamp(new Date());
+        t.history.push({ timestamp: now, type: 'thread-update', text: historyLines.join('\n') });
+
+        // ─── Single-session flow: apply newTitle/newSummary if provided ──
+        // No second SDK session. Fallback: if missing, prepend pendingUpdate
+        // marker so the update text is never lost.
+        const titleChanged = result.newTitle && String(result.newTitle).trim() && String(result.newTitle).trim() !== originalTitle;
+        const summaryChanged = result.newSummary && String(result.newSummary).trim();
+        if (titleChanged) {
+          const prevTitle = t.title;
+          t.title = String(result.newTitle).trim();
+          t.history.push({
+            timestamp: now,
+            type: 'title-change',
+            text: `📝 Title updated after update check:\n"${prevTitle}" → "${t.title}"\nReason: New information from update check`
+          });
+        }
+        if (summaryChanged) {
+          t.summary = String(result.newSummary).trim();
+          t.history.push({
+            timestamp: now,
+            type: 'summary-update',
+            text: `📋 Summary refined after update check (single-session, no eval round-trip)`
+          });
+        } else {
+          // Fallback: prepend the raw update so it is visible to the user.
+          const ts = formatUpdateTimestamp(new Date());
+          t.summary = `🔴 **Update ${ts}:** ${String(result.updateSummary).trim()}\n\n---\n\n${t.summary || ''}`;
+          t.history.push({
+            timestamp: now,
+            type: 'summary-update',
+            text: `📋 Update prepended to summary (no newSummary in model response — fallback applied)`
+          });
+        }
+        // Apply newStatus if model provided a valid lifecycle change
+        const allowedStatus = new Set(['new', 'on-radar', 'in-progress', 'updated', 'done']);
+        if (result.newStatus && allowedStatus.has(String(result.newStatus).trim().toLowerCase())) {
+          const newSt = String(result.newStatus).trim().toLowerCase();
+          if (newSt !== t.status) {
+            const prevStatus = t.status;
+            t.status = newSt;
+            t.history.push({
+              timestamp: now,
+              type: 'status-change',
+              text: `🔧 Status changed by update check: ${prevStatus} → ${t.status}`
+            });
+          }
+        }
         t.updatedAt = now;
-        return { hasUpdate: true, updateSummary: result.updateSummary };
-      } else {
-        t.updateCheckStatus = 'checked';
-        const checkDuration = ((Date.now() - checkStart) / 1000).toFixed(1);
-        if (!t.history) t.history = [];
-        t.history.push({
-          timestamp: now,
-          type: 'update-check',
-          text: `✅ No new activity detected (${checkDuration}s) — searched: "${keywords}"`
-        });
-        t.updatedAt = now;
-        return { hasUpdate: false };
+        return { hasUpdate: true, updateSummary: result.updateSummary, titleChanged, summaryChanged };
       }
+
+      // Confirmed "no update" — only path that advances lastSuccessfulUpdateCheck
+      outcome = 'no-update';
+      t.updateCheckStatus = 'checked';
+      t.lastSuccessfulUpdateCheck = now;
+
+      // ─── State Reconciliation (no-update path) ───────────────────────
+      // Even with no NEW messages, the model may have detected that the
+      // current status / title is inconsistent with the existing summary
+      // (e.g. summary says "approved" but status is still "new").
+      const allowedStatus = new Set(['new', 'on-radar', 'in-progress', 'updated', 'done']);
+      const recoTitleChanged = result && result.newTitle && String(result.newTitle).trim() && String(result.newTitle).trim() !== originalTitle;
+      const recoStatusChanged = result && result.newStatus && allowedStatus.has(String(result.newStatus).trim().toLowerCase()) && String(result.newStatus).trim().toLowerCase() !== (t.status || 'new');
+      let reconciled = false;
+      if (recoTitleChanged) {
+        const prevTitle = t.title;
+        t.title = String(result.newTitle).trim();
+        t.history.push({
+          timestamp: now,
+          type: 'title-change',
+          text: `📝 Title reconciled (no new messages, title now reflects state already in summary):\n"${prevTitle}" → "${t.title}"`
+        });
+        reconciled = true;
+      }
+      if (recoStatusChanged) {
+        const prevStatus = t.status || 'new';
+        t.status = String(result.newStatus).trim().toLowerCase();
+        t.history.push({
+          timestamp: now,
+          type: 'status-change',
+          text: `🔧 Status reconciled (no new messages, lifecycle now matches summary): ${prevStatus} → ${t.status}`
+        });
+        reconciled = true;
+      }
+      t.history.push({
+        timestamp: now,
+        type: 'update-check',
+        text: `✅ No new activity detected (${elapsedS}s, ${tracking.count} queries)${reconciled ? ' — state reconciled' : ''}`
+      });
+      t.updatedAt = now;
+      return { hasUpdate: false, reconciled, titleChanged: recoTitleChanged, statusChanged: recoStatusChanged };
     });
 
-    // Post-search evaluation: intelligently update title/summary if Phase 3 found new info
-    let evaluation = null;
-    if (updated && updated.hasUpdate && updated.updateSummary) {
-      let evalClient, evalSession;
-      try {
-        console.log(`[EVAL-P3] Starting post-update evaluation for task "${originalTitle}" (${id})`);
-        await waitForSDKSlot();
-        evalClient = new CopilotClient();
-        evalSession = trackSession(await evalClient.createSession({ onPermissionRequest: approveAll }));
-
-        linkClientToSession(evalSession, evalClient);
-        const evalPrompt = `You are updating a task's title and summary based on new information.
-
-CURRENT TASK:
-Title: "${originalTitle}"
-Summary: ${originalSummary ? `"${originalSummary}"` : '(no summary)'}
-
-NEW UPDATE FOUND:
-"${updated.updateSummary}"
-
-INSTRUCTIONS:
-
-1. TITLE evaluation — be PROACTIVE about updating:
-   - The title must reflect the CURRENT state of this action item, not the original request.
-   - If the situation has evolved in ANY way (reply received, decision made, deadline passed, request fulfilled, meeting confirmed), UPDATE the title to reflect what is happening NOW.
-   - Example: "Please prepare slides by Friday" → "Slides submitted — awaiting review from Jawad"
-   - Be decisive: if the latest update changes the situation, the title MUST change.
-   - Keep it concise: max 15 words, factual, no emojis.
-
-2. SUMMARY — use STRUCTURED FORMAT with 3 visually separated sections:
-
-   The summary MUST follow this exact structure:
-
-   [1-2 sentence context: what this task is about]
-
-   ---
-
-   🔴 **Nächste Schritte:** (or **Next steps:** if content is in English)
-   - What needs to happen NOW based on latest information
-   - Who must act, what are we waiting for
-   - 📧 *Source reference if known*
-
-   ---
-
-   ✅ **Bisheriger Verlauf:** (or **History:** if content is in English)
-   - DD.MM. — One-line milestone (most recent first)
-   - DD.MM. — One-line milestone
-
-   RULES:
-   - The CONTEXT section (top) stays stable — only update if the core nature of the task changed.
-   - The 🔴 section reflects the NEW current state after this update.
-   - Items that WERE in 🔴 and are now resolved → move to ✅ as a one-liner.
-   - Add the new update as the TOP entry in ✅ with today's date.
-   - Use "---" (Markdown horizontal rule) between each section.
-   - NEVER use "📌 Update (date):" block format — that is deprecated.
-   - Do NOT duplicate information between sections.
-   - Write in the SAME language as the existing content.
-   - If the existing summary uses the old format (stacked 📌 Update blocks), MIGRATE it to the new structured format. Extract the context, identify what is current vs. completed, and restructure.
-
-3. ALWAYS set summaryChanged to true when a new update was found — the 🔴 and ✅ sections must reflect the new information.
-
-Return ONLY valid JSON, no markdown:
-{
-  "titleChanged": true or false,
-  "newTitle": "new title text (only if titleChanged is true, otherwise omit)",
-  "summaryChanged": true or false,
-  "newSummary": "full updated summary text (only if summaryChanged is true, otherwise omit)",
-  "reasoning": "One sentence explaining why changes were or were not needed"
-}`;
-
-        const evalResponse = await evalSession.sendAndWait({ prompt: evalPrompt }, 90000);  // was 60000
-        await destroySession(evalSession);
-
-        if (evalResponse) {
-          const evalResult = parseJsonFromResponse(evalResponse.data.content);
-          if (evalResult && typeof evalResult === 'object') {
-            evaluation = evalResult;
-            console.log(`[EVAL-P3] Result: titleChanged=${evalResult.titleChanged}, summaryChanged=${evalResult.summaryChanged}, reasoning="${evalResult.reasoning || ''}"`);
-
-            if (evalResult.titleChanged || evalResult.summaryChanged) {
-              await safeWriteTasks((data) => {
-                const t = data.tasks.find(t => t.id === id);
-                if (!t) return null;
-                const now = new Date().toISOString();
-                if (!t.history) t.history = [];
-
-                if (evalResult.titleChanged && evalResult.newTitle) {
-                  const prevTitle = t.title;
-                  t.title = String(evalResult.newTitle).trim();
-                  t.history.push({
-                    timestamp: now,
-                    type: 'title-change',
-                    text: `📝 Title updated after update check:\n"${prevTitle}" → "${t.title}"\nReason: ${evalResult.reasoning || 'New information from update check'}`
-                  });
-                  console.log(`[EVAL-P3] Title changed: "${prevTitle}" → "${t.title}"`);
-                }
-
-                if (evalResult.summaryChanged && evalResult.newSummary) {
-                  t.summary = String(evalResult.newSummary).trim();
-                  t.history.push({
-                    timestamp: now,
-                    type: 'summary-update',
-                    text: `📋 Summary refined after update check\nReason: ${evalResult.reasoning || 'New information from update check'}`
-                  });
-                  console.log(`[EVAL-P3] Summary refined (${t.summary.length} chars)`);
-                }
-
-                t.updatedAt = now;
-                delete t._pendingUpdate;
-                delete t._pendingUpdateTs;
-                return t;
-              });
-            }
-          }
-        }
-      } catch (evalErr) {
-        console.error(`[EVAL-P3] Post-update evaluation failed (non-fatal): ${evalErr.message}`);
-        // Fallback: if eval fails, integrate update with minimal formatting so it's not lost
-        await safeWriteTasks((data) => {
-          const t = data.tasks.find(t => t.id === id);
-          if (t && t._pendingUpdate) {
-            const ts = t._pendingUpdateTs || formatUpdateTimestamp(new Date());
-            t.summary = `🔴 **Update ${ts}:** ${t._pendingUpdate}\n\n---\n\n${t.summary || ''}`;
-            delete t._pendingUpdate;
-            delete t._pendingUpdateTs;
-          }
-        });
-      } finally {
-        await destroySession(evalSession);
-        if (evalClient) {
-          try { await evalClient.dispose(); } catch {}
-        }
-      }
-    }
-
-    res.json({ success: true, ...updated, evaluation });
+    debugLog('PHASE3', `OUTCOME ${outcome} for "${task.title.substring(0, 60)}"`, { taskId: id, queries: tracking.count, elapsedS });
+    phase3Log(`OUTCOME taskId=${id} outcome=${outcome} queries=${tracking.count} elapsedS=${elapsedS}`);
+    res.json({ success: true, outcome, ...updated, queries: tracking.count, elapsedS: parseFloat(elapsedS) });
   } catch (err) {
     console.error(`[UPDATE-CHECK] Failed for task ${id}:`, err);
     debugLog('PHASE3', `FAILED check "${task.title.substring(0, 60)}": ${err.message}`);
+    phase3Log(`FAILED taskId=${id} sessionId=${sessionId || '?'} error="${err.message}"`);
     await safeWriteTasks((data) => {
       const t = data.tasks.find(t => t.id === id);
       if (t) {
@@ -1736,6 +1863,7 @@ Return ONLY valid JSON, no markdown:
     });
     res.status(500).json({ error: 'Update check failed', detail: err.message });
   } finally {
+    if (sessionId) phase3Cleanup(sessionId);
     await destroySession(session);
     if (client) {
       try { await client.dispose(); } catch {}

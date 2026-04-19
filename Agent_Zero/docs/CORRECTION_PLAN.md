@@ -2,7 +2,7 @@
 
 > **Created:** 2026-04-09, **Final update:** 2026-04-11 by Martin Hämmerli + Copilot CLI  
 > **Status:** ✅ ALL FIXES IMPLEMENTED AND TESTED  
-> **Current version:** v3.2.3
+> **Current version:** v3.2.4
 
 ---
 

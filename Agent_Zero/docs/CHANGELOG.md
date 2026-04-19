@@ -4,6 +4,33 @@ All notable changes to this project are documented here.
 
 ---
 
+## v3.2.4 — April 19, 2026
+
+**Phase 3 (Update Check) Observability + Quota Hardening**
+
+### Code — server.js
+- **Per-session query tracking** (`phase3Sessions` Map, `phase3Register` / `phase3Get` / `phase3Cleanup`): every Phase 3 SDK session now carries `{ taskId, count, stubCount, budgetHit, wiqDown, calls[] }` for accurate post-mortem logging.
+- **Hard query budget** (`PHASE3_QUERY_BUDGET`, env-overridable, default **3**): the `ask_work_iq` handler rejects any call past the cap with a `BUDGET_EXHAUSTED` message telling the model to return `{"hasUpdate": false, "inconclusive": true}`.
+- **Self-EULA guard** (`SELF_EULA_QUERY` regex): any attempt by the model to ask `ask_work_iq` to "accept/acknowledge/confirm the EULA" is blocked before it hits WorkIQ — server handles EULA at startup.
+- **M365 stub detection** (`EULA_MARKERS` + `isStubResponse()`): when WorkIQ returns a permission/EULA stub (two or more marker phrases match), the tool response is rewritten to `SERVICE_UNAVAILABLE` so the model returns inconclusive immediately instead of retrying and burning budget.
+- **Phase 3 state prompt** (`buildActionItemState()` + `PHASE3_STATE_MAX`): the prompt now includes a structured "Action Item State" block (title, source, sender, direct link, Teams thread/message IDs, temporal anchor, current summary, last 5 history entries with communications). The model is explicitly told this is ground truth and must NOT be re-reported.
+- **Richer logs**: every `ask_work_iq` call logs `[PHASE3-TOOL]` with `sessionId`, `taskId`, `queryIndex`, `durationMs`, `charsReturned`, outcome (`ok | stub | error | blocked | budget_exhausted`).
+
+### Code — frontend
+- Minor `index.html` polish (see diff).
+
+### Documentation
+- `UPDATE_CHECK_SKILL.md`: rewritten as Phase 3 (v2) — explicit query budget (3), required "Sent Items" search template, stop-early rules, forbidden behaviours (EULA queries, exceeding budget, re-summarising known history), explicit tool error handling (`BUDGET_EXHAUSTED`, `SERVICE_UNAVAILABLE`, generic errors).
+- `AGENT_ZERO_SPEC.md`: version bumped to 3.2.4; SDK dependency corrected from `^0.1.25` to `^0.2.1` (matches `package.json`).
+- `README.md`, `AGENTS.md`, `ARCHITECTURE.md`, `BUBBLE_EDITOR_GUIDE.md`, `AGENT_ZERO_PRESENTATION.html`: version bumped to 3.2.4.
+- `package.json`: version bumped to 3.2.4; `playwright` added to `devDependencies` for internal E2E scripts.
+- New educational presentations in `docs/`: `phase-1-discovery.html`, `phase-2-enrichment.html`, `phase-3-update-check.html`, `phase-4-consolidate.html` — one per phase, code-accurate, silver-neon AI nodes, plain-English letter bodies with click-through to technical detail panels.
+
+### Removed
+- `docs/PHASE3_OBSERVATIONS.md` — transient analysis artifact from the Phase 3 test run that produced the fixes above; its findings are now encoded in the code + `UPDATE_CHECK_SKILL.md`.
+
+---
+
 ## v3.2.3 — April 11, 2026
 
 **Spec & Feature Inventory Alignment**

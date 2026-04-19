@@ -1,6 +1,6 @@
 {
   "name": "agent-zero",
-  "version": "3.2.3",
+  "version": "3.2.4",
   "type": "module",
   "main": "server.js",
   "scripts": {
@@ -16,5 +16,8 @@
     "@microsoft/workiq": "0.2.8",
     "express": "^5.2.1",
     "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.59.1"
   }
 }

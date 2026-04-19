@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>Agent Zero — Phase 2: Enrichment</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#050510;--bg2:#0a0a1e;--bg3:#111130;
+  --cyan:#00ffc8;--pink:#ff2d95;--orange:#ff8800;--blue:#00aaff;--green:#39ff14;--purple:#b44dff;
+  --text:#e0e0f0;--text2:#9090b0;--text3:#606080;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif}
+body::before{content:"";position:fixed;inset:0;background-image:radial-gradient(rgba(0,200,255,.04) 1px,transparent 1px);background-size:32px 32px;pointer-events:none;z-index:0}
+
+#app{display:flex;flex-direction:column;height:100vh;position:relative;z-index:1}
+#header{padding:14px 24px 10px;border-bottom:1px solid rgba(0,255,200,.15);background:rgba(5,5,16,.9);display:flex;align-items:center;gap:16px;flex-shrink:0}
+#header h1{font-size:17px;font-weight:700;color:var(--cyan);letter-spacing:2px;text-shadow:0 0 20px rgba(0,255,200,.4)}
+#header .sub{display:none}
+#subtitle{padding:12px 28px 14px;border-bottom:1px solid rgba(0,255,200,.1);background:linear-gradient(180deg,rgba(5,5,16,.75),rgba(5,5,16,.35));flex-shrink:0}
+#subtitle h2{font-size:22px;font-weight:400;color:var(--text);letter-spacing:.3px;line-height:1.35}
+#subtitle h2 .tag{color:var(--cyan);font-weight:700;margin-right:12px;text-shadow:0 0 14px rgba(0,255,200,.35)}
+@keyframes node-pulse{0%,100%{stroke-width:2;filter:drop-shadow(0 0 10px currentColor) drop-shadow(0 0 20px currentColor)}50%{stroke-width:3;filter:drop-shadow(0 0 18px currentColor) drop-shadow(0 0 32px currentColor)}}
+.node.is-active .node-box{animation:node-pulse 1.6s ease-in-out infinite;color:inherit}
+.node.is-active .node-label{fill:#fff;font-size:13px}
+.node.is-active .node-icon{font-size:22px}
+.node.intelligence .node-box{fill:url(#silverGrad)!important;stroke:#dde4f0!important;stroke-width:1.5!important}
+.node.intelligence .node-label{fill:#f4f7fc;text-shadow:0 0 8px rgba(255,255,255,.4)}
+.node.intelligence .node-sub{fill:#c0cfe4}
+@keyframes silver-pulse{0%,100%{stroke-width:1.5;filter:drop-shadow(0 0 10px #c8d6ee) drop-shadow(0 0 22px #8aa6d4) drop-shadow(0 0 40px rgba(180,200,240,.45))}50%{stroke-width:2.5;filter:drop-shadow(0 0 18px #f0f5ff) drop-shadow(0 0 36px #b0c4e8) drop-shadow(0 0 60px rgba(200,220,255,.7))}}
+.node.intelligence.is-active .node-box{animation:silver-pulse 2.2s ease-in-out infinite!important}
+.node.intelligence.is-active .node-label{fill:#fff;font-size:13px}
+.node.intelligence .bubble{fill:rgba(220,232,252,.8);filter:drop-shadow(0 0 4px rgba(210,225,250,.9))}
+.letter-link{display:block;margin-top:10px;padding-top:8px;border-top:1px dashed rgba(0,0,0,.15);color:#0b5fd1;font-size:10.5px;font-style:italic;font-family:'Segoe UI',system-ui,sans-serif;font-weight:600;text-decoration:underline;cursor:pointer;pointer-events:auto}
+.letter-link:hover{color:#073e8c;background:rgba(11,95,209,.08)}
+#controls{margin-left:auto;display:flex;gap:12px;align-items:center}
+#play-btn{padding:7px 18px;background:var(--cyan);color:#000;font-weight:700;border:none;border-radius:6px;font-size:13px;cursor:pointer;transition:all .3s;min-width:100px}
+#play-btn:hover{box-shadow:0 0 20px rgba(0,255,200,.4);transform:scale(1.05)}
+#play-btn.stop{background:var(--pink);box-shadow:0 0 15px rgba(255,45,149,.3)}
+.ctrl-btn{padding:7px 12px;background:transparent;border:1px solid var(--text3);color:var(--text2);border-radius:6px;font-size:14px;cursor:pointer;transition:all .2s;min-width:36px}
+.ctrl-btn:hover:not(:disabled){border-color:var(--cyan);color:var(--cyan)}
+.ctrl-btn:disabled{opacity:.3;cursor:default}
+.ctrl-btn.active{border-color:var(--orange);color:var(--orange)}
+#speed-ctl{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)}
+#speed-slider{width:70px;accent-color:var(--cyan)}
+
+#canvas{flex:1;position:relative;overflow:hidden}
+svg#flow{width:100%;height:100%}
+
+.node{cursor:pointer;transition:filter .3s}
+.node:hover{filter:brightness(1.3)}
+.node-box{rx:12;ry:12;stroke-width:2;transition:all .3s}
+.node:hover .node-box{stroke-width:3}
+.node-label{font-size:12px;font-weight:700;letter-spacing:1.2px;text-anchor:middle;dominant-baseline:central;fill:var(--text);pointer-events:none}
+.node-sub{font-size:9.5px;text-anchor:middle;dominant-baseline:central;fill:var(--text2);pointer-events:none}
+.node-icon{font-size:20px;text-anchor:middle;dominant-baseline:central;pointer-events:none}
+
+.conn{stroke-width:2;fill:none;opacity:.25;transition:opacity .4s}
+.conn.active{opacity:1;stroke-width:2.5}
+.conn-lbl{font-size:8.5px;fill:var(--text3);text-anchor:middle}
+
+#letter{position:fixed;z-index:80;pointer-events:none;opacity:0;transition:opacity .4s ease;transform-origin:top left}
+#letter.visible{opacity:1}
+#letter-inner{background:rgba(255,255,255,.97);border-radius:10px;padding:10px 14px;min-width:200px;max-width:360px;box-shadow:0 4px 30px rgba(0,0,0,.5);font-size:11px;line-height:1.55;transition:border-color .4s,box-shadow .4s}
+#letter-head{display:flex;align-items:center;gap:6px;margin-bottom:6px;padding-bottom:5px;border-bottom:1px solid rgba(0,0,0,.1)}
+#letter-type{font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase}
+#letter-icon{font-size:14px}
+#letter-body{font-family:'Segoe UI',system-ui,sans-serif;font-size:11.5px;color:#1a1a2e;white-space:pre-wrap;word-break:break-word;max-height:260px;overflow-y:auto;line-height:1.5}
+
+#detail{position:fixed;top:60px;right:16px;width:360px;max-height:calc(100vh - 90px);background:rgba(10,10,30,.96);border:1px solid rgba(0,255,200,.25);border-radius:12px;padding:18px;display:none;z-index:100;overflow-y:auto;backdrop-filter:blur(10px);box-shadow:0 0 40px rgba(0,0,0,.6)}
+#detail.visible{display:block;animation:fadeIn .3s ease}
+#detail h3{font-size:14px;color:var(--cyan);margin-bottom:8px;letter-spacing:1px}
+#detail .dd{font-size:12px;color:var(--text);line-height:1.65;margin-bottom:12px}
+#detail .cb{background:rgba(0,0,0,.5);border:1px solid #2a2a45;border-radius:8px;padding:10px;font-family:'Cascadia Code','Fira Code',monospace;font-size:10.5px;line-height:1.5;color:var(--green);overflow-x:auto;margin-bottom:10px;white-space:pre-wrap;word-break:break-all}
+#detail .tag{display:inline-block;padding:2px 7px;border-radius:10px;font-size:9.5px;font-weight:700;letter-spacing:.4px;margin-right:5px}
+#detail .close-btn{position:absolute;top:10px;right:12px;background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:3px 6px;border-radius:4px}
+#detail .close-btn:hover{color:var(--pink);background:rgba(255,45,149,.1)}
+
+#step-bar{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:50}
+.sdot{width:9px;height:9px;border-radius:50%;background:var(--text3);transition:all .4s}
+.sdot.active{background:var(--cyan);box-shadow:0 0 12px rgba(0,255,200,.5);transform:scale(1.3)}
+.sdot.done{background:var(--green);box-shadow:0 0 6px rgba(57,255,20,.3)}
+
+#legend{position:fixed;bottom:16px;left:16px;display:flex;gap:14px;font-size:10px;color:var(--text2);z-index:50}
+.leg{display:flex;align-items:center;gap:4px}
+.lc{width:10px;height:3px;border-radius:2px}
+
+#status{position:fixed;bottom:16px;right:16px;font-size:11px;color:var(--text3);z-index:50;text-align:right;max-width:480px}
+#loop-badge{position:fixed;top:60px;left:16px;font-size:10px;color:var(--text3);z-index:50;display:none}
+#loop-badge.vis{display:block}
+
+@keyframes fadeIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="header">
+    <h1>AGENT ZERO · PHASE 2</h1>
+    <span class="sub">Enrichment — How Agent Zero reads the full conversation and writes a summary</span>
+    <div id="controls">
+      <div id="speed-ctl">
+        <span>Speed</span>
+        <input type="range" id="speed-slider" min="0.3" max="3" step="0.1" value="1">
+        <span id="speed-val">1×</span>
+      </div>
+      <button id="play-btn">▶ Play</button>
+      <button id="pause-btn" class="ctrl-btn" disabled title="Pause (Space)">⏸</button>
+      <button id="prev-btn" class="ctrl-btn" title="Previous step (←)">⏮</button>
+      <button id="next-btn" class="ctrl-btn" title="Next step (→)">⏭</button>
+    </div>
+  </div>
+  <div id="subtitle"><h2><span class="tag">Enrichment</span>How Agent Zero reads the full conversation and writes a summary</h2></div>
+  <div id="canvas"><svg id="flow" xmlns="http://www.w3.org/2000/svg"></svg></div>
+</div>
+
+<div id="letter"><div id="letter-inner"><div id="letter-head"><span id="letter-icon"></span><span id="letter-type"></span></div><div id="letter-body"></div></div></div>
+
+<div id="detail">
+  <button class="close-btn" onclick="document.getElementById('detail').classList.remove('visible')">✕</button>
+  <h3 id="dtitle"></h3>
+  <div id="dbody"></div>
+</div>
+
+<div id="step-bar"></div>
+<div id="loop-badge">⟳ Loop <span id="loop-n">1</span></div>
+<div id="legend">
+  <div class="leg"><div class="lc" style="background:var(--cyan)"></div>Task / UI</div>
+  <div class="leg"><div class="lc" style="background:var(--purple)"></div>Context Prep</div>
+  <div class="leg"><div class="lc" style="background:var(--orange)"></div>AI Session</div>
+  <div class="leg"><div class="lc" style="background:var(--pink)"></div>Persist</div>
+</div>
+<div id="status">Click any node for details · ▶ Play to watch the flow</div>
+
+<script>
+'use strict';
+
+/* ══════════════════════════════════════════════════════════════════
+   PHASE 2 — ENRICHMENT
+   Source: server.js  POST /api/tasks/:id/enrich  (lines 1434–1606)
+   ══════════════════════════════════════════════════════════════════ */
+
+const NODES = [
+  { id:'card',     x:55,  y:195, w:140, h:65, color:'#00ffc8', icon:'🆕', label:'NEW TASK',     sub:'enrichmentStatus: pending' },
+  { id:'keywords', x:245, y:55,  w:135, h:55, color:'#b44dff', icon:'🔑', label:'KEYWORDS',     sub:'title → top 8 terms' },
+  { id:'linkctx',  x:400, y:55,  w:140, h:55, color:'#b44dff', icon:'🔗', label:'LINK CONTEXT', sub:'thread / msg IDs' },
+  { id:'prompt',   x:560, y:55,  w:140, h:55, color:'#b44dff', icon:'📜', label:'PROMPT',       sub:'SKILL + task + rules' },
+  { id:'slot',     x:245, y:195, w:135, h:65, color:'#ff8800', icon:'🚦', label:'SDK SLOT',     sub:'concurrency gate' },
+  { id:'session',  x:410, y:195, w:140, h:65, color:'#ff8800', icon:'✨', label:'AI · COPILOT',  sub:'reads thread · writes summary', intelligence:true },
+  { id:'m365',     x:580, y:195, w:150, h:65, color:'#ff8800', icon:'☁️', label:'MICROSOFT 365', sub:'read full thread' },
+  { id:'response', x:760, y:195, w:160, h:65, color:'#39ff14', icon:'📦', label:'JSON RESULT',  sub:'summary + confidence' },
+  { id:'ambig',    x:760, y:340, w:160, h:65, color:'#ff2d95', icon:'❓', label:'AMBIGUITY?',   sub:'needs-review check' },
+  { id:'save',     x:410, y:340, w:180, h:65, color:'#ff2d95', icon:'💾', label:'TASKS.JSON',   sub:'summary + history' },
+  { id:'uicard',   x:55,  y:340, w:180, h:65, color:'#00ffc8', icon:'✅', label:'CARD UPDATED', sub:'preview visible' }
+];
+
+const CONNS = [
+  { from:'card',     to:'keywords', color:'#b44dff', label:'from title',   type:'state' },
+  { from:'card',     to:'linkctx',  color:'#b44dff', label:'from link',    type:'state' },
+  { from:'keywords', to:'prompt',   color:'#b44dff', label:'merge',        type:'state' },
+  { from:'linkctx',  to:'prompt',   color:'#b44dff', label:'merge',        type:'state' },
+  { from:'prompt',   to:'session',  color:'#b44dff', label:'load context', type:'state' },
+  { from:'card',     to:'slot',     color:'#00ffc8', label:'enrich request' },
+  { from:'slot',     to:'session',  color:'#ff8800', label:'slot acquired' },
+  { from:'session',  to:'m365',     color:'#ff8800', label:'ask_work_iq()' },
+  { from:'m365',     to:'response', color:'#39ff14', label:'parse JSON' },
+  { from:'response', to:'ambig',    color:'#ff2d95', label:'classify' },
+  { from:'ambig',    to:'save',     color:'#ff2d95', label:'set status' },
+  { from:'save',     to:'uicard',   color:'#ff2d95', label:'refresh list' }
+];
+
+const ANIM = [
+  { node:'card', status:'A new card from Phase 1 still has no real content — just a title and a link',
+    letter:{ icon:'🆕', type:'NEW TASK', color:'#00ffc8',
+      body:`A brand-new card has arrived from Phase 1.
+
+Right now it only carries a subject line, a sender name and a link — no summary, no deadline, no context yet.
+
+Agent Zero needs to fill in the story behind this card.` }},
+
+  { node:'keywords', status:'Pick out the most useful words from the title — to help the AI later',
+    letter:{ icon:'🔑', type:'KEYWORDS', color:'#b44dff',
+      body:`Agent Zero picks the eight most distinctive words from the title.
+
+Common stop words like "the", "and", "a" are removed — only the words that would actually help find this specific thread remain.` }},
+
+  { node:'linkctx', status:'Extract the exact conversation ID from the Outlook or Teams link',
+    letter:{ icon:'🔗', type:'LINK CONTEXT', color:'#b44dff',
+      body:`From the direct link on the card, Agent Zero extracts the conversation or message ID.
+
+This lets the AI jump straight to the correct thread later, instead of searching blindly by keyword.` }},
+
+  { node:'prompt', status:'Package the task + rules into a single, complete instruction for the AI',
+    letter:{ icon:'📜', type:'PROMPT ASSEMBLY', color:'#b44dff',
+      body:`Agent Zero assembles one comprehensive instruction.
+
+It includes what to do, what format to return, how to reason about time (what is "before" and "after" the original message), and the task details — subject, sender, keywords, thread ID.` }},
+
+  { node:'slot', status:'Wait in line — only a few Copilot sessions run at the same time',
+    letter:{ icon:'🚦', type:'QUEUE', color:'#ff8800',
+      body:`Copilot AI sessions are heavy — they take time and memory to start.
+
+So Agent Zero runs them carefully and caps how many happen at once. Other cards queue up patiently.
+
+While this card was waiting, another request might have already enriched it, so a quick re-check runs before spending the slot.` }},
+
+  { node:'session', status:'The Copilot AI session starts — this is where the thinking happens',
+    letter:{ icon:'✨', type:'AI · INTELLIGENCE', color:'#d0dcf0',
+      body:`A Copilot AI session is opened.
+
+It receives the full instruction, plus a special tool called ask_work_iq — a gateway to Microsoft 365. With this tool, the AI can actually open and read the full email thread, not just guess from the subject.
+
+From here on, the AI is the decision-maker: what the task is about, what is urgent, and what is still unclear.` }},
+
+  { node:'m365', status:'The AI opens the full conversation in Microsoft 365 and reads end-to-end',
+    letter:{ icon:'☁️', type:'MICROSOFT 365', color:'#ff8800',
+      body:`The AI calls the ask_work_iq tool to fetch the real conversation from Microsoft 365.
+
+It reads the full thread — original message, every reply, and any attachments. It can follow up with additional questions if the first answer is incomplete.` }},
+
+  { node:'response', status:'The AI returns a clean package: summary, confidence, deadline, open questions',
+    letter:{ icon:'📦', type:'AI RESULT', color:'#39ff14',
+      body:`The AI replies with a compact structured package:
+
+• A 2–3 sentence summary of what the task is actually about.
+• A confidence level (high, medium or low).
+• A suggested deadline if the thread mentions one.
+• A list of anything it could not fully resolve.` }},
+
+  { node:'ambig', status:'If the AI had open questions, flag the card for quick human review',
+    letter:{ icon:'❓', type:'SAFETY CHECK', color:'#ff2d95',
+      body:`If the AI flagged anything as unclear — a missing deadline, an ambiguous sender, an uncertain topic — the card is marked "needs-review".
+
+You are shown it separately so you can confirm in seconds, rather than silently trusting a wrong summary.
+
+Otherwise the card is marked "enriched" and trusted by the rest of the system.` }},
+
+  { node:'save', status:'Summary, deadline and status are written back to tasks.json',
+    letter:{ icon:'💾', type:'PERSIST', color:'#ff2d95',
+      body:`The summary, confidence, deadline and new status are written back to tasks.json.
+
+A history entry records that enrichment ran successfully — timestamp, duration, confidence — so Phase 3 later knows what Agent Zero already understood.` }},
+
+  { node:'uicard', status:'The card refreshes in place with its full content — ready to act on',
+    letter:{ icon:'✅', type:'CARD UPDATED', color:'#00ffc8',
+      body:`Your card refreshes in place.
+
+You now see the full story: a clean summary, the sender, a suggested deadline and a confidence indicator — all visible at a glance, without opening Outlook.` }}
+];
+
+const DETAILS = {
+  card:{ t:'🆕 New Task — The Starting Point',
+    b:`<div class="dd">Phase 2 runs for every task with <span class="tag" style="background:rgba(255,136,0,.15);color:#ff8800">enrichmentStatus: pending</span>. At this point the task has only a title, sender, date, and link — no content yet.</div><div class="cb">POST /api/tasks/:id/enrich</div><div class="dd">Guards prevent duplicate runs:</div><div class="cb">if (['enriched', 'needs-review', 'enriching']\n    .includes(task.enrichmentStatus)) {\n  return { alreadyEnriched: true };\n}\n// Then mark as 'enriching' (pessimistic lock)</div>` },
+  keywords:{ t:'🔑 Keyword Extraction',
+    b:`<div class="dd">A simple but effective heuristic: drop common stop-words, keep the 8 most distinctive terms. This keeps the M365 query focused.</div><div class="cb">const keywords = task.title\n  .replace(/[^a-zA-Z0-9äöüÄÖÜß\\s-]/g, ' ')\n  .split(/\\s+/)\n  .filter(w => w.length &gt; 2 &amp;&amp; !stopWords.has(w.toLowerCase()))\n  .slice(0, 8)\n  .join(' ');</div><div class="dd">Stop-word list covers English and common German articles: <em>the, a, an, is, are, was, of, in, on, for, to, my, your, it, this…</em></div>` },
+  linkctx:{ t:'🔗 Link Context — Sharper M365 Lookup',
+    b:`<div class="dd">If the task has a direct link, Agent Zero extracts IDs to help the agent find the exact thread (not a fuzzy match).</div><div class="cb">if (task.link.includes('teams.microsoft.com')) {\n  const threadMatch = task.link\n    .match(/19:[a-f0-9]+@thread\\.[a-z]+/);\n  const msgMatch = task.link.match(/\\/(\\d{10,})\\?/);\n  linkContext = \`\\nDirect Teams link: \${task.link}\\n\` +\n    (threadMatch ? \`Thread ID: \${threadMatch[0]}\\n\` : '') +\n    (msgMatch ? \`Message ID: \${msgMatch[1]}\` : '');\n}\nelse if (task.link.includes('outlook.office365.com'))\n  linkContext = \`\\nDirect Outlook link: \${task.link}\`;</div>` },
+  prompt:{ t:'📜 Prompt — Skill + Task + Rules',
+    b:`<div class="dd">The final prompt combines four ingredients:</div><div class="cb">ENRICH_SKILL (system rules)         // ~3 kB\n+ "Search for the thread about: …"\n+ "Full subject: …"\n+ "Sender hint: …"\n+ "Date of original message: …"\n+ "Discovery date: …"\n+ linkContext\n+ temporal-reasoning instructions</div><div class="dd"><span class="tag" style="background:rgba(180,77,255,.15);color:#b44dff">Temporal rule</span> "Information AFTER the discovery date is a direct update. BEFORE may be historical context — evaluate whether it belongs to THIS action item or to a previous occurrence."</div>` },
+  slot:{ t:'🚦 SDK Slot — Concurrency Gate',
+    b:`<div class="dd">Copilot SDK sessions are expensive to spawn. A semaphore caps how many can run at the same time.</div><div class="cb">await waitForSDKSlot();\n\n// After acquiring — re-check the task\nconst slotCheck = readTasks();\nconst slotTask = slotCheck.tasks.find(t =&gt; t.id === id);\nif (['enriched','needs-review'].includes(slotTask.enrichmentStatus)) {\n  return { alreadyEnriched: true };\n}</div><div class="dd">This double-check handles the race where two requests queue for the same task.</div>` },
+  session:{ t:'🤖 Copilot SDK Session',
+    b:`<div class="dd">A fresh session is created for every enrichment — no shared state, no cross-contamination.</div><div class="cb">client = new CopilotClient();\nsession = trackSession(await client.createSession({\n  tools: [askWorkIQTool],\n  onPermissionRequest: approveAll\n}));\n\nconst response = await runWithWiqGuard(\n  session, enrichPrompt, 600000  // 10 min hard cap\n);</div><div class="dd"><span class="tag" style="background:rgba(255,136,0,.15);color:#ff8800">runWithWiqGuard</span> wraps <code>sendAndWait</code> with a watchdog that restarts Work IQ if it crashes mid-call.</div>` },
+  m365:{ t:'☁️ Microsoft 365 via Work IQ',
+    b:`<div class="dd">The agent decides when and how to call <code>ask_work_iq</code>. A typical enrichment uses 1–2 calls.</div><div class="cb">ask_work_iq({\n  question: "Find the Teams conversation\n    about Radon upgrade approval,\n    sender Sarah M., around 2026-04-15.\n    Return ALL messages in the thread."\n});</div><div class="dd">Work IQ is a <a href="https://github.com/microsoft/work-iq-mcp">Microsoft MCP server</a> that wraps Microsoft 365 Copilot's search API.</div>` },
+  response:{ t:'📦 JSON Result — Strict Contract',
+    b:`<div class="dd">The ENRICH_SKILL system prompt forces the agent to return a strict JSON shape. <code>parseJsonFromResponse</code> tolerates markdown code fences.</div><div class="cb">{\n  "summary":      "≤ 300 chars, plain user language",\n  "confidence":   "high | medium | low",\n  "language":     "en | de | fr | …",\n  "link":         "…"  // optional upgrade\n  "ambiguities":  [    // optional\n    { "question": "…", "options": ["A","B"] }\n  ]\n}</div>` },
+  ambig:{ t:'❓ Ambiguity Gate',
+    b:`<div class="dd">Honesty over confidence: if the agent is uncertain, the task is flagged <span class="tag" style="background:rgba(255,45,149,.15);color:#ff2d95">needs-review</span> and the user is asked.</div><div class="cb">t.enrichmentStatus =\n  (result.ambiguities &amp;&amp; result.ambiguities.length &gt; 0)\n    ? 'needs-review'\n    : 'enriched';\n\nt.ambiguities = normalizeAmbiguities(result.ambiguities);</div><div class="dd">Never hallucinate. The UI then shows a clarifying question with radio options — one click resolves it.</div>` },
+  save:{ t:'💾 tasks.json — With Rich History',
+    b:`<div class="dd">Every enrichment writes an audit trail into the task's <code>history[]</code>. This shows the user exactly what happened and when.</div><div class="cb">t.history.push({\n  timestamp: now,\n  type: 'enriched',\n  text: \`✅ Content extraction successful (\${durationText})\n🔑 Searched: \${keywords}\n📎 Source: \${task.source} from \${task.from}\n💬 Confidence: \${result.confidence} · Language: \${result.language}\n📋 Summary: \${t.summary}\`\n});</div>` },
+  uicard:{ t:'✅ Card Updated',
+    b:`<div class="dd">The frontend refreshes the card. The user now sees:</div><div class="dd"><span class="tag" style="background:rgba(57,255,20,.15);color:#39ff14">✅ Enriched</span> or <span class="tag" style="background:rgba(255,45,149,.15);color:#ff2d95">⚠️ Needs review</span> badge</div><div class="dd"><span class="tag" style="background:rgba(0,255,200,.15);color:#00ffc8">Preview</span> 1–2 sentence summary</div><div class="dd"><span class="tag" style="background:rgba(0,170,255,.15);color:#00aaff">Meta</span> duration · confidence · language</div><div class="dd" style="margin-top:10px;padding-top:10px;border-top:1px solid #606080">Later, <strong>Phase 3 (Update Check)</strong> will watch this thread for new messages.</div>` }
+};
+
+
+/* ══════════════════════════════════════════════════════════════════
+   SVG RENDERING
+   ══════════════════════════════════════════════════════════════════ */
+
+const svg = document.getElementById('flow');
+let speed = 1, playing = false, stopRequested = false, loopCount = 0;
+
+function nById(id) { return NODES.find(n => n.id === id); }
+function nCenter(n) { return { x: n.x + n.w/2, y: n.y + n.h/2 }; }
+
+function sScale() {
+  const r = svg.getBoundingClientRect();
+  const s = Math.min(r.width/1100, r.height/460, 1.8);
+  return { s, ox: (r.width - 1100*s)/2, oy: (r.height - 460*s)/2 };
+}
+
+function render() {
+  const { s, ox, oy } = sScale();
+  svg.innerHTML = '';
+  const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+  g.setAttribute('transform',`translate(${ox},${oy}) scale(${s})`);
+  svg.appendChild(g);
+
+  const gdefs = document.createElementNS('http://www.w3.org/2000/svg','defs');
+  const grad = document.createElementNS('http://www.w3.org/2000/svg','linearGradient');
+  grad.setAttribute('id','silverGrad');grad.setAttribute('x1','0%');grad.setAttribute('y1','0%');grad.setAttribute('x2','0%');grad.setAttribute('y2','100%');
+  [['0%','#3a4a6a'],['35%','#1b2340'],['65%','#0f1730'],['100%','#2a3652']].forEach(([o,c])=>{const st=document.createElementNS('http://www.w3.org/2000/svg','stop');st.setAttribute('offset',o);st.setAttribute('stop-color',c);grad.appendChild(st);});
+  gdefs.appendChild(grad);g.appendChild(gdefs);
+
+  CONNS.forEach((c,i) => {
+    const fn = nById(c.from), tn = nById(c.to);
+    const fc = nCenter(fn), tc = nCenter(tn);
+    let x1,y1,x2,y2;
+    if (c.type==='state') { x1=fc.x; y1=fc.y+fn.h/2; x2=tc.x; y2=tc.y-tn.h/2; }
+    else if (Math.abs(fc.y-tc.y)<5) { x1=fc.x+fn.w/2; y1=fc.y; x2=tc.x-tn.w/2; y2=tc.y; }
+    else if (Math.abs(fc.x-tc.x)<5) { x1=fc.x; y1=fc.y+fn.h/2; x2=tc.x; y2=tc.y-tn.h/2; }
+    else if (fc.x<tc.x) { x1=fc.x+fn.w/2; y1=fc.y; x2=tc.x-tn.w/2; y2=tc.y; }
+    else { x1=fc.x-fn.w/2; y1=fc.y; x2=tc.x+tn.w/2; y2=tc.y; }
+
+    const mx=(x1+x2)/2, my=(y1+y2)/2;
+    let d;
+    if (c.type==='state') d=`M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`;
+    else if (Math.abs(y1-y2)<5) d=`M${x1},${y1} L${x2},${y2}`;
+    else d=`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
+
+    const p = document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('d',d); p.setAttribute('stroke',c.color); p.setAttribute('class','conn');
+    p.setAttribute('id',`c${i}`);
+    if (c.type==='state') p.setAttribute('stroke-dasharray','6 4');
+    g.appendChild(p);
+
+    const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.setAttribute('x', mx + (c.type==='state'?-5:0));
+    t.setAttribute('y', my + (Math.abs(y1-y2)<5?-9:-4));
+    t.setAttribute('class','conn-lbl'); t.setAttribute('fill',c.color); t.setAttribute('opacity','.55');
+    t.textContent = c.label; g.appendChild(t);
+  });
+
+  NODES.forEach(n => {
+    const ng = document.createElementNS('http://www.w3.org/2000/svg','g');
+    ng.setAttribute('class','node'); ng.setAttribute('id',`n-${n.id}`);
+    ng.addEventListener('click',() => showDetail(n.id));
+
+    const defs = document.createElementNS('http://www.w3.org/2000/svg','defs');
+    const f = document.createElementNS('http://www.w3.org/2000/svg','filter');
+    f.setAttribute('id',`gl-${n.id}`); f.setAttribute('x','-50%'); f.setAttribute('y','-50%');
+    f.setAttribute('width','200%'); f.setAttribute('height','200%');
+    const bl = document.createElementNS('http://www.w3.org/2000/svg','feGaussianBlur');
+    bl.setAttribute('stdDeviation','4'); bl.setAttribute('result','b');
+    const mg = document.createElementNS('http://www.w3.org/2000/svg','feMerge');
+    const m1 = document.createElementNS('http://www.w3.org/2000/svg','feMergeNode'); m1.setAttribute('in','b');
+    const m2 = document.createElementNS('http://www.w3.org/2000/svg','feMergeNode'); m2.setAttribute('in','SourceGraphic');
+    mg.appendChild(m1); mg.appendChild(m2); f.appendChild(bl); f.appendChild(mg);
+    defs.appendChild(f); ng.appendChild(defs);
+
+    const r = document.createElementNS('http://www.w3.org/2000/svg','rect');
+    r.setAttribute('x',n.x); r.setAttribute('y',n.y); r.setAttribute('width',n.w); r.setAttribute('height',n.h);
+    r.setAttribute('class','node-box'); r.setAttribute('fill','rgba(10,10,30,.85)');
+    r.setAttribute('stroke',n.color); r.setAttribute('filter',`url(#gl-${n.id})`);
+    ng.appendChild(r);
+
+    const ic = document.createElementNS('http://www.w3.org/2000/svg','text');
+    ic.setAttribute('x',n.x+n.w/2); ic.setAttribute('y',n.y+(n.h<60?16:20));
+    ic.setAttribute('class','node-icon'); ic.textContent=n.icon; ng.appendChild(ic);
+
+    const lb = document.createElementNS('http://www.w3.org/2000/svg','text');
+    lb.setAttribute('x',n.x+n.w/2); lb.setAttribute('y',n.y+(n.h<60?32:38));
+    lb.setAttribute('class','node-label'); lb.textContent=n.label; ng.appendChild(lb);
+
+    const sb = document.createElementNS('http://www.w3.org/2000/svg','text');
+    sb.setAttribute('x',n.x+n.w/2); sb.setAttribute('y',n.y+(n.h<60?46:53));
+    sb.setAttribute('class','node-sub'); sb.textContent=n.sub; ng.appendChild(sb);
+
+    if (n.intelligence) {
+      ng.classList.add('intelligence');
+      const cnt = 5;
+      for (let i = 0; i < cnt; i++) {
+        const bx = n.x + 12 + i * ((n.w - 24) / (cnt - 1));
+        const startY = n.y + n.h - 3;
+        const endY = n.y - 22;
+        const dur = 2.6 + (i % 3) * 0.7;
+        const delay = i * 0.55;
+        const bubble = document.createElementNS('http://www.w3.org/2000/svg','circle');
+        bubble.setAttribute('cx', bx); bubble.setAttribute('cy', startY);
+        bubble.setAttribute('r', 2.2 + (i % 2) * 1.0);
+        bubble.setAttribute('class','bubble');
+        const aY = document.createElementNS('http://www.w3.org/2000/svg','animate');
+        aY.setAttribute('attributeName','cy'); aY.setAttribute('from',startY); aY.setAttribute('to',endY);
+        aY.setAttribute('dur',dur+'s'); aY.setAttribute('begin',delay+'s'); aY.setAttribute('repeatCount','indefinite');
+        const aO = document.createElementNS('http://www.w3.org/2000/svg','animate');
+        aO.setAttribute('attributeName','opacity'); aO.setAttribute('values','0;0.9;0.9;0');
+        aO.setAttribute('keyTimes','0;0.25;0.75;1');
+        aO.setAttribute('dur',dur+'s'); aO.setAttribute('begin',delay+'s'); aO.setAttribute('repeatCount','indefinite');
+        bubble.appendChild(aY); bubble.appendChild(aO);
+        ng.appendChild(bubble);
+      }
+    }
+
+    g.appendChild(ng);
+  });
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   LETTER POSITIONING
+   ══════════════════════════════════════════════════════════════════ */
+
+const letterEl = document.getElementById('letter');
+const letterInner = document.getElementById('letter-inner');
+const letterIcon = document.getElementById('letter-icon');
+const letterType = document.getElementById('letter-type');
+const letterBody = document.getElementById('letter-body');
+const LETTER_W = 280;
+
+function showLetter(nodeId, data) {
+  const n = nById(nodeId);
+  const { s, ox, oy } = sScale();
+  const rect = svg.getBoundingClientRect();
+
+  const nodeCX = rect.left + ox + (n.x + n.w / 2) * s;
+  let x = nodeCX - LETTER_W / 2;
+
+  let y;
+  const nodeBottom = rect.top + oy + (n.y + n.h + 14) * s;
+  const nodeAbove  = rect.top + oy + (n.y - 14) * s;
+  if (n.y > 300) {
+    y = nodeAbove - 120;
+  } else if (n.y < 100) {
+    y = nodeBottom;
+  } else {
+    y = nodeBottom;
+  }
+
+  x = Math.max(8, Math.min(x, window.innerWidth - LETTER_W - 12));
+  y = Math.max(55, Math.min(y, window.innerHeight - 180));
+
+  letterEl.style.left = x + 'px';
+  letterEl.style.top = y + 'px';
+  letterInner.style.borderColor = data.color;
+  letterInner.style.boxShadow = `0 4px 30px rgba(0,0,0,.6), 0 0 20px ${data.color}33`;
+  letterIcon.textContent = data.icon;
+  letterType.textContent = data.type;
+  letterType.style.color = data.color;
+  letterBody.textContent = data.body;
+  if (typeof DETAILS !== 'undefined' && DETAILS[nodeId]) {
+    const a = document.createElement('a');
+    a.className = 'letter-link';
+    a.textContent = '💡 Click here for the full code + technical detail';
+    a.onclick = (e) => { e.preventDefault(); showDetail(nodeId); };
+    letterBody.appendChild(a);
+  }
+  letterEl.classList.add('visible');
+}
+
+function hideLetter() { letterEl.classList.remove('visible'); }
+
+
+/* ══════════════════════════════════════════════════════════════════
+   DETAIL PANEL (click)
+   ══════════════════════════════════════════════════════════════════ */
+
+function showDetail(id) {
+  const d = DETAILS[id]; if (!d) return;
+  document.getElementById('dtitle').textContent = d.t;
+  document.getElementById('dbody').innerHTML = d.b;
+  document.getElementById('detail').classList.add('visible');
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   STEP DOTS
+   ══════════════════════════════════════════════════════════════════ */
+
+function buildDots() {
+  const el = document.getElementById('step-bar'); el.innerHTML = '';
+  ANIM.forEach((_,i) => { const d = document.createElement('div'); d.className='sdot'; el.appendChild(d); });
+}
+function updateDots(step) {
+  document.querySelectorAll('.sdot').forEach((d,i) => {
+    d.className = 'sdot' + (i<step?' done':'') + (i===step?' active':'');
+  });
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   ANIMATION
+   ══════════════════════════════════════════════════════════════════ */
+
+const wait = ms => new Promise(r => setTimeout(r, ms / speed));
+
+function hlNode(id, on) {
+  const el = document.getElementById(`n-${id}`); if (!el) return;
+  const b = el.querySelector('.node-box');
+  const n = NODES.find(x => x.id === id);
+  el.classList.toggle('is-active', on);
+  el.style.color = on ? (n ? n.color : '#00ffc8') : '';
+  b.setAttribute('stroke-width', on?'2.5':'2');
+  b.setAttribute('fill', on?'rgba(40,48,90,.98)':'rgba(10,10,30,.85)');
+}
+
+function activateConn(i) {
+  const el = document.getElementById(`c${i}`);
+  if (el) el.classList.add('active');
+}
+
+function resetVisuals() {
+  NODES.forEach(n => hlNode(n.id, false));
+  document.querySelectorAll('.conn').forEach(c => c.classList.remove('active'));
+  hideLetter();
+  updateDots(-1);
+  document.getElementById('status').textContent = 'Click any node for details · ▶ Play or ⏭ Step';
+}
+
+// Connections to activate at each step (steps = 11, conns = 12)
+// 0 card, 1 keywords, 2 linkctx, 3 prompt, 4 slot, 5 session, 6 m365, 7 response, 8 ambig, 9 save, 10 uicard
+const CONN_AT = [ [], [0], [1], [2,3], [5], [4,6], [7], [8], [9], [10], [11] ];
+
+let curStep = -1;
+let paused = false;
+let waitResolve = null;
+
+function showStep(i) {
+  NODES.forEach(n => hlNode(n.id, false));
+  document.querySelectorAll('.conn').forEach(c => c.classList.remove('active'));
+
+  for (let j = 0; j <= i; j++) {
+    (CONN_AT[j] || []).forEach(ci => activateConn(ci));
+    hlNode(ANIM[j].node, j === i);
+  }
+  for (let j = 0; j < i; j++) hlNode(ANIM[j].node, false);
+  hlNode(ANIM[i].node, true);
+
+  updateDots(i);
+  document.getElementById('status').textContent = `Step ${i+1}/${ANIM.length}: ${ANIM[i].status}`;
+  showLetter(ANIM[i].node, ANIM[i].letter);
+  curStep = i;
+  updateControlStates();
+}
+
+function interruptibleWait(ms) {
+  return new Promise(resolve => {
+    waitResolve = resolve;
+    setTimeout(() => { waitResolve = null; resolve('timeout'); }, ms / speed);
+  });
+}
+
+function skipWait() { if (waitResolve) { const r = waitResolve; waitResolve = null; r('skipped'); } }
+
+async function runOnce() {
+  for (let i = 0; i < ANIM.length; i++) {
+    if (stopRequested) return;
+    showStep(i);
+    const result = await interruptibleWait(3800);
+    if (stopRequested) return;
+    while (paused && !stopRequested) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    if (stopRequested) return;
+  }
+  document.getElementById('status').textContent = '✅ Cycle complete — restarting…';
+  await interruptibleWait(2500);
+}
+
+async function playLoop() {
+  playing = true; stopRequested = false; paused = false; loopCount = 0;
+  const btn = document.getElementById('play-btn');
+  btn.textContent = '⏸ Stop'; btn.classList.add('stop');
+  document.getElementById('detail').classList.remove('visible');
+  document.getElementById('loop-badge').classList.add('vis');
+  updateControlStates();
+
+  while (!stopRequested) {
+    loopCount++;
+    document.getElementById('loop-n').textContent = loopCount;
+    await runOnce();
+  }
+
+  playing = false; paused = false;
+  btn.textContent = '▶ Play'; btn.classList.remove('stop');
+  document.getElementById('loop-badge').classList.remove('vis');
+  resetVisuals();
+  updateControlStates();
+}
+
+function stopLoop() { stopRequested = true; paused = false; skipWait(); }
+
+function togglePause() {
+  if (!playing) return;
+  paused = !paused;
+  document.getElementById('pause-btn').classList.toggle('active', paused);
+  document.getElementById('pause-btn').textContent = paused ? '▶' : '⏸';
+  if (!paused) skipWait();
+  updateControlStates();
+}
+
+function stepForward() {
+  if (playing) { paused = true; skipWait(); }
+  const next = Math.min((curStep < 0 ? 0 : curStep + 1), ANIM.length - 1);
+  showStep(next);
+  updateControlStates();
+}
+
+function stepBackward() {
+  if (playing) { paused = true; skipWait(); }
+  const prev = Math.max((curStep < 0 ? 0 : curStep - 1), 0);
+  showStep(prev);
+  updateControlStates();
+}
+
+function updateControlStates() {
+  document.getElementById('pause-btn').disabled = !playing;
+  document.getElementById('pause-btn').classList.toggle('active', paused);
+  document.getElementById('pause-btn').textContent = paused ? '▶' : '⏸';
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   CONTROLS
+   ══════════════════════════════════════════════════════════════════ */
+
+document.getElementById('play-btn').addEventListener('click', () => {
+  if (playing) stopLoop(); else playLoop();
+});
+document.getElementById('pause-btn').addEventListener('click', togglePause);
+document.getElementById('prev-btn').addEventListener('click', stepBackward);
+document.getElementById('next-btn').addEventListener('click', stepForward);
+
+const sl = document.getElementById('speed-slider');
+sl.addEventListener('input', () => {
+  speed = parseFloat(sl.value);
+  document.getElementById('speed-val').textContent = speed.toFixed(1)+'×';
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.getElementById('detail').classList.remove('visible');
+  if (e.key === ' ') { e.preventDefault(); if (playing) togglePause(); else playLoop(); }
+  if (e.key === 'ArrowRight') { e.preventDefault(); stepForward(); }
+  if (e.key === 'ArrowLeft')  { e.preventDefault(); stepBackward(); }
+});
+
+window.addEventListener('resize', () => { render(); if (!playing) resetVisuals(); });
+
+render(); buildDots(); resetVisuals(); updateControlStates();
+</script>
+</body>
+</html>

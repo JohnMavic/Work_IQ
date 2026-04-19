@@ -1,9 +1,9 @@
 # Agent Zero — Product Specification
 
-**Version:** 3.2.3
-**Date:** April 11, 2026
+**Version:** 3.2.4
+**Date:** April 19, 2026
 **Author:** Martin Hämmerli
-**Status:** v3.2.3 — WorkIQ persistent subprocess, direct Phase 1 queries, K2/K3 crash guard, K4 done-task suppression, full Verify-and-Improve loop
+**Status:** v3.2.4 — Phase 3 per-session query budget, self-EULA guard, M365 stub detection, richer observability
 
 ---
 
@@ -81,7 +81,7 @@ First-time setup:
 | Package | Version | Purpose |
 |---|---|---|
 | `express` | ^5.2.1 | HTTP server and REST API |
-| `@github/copilot-sdk` | ^0.1.25 | AI reasoning engine (Copilot SDK) |
+| `@github/copilot-sdk` | ^0.2.1 | AI reasoning engine (Copilot SDK) |
 | `@microsoft/workiq` | ^0.2.8 | M365 data access via MCP (also installed globally) |
 | `uuid` | ^13.0.0 | UUID generation for task IDs |
 

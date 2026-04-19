@@ -1,6 +1,6 @@
 # Agent Zero — Architecture
 
-> Version 3.2.3 · April 11, 2026 · Author: Martin Hämmerli
+> Version 3.2.4 · April 19, 2026 · Author: Martin Hämmerli
 
 Agent Zero is a personal action-item tracker that scans Microsoft 365 emails and Teams messages for tasks,
 extracts content summaries, and monitors threads for updates — all powered by AI.

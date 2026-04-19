@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<link rel="icon" href="data:,">
+<title>Agent Zero — Phase 3: Update Check</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#050510;--bg2:#0a0a1e;--bg3:#111130;
+  --cyan:#00ffc8;--pink:#ff2d95;--orange:#ff8800;--blue:#00aaff;--green:#39ff14;--purple:#b44dff;
+  --text:#e0e0f0;--text2:#9090b0;--text3:#606080;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif}
+body::before{content:"";position:fixed;inset:0;background-image:radial-gradient(rgba(0,200,255,.04) 1px,transparent 1px);background-size:32px 32px;pointer-events:none;z-index:0}
+
+#app{display:flex;flex-direction:column;height:100vh;position:relative;z-index:1}
+#header{padding:14px 24px 10px;border-bottom:1px solid rgba(0,255,200,.15);background:rgba(5,5,16,.9);display:flex;align-items:center;gap:16px;flex-shrink:0}
+#header h1{font-size:17px;font-weight:700;color:var(--cyan);letter-spacing:2px;text-shadow:0 0 20px rgba(0,255,200,.4)}
+#header .sub{display:none}
+#subtitle{padding:12px 28px 14px;border-bottom:1px solid rgba(0,255,200,.1);background:linear-gradient(180deg,rgba(5,5,16,.75),rgba(5,5,16,.35));flex-shrink:0}
+#subtitle h2{font-size:22px;font-weight:400;color:var(--text);letter-spacing:.3px;line-height:1.35}
+#subtitle h2 .tag{color:var(--cyan);font-weight:700;margin-right:12px;text-shadow:0 0 14px rgba(0,255,200,.35)}
+@keyframes node-pulse{0%,100%{stroke-width:2;filter:drop-shadow(0 0 10px currentColor) drop-shadow(0 0 20px currentColor)}50%{stroke-width:3;filter:drop-shadow(0 0 18px currentColor) drop-shadow(0 0 32px currentColor)}}
+.node.is-active .node-box{animation:node-pulse 1.6s ease-in-out infinite;color:inherit}
+.node.is-active .node-label{fill:#fff;font-size:13px}
+.node.is-active .node-icon{font-size:22px}
+.node.intelligence .node-box{fill:url(#silverGrad)!important;stroke:#dde4f0!important;stroke-width:1.5!important}
+.node.intelligence .node-label{fill:#f4f7fc;text-shadow:0 0 8px rgba(255,255,255,.4)}
+.node.intelligence .node-sub{fill:#c0cfe4}
+@keyframes silver-pulse{0%,100%{stroke-width:1.5;filter:drop-shadow(0 0 10px #c8d6ee) drop-shadow(0 0 22px #8aa6d4) drop-shadow(0 0 40px rgba(180,200,240,.45))}50%{stroke-width:2.5;filter:drop-shadow(0 0 18px #f0f5ff) drop-shadow(0 0 36px #b0c4e8) drop-shadow(0 0 60px rgba(200,220,255,.7))}}
+.node.intelligence.is-active .node-box{animation:silver-pulse 2.2s ease-in-out infinite!important}
+.node.intelligence.is-active .node-label{fill:#fff;font-size:13px}
+.node.intelligence .bubble{fill:rgba(220,232,252,.8);filter:drop-shadow(0 0 4px rgba(210,225,250,.9))}
+.letter-link{display:block;margin-top:10px;padding-top:8px;border-top:1px dashed rgba(0,0,0,.15);color:#0b5fd1;font-size:10.5px;font-style:italic;font-family:'Segoe UI',system-ui,sans-serif;font-weight:600;text-decoration:underline;cursor:pointer;pointer-events:auto}
+.letter-link:hover{color:#073e8c;background:rgba(11,95,209,.08)}
+#controls{margin-left:auto;display:flex;gap:12px;align-items:center}
+#play-btn{padding:7px 18px;background:var(--cyan);color:#000;font-weight:700;border:none;border-radius:6px;font-size:13px;cursor:pointer;transition:all .3s;min-width:100px}
+#play-btn:hover{box-shadow:0 0 20px rgba(0,255,200,.4);transform:scale(1.05)}
+#play-btn.stop{background:var(--pink);box-shadow:0 0 15px rgba(255,45,149,.3)}
+.ctrl-btn{padding:7px 12px;background:transparent;border:1px solid var(--text3);color:var(--text2);border-radius:6px;font-size:14px;cursor:pointer;transition:all .2s;min-width:36px}
+.ctrl-btn:hover:not(:disabled){border-color:var(--cyan);color:var(--cyan)}
+.ctrl-btn:disabled{opacity:.3;cursor:default}
+.ctrl-btn.active{border-color:var(--orange);color:var(--orange)}
+#speed-ctl{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text2)}
+#speed-slider{width:70px;accent-color:var(--cyan)}
+
+#canvas{flex:1;position:relative;overflow:hidden}
+svg#flow{width:100%;height:100%}
+
+.node{cursor:pointer;transition:filter .3s}
+.node:hover{filter:brightness(1.3)}
+.node-box{rx:12;ry:12;stroke-width:2;transition:all .3s}
+.node:hover .node-box{stroke-width:3}
+.node-label{font-size:12px;font-weight:700;letter-spacing:1.2px;text-anchor:middle;dominant-baseline:central;fill:var(--text);pointer-events:none}
+.node-sub{font-size:9.5px;text-anchor:middle;dominant-baseline:central;fill:var(--text2);pointer-events:none}
+.node-icon{font-size:20px;text-anchor:middle;dominant-baseline:central;pointer-events:none}
+
+.conn{stroke-width:2;fill:none;opacity:.25;transition:opacity .4s}
+.conn.active{opacity:1;stroke-width:2.5}
+.conn-lbl{font-size:8.5px;fill:var(--text3);text-anchor:middle}
+
+#letter{position:fixed;z-index:80;pointer-events:none;opacity:0;transition:opacity .4s ease;transform-origin:top left}
+#letter.visible{opacity:1}
+#letter-inner{background:rgba(255,255,255,.97);border-radius:10px;padding:10px 14px;min-width:200px;max-width:360px;box-shadow:0 4px 30px rgba(0,0,0,.5);font-size:11px;line-height:1.55;transition:border-color .4s,box-shadow .4s}
+#letter-head{display:flex;align-items:center;gap:6px;margin-bottom:6px;padding-bottom:5px;border-bottom:1px solid rgba(0,0,0,.1)}
+#letter-type{font-size:9px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase}
+#letter-icon{font-size:14px}
+#letter-body{font-family:'Segoe UI',system-ui,sans-serif;font-size:11.5px;color:#1a1a2e;white-space:pre-wrap;word-break:break-word;max-height:260px;overflow-y:auto;line-height:1.5}
+
+#detail{position:fixed;top:60px;right:16px;width:360px;max-height:calc(100vh - 90px);background:rgba(10,10,30,.96);border:1px solid rgba(0,255,200,.25);border-radius:12px;padding:18px;display:none;z-index:100;overflow-y:auto;backdrop-filter:blur(10px);box-shadow:0 0 40px rgba(0,0,0,.6)}
+#detail.visible{display:block;animation:fadeIn .3s ease}
+#detail h3{font-size:14px;color:var(--cyan);margin-bottom:8px;letter-spacing:1px}
+#detail .dd{font-size:12px;color:var(--text);line-height:1.65;margin-bottom:12px}
+#detail .cb{background:rgba(0,0,0,.5);border:1px solid #2a2a45;border-radius:8px;padding:10px;font-family:'Cascadia Code','Fira Code',monospace;font-size:10.5px;line-height:1.5;color:var(--green);overflow-x:auto;margin-bottom:10px;white-space:pre-wrap;word-break:break-all}
+#detail .tag{display:inline-block;padding:2px 7px;border-radius:10px;font-size:9.5px;font-weight:700;letter-spacing:.4px;margin-right:5px}
+#detail .close-btn{position:absolute;top:10px;right:12px;background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:3px 6px;border-radius:4px}
+#detail .close-btn:hover{color:var(--pink);background:rgba(255,45,149,.1)}
+
+#step-bar{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:6px;z-index:50}
+.sdot{width:9px;height:9px;border-radius:50%;background:var(--text3);transition:all .4s}
+.sdot.active{background:var(--cyan);box-shadow:0 0 12px rgba(0,255,200,.5);transform:scale(1.3)}
+.sdot.done{background:var(--green);box-shadow:0 0 6px rgba(57,255,20,.3)}
+
+#legend{position:fixed;bottom:16px;left:16px;display:flex;gap:14px;font-size:10px;color:var(--text2);z-index:50}
+.leg{display:flex;align-items:center;gap:4px}
+.lc{width:10px;height:3px;border-radius:2px}
+
+#status{position:fixed;bottom:16px;right:16px;font-size:11px;color:var(--text3);z-index:50;text-align:right;max-width:480px}
+#loop-badge{position:fixed;top:60px;left:16px;font-size:10px;color:var(--text3);z-index:50;display:none}
+#loop-badge.vis{display:block}
+
+@keyframes fadeIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="header">
+    <h1>AGENT ZERO · PHASE 3</h1>
+    <span class="sub">Update Check — How Agent Zero spots new replies without wasting searches</span>
+    <div id="controls">
+      <div id="speed-ctl">
+        <span>Speed</span>
+        <input type="range" id="speed-slider" min="0.3" max="3" step="0.1" value="1">
+        <span id="speed-val">1×</span>
+      </div>
+      <button id="play-btn">▶ Play</button>
+      <button id="pause-btn" class="ctrl-btn" disabled title="Pause (Space)">⏸</button>
+      <button id="prev-btn" class="ctrl-btn" title="Previous step (←)">⏮</button>
+      <button id="next-btn" class="ctrl-btn" title="Next step (→)">⏭</button>
+    </div>
+  </div>
+  <div id="subtitle"><h2><span class="tag">Update Check</span>How Agent Zero spots new replies without wasting searches</h2></div>
+  <div id="canvas"><svg id="flow" xmlns="http://www.w3.org/2000/svg"></svg></div>
+</div>
+
+<div id="letter"><div id="letter-inner"><div id="letter-head"><span id="letter-icon"></span><span id="letter-type"></span></div><div id="letter-body"></div></div></div>
+
+<div id="detail">
+  <button class="close-btn" onclick="document.getElementById('detail').classList.remove('visible')">✕</button>
+  <h3 id="dtitle"></h3>
+  <div id="dbody"></div>
+</div>
+
+<div id="step-bar"></div>
+<div id="loop-badge">⟳ Loop <span id="loop-n">1</span></div>
+<div id="legend">
+  <div class="leg"><div class="lc" style="background:var(--cyan)"></div>Task / UI</div>
+  <div class="leg"><div class="lc" style="background:var(--purple)"></div>Memory / Rules</div>
+  <div class="leg"><div class="lc" style="background:var(--orange)"></div>AI Session</div>
+  <div class="leg"><div class="lc" style="background:var(--pink)"></div>Classify / Persist</div>
+</div>
+<div id="status">Click any node for details · ▶ Play to watch the flow</div>
+
+<script>
+'use strict';
+
+/* ══════════════════════════════════════════════════════════════════
+   PHASE 3 — UPDATE CHECK
+   Source: server.js  POST /api/tasks/:id/check-update  (lines 1608–1872)
+   Action-Item State builder: lines 717–773
+   ask_work_iq tool with budget + stub detection: lines 320–378
+   ══════════════════════════════════════════════════════════════════ */
+
+const NODES = [
+  { id:'card',      x:55,  y:195, w:140, h:65, color:'#00ffc8', icon:'📋', label:'EXISTING TASK', sub:'enriched · known state' },
+  { id:'prefilter', x:245, y:55,  w:150, h:55, color:'#b44dff', icon:'⏱️', label:'PRE-FILTER',    sub:'skip if recent' },
+  { id:'skill',     x:415, y:55,  w:140, h:55, color:'#b44dff', icon:'📜', label:'SKILL RULES',   sub:'temporal anchor' },
+  { id:'budget',    x:575, y:55,  w:140, h:55, color:'#b44dff', icon:'🎯', label:'QUERY BUDGET',  sub:'max 3 calls' },
+  { id:'memory',    x:245, y:195, w:150, h:65, color:'#ff8800', icon:'🧠', label:'MEMORY BRIEF',  sub:'~2.5 kB known state' },
+  { id:'prompt',    x:415, y:195, w:150, h:65, color:'#ff8800', icon:'📦', label:'COMPACT PROMPT', sub:'skill + state + task' },
+  { id:'session',   x:585, y:195, w:150, h:65, color:'#ff8800', icon:'✨', label:'AI · COPILOT',   sub:'decides updated / none / ?', intelligence:true },
+  { id:'m365',      x:765, y:195, w:160, h:65, color:'#ff8800', icon:'☁️', label:'MICROSOFT 365', sub:'incl. Sent Items' },
+  { id:'outcome',   x:765, y:340, w:160, h:65, color:'#ff2d95', icon:'🔀', label:'CLASSIFY',      sub:'updated / none / ?' },
+  { id:'history',   x:415, y:340, w:170, h:65, color:'#ff2d95', icon:'📚', label:'HISTORY',       sub:'anchor on conclusive' },
+  { id:'ui',        x:55,  y:340, w:180, h:65, color:'#00ffc8', icon:'✅', label:'CARD UPDATED',  sub:'changes highlighted' }
+];
+
+const CONNS = [
+  { from:'card',      to:'prefilter', color:'#b44dff', label:'check interval', type:'state' },
+  { from:'prefilter', to:'memory',    color:'#00ffc8', label:'continue' },
+  { from:'card',      to:'memory',    color:'#ff8800', label:'read task',  type:'state' },
+  { from:'skill',     to:'prompt',    color:'#b44dff', label:'load',       type:'state' },
+  { from:'memory',    to:'prompt',    color:'#ff8800', label:'buildActionItemState()' },
+  { from:'budget',    to:'session',   color:'#b44dff', label:'register(3)', type:'state' },
+  { from:'prompt',    to:'session',   color:'#ff8800', label:'sendAndWait' },
+  { from:'session',   to:'m365',      color:'#ff8800', label:'ask_work_iq × N' },
+  { from:'m365',      to:'outcome',   color:'#ff2d95', label:'parse + classify' },
+  { from:'outcome',   to:'history',   color:'#ff2d95', label:'writeback' },
+  { from:'history',   to:'ui',        color:'#ff2d95', label:'refresh' }
+];
+
+const ANIM = [
+  { node:'card', status:'An already enriched task — Agent Zero wants to know if anything new happened',
+    letter:{ icon:'📋', type:'EXISTING TASK', color:'#00ffc8',
+      body:`This card has already been through Phase 2.
+
+Agent Zero knows what the task is about, its current status and when it was last checked.
+
+The question now is simple: is there anything new on this thread since last time?` }},
+
+  { node:'prefilter', status:'Was this just checked? If yes, skip — save an AI call and some time',
+    letter:{ icon:'⏱️', type:'PRE-FILTER', color:'#b44dff',
+      body:`Before doing any heavy work, Agent Zero asks a cheap question: did I just check this card?
+
+Active cards get checked once an hour, cards needing review every two hours, and stable cards only every six hours. Anything more recent is skipped.
+
+This single rule saves countless wasted AI calls every day.` }},
+
+  { node:'memory', status:'Build a compact brief of everything already known — so the AI does not repeat work',
+    letter:{ icon:'🧠', type:'MEMORY BRIEF', color:'#ff8800',
+      body:`Agent Zero packs together everything it already knows about this card: title, sender, link, last successful check, current summary, last few history entries.
+
+The whole brief is capped at about 2.5 KB, keeping it tight and focused on facts that matter.
+
+This way the AI never re-summarises what is already clear — it only looks for what is new.` }},
+
+  { node:'skill', status:'Load the Update Check rules — what counts as new, how to reason about time',
+    letter:{ icon:'📜', type:'SKILL RULES', color:'#b44dff',
+      body:`The Update Check skill teaches the AI three things:
+
+• Only messages strictly after the last checked moment count as updates.
+• Replies sent by the user also count — the Sent Items folder must be included.
+• When unsure, return "inconclusive" — never invent an update.` }},
+
+  { node:'budget', status:'Hard cap: maximum 3 Microsoft 365 searches per check — predictable costs',
+    letter:{ icon:'🎯', type:'QUERY BUDGET', color:'#b44dff',
+      body:`A hard limit is set: the AI is allowed at most three Microsoft 365 searches for this check.
+
+This keeps costs predictable and prevents any runaway loop where the AI keeps querying without converging on an answer.
+
+A counter tracks each call; the fourth is simply refused.` }},
+
+  { node:'prompt', status:'Combine rules + memory + task into one compact, focused prompt',
+    letter:{ icon:'📦', type:'COMPACT PROMPT', color:'#ff8800',
+      body:`The skill rules, the memory brief and the task details are combined into one compact prompt.
+
+A smaller prompt means a faster response, a lower cost and fewer misunderstandings — exactly what this phase needs because it runs frequently.` }},
+
+  { node:'session', status:'The Copilot AI session opens and decides whether something is new',
+    letter:{ icon:'✨', type:'AI · INTELLIGENCE', color:'#d0dcf0',
+      body:`A Copilot AI session is opened, with the ask_work_iq tool attached.
+
+The AI is free to search Microsoft 365 within its budget of three queries — including your Sent Items, so replies you wrote yourself are not missed.
+
+At the end, the AI decides between three verdicts: something new, nothing new, or "I cannot tell for sure".` }},
+
+  { node:'m365', status:'The AI runs its searches within the 3-query budget — stubs are detected',
+    letter:{ icon:'☁️', type:'MICROSOFT 365', color:'#ff8800',
+      body:`The AI queries Microsoft 365, counting each call against its budget.
+
+If the response looks like a cached EULA placeholder rather than real content, Agent Zero treats the check as inconclusive and safely retries next time — instead of silently accepting stale data.` }},
+
+  { node:'outcome', status:'Three possible verdicts: new content, nothing new, or inconclusive',
+    letter:{ icon:'🔀', type:'VERDICT', color:'#ff2d95',
+      body:`The AI returns one of three answers:
+
+• Updated — new content found, apply the update.
+• No update — nothing new, leave the card alone.
+• Inconclusive — not enough evidence, wait and try again later.
+
+Each verdict is treated differently, and only conclusive verdicts move the "last checked" timestamp forward.` }},
+
+  { node:'history', status:'Save the verdict. The "last checked" anchor only advances on conclusive results',
+    letter:{ icon:'📚', type:'WRITEBACK', color:'#ff2d95',
+      body:`Every conclusive result is written into the card's history with a timestamp.
+
+The "last successfully checked" anchor is only moved forward when the AI was actually sure — so an inconclusive check does not silently pretend to be recent, and the pre-filter will re-try it soon.` }},
+
+  { node:'ui', status:'If there was news the card shows it; otherwise it stays quietly as it was',
+    letter:{ icon:'✅', type:'CARD UPDATED', color:'#00ffc8',
+      body:`If there was genuine news, the card shows the change and a subtle highlight draws your eye — worth a glance.
+
+If nothing new came in, the card stays quietly as it was, with a small "checked just now" indicator. No noise, no false alerts.` }}
+];
+
+const DETAILS = {
+  card:{ t:'📋 Existing Task — Already Enriched',
+    b:`<div class="dd">Phase 3 runs for tasks that went through Phase 2 (Enrichment). We already have a summary — now we want to know if the thread moved on.</div><div class="cb">POST /api/tasks/:id/check-update</div><div class="dd">Unlike Phase 2, this phase is <strong>stingy with M365 calls</strong>. A task might get checked many times; wasting searches is unacceptable.</div>` },
+  prefilter:{ t:'⏱️ Pre-Filter — Cheap Skip',
+    b:`<div class="dd">The cheapest optimization is to not run at all. The pre-filter adapts to task state.</div><div class="cb">const PHASE3_MIN_INTERVAL_MS = {\n  'in-progress':  1 * 60 * 60 * 1000,  // 1h\n  'needs-review': 2 * 60 * 60 * 1000,  // 2h\n  'default':      6 * 60 * 60 * 1000   // 6h\n};\n\nif (!force &amp;&amp; lastSuccessTs &amp;&amp;\n    sinceLastSuccess &lt; minInterval) {\n  return { skipped: true, reason: 'recent-success' };\n}</div><div class="dd">An in-progress task is checked more often; a stable one rarely.</div>` },
+  memory:{ t:'🧠 Memory Brief — What We Already Know',
+    b:`<div class="dd"><strong>buildActionItemState(task)</strong> compresses everything Agent Zero already knows about this task into ≤ 2.5 kB. The AI then uses this to avoid duplicate searches.</div><div class="cb">const PHASE3_STATE_MAX = 2500;\n\nfunction buildActionItemState(task) {\n  return \`# Action Item State (already known)\n- Title: \${task.title}\n- Source: \${task.source}\n- Current status: \${task.status}\n- Sender: \${task.from}\n- Direct link: \${task.link}\n- Teams thread ID: …\n- TEMPORAL ANCHOR: \${lastSuccessfulCheck}\n\n## Current summary (already integrated)\n\${task.summary}\n\n## Recent history (last 5 — already captured)\n\${tail}\n  \`;\n}</div><div class="dd">This is directly inspired by Task Zero's <code>buildProjectMemory</code> pattern.</div>` },
+  skill:{ t:'📜 UPDATE_CHECK_SKILL — Temporal Discipline',
+    b:`<div class="dd">The skill file in <code>docs/UPDATE_CHECK_SKILL.md</code> teaches the agent two non-obvious things:</div><div class="dd"><span class="tag" style="background:rgba(180,77,255,.15);color:#b44dff">Anchor</span> Only messages dated AFTER <code>lastSuccessfulCheck</code> count as new.</div><div class="dd"><span class="tag" style="background:rgba(180,77,255,.15);color:#b44dff">Sent Items</span> Replies from Martin count too. The prompt literally enforces:</div><div class="cb">"MANDATORY: Your ask_work_iq question MUST\nliterally contain the phrase \`Sent Items\` and\nexplicitly request BOTH incoming messages and\nmessages that I (Martin) sent in this thread.\nA self-sent reply IS an update — do not ignore it."</div>` },
+  budget:{ t:'🎯 Query Budget — Per-Session Cap',
+    b:`<div class="dd">Every SDK session is registered with a budget counter. The tool handler enforces it.</div><div class="cb">const PHASE3_QUERY_BUDGET =\n  parseInt(process.env.PHASE3_QUERY_BUDGET) || 3;\n\nphase3Register(sessionId, taskId);\n// tracking = { count: 0, budget: 3,\n//               stubCount: 0, wiqDown: false,\n//               budgetHit: false, calls: [] }\n\n// Inside the tool handler:\nif (tracking.count &gt;= PHASE3_QUERY_BUDGET) {\n  tracking.budgetHit = true;\n  return 'BUDGET_EXHAUSTED: Return inconclusive JSON now.';\n}</div><div class="dd">Also: <span class="tag" style="background:rgba(255,45,149,.15);color:#ff2d95">Self-EULA guard</span> blocks the model from trying to "accept" an EULA via the tool.</div>` },
+  prompt:{ t:'📦 Compact Prompt',
+    b:`<div class="dd">The full prompt is four sections, separated by horizontal rules:</div><div class="cb">UPDATE_CHECK_SKILL              // skill rules\n\n---\n\nACTION ITEM STATE               // ≤ 2.5 kB\n\n---\n\n## Your task NOW\nDetermine whether the conversation has NEW\nmessages AFTER the temporal anchor. Use the\nsmallest possible number of ask_work_iq calls\n(target: 1, hard cap: 3). Prefer the direct\nlink / Thread ID.</div><div class="dd">Total prompt size: roughly 4 kB — tiny compared to what the agent otherwise "sees."</div>` },
+  session:{ t:'🤖 SDK Session — Budget-Aware',
+    b:`<div class="dd">The <code>askWorkIQTool</code> handler reads the session ID on every call and enforces budget + EULA rules.</div><div class="cb">const askWorkIQTool = defineTool('ask_work_iq', {\n  handler: async ({ question }, invocation) => {\n    const sessionId = invocation?.sessionId;\n    const tracking = phase3Get(sessionId);\n\n    if (SELF_EULA_QUERY.test(question))\n      return 'TOOL_GUIDANCE: EULA is server-handled.';\n\n    if (tracking &amp;&amp; tracking.count &gt;= BUDGET) {\n      tracking.budgetHit = true;\n      return 'BUDGET_EXHAUSTED: …';\n    }\n    tracking.count++;\n    return await askWorkIQDirect(question);\n  }\n});</div>` },
+  m365:{ t:'☁️ Microsoft 365 — with Guards',
+    b:`<div class="dd">Every call to Work IQ is inspected by the server. Stub replies (EULA / permission-denied text) are <strong>detected before they corrupt the summary</strong>.</div><div class="cb">const EULA_MARKERS = [\n  /accept\\s+(the\\s+)?eula/i, /accept_eula/i,\n  /before\\s+using\\s+this\\s+tool/i,\n  /permission\\s+denied/i, /not\\s+been\\s+accepted/i,\n  /eula\\s+not\\s+accepted/i, /requires?\\s+(eula|consent)/i\n];\nfunction isStubResponse(text) {\n  let hits = 0;\n  for (const re of EULA_MARKERS)\n    if (re.test(text) &amp;&amp; ++hits &gt;= 2) return true;\n  return false;\n}</div><div class="dd">Two hits = stub. The agent is told <code>SERVICE_UNAVAILABLE</code> — the server retries on the next scan.</div>` },
+  outcome:{ t:'🔀 Tristate Classification',
+    b:`<div class="dd">Many update-check systems are binary (updated / not). Agent Zero uses <strong>three</strong> outcomes — the difference prevents the system from silencing stuck tasks.</div><div class="cb">const inconclusive =\n     tracking.budgetHit\n  || tracking.stubCount &gt; 0\n  || tracking.wiqDown\n  || (parseFailed &amp;&amp; tracking.count === 0)\n  || (parseFailed &amp;&amp; tracking.stubCount &gt; 0)\n  || (result &amp;&amp; result.inconclusive === true);\n\n// outcome ∈ { 'updated', 'no-update', 'inconclusive' }</div><div class="dd"><span class="tag" style="background:rgba(255,45,149,.15);color:#ff2d95">Key rule</span> Inconclusive runs do NOT advance <code>lastSuccessfulUpdateCheck</code>. The task is retried on the next scan.</div>` },
+  history:{ t:'📚 Writeback — Anchor Moves Only on Success',
+    b:`<div class="dd">This is the one rule that makes Phase 3 self-healing: only a conclusive run moves the temporal anchor forward.</div><div class="cb">if (!inconclusive) {\n  t.lastSuccessfulUpdateCheck = now;  // anchor advances\n  if (hasUpdate) {\n    t.summary = result.newSummary;\n    t.status = 'updated';\n    t.history.push({ type: 'updated', text: '…' });\n  } else {\n    t.history.push({ type: 'checked', text: 'no changes' });\n  }\n} else {\n  // anchor stays put; next scan will retry\n  t.history.push({ type: 'check-inconclusive', text: '…' });\n}</div>` },
+  ui:{ t:'✅ Card Updated',
+    b:`<div class="dd">Three visual outcomes:</div><div class="dd"><span class="tag" style="background:rgba(57,255,20,.15);color:#39ff14">🆕 Updated</span> New content highlighted, summary refreshed.</div><div class="dd"><span class="tag" style="background:rgba(0,255,200,.15);color:#00ffc8">🔍 Checked</span> "No new messages since X" with timestamp.</div><div class="dd"><span class="tag" style="background:rgba(255,136,0,.15);color:#ff8800">⚠️ Inconclusive</span> No timestamp update — will retry next scan.</div><div class="dd" style="margin-top:10px;padding-top:10px;border-top:1px solid #606080"><strong>Dedicated log:</strong> every run also writes to <code>logs/phase3-YYYY-MM-DD.log</code> with task ID, session ID, query count, outcome — perfect for debugging.</div>` }
+};
+
+
+/* ══════════════════════════════════════════════════════════════════
+   SVG RENDERING
+   ══════════════════════════════════════════════════════════════════ */
+
+const svg = document.getElementById('flow');
+let speed = 1, playing = false, stopRequested = false, loopCount = 0;
+
+function nById(id) { return NODES.find(n => n.id === id); }
+function nCenter(n) { return { x: n.x + n.w/2, y: n.y + n.h/2 }; }
+
+function sScale() {
+  const r = svg.getBoundingClientRect();
+  const s = Math.min(r.width/1100, r.height/460, 1.8);
+  return { s, ox: (r.width - 1100*s)/2, oy: (r.height - 460*s)/2 };
+}
+
+function render() {
+  const { s, ox, oy } = sScale();
+  svg.innerHTML = '';
+  const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+  g.setAttribute('transform',`translate(${ox},${oy}) scale(${s})`);
+  svg.appendChild(g);
+
+  const gdefs = document.createElementNS('http://www.w3.org/2000/svg','defs');
+  const grad = document.createElementNS('http://www.w3.org/2000/svg','linearGradient');
+  grad.setAttribute('id','silverGrad');grad.setAttribute('x1','0%');grad.setAttribute('y1','0%');grad.setAttribute('x2','0%');grad.setAttribute('y2','100%');
+  [['0%','#3a4a6a'],['35%','#1b2340'],['65%','#0f1730'],['100%','#2a3652']].forEach(([o,c])=>{const st=document.createElementNS('http://www.w3.org/2000/svg','stop');st.setAttribute('offset',o);st.setAttribute('stop-color',c);grad.appendChild(st);});
+  gdefs.appendChild(grad);g.appendChild(gdefs);
+
+  CONNS.forEach((c,i) => {
+    const fn = nById(c.from), tn = nById(c.to);
+    const fc = nCenter(fn), tc = nCenter(tn);
+    let x1,y1,x2,y2;
+    if (c.type==='state') { x1=fc.x; y1=fc.y+fn.h/2; x2=tc.x; y2=tc.y-tn.h/2; }
+    else if (Math.abs(fc.y-tc.y)<5) { x1=fc.x+fn.w/2; y1=fc.y; x2=tc.x-tn.w/2; y2=tc.y; }
+    else if (Math.abs(fc.x-tc.x)<5) { x1=fc.x; y1=fc.y+fn.h/2; x2=tc.x; y2=tc.y-tn.h/2; }
+    else if (fc.x<tc.x) { x1=fc.x+fn.w/2; y1=fc.y; x2=tc.x-tn.w/2; y2=tc.y; }
+    else { x1=fc.x-fn.w/2; y1=fc.y; x2=tc.x+tn.w/2; y2=tc.y; }
+
+    const mx=(x1+x2)/2, my=(y1+y2)/2;
+    let d;
+    if (c.type==='state') d=`M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`;
+    else if (Math.abs(y1-y2)<5) d=`M${x1},${y1} L${x2},${y2}`;
+    else d=`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
+
+    const p = document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('d',d); p.setAttribute('stroke',c.color); p.setAttribute('class','conn');
+    p.setAttribute('id',`c${i}`);
+    if (c.type==='state') p.setAttribute('stroke-dasharray','6 4');
+    g.appendChild(p);
+
+    const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.setAttribute('x', mx + (c.type==='state'?-5:0));
+    t.setAttribute('y', my + (Math.abs(y1-y2)<5?-9:-4));
+    t.setAttribute('class','conn-lbl'); t.setAttribute('fill',c.color); t.setAttribute('opacity','.55');
+    t.textContent = c.label; g.appendChild(t);
+  });
+
+  NODES.forEach(n => {
+    const ng = document.createElementNS('http://www.w3.org/2000/svg','g');
+    ng.setAttribute('class','node'); ng.setAttribute('id',`n-${n.id}`);
+    ng.addEventListener('click',() => showDetail(n.id));
+
+    const defs = document.createElementNS('http://www.w3.org/2000/svg','defs');
+    const f = document.createElementNS('http://www.w3.org/2000/svg','filter');
+    f.setAttribute('id',`gl-${n.id}`); f.setAttribute('x','-50%'); f.setAttribute('y','-50%');
+    f.setAttribute('width','200%'); f.setAttribute('height','200%');
+    const bl = document.createElementNS('http://www.w3.org/2000/svg','feGaussianBlur');
+    bl.setAttribute('stdDeviation','4'); bl.setAttribute('result','b');
+    const mg = document.createElementNS('http://www.w3.org/2000/svg','feMerge');
+    const m1 = document.createElementNS('http://www.w3.org/2000/svg','feMergeNode'); m1.setAttribute('in','b');
+    const m2 = document.createElementNS('http://www.w3.org/2000/svg','feMergeNode'); m2.setAttribute('in','SourceGraphic');
+    mg.appendChild(m1); mg.appendChild(m2); f.appendChild(bl); f.appendChild(mg);
+    defs.appendChild(f); ng.appendChild(defs);
+
+    const r = document.createElementNS('http://www.w3.org/2000/svg','rect');
+    r.setAttribute('x',n.x); r.setAttribute('y',n.y); r.setAttribute('width',n.w); r.setAttribute('height',n.h);
+    r.setAttribute('class','node-box'); r.setAttribute('fill','rgba(10,10,30,.85)');
+    r.setAttribute('stroke',n.color); r.setAttribute('filter',`url(#gl-${n.id})`);
+    ng.appendChild(r);
+
+    const ic = document.createElementNS('http://www.w3.org/2000/svg','text');
+    ic.setAttribute('x',n.x+n.w/2); ic.setAttribute('y',n.y+(n.h<60?16:20));
+    ic.setAttribute('class','node-icon'); ic.textContent=n.icon; ng.appendChild(ic);
+
+    const lb = document.createElementNS('http://www.w3.org/2000/svg','text');
+    lb.setAttribute('x',n.x+n.w/2); lb.setAttribute('y',n.y+(n.h<60?32:38));
+    lb.setAttribute('class','node-label'); lb.textContent=n.label; ng.appendChild(lb);
+
+    const sb = document.createElementNS('http://www.w3.org/2000/svg','text');
+    sb.setAttribute('x',n.x+n.w/2); sb.setAttribute('y',n.y+(n.h<60?46:53));
+    sb.setAttribute('class','node-sub'); sb.textContent=n.sub; ng.appendChild(sb);
+
+    if (n.intelligence) {
+      ng.classList.add('intelligence');
+      const cnt = 5;
+      for (let i = 0; i < cnt; i++) {
+        const bx = n.x + 12 + i * ((n.w - 24) / (cnt - 1));
+        const startY = n.y + n.h - 3;
+        const endY = n.y - 22;
+        const dur = 2.6 + (i % 3) * 0.7;
+        const delay = i * 0.55;
+        const bubble = document.createElementNS('http://www.w3.org/2000/svg','circle');
+        bubble.setAttribute('cx', bx); bubble.setAttribute('cy', startY);
+        bubble.setAttribute('r', 2.2 + (i % 2) * 1.0);
+        bubble.setAttribute('class','bubble');
+        const aY = document.createElementNS('http://www.w3.org/2000/svg','animate');
+        aY.setAttribute('attributeName','cy'); aY.setAttribute('from',startY); aY.setAttribute('to',endY);
+        aY.setAttribute('dur',dur+'s'); aY.setAttribute('begin',delay+'s'); aY.setAttribute('repeatCount','indefinite');
+        const aO = document.createElementNS('http://www.w3.org/2000/svg','animate');
+        aO.setAttribute('attributeName','opacity'); aO.setAttribute('values','0;0.9;0.9;0');
+        aO.setAttribute('keyTimes','0;0.25;0.75;1');
+        aO.setAttribute('dur',dur+'s'); aO.setAttribute('begin',delay+'s'); aO.setAttribute('repeatCount','indefinite');
+        bubble.appendChild(aY); bubble.appendChild(aO);
+        ng.appendChild(bubble);
+      }
+    }
+
+    g.appendChild(ng);
+  });
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   LETTER POSITIONING
+   ══════════════════════════════════════════════════════════════════ */
+
+const letterEl = document.getElementById('letter');
+const letterInner = document.getElementById('letter-inner');
+const letterIcon = document.getElementById('letter-icon');
+const letterType = document.getElementById('letter-type');
+const letterBody = document.getElementById('letter-body');
+const LETTER_W = 280;
+
+function showLetter(nodeId, data) {
+  const n = nById(nodeId);
+  const { s, ox, oy } = sScale();
+  const rect = svg.getBoundingClientRect();
+
+  const nodeCX = rect.left + ox + (n.x + n.w / 2) * s;
+  let x = nodeCX - LETTER_W / 2;
+
+  let y;
+  const nodeBottom = rect.top + oy + (n.y + n.h + 14) * s;
+  const nodeAbove  = rect.top + oy + (n.y - 14) * s;
+  if (n.y > 300) {
+    y = nodeAbove - 120;
+  } else if (n.y < 100) {
+    y = nodeBottom;
+  } else {
+    y = nodeBottom;
+  }
+
+  x = Math.max(8, Math.min(x, window.innerWidth - LETTER_W - 12));
+  y = Math.max(55, Math.min(y, window.innerHeight - 180));
+
+  letterEl.style.left = x + 'px';
+  letterEl.style.top = y + 'px';
+  letterInner.style.borderColor = data.color;
+  letterInner.style.boxShadow = `0 4px 30px rgba(0,0,0,.6), 0 0 20px ${data.color}33`;
+  letterIcon.textContent = data.icon;
+  letterType.textContent = data.type;
+  letterType.style.color = data.color;
+  letterBody.textContent = data.body;
+  if (typeof DETAILS !== 'undefined' && DETAILS[nodeId]) {
+    const a = document.createElement('a');
+    a.className = 'letter-link';
+    a.textContent = '💡 Click here for the full code + technical detail';
+    a.onclick = (e) => { e.preventDefault(); showDetail(nodeId); };
+    letterBody.appendChild(a);
+  }
+  letterEl.classList.add('visible');
+}
+
+function hideLetter() { letterEl.classList.remove('visible'); }
+
+
+/* ══════════════════════════════════════════════════════════════════
+   DETAIL PANEL (click)
+   ══════════════════════════════════════════════════════════════════ */
+
+function showDetail(id) {
+  const d = DETAILS[id]; if (!d) return;
+  document.getElementById('dtitle').textContent = d.t;
+  document.getElementById('dbody').innerHTML = d.b;
+  document.getElementById('detail').classList.add('visible');
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   STEP DOTS
+   ══════════════════════════════════════════════════════════════════ */
+
+function buildDots() {
+  const el = document.getElementById('step-bar'); el.innerHTML = '';
+  ANIM.forEach((_,i) => { const d = document.createElement('div'); d.className='sdot'; el.appendChild(d); });
+}
+function updateDots(step) {
+  document.querySelectorAll('.sdot').forEach((d,i) => {
+    d.className = 'sdot' + (i<step?' done':'') + (i===step?' active':'');
+  });
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   ANIMATION
+   ══════════════════════════════════════════════════════════════════ */
+
+const wait = ms => new Promise(r => setTimeout(r, ms / speed));
+
+function hlNode(id, on) {
+  const el = document.getElementById(`n-${id}`); if (!el) return;
+  const b = el.querySelector('.node-box');
+  const n = NODES.find(x => x.id === id);
+  el.classList.toggle('is-active', on);
+  el.style.color = on ? (n ? n.color : '#00ffc8') : '';
+  b.setAttribute('stroke-width', on?'2.5':'2');
+  b.setAttribute('fill', on?'rgba(40,48,90,.98)':'rgba(10,10,30,.85)');
+}
+
+function activateConn(i) {
+  const el = document.getElementById(`c${i}`);
+  if (el) el.classList.add('active');
+}
+
+function resetVisuals() {
+  NODES.forEach(n => hlNode(n.id, false));
+  document.querySelectorAll('.conn').forEach(c => c.classList.remove('active'));
+  hideLetter();
+  updateDots(-1);
+  document.getElementById('status').textContent = 'Click any node for details · ▶ Play or ⏭ Step';
+}
+
+// 11 steps: card, prefilter, memory, skill, budget, prompt, session, m365, outcome, history, ui
+// 11 conns: 0 card→prefilter(s), 1 prefilter→memory, 2 card→memory(s), 3 skill→prompt(s),
+//           4 memory→prompt, 5 budget→session(s), 6 prompt→session, 7 session→m365,
+//           8 m365→outcome, 9 outcome→history, 10 history→ui
+const CONN_AT = [ [], [0], [1,2], [3], [], [4], [5,6], [7], [8], [9], [10] ];
+
+let curStep = -1;
+let paused = false;
+let waitResolve = null;
+
+function showStep(i) {
+  NODES.forEach(n => hlNode(n.id, false));
+  document.querySelectorAll('.conn').forEach(c => c.classList.remove('active'));
+
+  for (let j = 0; j <= i; j++) {
+    (CONN_AT[j] || []).forEach(ci => activateConn(ci));
+    hlNode(ANIM[j].node, j === i);
+  }
+  for (let j = 0; j < i; j++) hlNode(ANIM[j].node, false);
+  hlNode(ANIM[i].node, true);
+
+  updateDots(i);
+  document.getElementById('status').textContent = `Step ${i+1}/${ANIM.length}: ${ANIM[i].status}`;
+  showLetter(ANIM[i].node, ANIM[i].letter);
+  curStep = i;
+  updateControlStates();
+}
+
+function interruptibleWait(ms) {
+  return new Promise(resolve => {
+    waitResolve = resolve;
+    setTimeout(() => { waitResolve = null; resolve('timeout'); }, ms / speed);
+  });
+}
+
+function skipWait() { if (waitResolve) { const r = waitResolve; waitResolve = null; r('skipped'); } }
+
+async function runOnce() {
+  for (let i = 0; i < ANIM.length; i++) {
+    if (stopRequested) return;
+    showStep(i);
+    const result = await interruptibleWait(3800);
+    if (stopRequested) return;
+    while (paused && !stopRequested) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    if (stopRequested) return;
+  }
+  document.getElementById('status').textContent = '✅ Cycle complete — restarting…';
+  await interruptibleWait(2500);
+}
+
+async function playLoop() {
+  playing = true; stopRequested = false; paused = false; loopCount = 0;
+  const btn = document.getElementById('play-btn');
+  btn.textContent = '⏸ Stop'; btn.classList.add('stop');
+  document.getElementById('detail').classList.remove('visible');
+  document.getElementById('loop-badge').classList.add('vis');
+  updateControlStates();
+
+  while (!stopRequested) {
+    loopCount++;
+    document.getElementById('loop-n').textContent = loopCount;
+    await runOnce();
+  }
+
+  playing = false; paused = false;
+  btn.textContent = '▶ Play'; btn.classList.remove('stop');
+  document.getElementById('loop-badge').classList.remove('vis');
+  resetVisuals();
+  updateControlStates();
+}
+
+function stopLoop() { stopRequested = true; paused = false; skipWait(); }
+
+function togglePause() {
+  if (!playing) return;
+  paused = !paused;
+  document.getElementById('pause-btn').classList.toggle('active', paused);
+  document.getElementById('pause-btn').textContent = paused ? '▶' : '⏸';
+  if (!paused) skipWait();
+  updateControlStates();
+}
+
+function stepForward() {
+  if (playing) { paused = true; skipWait(); }
+  const next = Math.min((curStep < 0 ? 0 : curStep + 1), ANIM.length - 1);
+  showStep(next);
+  updateControlStates();
+}
+
+function stepBackward() {
+  if (playing) { paused = true; skipWait(); }
+  const prev = Math.max((curStep < 0 ? 0 : curStep - 1), 0);
+  showStep(prev);
+  updateControlStates();
+}
+
+function updateControlStates() {
+  document.getElementById('pause-btn').disabled = !playing;
+  document.getElementById('pause-btn').classList.toggle('active', paused);
+  document.getElementById('pause-btn').textContent = paused ? '▶' : '⏸';
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   CONTROLS
+   ══════════════════════════════════════════════════════════════════ */
+
+document.getElementById('play-btn').addEventListener('click', () => {
+  if (playing) stopLoop(); else playLoop();
+});
+document.getElementById('pause-btn').addEventListener('click', togglePause);
+document.getElementById('prev-btn').addEventListener('click', stepBackward);
+document.getElementById('next-btn').addEventListener('click', stepForward);
+
+const sl = document.getElementById('speed-slider');
+sl.addEventListener('input', () => {
+  speed = parseFloat(sl.value);
+  document.getElementById('speed-val').textContent = speed.toFixed(1)+'×';
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.getElementById('detail').classList.remove('visible');
+  if (e.key === ' ') { e.preventDefault(); if (playing) togglePause(); else playLoop(); }
+  if (e.key === 'ArrowRight') { e.preventDefault(); stepForward(); }
+  if (e.key === 'ArrowLeft')  { e.preventDefault(); stepBackward(); }
+});
+
+window.addEventListener('resize', () => { render(); if (!playing) resetVisuals(); });
+
+render(); buildDots(); resetVisuals(); updateControlStates();
+</script>
+</body>
+</html>

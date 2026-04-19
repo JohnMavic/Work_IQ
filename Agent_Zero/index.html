@@ -1771,9 +1771,19 @@
               const checkRes = await fetch(`/api/tasks/${task.id}/check-update`, { method: 'POST', signal: scanAbortController.signal });
               const checkData = await checkRes.json();
               if (checkRes.ok) {
-                updateStepIndicator(task.id, 3, checkData.hasUpdate ? 'updated' : 'done');
-                if (checkData.hasUpdate) {
-                  showNotification(`Task updated: ${task.title.substring(0, 40)}...`, 'success');
+                if (checkData.skipped) {
+                  // Pre-filter: not a real check, mark as done quietly
+                  updateStepIndicator(task.id, 3, 'done');
+                } else if (checkData.outcome === 'inconclusive') {
+                  // Inconclusive: budget/stub/wiq-down. Treated as "done" visually but
+                  // server has NOT advanced lastSuccessfulUpdateCheck → will retry next scan.
+                  updateStepIndicator(task.id, 3, 'done');
+                  console.warn(`[SCAN] Phase 3 inconclusive for ${task.id}:`, checkData.reasons || '?');
+                } else {
+                  updateStepIndicator(task.id, 3, checkData.hasUpdate ? 'updated' : 'done');
+                  if (checkData.hasUpdate) {
+                    showNotification(`Task updated: ${task.title.substring(0, 40)}...`, 'success');
+                  }
                 }
                 success = true;
                 scanReport.phases.phase3.success++;
