@@ -139,7 +139,7 @@ svg#flow{width:100%;height:100%}
 /* ══════════════════════════════════════════════════════════════════
    PHASE 4 — CONSOLIDATE
    Source: server.js  POST /api/consolidate  (lines 1874–1975)
-   No Microsoft 365 tool — pure text-level reasoning.
+   No Work IQ tool — pure text-level reasoning.
    ══════════════════════════════════════════════════════════════════ */
 
 const NODES = [
@@ -149,7 +149,7 @@ const NODES = [
   { id:'excerpts',  x:405, y:55,  w:150, h:55, color:'#b44dff', icon:'📝', label:'EXCERPTS',       sub:'≤ 150 chars each' },
   { id:'dismissed', x:575, y:55,  w:150, h:55, color:'#b44dff', icon:'🙅', label:'DISMISSED',      sub:'noMergeWith pairs' },
   { id:'prompt',    x:405, y:195, w:150, h:65, color:'#ff8800', icon:'📦', label:'PROMPT',         sub:'skill + JSON + rules' },
-  { id:'session',   x:580, y:195, w:150, h:65, color:'#ff8800', icon:'✨', label:'AI · COPILOT',    sub:'reasons over task list', intelligence:true },
+  { id:'session',   x:580, y:195, w:150, h:65, color:'#ff8800', icon:'✨', label:'GITHUB COPILOT',    sub:'pure reasoning · no tools', intelligence:true },
   { id:'parser',    x:760, y:195, w:160, h:65, color:'#39ff14', icon:'📋', label:'JSON PARSE',     sub:'suggestions[]' },
   { id:'validate',  x:760, y:340, w:160, h:65, color:'#ff2d95', icon:'✓',  label:'VALIDATE',       sub:'drop ghosts + dismissed' },
   { id:'titles',    x:560, y:340, w:160, h:65, color:'#ff2d95', icon:'🏷️', label:'ATTACH TITLES',  sub:'for the UI' },
@@ -212,11 +212,11 @@ Those pairs are packaged as explicit exclusions. The AI is told up-front which c
 
 Everything the AI needs for this decision is in one shot.` }},
 
-  { node:'session', status:'The Copilot AI reasons over the task list — no live Microsoft 365 access',
-    letter:{ icon:'✨', type:'AI · INTELLIGENCE', color:'#d0dcf0',
-      body:`A Copilot AI session is opened — but deliberately without any Microsoft 365 tool.
+  { node:'session', status:'GitHub Copilot reasons over the task list — no live Work IQ / M365 access',
+    letter:{ icon:'✨', type:'GITHUB COPILOT · SDK', color:'#d0dcf0',
+      body:`A fresh GitHub Copilot SDK session is opened (via @github/copilot-sdk) — but deliberately without any Work IQ tool.
 
-No new email lookups are allowed. The AI may only reason over the text it was given. This guarantees merge suggestions are based purely on already-known, already-reviewed summaries.
+No live M365 lookups are allowed. Copilot may only reason over the JSON it was given. This guarantees merge suggestions are based purely on already-enriched, already-reviewed summaries.
 
 A generous five-minute timeout is granted for a careful, comparative read across all cards.` }},
 
@@ -266,7 +266,7 @@ const DETAILS = {
   prompt:{ t:'📦 Prompt — Skill + Data + Exclusions',
     b:`<div class="dd">The final prompt is explicit about what the user has already decided:</div><div class="cb">CONSOLIDATE_SKILL +\n  "\\nHere are the active tasks to analyze:\\n" +\n  JSON.stringify(taskContext, null, 2) +\n  (dismissedPairs.size &gt; 0\n    ? "\\n\\nIMPORTANT: The user has already decided to\nkeep the following task pairs SEPARATE. Do NOT\nsuggest merging them:\\n" +\n      [...dismissedPairs]\n        .map(p =&gt; p.replace('|', ' and '))\n        .join('\\n')\n    : '');</div>` },
   session:{ t:'🤖 SDK Session — No Tools',
-    b:`<div class="dd">Unlike Phase 2 and Phase 3, Consolidate <strong>does not pass any tools</strong> to the session. The agent cannot touch Microsoft 365 — it may only reason over the JSON it was given.</div><div class="cb">session = trackSession(await client.createSession({\n  onPermissionRequest: approveAll\n  // NO tools: [askWorkIQTool]\n}));\n\nconst response = await session.sendAndWait(\n  { prompt }, 300000  // 5-minute timeout\n);</div><div class="dd">This is a deliberate safety boundary: merge suggestions are never based on a fresh M365 search, only on already-enriched data.</div>` },
+    b:`<div class="dd">Unlike Phase 2 and Phase 3, Consolidate <strong>does not pass any tools</strong> to the session. Copilot cannot call Work IQ or touch M365 — it may only reason over the JSON it was given.</div><div class="cb">session = trackSession(await client.createSession({\n  onPermissionRequest: approveAll\n  // NO tools: [askWorkIQTool]\n}));\n\nconst response = await session.sendAndWait(\n  { prompt }, 300000  // 5-minute timeout\n);</div><div class="dd">This is a deliberate safety boundary: merge suggestions are never based on a fresh M365 search, only on already-enriched data.</div>` },
   parser:{ t:'📋 JSON Parse — Suggestions Array',
     b:`<div class="dd"><code>parseJsonFromResponse</code> strips markdown fences and parses the array. Expected shape per suggestion:</div><div class="cb">{\n  "taskIds":     ["uuid-a", "uuid-b"],\n  "reason":      "Short user-facing explanation",\n  "confidence":  "high | medium | low",\n  "proposedTitle":  "…"   // optional\n}</div><div class="dd">If the response is not a JSON array, the endpoint returns an empty list — never a partial result.</div>` },
   validate:{ t:'✓ Validate — Two Safety Checks',

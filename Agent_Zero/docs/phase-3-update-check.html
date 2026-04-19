@@ -150,8 +150,8 @@ const NODES = [
   { id:'budget',    x:575, y:55,  w:140, h:55, color:'#b44dff', icon:'🎯', label:'QUERY BUDGET',  sub:'max 3 calls' },
   { id:'memory',    x:245, y:195, w:150, h:65, color:'#ff8800', icon:'🧠', label:'MEMORY BRIEF',  sub:'~2.5 kB known state' },
   { id:'prompt',    x:415, y:195, w:150, h:65, color:'#ff8800', icon:'📦', label:'COMPACT PROMPT', sub:'skill + state + task' },
-  { id:'session',   x:585, y:195, w:150, h:65, color:'#ff8800', icon:'✨', label:'AI · COPILOT',   sub:'decides updated / none / ?', intelligence:true },
-  { id:'m365',      x:765, y:195, w:160, h:65, color:'#ff8800', icon:'☁️', label:'MICROSOFT 365', sub:'incl. Sent Items' },
+  { id:'session',   x:585, y:195, w:150, h:65, color:'#ff8800', icon:'✨', label:'GITHUB COPILOT',   sub:'SDK session · budget-limited', intelligence:true },
+  { id:'m365',      x:765, y:195, w:160, h:65, color:'#ff8800', icon:'☁️', label:'WORK IQ', sub:'incl. Sent Items' },
   { id:'outcome',   x:765, y:340, w:160, h:65, color:'#ff2d95', icon:'🔀', label:'CLASSIFY',      sub:'updated / none / ?' },
   { id:'history',   x:415, y:340, w:170, h:65, color:'#ff2d95', icon:'📚', label:'HISTORY',       sub:'anchor on conclusive' },
   { id:'ui',        x:55,  y:340, w:180, h:65, color:'#00ffc8', icon:'✅', label:'CARD UPDATED',  sub:'changes highlighted' }
@@ -204,9 +204,9 @@ This way the AI never re-summarises what is already clear — it only looks for 
 • Replies sent by the user also count — the Sent Items folder must be included.
 • When unsure, return "inconclusive" — never invent an update.` }},
 
-  { node:'budget', status:'Hard cap: maximum 3 Microsoft 365 searches per check — predictable costs',
+  { node:'budget', status:'Hard cap: maximum 3 Work IQ searches per check — predictable costs',
     letter:{ icon:'🎯', type:'QUERY BUDGET', color:'#b44dff',
-      body:`A hard limit is set: the AI is allowed at most three Microsoft 365 searches for this check.
+      body:`A hard limit is set: Copilot is allowed at most three Work IQ searches (and therefore three M365 lookups) for this check.
 
 This keeps costs predictable and prevents any runaway loop where the AI keeps querying without converging on an answer.
 
@@ -218,19 +218,19 @@ A counter tracks each call; the fourth is simply refused.` }},
 
 A smaller prompt means a faster response, a lower cost and fewer misunderstandings — exactly what this phase needs because it runs frequently.` }},
 
-  { node:'session', status:'The Copilot AI session opens and decides whether something is new',
-    letter:{ icon:'✨', type:'AI · INTELLIGENCE', color:'#d0dcf0',
-      body:`A Copilot AI session is opened, with the ask_work_iq tool attached.
+  { node:'session', status:'A GitHub Copilot SDK session opens and decides whether something is new',
+    letter:{ icon:'✨', type:'GITHUB COPILOT · SDK', color:'#d0dcf0',
+      body:`A fresh GitHub Copilot SDK session is opened (via @github/copilot-sdk), with the ask_work_iq tool attached.
 
-The AI is free to search Microsoft 365 within its budget of three queries — including your Sent Items, so replies you wrote yourself are not missed.
+Copilot is free to call Work IQ within its budget of three queries — including your Sent Items, so replies you wrote yourself are not missed.
 
-At the end, the AI decides between three verdicts: something new, nothing new, or "I cannot tell for sure".` }},
+At the end, Copilot returns one of three verdicts: something new, nothing new, or "I cannot tell for sure".` }},
 
-  { node:'m365', status:'The AI runs its searches within the 3-query budget — stubs are detected',
-    letter:{ icon:'☁️', type:'MICROSOFT 365', color:'#ff8800',
-      body:`The AI queries Microsoft 365, counting each call against its budget.
+  { node:'m365', status:'Copilot runs its Work IQ searches within the 3-query budget — stubs are detected',
+    letter:{ icon:'☁️', type:'WORK IQ · GUARDED', color:'#ff8800',
+      body:`Copilot asks Work IQ to search M365, and each call is counted against the budget.
 
-If the response looks like a cached EULA placeholder rather than real content, Agent Zero treats the check as inconclusive and safely retries next time — instead of silently accepting stale data.` }},
+If Work IQ's response looks like a cached EULA placeholder rather than real content, Agent Zero treats the check as inconclusive and safely retries next time — instead of silently accepting stale data.` }},
 
   { node:'outcome', status:'Three possible verdicts: new content, nothing new, or inconclusive',
     letter:{ icon:'🔀', type:'VERDICT', color:'#ff2d95',
@@ -270,8 +270,8 @@ const DETAILS = {
     b:`<div class="dd">The full prompt is four sections, separated by horizontal rules:</div><div class="cb">UPDATE_CHECK_SKILL              // skill rules\n\n---\n\nACTION ITEM STATE               // ≤ 2.5 kB\n\n---\n\n## Your task NOW\nDetermine whether the conversation has NEW\nmessages AFTER the temporal anchor. Use the\nsmallest possible number of ask_work_iq calls\n(target: 1, hard cap: 3). Prefer the direct\nlink / Thread ID.</div><div class="dd">Total prompt size: roughly 4 kB — tiny compared to what the agent otherwise "sees."</div>` },
   session:{ t:'🤖 SDK Session — Budget-Aware',
     b:`<div class="dd">The <code>askWorkIQTool</code> handler reads the session ID on every call and enforces budget + EULA rules.</div><div class="cb">const askWorkIQTool = defineTool('ask_work_iq', {\n  handler: async ({ question }, invocation) => {\n    const sessionId = invocation?.sessionId;\n    const tracking = phase3Get(sessionId);\n\n    if (SELF_EULA_QUERY.test(question))\n      return 'TOOL_GUIDANCE: EULA is server-handled.';\n\n    if (tracking &amp;&amp; tracking.count &gt;= BUDGET) {\n      tracking.budgetHit = true;\n      return 'BUDGET_EXHAUSTED: …';\n    }\n    tracking.count++;\n    return await askWorkIQDirect(question);\n  }\n});</div>` },
-  m365:{ t:'☁️ Microsoft 365 — with Guards',
-    b:`<div class="dd">Every call to Work IQ is inspected by the server. Stub replies (EULA / permission-denied text) are <strong>detected before they corrupt the summary</strong>.</div><div class="cb">const EULA_MARKERS = [\n  /accept\\s+(the\\s+)?eula/i, /accept_eula/i,\n  /before\\s+using\\s+this\\s+tool/i,\n  /permission\\s+denied/i, /not\\s+been\\s+accepted/i,\n  /eula\\s+not\\s+accepted/i, /requires?\\s+(eula|consent)/i\n];\nfunction isStubResponse(text) {\n  let hits = 0;\n  for (const re of EULA_MARKERS)\n    if (re.test(text) &amp;&amp; ++hits &gt;= 2) return true;\n  return false;\n}</div><div class="dd">Two hits = stub. The agent is told <code>SERVICE_UNAVAILABLE</code> — the server retries on the next scan.</div>` },
+  m365:{ t:'☁️ Work IQ — Guarded Calls',
+    b:`<div class="dd">Every call to Work IQ (<code>@microsoft/workiq</code>) is inspected by the server. Stub replies (EULA / permission-denied text) are <strong>detected before they corrupt the summary</strong>. Work IQ is the M365 data layer — not the Microsoft 365 Copilot product.</div><div class="cb">const EULA_MARKERS = [\n  /accept\\s+(the\\s+)?eula/i, /accept_eula/i,\n  /before\\s+using\\s+this\\s+tool/i,\n  /permission\\s+denied/i, /not\\s+been\\s+accepted/i,\n  /eula\\s+not\\s+accepted/i, /requires?\\s+(eula|consent)/i\n];\nfunction isStubResponse(text) {\n  let hits = 0;\n  for (const re of EULA_MARKERS)\n    if (re.test(text) &amp;&amp; ++hits &gt;= 2) return true;\n  return false;\n}</div><div class="dd">Two hits = stub. The agent is told <code>SERVICE_UNAVAILABLE</code> — the server retries on the next scan.</div>` },
   outcome:{ t:'🔀 Tristate Classification',
     b:`<div class="dd">Many update-check systems are binary (updated / not). Agent Zero uses <strong>three</strong> outcomes — the difference prevents the system from silencing stuck tasks.</div><div class="cb">const inconclusive =\n     tracking.budgetHit\n  || tracking.stubCount &gt; 0\n  || tracking.wiqDown\n  || (parseFailed &amp;&amp; tracking.count === 0)\n  || (parseFailed &amp;&amp; tracking.stubCount &gt; 0)\n  || (result &amp;&amp; result.inconclusive === true);\n\n// outcome ∈ { 'updated', 'no-update', 'inconclusive' }</div><div class="dd"><span class="tag" style="background:rgba(255,45,149,.15);color:#ff2d95">Key rule</span> Inconclusive runs do NOT advance <code>lastSuccessfulUpdateCheck</code>. The task is retried on the next scan.</div>` },
   history:{ t:'📚 Writeback — Anchor Moves Only on Success',

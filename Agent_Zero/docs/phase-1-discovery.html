@@ -147,7 +147,7 @@ const NODES = [
   { id:'retry',    x:250, y:55,  w:135, h:55, color:'#b44dff', icon:'🔄', label:'AUTO-RETRY',    sub:'Reset stuck tasks' },
   { id:'emailq',   x:420, y:55,  w:140, h:55, color:'#b44dff', icon:'✉️', label:'EMAIL QUERY',   sub:'Natural-language' },
   { id:'teamsq',   x:580, y:55,  w:140, h:55, color:'#b44dff', icon:'💬', label:'TEAMS QUERY',   sub:'Natural-language' },
-  { id:'m365',     x:420, y:195, w:150, h:65, color:'#ff8800', icon:'✨', label:'AI · COPILOT', sub:'reads & classifies', intelligence:true },
+  { id:'m365',     x:420, y:195, w:150, h:65, color:'#ff8800', icon:'✨', label:'WORK IQ', sub:'Microsoft M365 AI search', intelligence:true },
   { id:'parser',   x:605, y:195, w:145, h:65, color:'#ff8800', icon:'📝', label:'PARSER',        sub:'Markdown → items' },
   { id:'dedup',    x:790, y:195, w:155, h:65, color:'#ff8800', icon:'🔍', label:'DEDUPE',        sub:'Link + similarity' },
   { id:'tasksdb',  x:790, y:340, w:155, h:65, color:'#ff2d95', icon:'💾', label:'TASKS.JSON',    sub:'Persist new cards' },
@@ -177,13 +177,13 @@ She picks a time window — usually the last 4 days — and lets Agent Zero do t
     letter:{ icon:'📨', type:'SERVER', color:'#00aaff',
       body:`The Agent Zero server receives the click.
 
-From here it will run every step — retry stuck work, ask Microsoft 365, parse the reply, dedupe results, save new cards — before it answers the UI.` }},
+From here it will run every step — retry stuck work, ask Work IQ (Microsoft's M365 search), parse the reply, dedupe results, save new cards — before it answers the UI.` }},
 
   { node:'retry', status:'Before anything new: give previously failed tasks another chance',
     letter:{ icon:'🔄', type:'AUTO-RETRY', color:'#b44dff',
       body:`Before hunting for new messages, Agent Zero looks for tasks that crashed during their last enrichment and quietly resets them to "pending".
 
-Each task gets up to three attempts, so no real action item is ever lost to a temporary glitch in Microsoft 365.` }},
+Each task gets up to three attempts, so no real action item is ever lost to a temporary glitch in Work IQ or M365.` }},
 
   { node:'emailq', status:'Agent Zero writes a plain-English question for your mailbox',
     letter:{ icon:'✉️', type:'EMAIL QUESTION', color:'#b44dff',
@@ -197,17 +197,17 @@ Concrete action verbs like respond, approve, review, decide and follow up guide 
 
 Teams traffic is noisier than email, so the prompt explicitly asks for messages with an explicit request — general chatter and reactions are ignored.` }},
 
-  { node:'m365', status:'Microsoft 365 Copilot reads everything and decides what is actionable',
-    letter:{ icon:'✨', type:'AI · INTELLIGENCE', color:'#d0dcf0',
+  { node:'m365', status:'Work IQ — Microsoft\'s M365 AI search — reads everything and decides what is actionable',
+    letter:{ icon:'✨', type:'WORK IQ · M365 AI', color:'#d0dcf0',
       body:`This is where the real thinking happens.
 
-Microsoft 365 Copilot reads every email and every Teams message in the chosen window and decides, per message, whether it actually requires action from you.
+Work IQ — Microsoft's M365-aware AI search — reads every email and every Teams message in the chosen window and decides, per message, whether it actually requires action from you. (Important: this is Work IQ, not the GitHub Copilot SDK — Phase 1 does not spawn a Copilot session.)
 
-Both questions are sent at the same time, so the scan finishes in seconds rather than minutes. If one side fails, the other still delivers.` }},
+Both questions (emails + Teams) are sent at the same time, so the scan finishes in seconds rather than minutes. If one side fails, the other still delivers.` }},
 
-  { node:'parser', status:'The AI reply is turned from prose into a clean list of items',
+  { node:'parser', status:'The Work IQ reply is turned from prose into a clean list of items',
     letter:{ icon:'📝', type:'PARSER', color:'#ff8800',
-      body:`Microsoft 365 replies in natural Markdown. Agent Zero extracts each item into a clean record: title, sender, date and a direct Outlook or Teams link.
+      body:`Work IQ replies in natural Markdown. Agent Zero extracts each item into a clean record: title, sender, date and a direct Outlook or Teams link.
 
 Any introductory phrasing the AI adds ("Here are the messages…", "Below you will find…") is filtered out so only real items survive.` }},
 
@@ -243,11 +243,11 @@ const DETAILS = {
   retry:{ t:'🔄 Auto-Retry — Give Stuck Tasks a Second Chance',
     b:`<div class="dd">Before a new scan, the server looks for tasks whose enrichment previously failed and resets them to <span class="tag" style="background:rgba(180,77,255,.2);color:#b44dff">pending</span> — up to 3 attempts per task.</div><div class="cb">for (const t of data.tasks) {\n  if (t.enrichmentStatus === 'error' &amp;&amp; t.status !== 'done') {\n    const errorCount = (t.history || [])\n      .filter(h => h.type === 'enrich-error').length;\n    if (errorCount &lt; 3) t.enrichmentStatus = 'pending';\n  }\n}</div><div class="dd">This way, a flaky M365 backend never permanently hides a real action item.</div>` },
   emailq:{ t:'✉️ Email Query — Natural Language',
-    b:`<div class="dd">Agent Zero does not write database queries — it asks Microsoft 365 Copilot a <strong>plain-English question</strong>. Work IQ already understands "actionable" intent.</div><div class="cb">"Which of my emails from the last N days\nrequire me to take action — respond,\napprove, review, call back, deliver,\ndecide, or follow up? Include external\nsenders. For each show Subject, From,\nDate received, and a direct Outlook link."</div><div class="dd">The prompt is the secret sauce: specific verbs, specific output format.</div>` },
+    b:`<div class="dd">Agent Zero does not write database queries — it asks <strong>Work IQ</strong> (Microsoft's M365-aware AI search) a plain-English question. Work IQ itself interprets "actionable" intent against the M365 Graph.</div><div class="cb">"Which of my emails from the last N days\nrequire me to take action — respond,\napprove, review, call back, deliver,\ndecide, or follow up? Include external\nsenders. For each show Subject, From,\nDate received, and a direct Outlook link."</div><div class="dd">The prompt is the secret sauce: specific verbs, specific output format.</div>` },
   teamsq:{ t:'💬 Teams Query — Natural Language',
     b:`<div class="dd">The Teams query is tuned to Teams semantics — it looks for <strong>explicit requests</strong>, not general chatter.</div><div class="cb">"Which of my Teams messages from the\nlast N days require me to take action\n— respond, review, deliver, or follow up?\nOnly include messages with explicit\nrequests. For each show who sent it,\ndate, topic, and what action is needed."</div>` },
-  m365:{ t:'☁️ Microsoft 365 — Parallel Search',
-    b:`<div class="dd">Both questions are sent to the Work IQ MCP server <strong>at the same time</strong>. <code>Promise.allSettled</code> guarantees the scan continues even if one side fails.</div><div class="cb">const [emailResult, teamsResult] =\n  await Promise.allSettled([\n    askWorkIQDirect(emailQuery, 90000),\n    askWorkIQDirect(teamsQuery, 90000),\n  ]);</div><div class="dd"><span class="tag" style="background:rgba(255,136,0,.15);color:#ff8800">Timeout 90s</span> per side<br><span class="tag" style="background:rgba(0,255,200,.15);color:#00ffc8">allSettled</span> one failure doesn't kill the scan<br><span class="tag" style="background:rgba(180,77,255,.15);color:#b44dff">Empty OK</span> zero items is a valid outcome</div>` },
+  m365:{ t:'✨ Work IQ — Parallel M365 Search',
+    b:`<div class="dd">Both questions are sent to the <strong>Work IQ</strong> MCP server <strong>at the same time</strong>. Work IQ is Microsoft's M365-aware AI search layer. Agent Zero calls it directly via <code>askWorkIQDirect</code> — no GitHub Copilot SDK session is opened in Phase 1. <code>Promise.allSettled</code> guarantees the scan continues even if one side fails.</div><div class="cb">const [emailResult, teamsResult] =\n  await Promise.allSettled([\n    askWorkIQDirect(emailQuery, 90000),\n    askWorkIQDirect(teamsQuery, 90000),\n  ]);</div><div class="dd"><span class="tag" style="background:rgba(255,136,0,.15);color:#ff8800">Timeout 90s</span> per side<br><span class="tag" style="background:rgba(0,255,200,.15);color:#00ffc8">allSettled</span> one failure doesn't kill the scan<br><span class="tag" style="background:rgba(180,77,255,.15);color:#b44dff">Empty OK</span> zero items is a valid outcome</div>` },
   parser:{ t:'📝 Parser — Markdown to Structured Items',
     b:`<div class="dd">M365 responds with human-readable Markdown. Two parsers extract structured data, plus a filter drops meta-text.</div><div class="cb">parseMarkdownEmails(emailRaw)\n  .filter(e =&gt; {\n    // Reject meta-text\n    if (/^actionable (emails?|messages?)/i.test(e.summary)) return false;\n    if (/^(here|below|the following|summary)/i.test(e.summary)) return false;\n    return e.summary &amp;&amp; e.summary.length &gt;= 5;\n  });</div><div class="dd">Each item becomes: <code>{ title, source, from, date, link, actionNeeded, deadline }</code>.</div>` },
   dedup:{ t:'🔍 Dedupe — Three-Layer Safety',

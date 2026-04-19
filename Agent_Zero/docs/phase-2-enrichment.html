@@ -147,8 +147,8 @@ const NODES = [
   { id:'linkctx',  x:400, y:55,  w:140, h:55, color:'#b44dff', icon:'🔗', label:'LINK CONTEXT', sub:'thread / msg IDs' },
   { id:'prompt',   x:560, y:55,  w:140, h:55, color:'#b44dff', icon:'📜', label:'PROMPT',       sub:'SKILL + task + rules' },
   { id:'slot',     x:245, y:195, w:135, h:65, color:'#ff8800', icon:'🚦', label:'SDK SLOT',     sub:'concurrency gate' },
-  { id:'session',  x:410, y:195, w:140, h:65, color:'#ff8800', icon:'✨', label:'AI · COPILOT',  sub:'reads thread · writes summary', intelligence:true },
-  { id:'m365',     x:580, y:195, w:150, h:65, color:'#ff8800', icon:'☁️', label:'MICROSOFT 365', sub:'read full thread' },
+  { id:'session',  x:410, y:195, w:140, h:65, color:'#ff8800', icon:'✨', label:'GITHUB COPILOT',  sub:'SDK session · with tool', intelligence:true },
+  { id:'m365',     x:580, y:195, w:150, h:65, color:'#ff8800', icon:'☁️', label:'WORK IQ', sub:'M365 data access' },
   { id:'response', x:760, y:195, w:160, h:65, color:'#39ff14', icon:'📦', label:'JSON RESULT',  sub:'summary + confidence' },
   { id:'ambig',    x:760, y:340, w:160, h:65, color:'#ff2d95', icon:'❓', label:'AMBIGUITY?',   sub:'needs-review check' },
   { id:'save',     x:410, y:340, w:180, h:65, color:'#ff2d95', icon:'💾', label:'TASKS.JSON',   sub:'summary + history' },
@@ -205,19 +205,19 @@ So Agent Zero runs them carefully and caps how many happen at once. Other cards 
 
 While this card was waiting, another request might have already enriched it, so a quick re-check runs before spending the slot.` }},
 
-  { node:'session', status:'The Copilot AI session starts — this is where the thinking happens',
-    letter:{ icon:'✨', type:'AI · INTELLIGENCE', color:'#d0dcf0',
-      body:`A Copilot AI session is opened.
+  { node:'session', status:'A GitHub Copilot SDK session is opened — this is where the reasoning happens',
+    letter:{ icon:'✨', type:'GITHUB COPILOT · SDK', color:'#d0dcf0',
+      body:`A fresh GitHub Copilot SDK session is opened (via @github/copilot-sdk).
 
-It receives the full instruction, plus a special tool called ask_work_iq — a gateway to Microsoft 365. With this tool, the AI can actually open and read the full email thread, not just guess from the subject.
+It receives the full instruction, plus one tool called ask_work_iq — the bridge to Microsoft 365. Whenever the AI wants to actually read the email or Teams thread, it calls this tool and Work IQ fetches the real content from M365.
 
-From here on, the AI is the decision-maker: what the task is about, what is urgent, and what is still unclear.` }},
+From here on, Copilot is the decision-maker: what the task is about, what is urgent, and what is still unclear.` }},
 
-  { node:'m365', status:'The AI opens the full conversation in Microsoft 365 and reads end-to-end',
-    letter:{ icon:'☁️', type:'MICROSOFT 365', color:'#ff8800',
-      body:`The AI calls the ask_work_iq tool to fetch the real conversation from Microsoft 365.
+  { node:'m365', status:'Copilot asks Work IQ to open the full conversation and reads it end-to-end',
+    letter:{ icon:'☁️', type:'WORK IQ · M365 FETCH', color:'#ff8800',
+      body:`Copilot calls the ask_work_iq tool. Work IQ — Microsoft's M365 data access layer — then fetches the real conversation from M365.
 
-It reads the full thread — original message, every reply, and any attachments. It can follow up with additional questions if the first answer is incomplete.` }},
+Copilot reads the full thread — original message, every reply, and any attachments. It can follow up with additional ask_work_iq calls if the first answer is incomplete.` }},
 
   { node:'response', status:'The AI returns a clean package: summary, confidence, deadline, open questions',
     letter:{ icon:'📦', type:'AI RESULT', color:'#39ff14',
@@ -262,8 +262,8 @@ const DETAILS = {
     b:`<div class="dd">Copilot SDK sessions are expensive to spawn. A semaphore caps how many can run at the same time.</div><div class="cb">await waitForSDKSlot();\n\n// After acquiring — re-check the task\nconst slotCheck = readTasks();\nconst slotTask = slotCheck.tasks.find(t =&gt; t.id === id);\nif (['enriched','needs-review'].includes(slotTask.enrichmentStatus)) {\n  return { alreadyEnriched: true };\n}</div><div class="dd">This double-check handles the race where two requests queue for the same task.</div>` },
   session:{ t:'🤖 Copilot SDK Session',
     b:`<div class="dd">A fresh session is created for every enrichment — no shared state, no cross-contamination.</div><div class="cb">client = new CopilotClient();\nsession = trackSession(await client.createSession({\n  tools: [askWorkIQTool],\n  onPermissionRequest: approveAll\n}));\n\nconst response = await runWithWiqGuard(\n  session, enrichPrompt, 600000  // 10 min hard cap\n);</div><div class="dd"><span class="tag" style="background:rgba(255,136,0,.15);color:#ff8800">runWithWiqGuard</span> wraps <code>sendAndWait</code> with a watchdog that restarts Work IQ if it crashes mid-call.</div>` },
-  m365:{ t:'☁️ Microsoft 365 via Work IQ',
-    b:`<div class="dd">The agent decides when and how to call <code>ask_work_iq</code>. A typical enrichment uses 1–2 calls.</div><div class="cb">ask_work_iq({\n  question: "Find the Teams conversation\n    about Radon upgrade approval,\n    sender Sarah M., around 2026-04-15.\n    Return ALL messages in the thread."\n});</div><div class="dd">Work IQ is a <a href="https://github.com/microsoft/work-iq-mcp">Microsoft MCP server</a> that wraps Microsoft 365 Copilot's search API.</div>` },
+  m365:{ t:'☁️ Work IQ — M365 Data Access',
+    b:`<div class="dd">The agent decides when and how to call <code>ask_work_iq</code>. A typical enrichment uses 1–2 calls. Work IQ (<code>@microsoft/workiq</code>) is a Microsoft MCP server that queries M365 Graph for emails and Teams messages.</div><div class="cb">ask_work_iq({\n  question: "Find the Teams conversation\n    about Radon upgrade approval,\n    sender Sarah M., around 2026-04-15.\n    Return ALL messages in the thread."\n});</div><div class="dd">Note: this is <strong>not</strong> the "Microsoft 365 Copilot" product (the Copilot in Word/Outlook). It is Microsoft Work IQ — a programmatic MCP bridge to M365.</div>` },
   response:{ t:'📦 JSON Result — Strict Contract',
     b:`<div class="dd">The ENRICH_SKILL system prompt forces the agent to return a strict JSON shape. <code>parseJsonFromResponse</code> tolerates markdown code fences.</div><div class="cb">{\n  "summary":      "≤ 300 chars, plain user language",\n  "confidence":   "high | medium | low",\n  "language":     "en | de | fr | …",\n  "link":         "…"  // optional upgrade\n  "ambiguities":  [    // optional\n    { "question": "…", "options": ["A","B"] }\n  ]\n}</div>` },
   ambig:{ t:'❓ Ambiguity Gate',
