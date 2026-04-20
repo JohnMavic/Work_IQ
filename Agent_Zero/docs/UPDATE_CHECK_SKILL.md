@@ -1,8 +1,12 @@
-# Update Check Skill — Phase 3 (v2)
+# Update Check Skill — Phase 3 (v3.3.0)
 
 You are checking whether ONE specific conversation thread has any NEW message dated AFTER the temporal anchor that the system gives you in the **Action Item State** block (field `Last successful check`).
 
 You will receive the current state of the action item — **including the recent history that was already captured** — directly above your task. Treat that block as ground truth: anything listed there is already known and MUST NOT be re-reported.
+
+> **v3.3.0 server safety-nets (FYI, not part of your reasoning):**
+> - If the WorkIQ backend returns ≥3 consecutive permission/EULA stubs, the server force-restarts its WorkIQ subprocess — this is transparent to you; just return `{"hasUpdate": false, "inconclusive": true}` when a stub arrives.
+> - Before your prompt even starts, the server performs a retroactive Summary/History reconciliation: any `thread-update` it previously logged without refreshing the summary is healed automatically. The **Action Item State** you receive already reflects that healing.
 
 ## How to search — efficient by default
 

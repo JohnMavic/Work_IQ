@@ -4,6 +4,29 @@ All notable changes to this project are documented here.
 
 ---
 
+## v3.3.0 — April 20, 2026
+
+**Phase 3 (Update Check) — Stub Auto-Recovery & Retroactive Summary Reconciliation**
+
+### Problem diagnosed
+`logs/phase3-2026-04-20.log` showed **50 consecutive `stub×1` inconclusive runs** (06:10–06:21): the WorkIQ MCP subprocess was alive but returning EULA/permission stubs for every query. The existing auto-restart only fires on subprocess **exit**, not on degraded-but-alive stubs — so Phase 3 was effectively blind for hours. Secondary defect: the AppNeta task had a `thread-update` history entry (Martin's Sent-Items reply to Antonio correctly detected on 2026-04-15) but its summary was never refreshed (older code path failed to prepend the update marker).
+
+### Code — server.js
+- **Stub Auto-Recovery** (new): global `consecutiveStubCount` counter + `STUB_RESTART_THRESHOLD` (env-overridable, default **3**). In `askWorkIQTool.handler`, every detected stub increments the counter; when the threshold is reached, the WorkIQ subprocess is force-killed. The existing `close`-handler then emits `wiq-down` and schedules the exponential-backoff auto-restart. A healthy response resets the counter. Logs: `[WORKIQ] N consecutive stubs — force-restarting subprocess` and a dedicated `phase3Log` `STUB-RESTART` entry.
+- **Retroactive Summary Reconciliation** (new helper `reconcileSummaryWithHistory`): scans the task's history for the latest `thread-update` and latest `summary-update`. If a thread-update exists without a corresponding (or newer) summary-update, the update text is prepended to the summary as `🔴 **Update DD.MM.YYYY, HH:MM:** …`, status is flipped to `updated` (unless already `done`), and a new `summary-update` history entry (`Retroactive reconciliation`) is appended. Idempotent via marker-string check.
+- **Reconciliation invoked at the top of `POST /api/tasks/:id/check-update`** (before the pre-filter skip) so even tasks that would be skipped by `phase3MinInterval` still get healed on demand.
+
+### Documentation
+- `UPDATE_CHECK_SKILL.md`: new v3.3.0 section noting the auto-restart safety-net and the retroactive reconciliation helper.
+- `package.json`: version bumped to 3.3.0.
+
+### Behavioural impact
+- A degraded WorkIQ no longer blinds Phase 3 for the full session lifetime; it recovers autonomously after 3 stubs.
+- Existing tasks whose summary silently desynced from their history (like AppNeta) are healed automatically on the next Phase 3 run — even if that run is still inconclusive, because reconciliation runs before the WorkIQ call.
+- No change to the Sent-Items requirement or the status flip — those were already correct in v3.2.4.
+
+---
+
 ## v3.2.4 — April 19, 2026
 
 **Phase 3 (Update Check) Observability + Quota Hardening**

@@ -61,6 +61,12 @@ let wiq41ErrorCount = 0;    // consecutive 41-char error counter (diagnostic)
 let wiqCooldownUntil = 0;   // timestamp: reject all queries until this time
 let wiqRestartCount = 0;    // auto-restart attempts since last clean start
 const MAX_RESTARTS = 5;     // give up after this many consecutive failures
+// v3.3.0: Stub-Recovery — after N consecutive EULA/permission stubs across
+// all Phase-3 sessions, force-restart the WorkIQ subprocess. Without this,
+// a degraded WorkIQ (process alive but returning stubs) blinds Phase 3 for
+// the entire session lifetime (observed on 2026-04-20: 50 checks, all stub×1).
+let consecutiveStubCount = 0;
+const STUB_RESTART_THRESHOLD = parseInt(process.env.STUB_RESTART_THRESHOLD, 10) || 3;
 
 // K2: EventEmitter for WorkIQ crash events — lets all active SDK sessions abort immediately
 // instead of hanging for their full 600s timeout.
@@ -353,12 +359,24 @@ const askWorkIQTool = defineTool('ask_work_iq', {
       const stubDetected = isStubResponse(result);
       if (stubDetected && tracking) {
         tracking.stubCount++;
-        console.warn(`[M365] STUB detected ${phase3Ctx} (chars=${charsReturned}) — service unavailable`);
-        debugLog('PHASE3-TOOL', `STUB`, { sessionId, taskId: tracking.taskId, queryIndex, durationMs, charsReturned });
+        consecutiveStubCount++;
+        console.warn(`[M365] STUB detected ${phase3Ctx} (chars=${charsReturned}) — service unavailable (consecutive: ${consecutiveStubCount}/${STUB_RESTART_THRESHOLD})`);
+        debugLog('PHASE3-TOOL', `STUB`, { sessionId, taskId: tracking.taskId, queryIndex, durationMs, charsReturned, consecutiveStubCount });
         if (tracking) tracking.calls.push({ queryIndex, outcome: 'stub', durationMs, charsReturned });
+        // v3.3.0: If too many consecutive stubs, the WorkIQ subprocess is degraded —
+        // force-restart it so the next Phase 3 run starts with a fresh process.
+        if (consecutiveStubCount >= STUB_RESTART_THRESHOLD && wiqProc) {
+          console.warn(`[WORKIQ] ${consecutiveStubCount} consecutive stubs — force-restarting subprocess`);
+          debugLog('WORKIQ', `Force-restart triggered by ${consecutiveStubCount} consecutive stubs`);
+          phase3Log(`STUB-RESTART triggered consecutiveStubCount=${consecutiveStubCount} — killing wiqProc pid=${wiqProc.pid || '?'}`);
+          consecutiveStubCount = 0;
+          try { wiqProc.kill(); } catch {}
+          // close-handler emits 'wiq-down' and schedules auto-restart
+        }
         return 'SERVICE_UNAVAILABLE: M365 search backend returned a permission/EULA stub instead of results. Do NOT retry. Return your final JSON now: {"hasUpdate": false, "inconclusive": true} — the server will retry this task in the next scan.';
       }
       console.log(`[M365] OK in ${(durationMs / 1000).toFixed(1)}s (${charsReturned} chars) ${phase3Ctx}`);
+      consecutiveStubCount = 0; // healthy response resets the counter
       if (tracking) {
         tracking.calls.push({ queryIndex, outcome: 'ok', durationMs, charsReturned });
         debugLog('PHASE3-TOOL', `OK`, { sessionId, taskId: tracking.taskId, queryIndex, durationMs, charsReturned });
@@ -712,6 +730,41 @@ function formatUpdateTimestamp(date) {
   const hours = String(d.getHours()).padStart(2, '0');
   const minutes = String(d.getMinutes()).padStart(2, '0');
   return `${day}.${month}.${year}, ${hours}:${minutes}`;
+}
+
+// v3.3.0: Retroactive Summary-History Reconciliation.
+// When a prior Phase 3 run detected a thread-update (e.g. a Sent-Items reply)
+// but — due to an older code path or missing newSummary from the model — the
+// summary was never refreshed, this helper heals the task on the next run.
+// Idempotent: the marker check prevents double-application.
+function reconcileSummaryWithHistory(t) {
+  if (!t || !Array.isArray(t.history) || !t.history.length) return false;
+  let lastThreadUpdate = null, lastSummaryUpdate = null;
+  for (let i = t.history.length - 1; i >= 0; i--) {
+    const h = t.history[i];
+    if (!lastThreadUpdate && h.type === 'thread-update') lastThreadUpdate = h;
+    if (!lastSummaryUpdate && (h.type === 'summary-update' || h.type === 'summary')) lastSummaryUpdate = h;
+    if (lastThreadUpdate && lastSummaryUpdate) break;
+  }
+  if (!lastThreadUpdate) return false;
+  const tuTs = Date.parse(lastThreadUpdate.timestamp);
+  const suTs = lastSummaryUpdate ? Date.parse(lastSummaryUpdate.timestamp) : 0;
+  if (!(tuTs > suTs)) return false;
+  const marker = `🔴 **Update ${formatUpdateTimestamp(new Date(lastThreadUpdate.timestamp))}:**`;
+  if ((t.summary || '').includes(marker)) return false;
+  const m = lastThreadUpdate.text.match(/Update:\s*([\s\S]*?)$/);
+  const updateText = (m ? m[1] : lastThreadUpdate.text).trim();
+  if (!updateText) return false;
+  t.summary = `${marker} ${updateText}\n\n---\n\n${t.summary || ''}`;
+  if (t.status !== 'done') t.status = 'updated';
+  const now = new Date().toISOString();
+  t.history.push({
+    timestamp: now,
+    type: 'summary-update',
+    text: `📋 Retroactive reconciliation: thread-update from ${lastThreadUpdate.timestamp} prepended to summary (historical desync healed)`
+  });
+  t.updatedAt = now;
+  return true;
 }
 
 // ─── Phase 3: Compact Action Item State Builder ──────────────────────────
@@ -1629,6 +1682,25 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
     const t = data.tasks.find(t => t.id === id);
     if (t) t.updateCheckStatus = 'checking';
   });
+
+  // v3.3.0: Retroactive Summary Reconciliation ─────────────────────────────
+  // Heal tasks where an earlier thread-update was logged in history but the
+  // summary itself was never refreshed (older code path or missing newSummary).
+  // Runs BEFORE the pre-filter skip so skipped tasks also get healed.
+  let reconciledNow = false;
+  await safeWriteTasks((data) => {
+    const t = data.tasks.find(t => t.id === id);
+    if (t && reconcileSummaryWithHistory(t)) {
+      reconciledNow = true;
+    }
+  });
+  if (reconciledNow) {
+    debugLog('PHASE3', `RECONCILED summary from history for "${task.title.substring(0, 60)}"`, { taskId: id });
+    phase3Log(`RECONCILE taskId=${id} title="${task.title.substring(0,60)}" — retroactive summary sync from thread-update history`);
+    // re-read task so downstream logic sees the updated summary
+    const fresh = readTasks().tasks.find(tt => tt.id === id);
+    if (fresh) task = fresh;
+  }
 
   // ─── Pre-Filter (cheap skip) ────────────────────────────────────────────
   // Skip if last SUCCESSFUL check is recent enough. Inconclusive runs do NOT
