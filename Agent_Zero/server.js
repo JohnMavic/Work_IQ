@@ -1,6 +1,7 @@
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import { CopilotClient, approveAll, defineTool } from '@github/copilot-sdk';
@@ -1118,6 +1119,269 @@ function migrateToV3() {
   console.log(`Migrated tasks.json to v3 (${data.tasks.length} tasks)`);
 }
 
+// --- Schema Migration v3 → v4 (Phase γ.A — Job model, additive only) ---
+// Adds task.activeJob and task.jobHistory. Does NOT remove pendingPlan (kept
+// until Phase γ.F for rollback safety). Creates timestamped backup before
+// the very first v3→v4 upgrade on this tasks.json.
+function migrateToV4() {
+  const data = readTasks();
+  if (data.version >= 4) return;
+  try {
+    const backup = path.join(__dirname, `tasks.json.v3-${new Date().toISOString().replace(/[:.]/g, '-')}.bak`);
+    fs.copyFileSync(TASKS_FILE, backup);
+    console.log(`[GAMMA.A] Backup written: ${path.basename(backup)}`);
+  } catch (err) {
+    console.error(`[GAMMA.A] Backup failed: ${err.message} — aborting v4 migration`);
+    return;
+  }
+  for (const task of data.tasks) {
+    if (task.activeJob === undefined) task.activeJob = null;
+    if (!Array.isArray(task.jobHistory)) task.jobHistory = [];
+  }
+  data.version = 4;
+  writeTasks(data);
+  console.log(`[GAMMA.A] Migrated tasks.json to v4 (${data.tasks.length} tasks, additive)`);
+}
+
+// ============================================================================
+// Phase γ.A — Job foundation, SSE broker, event bus
+// ============================================================================
+// Decisions in this block are purely mechanical (state machine, transport,
+// deduplication). All SEMANTIC decisions stay in LLM calls (see Phase γ.B).
+// ----------------------------------------------------------------------------
+
+const SERVER_INSTANCE_ID = uuidv4();
+const JOB_HISTORY_CAP = 20;
+const IDEMPOTENCY_TTL_MS = 5 * 60 * 1000;
+const GLOBAL_EVENT_BUFFER_CAP = 2000;
+const JOB_PER_EVENT_CAP = 200;
+
+const jobs = new Map();              // jobId → Job
+const jobsByTask = new Map();        // taskId → Set<jobId>
+const activeJobByTask = new Map();   // taskId → jobId (only open jobs)
+const idempotencyMap = new Map();    // key → { jobId, bodyHash, expiresAt }
+let globalEventSeq = 0;
+const globalEventBuffer = [];        // ring, max GLOBAL_EVENT_BUFFER_CAP
+
+console.log(`[GAMMA.A] Server instance id: ${SERVER_INSTANCE_ID}`);
+
+function hashBody(body) {
+  return crypto.createHash('sha256').update(JSON.stringify(body || {})).digest('hex');
+}
+
+function cleanIdempotency() {
+  const now = Date.now();
+  for (const [k, v] of idempotencyMap.entries()) {
+    if (v.expiresAt < now) idempotencyMap.delete(k);
+  }
+}
+
+function checkIdempotency(key, bodyHash) {
+  if (!key) return { status: 'no-key' };
+  cleanIdempotency();
+  const entry = idempotencyMap.get(key);
+  if (!entry) return { status: 'new' };
+  if (entry.bodyHash !== bodyHash) return { status: 'conflict' };
+  return { status: 'hit', jobId: entry.jobId };
+}
+
+function storeIdempotency(key, jobId, bodyHash) {
+  if (!key) return;
+  idempotencyMap.set(key, { jobId, bodyHash, expiresAt: Date.now() + IDEMPOTENCY_TTL_MS });
+}
+
+// Persist only the JSON-safe slice of a job to task.activeJob.
+async function persistJobSnapshot(job) {
+  await safeWriteTasks((data) => {
+    const t = data.tasks.find(x => x.id === job.taskId);
+    if (!t) return null;
+    t.activeJob = {
+      jobId: job.id,
+      kind: job.kind,
+      status: job.status,
+      startedAt: job.startedAt,
+      lastJobEventId: job.lastJobEventId,
+      pendingClarification: job.pendingClarification
+    };
+    return t;
+  });
+}
+
+// --- SSE Broker ------------------------------------------------------------
+const sseBroker = {
+  subscribers: new Set(),  // { res, heartbeat }
+  subscribe(req, res) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const rawLast = req.headers['last-event-id'] || req.query.lastEventId || '0';
+    const lastEventId = parseInt(rawLast, 10) || 0;
+
+    // If the client's cursor is older than the oldest buffered event, we
+    // cannot replay — client must do a full refetch.
+    const oldestBuffered = globalEventBuffer.length > 0 ? globalEventBuffer[0].id : globalEventSeq;
+    const tooOld = lastEventId > 0 && lastEventId < oldestBuffered - 1;
+
+    const helloPayload = {
+      serverInstanceId: SERVER_INSTANCE_ID,
+      lastGlobalEventId: globalEventSeq,
+      lastEventsDropped: tooOld
+    };
+    try {
+      res.write(`event: hello\nid: ${globalEventSeq}\ndata: ${JSON.stringify(helloPayload)}\n\n`);
+    } catch {}
+
+    if (!tooOld && lastEventId > 0) {
+      for (const ev of globalEventBuffer) {
+        if (ev.id > lastEventId) this._write(res, ev);
+      }
+    }
+
+    const heartbeat = setInterval(() => {
+      try { res.write(': keepalive\n\n'); } catch {}
+    }, 20000);
+
+    const entry = { res, heartbeat };
+    this.subscribers.add(entry);
+
+    const cleanup = () => {
+      clearInterval(heartbeat);
+      this.subscribers.delete(entry);
+    };
+    req.on('close', cleanup);
+    req.on('error', cleanup);
+  },
+  broadcast(event) {
+    for (const entry of this.subscribers) {
+      try { this._write(entry.res, event); } catch {}
+    }
+  },
+  _write(res, event) {
+    res.write(`event: ${event.type}\nid: ${event.id}\ndata: ${JSON.stringify(event)}\n\n`);
+  }
+};
+
+// --- Job class -------------------------------------------------------------
+class Job {
+  constructor({ taskId, kind, input, clientRequestId }) {
+    this.id = uuidv4();
+    this.taskId = taskId;
+    this.kind = kind;                 // 'log' for γ.B, others future
+    this.status = 'queued';           // queued|running|awaiting_input|cancelling|cancelled|completed|failed
+    this.input = input;
+    this.clientRequestId = clientRequestId || null;
+    this.abortController = new AbortController();
+    this.startedAt = null;
+    this.completedAt = null;
+    this.result = null;
+    this.error = null;
+    this.pendingClarification = null;
+    this.replyResolver = null;
+    this.events = [];                 // per-job ring
+    this.lastJobEventId = 0;
+    this.sdkSessionId = null;
+    this._session = null;             // transient, not serialised
+  }
+
+  emit(type, payload = {}) {
+    this.lastJobEventId++;
+    globalEventSeq++;
+    const event = {
+      v: 1,
+      id: globalEventSeq,
+      jobEventId: this.lastJobEventId,
+      ts: Date.now(),
+      serverInstanceId: SERVER_INSTANCE_ID,
+      taskId: this.taskId,
+      jobId: this.id,
+      kind: this.kind,
+      type,
+      payload
+    };
+    this.events.push(event);
+    if (this.events.length > JOB_PER_EVENT_CAP) this.events.shift();
+    globalEventBuffer.push(event);
+    if (globalEventBuffer.length > GLOBAL_EVENT_BUFFER_CAP) globalEventBuffer.shift();
+    sseBroker.broadcast(event);
+  }
+
+  async awaitReply(question) {
+    this.status = 'awaiting_input';
+    this.pendingClarification = { question, askedAt: Date.now() };
+    this.emit('job.awaiting_input', { question });
+    await persistJobSnapshot(this);
+    return new Promise((resolve, reject) => {
+      this.replyResolver = { resolve, reject };
+    });
+  }
+
+  acceptReply(text) {
+    if (!this.replyResolver) throw new Error('Job not awaiting input');
+    this.pendingClarification = null;
+    this.status = 'running';
+    this.emit('job.progress', { phase: 'reply_received', chars: String(text).length });
+    const r = this.replyResolver;
+    this.replyResolver = null;
+    r.resolve(text);
+  }
+
+  cancel() {
+    if (['completed', 'failed', 'cancelled'].includes(this.status)) return false;
+    this.status = 'cancelling';
+    try { this.abortController.abort(); } catch {}
+    if (this.replyResolver) {
+      const r = this.replyResolver;
+      this.replyResolver = null;
+      try { r.reject(new Error('Job cancelled')); } catch {}
+    }
+    // If an SDK session is bound, destroy it so sendAndWait unblocks.
+    if (this._session) {
+      try { destroySession(this._session); } catch {}
+    }
+    return true;
+  }
+
+  snapshot() {
+    return {
+      jobId: this.id,
+      taskId: this.taskId,
+      kind: this.kind,
+      status: this.status,
+      startedAt: this.startedAt,
+      completedAt: this.completedAt,
+      pendingClarification: this.pendingClarification,
+      result: this.result,
+      error: this.error,
+      lastJobEventId: this.lastJobEventId,
+      serverInstanceId: SERVER_INSTANCE_ID,
+      clientRequestId: this.clientRequestId,
+      sdkSessionId: this.sdkSessionId
+    };
+  }
+}
+
+// Register a job in the in-memory maps. Call AFTER persistJobSnapshot succeeded.
+function registerJob(job) {
+  jobs.set(job.id, job);
+  let set = jobsByTask.get(job.taskId);
+  if (!set) { set = new Set(); jobsByTask.set(job.taskId, set); }
+  set.add(job.id);
+  activeJobByTask.set(job.taskId, job.id);
+}
+
+function unregisterActiveJob(job) {
+  if (activeJobByTask.get(job.taskId) === job.id) {
+    activeJobByTask.delete(job.taskId);
+  }
+}
+
+// Expose to future phases (Phase γ.B runner will be wired here).
+// eslint-disable-next-line no-unused-vars
+const __gammaA = { Job, jobs, jobsByTask, activeJobByTask, idempotencyMap, sseBroker, registerJob, unregisterActiveJob, persistJobSnapshot, hashBody, checkIdempotency, storeIdempotency };
+
 // --- API Endpoints ---
 
 // Health check endpoint — used by startup scripts to verify server is alive and healthy
@@ -1156,6 +1420,53 @@ app.get('/api/version', (req, res) => {
   } catch {
     res.json({ version: 'unknown' });
   }
+});
+
+// ----------------------------------------------------------------------------
+// Phase γ.A endpoints — SSE stream + job inspection/control
+// ----------------------------------------------------------------------------
+
+// GET /api/events — Server-Sent Events stream of all job events.
+// Supports ?lastEventId=N or Last-Event-ID header for reconnect replay.
+app.get('/api/events', (req, res) => {
+  sseBroker.subscribe(req, res);
+});
+
+// GET /api/jobs/:jobId — full snapshot (used for refresh hydration)
+app.get('/api/jobs/:jobId', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'job not found' });
+  res.json({ ...job.snapshot(), events: job.events.slice(-JOB_PER_EVENT_CAP) });
+});
+
+// POST /api/jobs/:jobId/cancel — request cancellation.
+// Returns ok:true + cancelled:true when the job transitioned to 'cancelling',
+// cancelled:false when the job was already finished (idempotent no-op).
+app.post('/api/jobs/:jobId/cancel', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'job not found' });
+  const cancelled = job.cancel();
+  res.json({ ok: true, cancelled, status: job.status });
+});
+
+// POST /api/jobs/:jobId/reply — answer to a clarification question.
+app.post('/api/jobs/:jobId/reply', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'job not found' });
+  if (['completed', 'failed', 'cancelled'].includes(job.status)) {
+    return res.status(410).json({ error: `job is ${job.status}` });
+  }
+  if (job.status !== 'awaiting_input') {
+    return res.status(409).json({ error: 'job not awaiting input', status: job.status });
+  }
+  const text = (req.body && typeof req.body.text === 'string') ? req.body.text : '';
+  if (!text.trim()) return res.status(400).json({ error: 'empty reply text' });
+  try {
+    job.acceptReply(text);
+  } catch (err) {
+    return res.status(409).json({ error: err.message });
+  }
+  res.json({ ok: true });
 });
 
 // GET /api/tasks — return all tasks
@@ -4040,6 +4351,7 @@ function parseTeamsMessages(text) {
 migrateTasks();
 migrateStatuses();
 migrateToV3();
+migrateToV4();
 
 // Reset stuck transitional statuses from interrupted enrichment/update-check
 (function resetStuckStatuses() {
