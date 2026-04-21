@@ -22,6 +22,8 @@ Use this exact pattern for Query 1 (fill in the bracketed parts):
 
 > Find any messages in the [email/Teams] thread "[topic keywords]" with [counterpart name] dated AFTER [temporal anchor date]. **Include BOTH messages from [counterpart] AND messages I (Martin) sent from Sent Items / posted in Teams.** List each message with date, sender, direction (incoming/sent), and direct URL.
 
+**Recency pitfall (applies to every query):** Work IQ / Microsoft Graph Search has an indexing lag of several minutes for freshly-sent messages and approximate date filters. NEVER narrow a query to "today / heute / gerade". If the anchor date is less than 48 hours ago, always search the **last 7 days** (or the last 14 days for Teams group chats), and filter results yourself by date.
+
 After query 2 (or earlier, when conclusive), STOP and emit your JSON.
 
 ## When to stop early (before exhausting queries)

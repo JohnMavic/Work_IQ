@@ -164,6 +164,10 @@ function startWorkIQMCP() {
             const text = msg2.result?.content?.[0]?.text || '';
             console.log('[WORKIQ] EULA:', text.substring(0, 60));
             wiqReady = true;
+            // v3.4.1: signal to any session waiting on wiq-down grace period that
+            // WorkIQ is back online. Listeners can then keep waiting on their
+            // sendAndWait normally instead of aborting.
+            try { wiqEvents.emit('wiq-up'); } catch {}
             resolve();
           },
           reject,
@@ -303,29 +307,56 @@ function askWorkIQDirect(question, timeoutMs = 90000, taskId = null) {
 }
 
 // K2: Race session.sendAndWait() against wiq-down crashes.
-// When WorkIQ crashes during an active session, sendAndWait would hang for the full
-// timeout (the SDK's AI agent retries internally and never errors out on its own).
-// This wrapper aborts the session promise immediately when WorkIQ goes down.
+// v3.4.1 (softened): Transient force-restarts (triggered by EULA stubs) no longer
+// hard-abort an ongoing LLM session. When 'wiq-down' fires we open a grace period
+// during which either: (a) 'wiq-up' fires (WorkIQ came back — keep waiting on
+// sendAndWait), or (b) sendAndWait settles on its own (LLM produced its final
+// answer without needing WorkIQ again). Only if neither happens within GRACE_MS
+// do we reject — so the user still doesn't sit for 300s on a genuinely dead WorkIQ.
+const WIQ_GRACE_MS = parseInt(process.env.WIQ_GRACE_MS, 10) || 30000;
 function runWithWiqGuard(session, prompt, timeoutMs) {
   return new Promise((resolve, reject) => {
     let settled = false;
+    let graceTimer = null;
+    let storedErr = null;
+
+    const clearGuard = () => {
+      if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
+      wiqEvents.removeListener('wiq-down', onWiqDown);
+      wiqEvents.removeListener('wiq-up', onWiqUp);
+    };
+    const onWiqUp = () => {
+      if (settled) return;
+      // WorkIQ is healthy again — cancel the grace timer and keep waiting on
+      // sendAndWait as if nothing happened.
+      if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
+      storedErr = null;
+    };
     const onWiqDown = (err) => {
       if (settled) return;
-      settled = true;
-      reject(err || new Error('WorkIQ crashed during session'));
+      if (graceTimer) return; // already in a grace window
+      storedErr = err || new Error('WorkIQ subprocess down');
+      graceTimer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        clearGuard();
+        reject(storedErr);
+      }, WIQ_GRACE_MS);
     };
-    wiqEvents.once('wiq-down', onWiqDown);
+    wiqEvents.on('wiq-down', onWiqDown);
+    wiqEvents.on('wiq-up', onWiqUp);
+
     session.sendAndWait({ prompt }, timeoutMs)
       .then(result => {
         if (settled) return;
         settled = true;
-        wiqEvents.removeListener('wiq-down', onWiqDown);
+        clearGuard();
         resolve(result);
       })
       .catch(err => {
         if (settled) return;
         settled = true;
-        wiqEvents.removeListener('wiq-down', onWiqDown);
+        clearGuard();
         reject(err);
       });
   });
@@ -1685,6 +1716,59 @@ function buildAgentResponseString(parsed, communications) {
   return out || '(no response)';
 }
 
+// v3.4.1 — Persist failure state so UI/hydration doesn't stay stuck.
+// Called from every fail branch in runLogJob. Writes a history entry describing
+// the failure, clears task.activeJob, and appends to jobHistory.
+async function persistJobFailure(job, reason, extras = {}) {
+  try {
+    const finalTask = await safeWriteTasks((d) => {
+      const t = d.tasks.find(x => x.id === job.taskId);
+      if (!t) return null;
+      const now = new Date().toISOString();
+      if (!t.history) t.history = [];
+      t.history.push({
+        timestamp: now,
+        type: 'update',
+        text: job.input && job.input.text ? job.input.text : '(agent request)',
+        communications: [],
+        agentResponse: `⚠️ Agent failed: ${reason}`,
+        agentPlan: { intent: 'answer', understanding: reason, confidence: 'none', userConfirmed: false, jobId: job.id },
+        agentExecution: {
+          parsedCount: 0,
+          confidence: 'none',
+          answer: null,
+          searchAttempts: [],
+          ambiguities: [],
+          durationMs: job.startedAt ? Date.now() - job.startedAt : 0,
+          method: 'gamma-single-call-v1',
+          rounds: extras.rounds || 0,
+          error: reason,
+          rawPreview: typeof extras.rawPreview === 'string' ? extras.rawPreview.substring(0, 400) : null
+        }
+      });
+      t.activeJob = null;
+      t.jobHistory = t.jobHistory || [];
+      t.jobHistory.push({
+        jobId: job.id,
+        kind: job.kind,
+        status: 'failed',
+        startedAt: job.startedAt ? new Date(job.startedAt).toISOString() : null,
+        completedAt: now,
+        clientRequestId: job.clientRequestId,
+        sdkSessionId: job.sdkSessionId,
+        error: reason
+      });
+      if (t.jobHistory.length > JOB_HISTORY_CAP) t.jobHistory.shift();
+      t.updatedAt = now;
+      return t;
+    });
+    return finalTask;
+  } catch (persistErr) {
+    console.error(`[GAMMA.B] persistJobFailure error job=${job.id.substring(0,8)}: ${persistErr.message}`);
+    return null;
+  }
+}
+
 async function runLogJob(job) {
   return runOnTaskQueue(job.taskId, async () => {
     // Re-read task state at queue front (might have changed while queued)
@@ -1699,6 +1783,7 @@ async function runLogJob(job) {
     }
 
     if (job.status === 'cancelling') {
+      await safeWriteTasks((d) => { const t = d.tasks.find(x=>x.id===job.taskId); if(t) t.activeJob = null; return t; });
       job.status = 'cancelled';
       job.completedAt = Date.now();
       job.emit('job.cancelled', {});
@@ -1754,6 +1839,7 @@ async function runLogJob(job) {
           if (job.status === 'cancelling') break;
           job.status = 'failed';
           job.error = `LLM call failed: ${err.message}`;
+          await persistJobFailure(job, job.error, { rounds });
           job.emit('job.failed', { error: job.error });
           activeJobByTask.delete(job.taskId);
           return;
@@ -1771,6 +1857,7 @@ async function runLogJob(job) {
         if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
           job.status = 'failed';
           job.error = 'LLM response was not valid JSON object';
+          await persistJobFailure(job, job.error, { rounds, rawPreview: typeof rawContent === 'string' ? rawContent : null });
           job.emit('job.failed', { error: job.error, rawPreview: typeof rawContent === 'string' ? rawContent.substring(0, 400) : null });
           activeJobByTask.delete(job.taskId);
           return;
@@ -1787,6 +1874,7 @@ async function runLogJob(job) {
             if (job.status === 'cancelling') break;
             job.status = 'failed';
             job.error = `Clarification interrupted: ${err.message}`;
+            await persistJobFailure(job, job.error, { rounds });
             job.emit('job.failed', { error: job.error });
             activeJobByTask.delete(job.taskId);
             return;
@@ -1802,6 +1890,7 @@ async function runLogJob(job) {
     }
 
     if (job.status === 'cancelling') {
+      await safeWriteTasks((d) => { const t = d.tasks.find(x=>x.id===job.taskId); if(t) t.activeJob = null; return t; });
       job.status = 'cancelled';
       job.completedAt = Date.now();
       job.emit('job.cancelled', {});
@@ -1812,6 +1901,7 @@ async function runLogJob(job) {
     if (!parsed) {
       job.status = 'failed';
       job.error = 'No parseable response received';
+      await persistJobFailure(job, job.error, { rounds });
       job.emit('job.failed', { error: job.error });
       activeJobByTask.delete(job.taskId);
       return;

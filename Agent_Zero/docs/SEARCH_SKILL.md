@@ -24,6 +24,14 @@ Find communications that ANSWER the user's question — not just communications 
 
 You execute up to **two** parallel search strategies in a **single** tool call using `parallel_search`, then optionally one follow-up.
 
+### CRITICAL — Recency pitfall
+
+Work IQ runs on Microsoft Graph Search, which has an **indexing lag of several minutes** for freshly posted Teams messages and sent emails, and its date filters are approximate. Concretely:
+
+- **NEVER narrow a query to "today", "heute", "gerade", "eben", "in der letzten Stunde" or any single-day window.** Such queries routinely return zero results even when the message exists.
+- When the user says "heute / today / gerade / eben / in der Zwischenzeit / just now", search a window of **at least the last 7 days** (14 days for Teams group chats) and then filter the results yourself by date in your answer.
+- For messages the user says *they themselves* sent, explicitly include `Sent Items`, `sent by me`, `posted in Teams` or equivalent phrasing — otherwise Work IQ tends to return only inbox/incoming messages.
+
 ### How parallel_search works
 
 Call `parallel_search({ queries: [q1, q2] })` — both queries run concurrently in Work IQ. You get back both answers at once. This is dramatically faster than sequential searches.
