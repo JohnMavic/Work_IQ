@@ -628,6 +628,23 @@ function runOnTaskQueue(taskId, fn) {
   return next;
 }
 
+// Phase γ.B.2: wrap an Express handler so the handler body runs inside
+// runOnTaskQueue for the task specified by :id. Serialises mutations for
+// the same task across skills (log-job, enrich, check-update, review,
+// correct, correct/resolve) while keeping different tasks parallel.
+function withTaskQueue(handler) {
+  return async (req, res, next) => {
+    const id = req.params && req.params.id;
+    try {
+      await runOnTaskQueue(id, () => handler(req, res, next));
+    } catch (err) {
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Handler failed', detail: err.message });
+      }
+    }
+  };
+}
+
 function trackSession(session) {
   if (session) {
     activeSessions.add(session);
@@ -2455,7 +2472,7 @@ app.post('/api/scan', async (req, res) => {
 });
 
 // POST /api/tasks/:id/enrich — Phase 2: content extraction & summary
-app.post('/api/tasks/:id/enrich', async (req, res) => {
+app.post('/api/tasks/:id/enrich', withTaskQueue(async (req, res) => {
   const { id } = req.params;
 
   let task;
@@ -2626,12 +2643,12 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
       try { await client.dispose(); } catch {}
     }
   }
-});
+}));
 
 // POST /api/tasks/:id/check-update — Phase 3: check for thread updates
 // v3.3: Action-Item-State injection, hard query budget, stub detection,
 // tristate outcome (updated/no-update/inconclusive), no eval session, pre-filter.
-app.post('/api/tasks/:id/check-update', async (req, res) => {
+app.post('/api/tasks/:id/check-update', withTaskQueue(async (req, res) => {
   const { id } = req.params;
   const force = req.query.force === '1' || req.body?.force === true;
 
@@ -2911,7 +2928,7 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
       try { await client.dispose(); } catch {}
     }
   }
-});
+}));
 
 // POST /api/consolidate — Phase 4: suggest merging semantically related tasks
 app.post('/api/consolidate', async (req, res) => {
@@ -4274,7 +4291,7 @@ Return ONLY valid JSON, no markdown:
 });
 
 // POST /api/tasks/:id/review — User responds to ambiguity review items (v2.1)
-app.post('/api/tasks/:id/review', async (req, res) => {
+app.post('/api/tasks/:id/review', withTaskQueue(async (req, res) => {
   const { id } = req.params;
   const { response } = req.body;
 
@@ -4444,10 +4461,10 @@ Return ONLY the JSON object. No markdown, no explanation.`;
       try { await client.dispose(); } catch {}
     }
   }
-});
+}));
 
 // POST /api/tasks/:id/correct — Evidence-based correction verification (v2.6: Opus 4.6 + Work IQ MCP)
-app.post('/api/tasks/:id/correct', async (req, res) => {
+app.post('/api/tasks/:id/correct', withTaskQueue(async (req, res) => {
   const { id } = req.params;
   const { plan } = req.body;
 
@@ -4605,10 +4622,10 @@ app.post('/api/tasks/:id/correct', async (req, res) => {
       try { await client.dispose(); } catch {}
     }
   }
-});
+}));
 
 // POST /api/tasks/:id/correct/resolve — User resolves correction discussion (accept evidence or veto)
-app.post('/api/tasks/:id/correct/resolve', async (req, res) => {
+app.post('/api/tasks/:id/correct/resolve', withTaskQueue(async (req, res) => {
   const { id } = req.params;
   const { action, correctedTitle, correctedSummary } = req.body;
 
@@ -4692,7 +4709,7 @@ app.post('/api/tasks/:id/correct/resolve', async (req, res) => {
 
   console.log(`[${now}] Correction resolved (veto): task "${task.title}" (${id})`);
   return res.json({ success: true, action: 'veto', task: updatedTask });
-});
+}));
 
 // Extract JSON array from AI response (handles markdown code blocks)
 function parseJsonFromResponse(text) {
