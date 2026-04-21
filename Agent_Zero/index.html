@@ -2925,7 +2925,7 @@
   }
 
   // Phase γ.E: replace the legacy two-phase (analyze → Execute) flow with a
-  // one-call autonomous job. The user types → we POST /log-job → SSE drives
+  // one-call autonomous job. The user types → we POST /log → SSE drives
   // the UI. No more plan previews, no more pendingPlans state, no manual
   // Execute click. See server.js runLogJob for the backend side.
 
@@ -2940,7 +2940,7 @@
     const clientRequestId = `log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     input.disabled = true;
     try {
-      const res = await fetch(`/api/tasks/${taskId}/log-job`, {
+      const res = await fetch(`/api/tasks/${taskId}/log`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
