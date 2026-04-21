@@ -260,9 +260,25 @@ function askWorkIQDirect(question, timeoutMs = 90000, taskId = null) {
           }
           return;
         }
+        // v3.4.0 Phase α follow-up: detect EULA/permission stubs at the source so
+        // direct callers (Phase-1 scan) get the same stub handling as tool callers.
+        // Without this, scan parses stubs as empty data and silently returns 0 items.
+        if (text && isStubResponse(text)) {
+          consecutiveStubCount++;
+          debugLog('WORKIQ-QUERY', `STUB detected (${text.length} chars, consecutive=${consecutiveStubCount}/${STUB_RESTART_THRESHOLD}) "${shortQ}..."`);
+          console.warn(`[WORKIQ] STUB response detected (consecutive: ${consecutiveStubCount}/${STUB_RESTART_THRESHOLD})`);
+          if (consecutiveStubCount >= STUB_RESTART_THRESHOLD && wiqProc) {
+            console.warn(`[WORKIQ] ${consecutiveStubCount} consecutive stubs — force-restarting subprocess`);
+            debugLog('WORKIQ', `Force-restart triggered by ${consecutiveStubCount} consecutive stubs (from askWorkIQDirect)`);
+            consecutiveStubCount = 0;
+            try { wiqProc.kill(); } catch {}
+          }
+          return reject(new Error('WorkIQ returned EULA/permission stub — service temporarily unavailable'));
+        }
         // Healthy response — reset whichever counter applies.
         if (taskId) wiqTaskErrorCounts.set(taskId, 0);
         wiq41ErrorCount = 0;
+        consecutiveStubCount = 0;
         debugLog('WORKIQ-QUERY', `OK in ${elapsed}s (${text.length} chars) "${shortQ}..."`);
         if (text) resolve(text);
         else reject(new Error('Empty response from Work IQ'));
@@ -414,10 +430,19 @@ const askWorkIQTool = defineTool('ask_work_iq', {
     } catch (e) {
       const durationMs = Date.now() - start;
       console.error(`[M365] Failed in ${(durationMs / 1000).toFixed(1)}s ${phase3Ctx}: ${e.message}`);
+      // v3.4.0 follow-up: stubs now reject inside askWorkIQDirect. Translate the
+      // error into the same SERVICE_UNAVAILABLE message the LLM already knows
+      // how to handle, so we don't regress tool-side behavior after moving
+      // stub detection into the direct layer.
+      const isStubError = /eula\/permission stub|eula\s*\/?\s*permission/i.test(e.message);
       if (tracking) {
-        tracking.calls.push({ queryIndex, outcome: 'error', durationMs, error: e.message });
+        tracking.calls.push({ queryIndex, outcome: isStubError ? 'stub' : 'error', durationMs, error: e.message });
+        if (isStubError) tracking.stubCount++;
         if (/cooldown|wiq|workiq|exited|crashed|down/i.test(e.message)) tracking.wiqDown = true;
-        debugLog('PHASE3-TOOL', `ERROR ${e.message}`, { sessionId, taskId: tracking.taskId, queryIndex, durationMs });
+        debugLog('PHASE3-TOOL', `${isStubError ? 'STUB' : 'ERROR'} ${e.message}`, { sessionId, taskId: tracking.taskId, queryIndex, durationMs });
+      }
+      if (isStubError) {
+        return 'SERVICE_UNAVAILABLE: M365 search backend returned a permission/EULA stub instead of results. Do NOT retry. Return your final JSON now: {"hasUpdate": false, "inconclusive": true} — the server will retry this task in the next scan.';
       }
       return `Error: ${e.message}`;
     }
@@ -500,8 +525,16 @@ const parallelSearchTool = defineTool('parallel_search', {
         return `=== Query ${i + 1}: "${shortQ}" ===\n${text}`;
       } else {
         errorCount++;
-        if (tracking && /cooldown|wiq|workiq|exited|crashed|down/i.test(r.reason?.message || '')) tracking.wiqDown = true;
-        return `=== Query ${i + 1}: "${shortQ}" ===\nError: ${r.reason?.message || 'unknown'}`;
+        const errMsg = r.reason?.message || 'unknown';
+        // v3.4.0 follow-up: stubs now reject from askWorkIQDirect — re-categorize them here.
+        if (/eula\/permission stub|eula\s*\/?\s*permission/i.test(errMsg)) {
+          errorCount--;
+          stubCount++;
+          if (tracking) tracking.stubCount++;
+          return `=== Query ${i + 1}: "${shortQ}" ===\nSERVICE_UNAVAILABLE (stub response — service permission/EULA issue)`;
+        }
+        if (tracking && /cooldown|wiq|workiq|exited|crashed|down/i.test(errMsg)) tracking.wiqDown = true;
+        return `=== Query ${i + 1}: "${shortQ}" ===\nError: ${errMsg}`;
       }
     });
 
@@ -1389,10 +1422,30 @@ app.post('/api/scan', async (req, res) => {
     const emailQuery = `Which of my emails from the ${daysText} require me to take action — respond, approve, review, call back, deliver, decide, or follow up? Include emails from external senders. For each actionable email show: exact Subject line, From (sender name), Date received, and a direct Outlook Web link to open it.`;
     const teamsQuery = `Which of my Teams messages from the ${daysText} require me to take action — respond, review, deliver, or follow up? Only include messages with explicit requests. For each show: who sent it, date, topic, and what action is needed.`;
 
-    const [emailResult, teamsResult] = await Promise.allSettled([
-      askWorkIQDirect(emailQuery, 90000),
-      askWorkIQDirect(teamsQuery, 90000),
-    ]);
+    // v3.4.0 follow-up: retry once if askWorkIQDirect rejected because WorkIQ returned stubs.
+    // The stub-handler in askWorkIQDirect force-restarts the subprocess on the 3rd stub, so a
+    // single retry after a short wait lets Phase-1 self-heal instead of silently returning 0 items.
+    const isStubErr = (r) => r.status === 'rejected' && /eula\/permission stub/i.test(r.reason?.message || '');
+    async function fetchScanPair() {
+      return Promise.allSettled([
+        askWorkIQDirect(emailQuery, 90000),
+        askWorkIQDirect(teamsQuery, 90000),
+      ]);
+    }
+    let [emailResult, teamsResult] = await fetchScanPair();
+    if (isStubErr(emailResult) || isStubErr(teamsResult)) {
+      console.warn('[SCAN] Phase 1 got EULA/permission stubs — waiting 8s for WorkIQ restart and retrying once');
+      debugLog('PHASE1', 'STUB-RETRY: waiting for WorkIQ restart');
+      await new Promise(r => setTimeout(r, 8000));
+      // Wait until subprocess is marked ready (up to 15s beyond the 8s nap)
+      const retryDeadline = Date.now() + 15000;
+      while (!wiqReady && Date.now() < retryDeadline) {
+        await new Promise(r => setTimeout(r, 500));
+      }
+      [emailResult, teamsResult] = await fetchScanPair();
+      console.log(`[SCAN] Phase 1 retry complete (email=${emailResult.status}, teams=${teamsResult.status})`);
+      debugLog('PHASE1', `STUB-RETRY done`, { email: emailResult.status, teams: teamsResult.status });
+    }
 
     const emailRaw = emailResult.status === 'fulfilled' ? emailResult.value : '';
     const teamsRaw = teamsResult.status === 'fulfilled' ? teamsResult.value : '';
