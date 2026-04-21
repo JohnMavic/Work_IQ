@@ -1362,25 +1362,10 @@
         const card = document.getElementById('card-' + taskId);
         if (card) card.classList.add('frozen');
       }
-      // Hydrate pendingPlans from server-persisted task.pendingPlan
-      for (const task of tasks) {
-        if (task.pendingPlan && !pendingPlans[task.id]) {
-          pendingPlans[task.id] = task.pendingPlan;
-        }
-      }
-      // Phase γ.D: also hydrate active jobs so SSE cursor continuity
-      // survives a browser refresh mid-job.
+      // Phase γ.D: hydrate active jobs so SSE cursor continuity survives a
+      // browser refresh mid-job. This also re-paints awaiting_input UI.
       if (typeof hydrateActiveJobs === 'function') {
         hydrateActiveJobs().catch(err => console.warn('hydrateActiveJobs failed', err));
-      }
-      // Restore pending plan displays for selected task
-      if (selectedTaskId && pendingPlans[selectedTaskId]) {
-        const pending = pendingPlans[selectedTaskId];
-        if (pending.intent === 'correct') {
-          showCorrectionPlanUI(selectedTaskId, pending.plan);
-        } else {
-          showPlanUI(selectedTaskId, pending.plan, pending.fallback);
-        }
       }
     } catch (err) {
       console.error('Failed to fetch tasks:', err);
@@ -2662,14 +2647,15 @@
 
       // Agent response — collapsible, Markdown formatted
       // For search intents: show agentResponse (final result) if available, otherwise understanding (plan)
-      const agentText = (agentIntent === 'search' && entry.agentResponse) ? entry.agentResponse
+      // Phase γ.E: answer-intent jobs also populate agentResponse with the reply.
+      const agentText = ((agentIntent === 'search' || agentIntent === 'answer') && entry.agentResponse) ? entry.agentResponse
         : entry.agentPlan ? (entry.agentPlan.understanding || '') : '';
 
       // v2.2: If agentExecution has a direct answer, show it prominently (never collapsed)
       const directAnswer = entry.agentExecution?.answer;
       const directConfidence = entry.agentExecution?.confidence;
 
-      if (directAnswer && agentIntent === 'search') {
+      if (directAnswer && (agentIntent === 'search' || agentIntent === 'answer')) {
         // v2.2: Prominent answer block — always visible, never collapsed
         const confColors = { high: '#4ade80', medium: '#fbbf24', low: '#fb923c', none: '#f87171' };
         const confIcons = { high: '✅', medium: '⚠️', low: '🔍', none: '❌' };
@@ -2893,17 +2879,11 @@
       if (typeof applyDraftsToPanel === 'function') applyDraftsToPanel(taskId);
     }
     saveUIState();
-    // Restore pending plan if this task has one (server-persisted)
-    const pending = pendingPlans[taskId] || task?.pendingPlan;
-    if (pending) {
-      if (!pendingPlans[taskId]) pendingPlans[taskId] = pending;
-      setTimeout(() => {
-        if (pending.intent === 'correct') {
-          showCorrectionPlanUI(taskId, pending.plan);
-        } else {
-          showPlanUI(taskId, pending.plan, pending.fallback);
-        }
-      }, 50);
+    // Phase γ.E: paint active-job UI (awaiting_input question, frozen badge)
+    // if a job is in flight for this task (hydrateActiveJobs keeps this in sync).
+    const activeJobId = activeJobsByTask[taskId];
+    if (activeJobId && activeJobs[activeJobId]) {
+      updateTaskJobUi(taskId, activeJobs[activeJobId]);
     }
     // Scroll selected card into view in middle panel
     const card = document.getElementById('card-' + taskId);
@@ -2944,284 +2924,100 @@
     }
   }
 
+  // Phase γ.E: replace the legacy two-phase (analyze → Execute) flow with a
+  // one-call autonomous job. The user types → we POST /log-job → SSE drives
+  // the UI. No more plan previews, no more pendingPlans state, no manual
+  // Execute click. See server.js runLogJob for the backend side.
+
   async function analyzeLog(taskId, input) {
-    if (frozenTasks.has(taskId)) {
-      showNotification('This task is being processed. Please wait.', 'error');
+    if (!input || !input.value) return;
+    const text = String(input.value).trim();
+    if (!text) return;
+    if (activeJobsByTask[taskId]) {
+      showNotification('Agent is already working on this task', 'info');
       return;
     }
-    const text = input.value.trim();
-    if (!text) return;
-
-    let planEl = document.getElementById('plan-' + taskId);
-    let clarifyEl = document.getElementById('clarify-' + taskId);
+    const clientRequestId = `log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     input.disabled = true;
-
-    // Mark task as frozen (neon cyan highlight — same visual as scan phases)
-    freezeTask(taskId, '🤔 Analyzing request...');
-
-    planEl.innerHTML = '<div class="log-plan-understanding">🤔 Agent is analyzing your request...</div>';
-    planEl.classList.add('visible');
-    clarifyEl.classList.remove('visible');
-
     try {
-      const res = await fetch(`/api/tasks/${taskId}/log/analyze`, {
+      const res = await fetch(`/api/tasks/${taskId}/log-job`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text })
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': clientRequestId,
+        },
+        body: JSON.stringify({ text, clientRequestId }),
       });
-      const data = await res.json();
-
-      // Re-acquire DOM refs (may have been rebuilt by another task's fetchTasks)
-      planEl = document.getElementById('plan-' + taskId);
-      clarifyEl = document.getElementById('clarify-' + taskId);
-
-      // Check if user navigated away during async call
-      if (selectedTaskId !== taskId) {
-        const task = tasks.find(t => t.id === taskId);
-        const taskTitle = task?.title || 'Task';
-        const intent = data.intent || 'search';
-
-        if (res.ok) {
-          if ((intent === 'summarize' || intent === 'answer' || intent === 'rename' || intent === 'update') && (data.result || intent === 'update')) {
-            // Immediate results — data already saved on server, just notify
-            const msgs = { summarize: '✏️ Summary updated', answer: '💬 Answer saved', rename: '📝 Title updated', update: '🔄 Task updated' };
-            showTaskNotification(msgs[intent] || '✅ Done', taskId, taskTitle);
-            await fetchTasks();
-          } else if (intent === 'correct' && data.plan) {
-            // Correction plan — persist to server so it survives navigation + refresh
-            const planData = { plan: data.plan, originalText: text, intent: 'correct' };
-            pendingPlans[taskId] = planData;
-            await fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: planData }) });
-            showTaskNotification('🔍 Correction plan ready', taskId, taskTitle);
-            await fetchTasks();
-          } else if (data.plan && !data.plan.needsClarification) {
-            // Search plan — persist to server so it survives navigation + refresh
-            const planData = { plan: data.plan, originalText: text, fallback: !!data.fallback, intent: 'search' };
-            pendingPlans[taskId] = planData;
-            await fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: planData }) });
-            showTaskNotification('💡 Search plan ready', taskId, taskTitle);
-            await fetchTasks();
-          }
-        }
-        unfreezeTask(taskId);
-        const freshInput = document.querySelector(`#panel-${taskId} .panel-log-form input`);
-        if (freshInput) freshInput.disabled = false;
-        return;
-      }
-
-      if (!planEl) return;
-
-      if (!res.ok) {
-        showNotification(friendlyError(data), 'error');
-        planEl.classList.remove('visible');
-        return;
-      }
-
-      const intent = data.intent || 'search';
-
-      // Update frozen badge with intent-specific status
-      const statusLabels = { summarize: '📋 Updating summary...', answer: '💬 Preparing answer...', rename: '📝 Renaming...', update: '🔄 Updating task...', search: '🔍 Preparing search...', correct: '⚡ Verifying claim...' };
-      updateFrozenStatus(taskId, statusLabels[intent] || '⏳ Processing...');
-
-      // --- Intent: summarize, answer, rename, or update → result is immediate, already saved ---
-      if ((intent === 'summarize' || intent === 'answer' || intent === 'rename' || intent === 'update') && (data.result || intent === 'update')) {
-        const icons = { summarize: '📋', answer: '💬', rename: '📝', update: '🔄' };
-        const icon = icons[intent] || '💬';
-        let displayText = data.result;
-        if (intent === 'rename' && data.previousTitle) {
-          displayText = `Title changed:\n"${data.previousTitle}" → "${data.result}"`;
-        }
-        if (intent === 'update') {
-          const parts = [];
-          if (data.newTitle && data.previousTitle) {
-            parts.push(`**Title:** "${data.previousTitle}" → "${data.newTitle}"`);
-          }
-          if (data.newSummary) {
-            parts.push('**Summary** updated');
-          }
-          if (data.result && data.result !== 'Task updated') {
-            parts.push(data.result);
-          }
-          displayText = parts.length > 0 ? parts.join('\n') : 'Task updated';
-        }
-        planEl.innerHTML = `<div class="agent-msg-bot">${icon} ${renderMarkdown(displayText)}</div>`;
-        planEl.classList.add('visible');
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 202) {
         input.value = '';
-        const notifications = { summarize: '✏️ Summary updated', answer: '💬 Answer saved', rename: '📝 Title updated', update: '🔄 Task updated' };
-        showNotification(notifications[intent], 'success');
-        // Re-render to show in conversation history
-        await fetchTasks();
-        // Hide plan after re-render (it's now in conversation)
-        const freshPlanEl = document.getElementById('plan-' + taskId);
-        if (freshPlanEl) { freshPlanEl.classList.remove('visible'); freshPlanEl.innerHTML = ''; }
-        return;
-      }
-
-      // --- Intent: correct → show correction plan with Verify button ---
-      if (intent === 'correct' && data.plan) {
-        const planData = { plan: data.plan, originalText: text, intent: 'correct' };
-        pendingPlans[taskId] = planData;
-        fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: planData }) });
-        showCorrectionPlanUI(taskId, data.plan);
-        return;
-      }
-
-      // --- Intent: search → show plan with Execute ---
-      const plan = data.plan;
-      if (!plan) {
-        planEl.classList.remove('visible');
-        showNotification('Agent returned no actionable plan', 'error');
-        return;
-      }
-      const planData = { plan, originalText: text, fallback: !!data.fallback, intent: 'search' };
-      pendingPlans[taskId] = planData;
-      if (!plan.needsClarification) {
-        fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: planData }) });
-      }
-
-      if (plan.needsClarification && plan.clarificationQuestion) {
-        planEl.innerHTML = `<div class="log-plan-understanding">❓ ${plan.clarificationQuestion}</div>`;
-        planEl.classList.add('visible');
-        if (clarifyEl) {
-          clarifyEl.classList.add('visible');
-          clarifyEl.querySelector('input')?.focus();
-        }
+        if (typeof clearDraftsForTask === 'function') clearDraftsForTask(taskId);
+      } else if (res.status === 409) {
+        showNotification(data.error || 'A job is already running for this task', 'info');
       } else {
-        showPlanUI(taskId, plan, !!data.fallback);
+        showNotification(data.error || `Request failed (${res.status})`, 'error');
       }
     } catch (err) {
-      showNotification('Analysis failed: ' + err.message, 'error');
-      const el = document.getElementById('plan-' + taskId);
-      if (el) el.classList.remove('visible');
+      showNotification('Network error: ' + err.message, 'error');
     } finally {
-      const freshInput = document.querySelector(`#panel-${taskId} .panel-log-form input`);
-      if (freshInput) freshInput.disabled = false;
-      unfreezeTask(taskId);
+      input.disabled = false;
     }
   }
 
   async function submitClarification(taskId, input) {
-    const answer = input.value.trim();
+    const answer = (input.value || '').trim();
     if (!answer) return;
-
-    const pending = pendingPlans[taskId];
-    if (!pending) return;
-
-    // Re-analyze with additional context
-    const logInput = document.querySelector(`#panel-${taskId} .panel-log-form input`);
-    logInput.value = pending.originalText + '. Additional context: ' + answer;
-    input.value = '';
-    document.getElementById('clarify-' + taskId).classList.remove('visible');
-    analyzeLog(taskId, logInput);
-  }
-
-  async function executeLog(taskId) {
-    const pending = pendingPlans[taskId];
-    if (!pending) return;
-
-    let planEl = document.getElementById('plan-' + taskId);
-
-    // Mark task as frozen (neon cyan highlight — same visual as scan phases)
-    freezeTask(taskId, '📤 Searching emails & Teams...');
-
-    // Step 1: Show sending status
-    if (planEl) planEl.innerHTML = '<div class="log-plan-understanding">📤 Sending search to Work IQ...</div>';
-
-    // Step 2: After 10s, upgrade to "waiting" if still running
-    const waitTimer = setTimeout(() => {
-      const el = document.getElementById('plan-' + taskId);
-      if (el) el.innerHTML = '<div class="log-plan-understanding">⏳ Searching M365... this may take up to 90 seconds</div>';
-      updateFrozenStatus(taskId, '⏳ Searching M365...');
-    }, 10000);
-
+    const jobId = activeJobsByTask[taskId];
+    if (!jobId) {
+      showNotification('No pending clarification — refresh the page', 'error');
+      return;
+    }
+    input.disabled = true;
     try {
-      const res = await fetch(`/api/tasks/${taskId}/log`, {
+      const res = await fetch(`/api/jobs/${jobId}/reply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: pending.originalText, plan: pending.plan })
+        body: JSON.stringify({ text: answer }),
       });
-
-      clearTimeout(waitTimer);
-
-      const data = await res.json();
-
-      // Re-acquire DOM ref (may have been rebuilt by another task's fetchTasks)
-      planEl = document.getElementById('plan-' + taskId);
-
-      // Check if user navigated away during async search
-      if (selectedTaskId !== taskId) {
-        const task = tasks.find(t => t.id === taskId);
-        const taskTitle = task?.title || 'Task';
-        const commCount = data.history?.[data.history.length - 1]?.communications?.length || 0;
-
-        delete pendingPlans[taskId];
-        fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: null }) }).catch(() => {});
-
-        const msg = commCount > 0 ? `✅ ${commCount} result(s) found` : '🔍 No results found';
-        showTaskNotification(msg, taskId, taskTitle);
-
-        try { await fetchTasks(); } catch {}
-        unfreezeTask(taskId);
-        return;
+      if (res.ok) {
+        input.value = '';
+        const clarifyEl = document.getElementById('clarify-' + taskId);
+        if (clarifyEl) {
+          clarifyEl.classList.remove('visible');
+          const q = clarifyEl.querySelector('.clarify-question');
+          if (q) q.textContent = '';
+        }
+      } else {
+        const data = await res.json().catch(() => ({}));
+        showNotification(data.error || 'Reply failed', 'error');
       }
-
-      if (!res.ok) {
-        if (planEl) planEl.innerHTML = `<div class="log-plan-understanding">❌ ${friendlyError(data)}</div>`;
-        showNotification(friendlyError(data), 'error');
-        return;
-      }
-
-      // Step 3: Response received
-      const commCount = data.history?.[data.history.length - 1]?.communications?.length || 0;
-      updateFrozenStatus(taskId, commCount > 0 ? `✅ ${commCount} result(s) found` : '🔍 No results');
-      if (planEl) {
-        planEl.innerHTML = commCount > 0
-          ? `<div class="log-plan-understanding">✅ Done — ${commCount} communication(s) found</div>`
-          : '<div class="log-plan-understanding">🔍 No communications found</div>';
-      }
-
-      const logInput = document.querySelector(`#panel-${taskId} .panel-log-form input`);
-      if (logInput) logInput.value = '';
-      showNotification('✅ Work logged', 'success');
-
-      // Post-search evaluation feedback
-      if (data.evaluation) {
-        const ev = data.evaluation;
-        if (ev.titleChanged) showNotification('📝 Title updated based on new findings', 'success');
-        if (ev.summaryChanged) showNotification('📋 Summary updated based on new findings', 'success');
-      }
-
-      // Clear pending plan BEFORE re-render so showPlanUI() won't restore it
-      delete pendingPlans[taskId];
-      fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: null }) });
-
-      // Re-render but keep panels open
-      await fetchTasks();
-
-      // Hide plan div after re-render (conversation is now shown in renderConversations)
-      const freshPlanEl = document.getElementById('plan-' + taskId);
-      if (freshPlanEl) {
-        freshPlanEl.classList.remove('visible');
-        freshPlanEl.innerHTML = '';
-      }
-
     } catch (err) {
-      clearTimeout(waitTimer);
-      const freshPlanEl = document.getElementById('plan-' + taskId);
-      if (freshPlanEl) freshPlanEl.innerHTML = `<div class="log-plan-understanding">❌ Search failed: ${escHtml(err.message)}</div>`;
-      showNotification('Failed to log work: ' + err.message, 'error');
+      showNotification('Network error: ' + err.message, 'error');
     } finally {
-      delete pendingPlans[taskId];
-      fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: null }) }).catch(() => {});
-      unfreezeTask(taskId);
+      input.disabled = false;
     }
   }
 
-  function cancelPlan(taskId) {
-    document.getElementById('plan-' + taskId).classList.remove('visible');
-    document.getElementById('clarify-' + taskId).classList.remove('visible');
-    delete pendingPlans[taskId];
-    fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: null }) });
+  // Legacy executeLog: removed in Phase γ.E. No-op stub retained because the
+  // old correction-plan UI still references `onclick="executeLog(...)"`
+  // in HTML strings that may have been serialised into jobHistory entries.
+  async function executeLog(taskId) {
+    console.warn('[gamma.E] executeLog is deprecated — sendMessage is the one-call flow', taskId);
+  }
+
+  async function cancelPlan(taskId) {
+    const jobId = activeJobsByTask[taskId];
+    if (!jobId) {
+      // Nothing to cancel on the server — just clear local UI remnants.
+      document.getElementById('plan-' + taskId)?.classList.remove('visible');
+      document.getElementById('clarify-' + taskId)?.classList.remove('visible');
+      return;
+    }
+    try {
+      await fetch(`/api/jobs/${jobId}/cancel`, { method: 'POST' });
+    } catch (err) {
+      showNotification('Cancel failed: ' + err.message, 'error');
+    }
   }
 
   async function addNote(taskId, input) {
@@ -4108,6 +3904,58 @@
     if (typeof n === 'number' && n > 0) sessionStorage.setItem('sseLastEventId', String(n));
   }
 
+  function updateTaskJobUi(taskId, entry) {
+    // Render the in-progress state when this task is selected. We never
+    // touch the log-form input itself — only the clarify slot and the
+    // frozen badge on the list card — so user drafts stay stable.
+    const clarifyEl = document.getElementById('clarify-' + taskId);
+    if (entry && entry.status === 'awaiting_input') {
+      if (clarifyEl) {
+        let q = clarifyEl.querySelector('.clarify-question');
+        if (!q) {
+          q = document.createElement('div');
+          q.className = 'clarify-question';
+          q.style.cssText = 'margin:6px 0;color:#fbbf24;font-weight:bold';
+          clarifyEl.insertBefore(q, clarifyEl.firstChild);
+        }
+        q.textContent = '❓ ' + (entry.question || 'Agent needs more info');
+        clarifyEl.classList.add('visible');
+        if (taskId === selectedTaskId) {
+          const inp = clarifyEl.querySelector('input');
+          if (inp) { inp.disabled = false; inp.focus(); }
+        }
+      }
+    } else if (!entry) {
+      // Terminal — hide clarify UI remnants.
+      if (clarifyEl) {
+        clarifyEl.classList.remove('visible');
+        const q = clarifyEl.querySelector('.clarify-question');
+        if (q) q.textContent = '';
+      }
+    }
+    // Surface "agent working" visually on the list card without rebuilding it.
+    const card = document.getElementById('card-' + taskId);
+    if (card) {
+      if (entry && (entry.status === 'running' || entry.status === 'awaiting_input')) {
+        card.classList.add('frozen');
+        let badge = card.querySelector('.frozen-badge');
+        if (!badge) {
+          badge = document.createElement('div');
+          badge.className = 'frozen-badge';
+          card.appendChild(badge);
+        }
+        const label = entry.status === 'awaiting_input'
+          ? '❓ Needs input'
+          : (entry.lastPhase === 'llm_round' ? '🧠 Thinking…' : '⏳ Agent working…');
+        badge.textContent = label;
+      } else {
+        card.classList.remove('frozen');
+        const badge = card.querySelector('.frozen-badge');
+        if (badge) badge.remove();
+      }
+    }
+  }
+
   function handleJobEvent(ev) {
     const jobId = ev.jobId;
     const taskId = ev.taskId;
@@ -4121,14 +3969,17 @@
         entry.question = null;
         activeJobs[jobId] = entry;
         activeJobsByTask[taskId] = jobId;
+        updateTaskJobUi(taskId, entry);
         break;
       case 'job.progress':
         entry.status = 'running';
         entry.lastPhase = ev.payload && ev.payload.phase;
+        updateTaskJobUi(taskId, entry);
         break;
       case 'job.awaiting_input':
         entry.status = 'awaiting_input';
         entry.question = ev.payload && ev.payload.question;
+        updateTaskJobUi(taskId, entry);
         break;
       case 'job.completed':
       case 'job.failed':
@@ -4136,7 +3987,12 @@
         entry.status = ev.type.slice(4);
         delete activeJobs[jobId];
         if (activeJobsByTask[taskId] === jobId) delete activeJobsByTask[taskId];
-        // Background skills / other tabs may have mutated the task — refresh.
+        updateTaskJobUi(taskId, null);
+        if (ev.type === 'job.failed' && ev.payload && ev.payload.error) {
+          showNotification('Agent failed: ' + ev.payload.error, 'error');
+        } else if (ev.type === 'job.cancelled') {
+          showNotification('Agent cancelled', 'info');
+        }
         if (typeof refreshSingleTask === 'function') refreshSingleTask(taskId);
         break;
       default:
@@ -4207,7 +4063,7 @@
         const r = await fetch(`/api/jobs/${jobId}`);
         if (!r.ok) return;
         const snap = await r.json();
-        activeJobs[jobId] = {
+        const entry = {
           jobId,
           taskId: t.id,
           status: snap.status,
@@ -4215,7 +4071,9 @@
           kind: snap.kind,
           lastSeenAt: Date.now(),
         };
+        activeJobs[jobId] = entry;
         activeJobsByTask[t.id] = jobId;
+        updateTaskJobUi(t.id, entry);
       } catch (err) {
         console.warn('[SSE] hydrate failed for job', jobId, err);
       }
