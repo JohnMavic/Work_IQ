@@ -1368,6 +1368,11 @@
           pendingPlans[task.id] = task.pendingPlan;
         }
       }
+      // Phase γ.D: also hydrate active jobs so SSE cursor continuity
+      // survives a browser refresh mid-job.
+      if (typeof hydrateActiveJobs === 'function') {
+        hydrateActiveJobs().catch(err => console.warn('hydrateActiveJobs failed', err));
+      }
       // Restore pending plan displays for selected task
       if (selectedTaskId && pendingPlans[selectedTaskId]) {
         const pending = pendingPlans[selectedTaskId];
@@ -4076,7 +4081,154 @@
     }, true);
   }
 
-  // Fetch and display app version
+  // --- Phase γ.D: SSE client --------------------------------------------
+  // Opens a persistent EventSource to /api/events and dispatches:
+  //   hello                → detect server-restart / dropped-events and
+  //                          trigger a full reload when the cursor is stale
+  //   job.started          → mark task as having an active job
+  //   job.progress         → update per-job progress (used by γ.E onwards)
+  //   job.awaiting_input   → store the question so UI can render (γ.E)
+  //   job.completed        → refresh the affected task, drop active job
+  //   job.failed           → refresh task, drop active job, show error
+  //   job.cancelled        → drop active job, refresh task
+  // lastEventId is persisted in sessionStorage and only advanced *after*
+  // an event has been processed (not from hello) so a disconnect mid-
+  // dispatch can replay that event on reconnect.
+  const activeJobs = {}; // jobId → { taskId, status, question?, lastSeenAt }
+  const activeJobsByTask = {}; // taskId → jobId
+  let sseEventSource = null;
+  let sseKnownServerInstanceId = null;
+  let sseConnectBackoff = 1000;
+
+  function getLastEventId() {
+    const n = parseInt(sessionStorage.getItem('sseLastEventId') || '0', 10);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }
+  function setLastEventId(n) {
+    if (typeof n === 'number' && n > 0) sessionStorage.setItem('sseLastEventId', String(n));
+  }
+
+  function handleJobEvent(ev) {
+    const jobId = ev.jobId;
+    const taskId = ev.taskId;
+    if (!jobId || !taskId) return;
+    const entry = activeJobs[jobId] || { jobId, taskId };
+    entry.lastSeenAt = ev.ts;
+    entry.kind = ev.kind;
+    switch (ev.type) {
+      case 'job.started':
+        entry.status = 'running';
+        entry.question = null;
+        activeJobs[jobId] = entry;
+        activeJobsByTask[taskId] = jobId;
+        break;
+      case 'job.progress':
+        entry.status = 'running';
+        entry.lastPhase = ev.payload && ev.payload.phase;
+        break;
+      case 'job.awaiting_input':
+        entry.status = 'awaiting_input';
+        entry.question = ev.payload && ev.payload.question;
+        break;
+      case 'job.completed':
+      case 'job.failed':
+      case 'job.cancelled':
+        entry.status = ev.type.slice(4);
+        delete activeJobs[jobId];
+        if (activeJobsByTask[taskId] === jobId) delete activeJobsByTask[taskId];
+        // Background skills / other tabs may have mutated the task — refresh.
+        if (typeof refreshSingleTask === 'function') refreshSingleTask(taskId);
+        break;
+      default:
+        break;
+    }
+  }
+
+  function startSSE() {
+    if (sseEventSource) {
+      try { sseEventSource.close(); } catch {}
+      sseEventSource = null;
+    }
+    const lastId = getLastEventId();
+    const url = '/api/events' + (lastId ? `?lastEventId=${lastId}` : '');
+    const es = new EventSource(url);
+    sseEventSource = es;
+
+    es.addEventListener('hello', (e) => {
+      sseConnectBackoff = 1000;
+      let payload;
+      try { payload = JSON.parse(e.data); } catch { return; }
+      // First hello in this browsing session: remember serverInstanceId.
+      if (!sseKnownServerInstanceId) {
+        sseKnownServerInstanceId = payload.serverInstanceId;
+        console.log('[SSE] connected', payload);
+        return;
+      }
+      // Subsequent hello (after reconnect): detect server restart or
+      // buffer overflow and force a full refresh so UI state is coherent.
+      if (payload.serverInstanceId !== sseKnownServerInstanceId || payload.lastEventsDropped) {
+        console.warn('[SSE] server changed / events dropped — forcing reload', payload);
+        sessionStorage.removeItem('sseLastEventId');
+        window.location.reload();
+      }
+    });
+
+    const onJobEvent = (e) => {
+      let ev;
+      try { ev = JSON.parse(e.data); } catch { return; }
+      try { handleJobEvent(ev); } catch (err) { console.error('[SSE] handler error', err, ev); }
+      if (typeof ev.id === 'number') setLastEventId(ev.id);
+    };
+    ['job.started', 'job.progress', 'job.awaiting_input',
+     'job.completed', 'job.failed', 'job.cancelled'].forEach(t => {
+      es.addEventListener(t, onJobEvent);
+    });
+
+    es.onerror = () => {
+      // EventSource auto-reconnects with its own backoff but we cap ours
+      // for the explicit reconnect path below. Close and retry manually
+      // if we're in CLOSED state.
+      if (es.readyState === EventSource.CLOSED) {
+        setTimeout(startSSE, sseConnectBackoff);
+        sseConnectBackoff = Math.min(sseConnectBackoff * 2, 30000);
+      }
+    };
+  }
+
+  // Fetch the server-side snapshot for any tasks the server says currently
+  // have an active job. Called from fetchTasks so the UI can reflect
+  // in-flight work (jobs can survive a client refresh).
+  async function hydrateActiveJobs() {
+    const tasksWithJobs = (tasks || []).filter(t => t.activeJob);
+    if (tasksWithJobs.length === 0) return;
+    await Promise.all(tasksWithJobs.map(async (t) => {
+      const jobId = t.activeJob;
+      try {
+        const r = await fetch(`/api/jobs/${jobId}`);
+        if (!r.ok) return;
+        const snap = await r.json();
+        activeJobs[jobId] = {
+          jobId,
+          taskId: t.id,
+          status: snap.status,
+          question: snap.pendingClarification && snap.pendingClarification.question,
+          kind: snap.kind,
+          lastSeenAt: Date.now(),
+        };
+        activeJobsByTask[t.id] = jobId;
+      } catch (err) {
+        console.warn('[SSE] hydrate failed for job', jobId, err);
+      }
+    }));
+  }
+  window.hydrateActiveJobs = hydrateActiveJobs;
+  window.activeJobs = activeJobs;
+  window.activeJobsByTask = activeJobsByTask;
+
+  startSSE();
+  // --- End Phase γ.D -----------------------------------------------------
+
+
   fetch('/api/version').then(r => r.json()).then(d => {
     const el = document.getElementById('appVersion');
     if (el && d.version) el.textContent = `v${d.version}`;
