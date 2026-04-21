@@ -2371,7 +2371,7 @@
     }
     // Don't overwrite detail panel if selected task is frozen (agent working)
     if (!frozenTasks.has(selectedTaskId)) {
-      safeReplaceDetail(renderTaskDetail(tasks.find(t => t.id === selectedTaskId)));
+      paintTaskDetail(tasks.find(t => t.id === selectedTaskId));
     }
     // Highlight selected item
     document.getElementById('card-' + selectedTaskId)?.classList.add('selected');
@@ -2556,33 +2556,71 @@
       .filter(e => e.type === 'update' || e.type === 'note' || e.type === 'review-response');
     const systemEvents = history.filter(e => e.type !== 'update' && e.type !== 'note' && e.type !== 'review-response');
 
-    return `
-      <div class="task-detail-view${isFrozen ? ' frozen' : ''}">
-        <div class="detail-header">
-          <div class="task-title">${escHtml(task.title)} ${stepIndicator}</div>
+    // Phase γ.C: emit stable slot markers so paintTaskDetail can update
+    // individual slots in place without touching the persistent form inputs.
+    const headerInner = `<div class="task-title">${escHtml(task.title)} ${stepIndicator}</div>
           <div class="task-meta">
             ${sourceBadge}
             <span>${fromText}${separator}${dateText}</span>
             ${linkHtml}
           </div>
-          ${timestampHtml}
-        </div>
-        ${summaryHtml}
-        ${ambiguityHtml}
-        ${notesHtml}
-        <div class="panel-log-form">
+          ${timestampHtml}`;
+
+    return `
+      <div class="task-detail-view${isFrozen ? ' frozen' : ''}" data-task-id="${task.id}">
+        <div class="detail-header" data-slot="header">${headerInner}</div>
+        <div data-slot="summary">${summaryHtml}</div>
+        <div data-slot="ambiguity">${ambiguityHtml}</div>
+        <div data-slot="notes">${notesHtml}</div>
+        <div class="panel-log-form" data-slot="form-log">
           <input type="text" placeholder="Message or update..." onkeydown="if(event.key==='Enter')analyzeLog('${task.id}',this)">
           <button class="btn btn-primary btn-sm" onclick="analyzeLog('${task.id}',this.previousElementSibling)" title="Send to agent">📤 Send</button>
           <button class="btn btn-ghost btn-sm" onclick="addNote('${task.id}',this.parentElement.querySelector('input'))" title="Save as note (no agent)">📝 Note</button>
         </div>
-        <div class="log-plan" id="plan-${task.id}"></div>
-        <div class="log-clarification" id="clarify-${task.id}">
+        <div class="log-plan" id="plan-${task.id}" data-slot="plan"></div>
+        <div class="log-clarification" id="clarify-${task.id}" data-slot="form-clarify">
           <input type="text" placeholder="Your answer..." onkeydown="if(event.key==='Enter')submitClarification('${task.id}',this)">
           <button class="btn btn-primary btn-sm" onclick="submitClarification('${task.id}',this.previousElementSibling)">Send</button>
         </div>
-        ${renderConversations(conversations, task.id)}
-        ${renderDetails(conversations, systemEvents, task.id)}
+        <div data-slot="conversations">${renderConversations(conversations, task.id)}</div>
+        <div data-slot="details">${renderDetails(conversations, systemEvents, task.id)}</div>
       </div>`;
+  }
+
+  // Phase γ.C: slot-patching painter. If the panel already shows the same
+  // task, patch individual non-persistent slots in place so form inputs keep
+  // DOM identity (focus, cursor, selection, IME composition, draft text).
+  // Falls back to a full replace via safeReplaceDetail when the task changes
+  // or the shell is missing (e.g. initial paint, task switch).
+  const PAINT_PERSISTENT_SLOTS = new Set(['form-log', 'plan', 'form-clarify']);
+  function paintTaskDetail(task) {
+    const panel = document.getElementById('taskDetailPanel');
+    if (!panel) return;
+    if (!task) {
+      panel.innerHTML = renderTaskDetail(null);
+      return;
+    }
+    const existing = panel.querySelector(`.task-detail-view[data-task-id="${CSS.escape(task.id)}"]`);
+    if (!existing) {
+      safeReplaceDetail(renderTaskDetail(task));
+      if (typeof applyDraftsToPanel === 'function') applyDraftsToPanel(task.id);
+      return;
+    }
+    const tpl = document.createElement('template');
+    tpl.innerHTML = renderTaskDetail(task);
+    const fresh = tpl.content.querySelector('.task-detail-view');
+    if (!fresh) {
+      safeReplaceDetail(renderTaskDetail(task));
+      return;
+    }
+    existing.classList.toggle('frozen', fresh.classList.contains('frozen'));
+    fresh.querySelectorAll('[data-slot]').forEach(newEl => {
+      const slot = newEl.getAttribute('data-slot');
+      if (PAINT_PERSISTENT_SLOTS.has(slot)) return;
+      const oldEl = existing.querySelector(`[data-slot="${slot}"]`);
+      if (!oldEl) return;
+      if (oldEl.innerHTML !== newEl.innerHTML) oldEl.innerHTML = newEl.innerHTML;
+    });
   }
 
   function renderConversations(conversations, taskId) {
@@ -2845,7 +2883,7 @@
     const task = tasks.find(t => t.id === taskId);
     const detailPanel = document.getElementById('taskDetailPanel');
     if (detailPanel && task) {
-      detailPanel.innerHTML = renderTaskDetail(task);
+      paintTaskDetail(task);
       // α.3: Restore any saved drafts for this task's inputs.
       if (typeof applyDraftsToPanel === 'function') applyDraftsToPanel(taskId);
     }
@@ -3701,7 +3739,7 @@
     // If this is the selected task, re-render detail to show frozen state
     if (taskId === selectedTaskId) {
       const task = tasks.find(t => t.id === taskId);
-      if (task) safeReplaceDetail(renderTaskDetail(task));
+      if (task) paintTaskDetail(task);
     }
   }
 
@@ -3733,7 +3771,7 @@
     // (re-rendering would destroy the plan/correction UI that was just shown)
     if (taskId === selectedTaskId && !pendingPlans[taskId]) {
       const task = tasks.find(t => t.id === taskId);
-      if (task) safeReplaceDetail(renderTaskDetail(task));
+      if (task) paintTaskDetail(task);
     }
   }
 
@@ -3756,7 +3794,7 @@
       }
       // If this is the selected task, refresh detail panel
       if (taskId === selectedTaskId) {
-        safeReplaceDetail(renderTaskDetail(task));
+        paintTaskDetail(task);
       }
     } catch (err) {
       console.error(`Failed to refresh task ${taskId}:`, err);
