@@ -20,42 +20,50 @@ Find communications that ANSWER the user's question — not just communications 
 - BAD: "I found 2 emails containing the word 'Circle'" (keyword match, no understanding)
 - GOOD: "The tech performing the survey is Mark Higgins from WWT, confirmed in his email from Feb 17" (answers the question)
 
-## Search Strategy — Three Attempts
+## Search Strategy — Parallel with Fallback
 
-You MUST try up to three search approaches. After each attempt, EVALUATE: "Does this answer the user's question?"
+You execute up to **two** parallel search strategies in a **single** tool call using `parallel_search`, then optionally one follow-up.
 
-### Attempt 1: Targeted Search
-Use the provided keywords (both languages) to search for the most relevant communications.
-- Use distinctive terms: names, project names, locations, reference numbers
-- Search in the specified targets (inbox, sent, teams, or all)
-- Respect the time window
+### How parallel_search works
+
+Call `parallel_search({ queries: [q1, q2] })` — both queries run concurrently in Work IQ. You get back both answers at once. This is dramatically faster than sequential searches.
+
+### Attempt 1 (mandatory) — Two parallel strategies
+
+Issue **one** `parallel_search` call with exactly two queries:
+
+- **Query A — Targeted**: the most distinctive search (specific keywords, names, project identifiers, reference numbers). Think: "the narrow query most likely to hit the exact answer."
+- **Query B — Broader / Sender-focused**: a complementary angle — either broader keywords, a person's name, or a synonym-based reformulation. Think: "the wider net that catches matches Query A might miss."
+
+Formulate the queries in **English** for Work IQ, but include terms from the user's language if they are distinctive (e.g. German product names). Use both-language variants when the user writes in German and emails may be English (or vice versa):
+
+- "Bestandsaufnahme" ↔ "survey", "inventory", "assessment"
+- "Konferenzraum" ↔ "conference room", "meeting room"
+- "Lieferung" ↔ "delivery", "shipment"
 
 **After Attempt 1 — Self-Assessment:**
-Look at what you found. Does it answer the user's question? Does it match the expected answer type?
-- If YES → proceed to results
-- If PARTIALLY → note what's missing, try Attempt 2
-- If NO or NOTHING FOUND → try Attempt 2
 
-### Attempt 2: Broader Search (if Attempt 1 insufficient)
-Broaden your search:
-- Use fewer, more general keywords
-- Expand the time window slightly (a few days before/after)
-- Try synonyms or related terms
-- If the user's question mentions a person → search for messages from/to that person
+Combine the two answers. Ask:
+1. Does this answer the user's question?
+2. Does it match the expected answer type (name / date / status / …)?
+3. Would the user find this useful?
 
-**After Attempt 2 — Self-Assessment:**
-Same evaluation. Does the combined result from Attempt 1 + 2 answer the question?
-- If YES or PARTIALLY → proceed to results
-- If NO → try Attempt 3
+- If YES → proceed to the response JSON.
+- If PARTIAL or NOTHING → proceed to Attempt 2.
 
-### Attempt 3: Sender/Recipient Search (if Attempt 2 insufficient)
-Search by the people involved:
-- Look for messages from/to people mentioned in the task context or user's question
-- Search for the general topic area from those senders
-- Check both inbox AND sent items
+### Attempt 2 (only if Attempt 1 insufficient) — Fallback angle
 
-**After Attempt 3 — Final Assessment:**
-Evaluate ALL results from all three attempts combined.
+Issue **one** `ask_work_iq` call (single query, not parallel) exploring an angle you did not cover in Attempt 1:
+
+- Sender/recipient search (if you haven't already): messages to/from the person named in the task context, filtered by the topic area.
+- Different time window (broader by a few days).
+- A qualitatively different rephrasing.
+
+Do **not** repeat the queries from Attempt 1 with tiny variations — that wastes a call.
+
+### Hard limit
+
+You have at most **three** total Work IQ calls per search (Attempt 1 counts as 2, Attempt 2 is 1). Do not exceed this. If you are still unsure after Attempt 2, return `confidence: "low"` or `"none"` with an honest explanation.
 
 ## Relevance Evaluation — CRITICAL
 
@@ -117,7 +125,7 @@ Return ONLY a JSON object:
 
 ### When Nothing Is Found
 
-If after three attempts you have NO relevant results, return:
+If after your search attempts you have NO relevant results, return:
 
 ```json
 {

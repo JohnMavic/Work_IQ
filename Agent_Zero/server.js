@@ -424,7 +424,116 @@ const askWorkIQTool = defineTool('ask_work_iq', {
   }
 });
 
-// --- Global Error Handlers (crash prevention) ---
+// v3.4.0 Phase β.1: parallel_search — runs up to 3 Work-IQ queries concurrently.
+// Dramatically faster than sequential ask_work_iq for multi-angle searches
+// (e.g. email + teams, or targeted + broader). Returns a single aggregated
+// response so the model gets everything at once without round-tripping.
+const parallelSearchTool = defineTool('parallel_search', {
+  description: 'Run up to 3 Work IQ searches concurrently and get all results at once. Use this when you want to combine two complementary search angles (e.g. targeted query + broader query, or email-focused + teams-focused). Much faster than calling ask_work_iq multiple times sequentially.',
+  parameters: {
+    type: 'object',
+    properties: {
+      queries: {
+        type: 'array',
+        description: 'Array of 2 or 3 natural-language questions, each a different angle on what you want to find. Do not submit near-duplicates — each query should explore a distinct angle.',
+        items: { type: 'string' },
+        minItems: 2,
+        maxItems: 3
+      }
+    },
+    required: ['queries']
+  },
+  skipPermission: true,
+  handler: async ({ queries }, invocation) => {
+    const sessionId = invocation && invocation.sessionId;
+    const tracking = sessionId ? phase3Get(sessionId) : null;
+    const phase3Ctx = tracking ? `[task=${tracking.taskId}]` : '';
+
+    if (!Array.isArray(queries) || queries.length < 2) {
+      return 'Error: parallel_search requires at least 2 queries. Use ask_work_iq for single queries.';
+    }
+    if (queries.length > 3) queries = queries.slice(0, 3);
+
+    // Pre-check each query for self-EULA attempts — reject upfront.
+    for (const q of queries) {
+      if (typeof q !== 'string' || !q.trim()) {
+        return 'Error: all queries must be non-empty strings.';
+      }
+      if (SELF_EULA_QUERY.test(q)) {
+        console.warn(`[M365] BLOCKED self-EULA query in parallel_search ${phase3Ctx}`);
+        debugLog('PHASE3-TOOL', `BLOCKED self-EULA in parallel_search`, { sessionId, taskId: tracking?.taskId, query: q.substring(0, 120) });
+        if (tracking) tracking.stubCount++;
+        return 'TOOL_GUIDANCE: EULA acceptance is handled by the server at startup. Do not include EULA-related queries.';
+      }
+    }
+
+    // Budget enforcement — parallel_search counts as queries.length against the budget.
+    if (tracking && tracking.count + queries.length > PHASE3_QUERY_BUDGET) {
+      tracking.budgetHit = true;
+      console.warn(`[M365] BUDGET_EXHAUSTED ${phase3Ctx} — parallel_search would exceed ${PHASE3_QUERY_BUDGET}`);
+      debugLog('PHASE3-TOOL', `BUDGET_EXHAUSTED in parallel_search`, { sessionId, taskId: tracking.taskId, count: tracking.count, requested: queries.length, budget: PHASE3_QUERY_BUDGET });
+      return `BUDGET_EXHAUSTED: This parallel_search would exceed the budget of ${PHASE3_QUERY_BUDGET} Work IQ calls. STOP searching and return your final JSON now.`;
+    }
+
+    if (tracking) tracking.count += queries.length;
+    const startAll = Date.now();
+    console.log(`[M365] parallel_search ${phase3Ctx} (${queries.length} queries)`);
+    debugLog('PARALLEL-SEARCH', `START ${queries.length} queries`, { sessionId, taskId: tracking?.taskId, queries: queries.map(q => q.substring(0, 80)) });
+
+    const results = await Promise.allSettled(
+      queries.map(q => askWorkIQDirect(q, 90000, tracking?.taskId || null))
+    );
+
+    const durationMs = Date.now() - startAll;
+    let okCount = 0, stubCount = 0, errorCount = 0;
+    const parts = results.map((r, i) => {
+      const shortQ = queries[i].substring(0, 80);
+      if (r.status === 'fulfilled') {
+        const text = r.value || '';
+        const isStub = isStubResponse(text);
+        if (isStub) {
+          stubCount++;
+          if (tracking) tracking.stubCount++;
+          return `=== Query ${i + 1}: "${shortQ}" ===\nSERVICE_UNAVAILABLE (stub response — service permission/EULA issue)`;
+        }
+        okCount++;
+        return `=== Query ${i + 1}: "${shortQ}" ===\n${text}`;
+      } else {
+        errorCount++;
+        if (tracking && /cooldown|wiq|workiq|exited|crashed|down/i.test(r.reason?.message || '')) tracking.wiqDown = true;
+        return `=== Query ${i + 1}: "${shortQ}" ===\nError: ${r.reason?.message || 'unknown'}`;
+      }
+    });
+
+    // v3.3.0 stub tracking parity with ask_work_iq
+    if (stubCount > 0) {
+      consecutiveStubCount += stubCount;
+      if (consecutiveStubCount >= STUB_RESTART_THRESHOLD && wiqProc) {
+        console.warn(`[WORKIQ] ${consecutiveStubCount} consecutive stubs from parallel_search — force-restarting`);
+        debugLog('WORKIQ', `Force-restart from parallel_search stubs (${consecutiveStubCount})`);
+        consecutiveStubCount = 0;
+        try { wiqProc.kill(); } catch {}
+      }
+    } else if (okCount > 0) {
+      consecutiveStubCount = 0;
+    }
+
+    console.log(`[M365] parallel_search OK in ${(durationMs / 1000).toFixed(1)}s ${phase3Ctx} (ok=${okCount} stub=${stubCount} err=${errorCount})`);
+    debugLog('PARALLEL-SEARCH', `DONE in ${durationMs}ms`, { sessionId, taskId: tracking?.taskId, ok: okCount, stub: stubCount, error: errorCount });
+    if (tracking) {
+      tracking.calls.push({ queryIndex: tracking.count, outcome: 'parallel', durationMs, ok: okCount, stub: stubCount, error: errorCount });
+    }
+
+    // If ALL queries returned stubs or errors, give the model a clear signal to bail.
+    if (okCount === 0) {
+      return `PARALLEL_SEARCH_ALL_FAILED (stubs=${stubCount} errors=${errorCount}): Work IQ did not return usable data for any of the ${queries.length} queries. Do NOT retry — return your final JSON now with confidence "none" or hasUpdate=false / inconclusive=true as appropriate.\n\n${parts.join('\n\n')}`;
+    }
+
+    return parts.join('\n\n');
+  }
+});
+
+
 // Prevent server termination from unhandled errors in SDK child processes.
 // The Copilot SDK's JSON-RPC streams can emit errors asynchronously
 // (e.g. ERR_STREAM_DESTROYED) after session.destroy() — these must not crash the server.
@@ -457,13 +566,32 @@ const activeSessions = new Set();
 const sessionTimestamps = new Map();
 const sessionClients = new WeakMap(); // session → CopilotClient
 
-// Session concurrency limit — prevents WorkIQ subprocess from being overwhelmed
-const MAX_CONCURRENT_SDK = 2;
+// Session concurrency limit — prevents WorkIQ subprocess from being overwhelmed.
+// v3.4.0 Phase β.4: bumped 2 → 4. With parallel_search each session now issues fewer
+// sequential WorkIQ calls, so concurrent sessions put less pressure on the subprocess.
+// Raising the cap lets the user interact with multiple tasks simultaneously.
+const MAX_CONCURRENT_SDK = parseInt(process.env.MAX_CONCURRENT_SDK, 10) || 4;
 async function waitForSDKSlot() {
   while (activeSessions.size >= MAX_CONCURRENT_SDK) {
     debugLog('SDK-SESSION', `Waiting for slot (${activeSessions.size}/${MAX_CONCURRENT_SDK} active)`);
     await new Promise(r => setTimeout(r, 2000));
   }
+}
+
+// v3.4.0 Phase β.4: per-task serialization — ensures only one agent run per task at a time,
+// even when the user triggers multiple mutations quickly. Different tasks proceed in
+// parallel (up to MAX_CONCURRENT_SDK), but the same task's operations queue.
+const taskQueues = new Map(); // taskId → Promise chain tail
+function runOnTaskQueue(taskId, fn) {
+  if (!taskId) return fn();
+  const prev = taskQueues.get(taskId) || Promise.resolve();
+  const next = prev.then(() => fn(), () => fn()); // don't let a prior failure block the next run
+  // Store the tail; clean up when it's the current tail and has settled.
+  taskQueues.set(taskId, next);
+  next.finally(() => {
+    if (taskQueues.get(taskId) === next) taskQueues.delete(taskId);
+  });
+  return next;
 }
 
 function trackSession(session) {
@@ -1587,7 +1715,7 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
     }
     client = new CopilotClient();
     session = trackSession(await client.createSession({
-      tools: [askWorkIQTool],
+      tools: [askWorkIQTool, parallelSearchTool],
       onPermissionRequest: approveAll
     }));
     linkClientToSession(session, client);
@@ -1761,7 +1889,7 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
     }
     client = new CopilotClient();
     session = trackSession(await client.createSession({
-      tools: [askWorkIQTool],
+      tools: [askWorkIQTool, parallelSearchTool],
       onPermissionRequest: approveAll
     }));
     linkClientToSession(session, client);
@@ -3054,7 +3182,7 @@ app.post('/api/tasks/:id/log', async (req, res) => {
 
     client = new CopilotClient();
     session = trackSession(await client.createSession({
-      tools: [askWorkIQTool],
+      tools: [askWorkIQTool, parallelSearchTool],
       onPermissionRequest: approveAll
     }));
 
@@ -3364,7 +3492,7 @@ app.post('/api/tasks/:id/review', async (req, res) => {
   try {
     client = new CopilotClient();
     session = trackSession(await client.createSession({
-      tools: [askWorkIQTool],
+      tools: [askWorkIQTool, parallelSearchTool],
       onPermissionRequest: approveAll
     }));
 
@@ -3530,7 +3658,7 @@ app.post('/api/tasks/:id/correct', async (req, res) => {
   try {
     client = new CopilotClient();
     session = trackSession(await client.createSession({
-      tools: [askWorkIQTool],
+      tools: [askWorkIQTool, parallelSearchTool],
       onPermissionRequest: approveAll
     }));
 
