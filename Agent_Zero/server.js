@@ -57,8 +57,14 @@ let wiqStdout = '';
 let wiqReady = false;
 let wiqRequestId = 0;
 const wiqPending = new Map(); // id → { resolve, reject, timer }
-let wiq41ErrorCount = 0;    // consecutive 41-char error counter (diagnostic)
-let wiqCooldownUntil = 0;   // timestamp: reject all queries until this time
+let wiq41ErrorCount = 0;    // consecutive 41-char error counter (global fallback for calls without taskId)
+let wiqCooldownUntil = 0;   // timestamp: reject global queries until this time
+// v3.4.0 — Phase α.1: per-task cooldowns so one failing task never blocks another.
+// Task-scoped calls use these maps; task-less calls (Phase-1 scan) fall back to the global counter above.
+const wiqTaskErrorCounts = new Map();   // taskId → consecutive 41-char errors
+const wiqTaskCooldowns = new Map();     // taskId → cooldown-until-ms
+const WIQ_TASK_COOLDOWN_MS = 60000;
+const WIQ_TASK_ERROR_THRESHOLD = 4;
 let wiqRestartCount = 0;    // auto-restart attempts since last clean start
 const MAX_RESTARTS = 5;     // give up after this many consecutive failures
 // v3.3.0: Stub-Recovery — after N consecutive EULA/permission stubs across
@@ -180,20 +186,33 @@ function startWorkIQMCP() {
   });
 }
 
-function askWorkIQDirect(question, timeoutMs = 90000) {
+function askWorkIQDirect(question, timeoutMs = 90000, taskId = null) {
   const queryStart = Date.now();
   const shortQ = question.substring(0, 100);
-  debugLog('WORKIQ-QUERY', `START "${shortQ}..."`, { timeoutMs, questionLen: question.length });
+  debugLog('WORKIQ-QUERY', `START "${shortQ}..."`, { timeoutMs, questionLen: question.length, taskId });
   return new Promise(async (resolve, reject) => {
-    // Cooldown check — stop hammering subprocess after repeated failures
+    // Per-task cooldown check (only when taskId is provided) — isolates tasks from each other.
+    if (taskId) {
+      const taskCdUntil = wiqTaskCooldowns.get(taskId) || 0;
+      if (Date.now() < taskCdUntil) {
+        const remaining = Math.ceil((taskCdUntil - Date.now()) / 1000);
+        debugLog('WORKIQ-QUERY', `Task ${taskId} in cooldown (${remaining}s remaining) — rejecting "${shortQ}..."`);
+        return reject(new Error(`WorkIQ in cooldown for this task — try again in ${remaining}s`));
+      }
+      if (taskCdUntil > 0) {
+        debugLog('WORKIQ-QUERY', `Task ${taskId} cooldown expired — resetting error counter`);
+        wiqTaskErrorCounts.set(taskId, 0);
+        wiqTaskCooldowns.delete(taskId);
+      }
+    }
+    // Global cooldown check — safety net for calls without taskId (Phase 1 scan) and hard-stop across everything.
     if (Date.now() < wiqCooldownUntil) {
       const remaining = Math.ceil((wiqCooldownUntil - Date.now()) / 1000);
-      debugLog('WORKIQ-QUERY', `In cooldown (${remaining}s remaining) — rejecting "${shortQ}..."`);
+      debugLog('WORKIQ-QUERY', `Global cooldown (${remaining}s remaining) — rejecting "${shortQ}..."`);
       return reject(new Error('WorkIQ in cooldown — try again later'));
     }
-    // Cooldown just expired — reset counter so we get 3 fresh chances
     if (wiqCooldownUntil > 0) {
-      debugLog('WORKIQ-QUERY', `Cooldown expired — resetting error counter, fresh start`);
+      debugLog('WORKIQ-QUERY', `Global cooldown expired — resetting counter, fresh start`);
       wiq41ErrorCount = 0;
       wiqCooldownUntil = 0;
     }
@@ -218,22 +237,32 @@ function askWorkIQDirect(question, timeoutMs = 90000) {
         const elapsed = ((Date.now() - queryStart) / 1000).toFixed(1);
         // Detect the known WorkIQ subprocess health error (exactly 41 chars)
         if (text === "An error occurred invoking 'ask_work_iq'.") {
+          // Increment per-task counter if scoped; always increment the global one as safety net.
+          if (taskId) {
+            const next = (wiqTaskErrorCounts.get(taskId) || 0) + 1;
+            wiqTaskErrorCounts.set(taskId, next);
+            debugLog('WORKIQ-QUERY', `Got 41-char error for task ${taskId} (task-count: ${next}) "${shortQ}..."`);
+            if (next > WIQ_TASK_ERROR_THRESHOLD) {
+              wiqTaskCooldowns.set(taskId, Date.now() + WIQ_TASK_COOLDOWN_MS);
+              debugLog('WORKIQ-QUERY', `Task ${taskId} entering ${WIQ_TASK_COOLDOWN_MS / 1000}s cooldown after ${next} failures`);
+              return reject(new Error('WorkIQ temporarily unavailable for this task — cooling down'));
+            }
+            return reject(new Error('WorkIQ: M365 returned no data for this query'));
+          }
           wiq41ErrorCount++;
-          debugLog('WORKIQ-QUERY', `Got 41-char error (count: ${wiq41ErrorCount}) "${shortQ}..."`);
-          if (wiq41ErrorCount <= 4) {
-            // K3: M365 data error for this query — WorkIQ subprocess is healthy (wiq:OK),
-            // M365 just can't find this specific data. Reject without killing WorkIQ.
-            // Killing a healthy process causes cascading failures for all concurrent sessions.
+          debugLog('WORKIQ-QUERY', `Got 41-char error (global count: ${wiq41ErrorCount}) "${shortQ}..."`);
+          if (wiq41ErrorCount <= WIQ_TASK_ERROR_THRESHOLD) {
             reject(new Error('WorkIQ: M365 returned no data for this query'));
           } else {
-            // After 3 failed errors: 60s cooldown, stop restart loop
-            wiqCooldownUntil = Date.now() + 60000;
-            debugLog('WORKIQ-QUERY', `Entering 60s cooldown after ${wiq41ErrorCount} consecutive failures`);
+            wiqCooldownUntil = Date.now() + WIQ_TASK_COOLDOWN_MS;
+            debugLog('WORKIQ-QUERY', `Entering ${WIQ_TASK_COOLDOWN_MS / 1000}s global cooldown after ${wiq41ErrorCount} consecutive failures`);
             reject(new Error('WorkIQ temporarily unavailable — cooling down'));
           }
           return;
         }
-        wiq41ErrorCount = 0; // Reset on healthy response
+        // Healthy response — reset whichever counter applies.
+        if (taskId) wiqTaskErrorCounts.set(taskId, 0);
+        wiq41ErrorCount = 0;
         debugLog('WORKIQ-QUERY', `OK in ${elapsed}s (${text.length} chars) "${shortQ}..."`);
         if (text) resolve(text);
         else reject(new Error('Empty response from Work IQ'));
@@ -353,7 +382,7 @@ const askWorkIQTool = defineTool('ask_work_iq', {
     console.log(`[M365] Query ${phase3Ctx}: "${question.substring(0, 80)}..."`);
     const start = Date.now();
     try {
-      const result = await askWorkIQDirect(question);
+      const result = await askWorkIQDirect(question, 90000, tracking?.taskId || null);
       const durationMs = Date.now() - start;
       const charsReturned = result ? result.length : 0;
       const stubDetected = isStubResponse(result);

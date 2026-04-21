@@ -2220,6 +2220,79 @@
 
   // --- Rendering ---
 
+  // v3.4.0 Phase α.2: Universal input/focus/selection preservation helper.
+  // Captures all <input>, <textarea>, [contenteditable] values, focus, and cursor position
+  // from #taskDetailPanel, replaces HTML, then restores them in matching elements.
+  // Elements are matched by (id → name → position among siblings of same tag).
+  // Use when re-rendering the same task's panel (same-task redraw). On task switch use safeReplaceDetailForNewTask.
+  function safeReplaceDetail(html) {
+    const detailPanel = document.getElementById('taskDetailPanel');
+    if (!detailPanel) return;
+    const captured = [];
+    const fields = detailPanel.querySelectorAll('input, textarea, [contenteditable="true"]');
+    const typeCounters = {};
+    fields.forEach(el => {
+      const tag = el.tagName.toLowerCase();
+      typeCounters[tag] = (typeCounters[tag] || 0) + 1;
+      const isText = (tag === 'textarea') || (tag === 'input' && !['checkbox', 'radio', 'button', 'submit'].includes(el.type));
+      const value = isText ? el.value : (el.checked !== undefined ? el.checked : el.value);
+      const hasFocus = document.activeElement === el;
+      const selStart = (isText && el.selectionStart != null) ? el.selectionStart : null;
+      const selEnd = (isText && el.selectionEnd != null) ? el.selectionEnd : null;
+      captured.push({
+        id: el.id || '',
+        name: el.name || el.getAttribute('data-field') || '',
+        tag,
+        type: el.type || '',
+        index: typeCounters[tag] - 1,
+        value, hasFocus, selStart, selEnd,
+        isContentEditable: el.isContentEditable,
+        innerHTML: el.isContentEditable ? el.innerHTML : null,
+      });
+    });
+    detailPanel.innerHTML = html;
+    // Restore
+    const newFields = detailPanel.querySelectorAll('input, textarea, [contenteditable="true"]');
+    const newTypeCounters = {};
+    const newByTag = {};
+    newFields.forEach(el => {
+      const tag = el.tagName.toLowerCase();
+      newTypeCounters[tag] = (newTypeCounters[tag] || 0) + 1;
+      if (!newByTag[tag]) newByTag[tag] = [];
+      newByTag[tag].push(el);
+    });
+    captured.forEach(cap => {
+      let target = null;
+      if (cap.id) target = detailPanel.querySelector('#' + CSS.escape(cap.id));
+      if (!target && cap.name) {
+        target = detailPanel.querySelector(`[name="${CSS.escape(cap.name)}"], [data-field="${CSS.escape(cap.name)}"]`);
+      }
+      if (!target && newByTag[cap.tag] && newByTag[cap.tag][cap.index]) {
+        const candidate = newByTag[cap.tag][cap.index];
+        // Only positional match if types line up — prevents restoring a text value into a submit button.
+        if ((candidate.type || '') === (cap.type || '')) target = candidate;
+      }
+      if (!target) return;
+      try {
+        if (cap.isContentEditable && cap.innerHTML != null) {
+          target.innerHTML = cap.innerHTML;
+        } else if (cap.tag === 'input' && ['checkbox', 'radio'].includes(cap.type)) {
+          target.checked = !!cap.value;
+        } else if (cap.value !== undefined && cap.value !== null && cap.value !== '') {
+          target.value = cap.value;
+        }
+        if (cap.hasFocus) {
+          target.focus();
+          if (cap.selStart != null && cap.selEnd != null && target.setSelectionRange) {
+            try { target.setSelectionRange(cap.selStart, cap.selEnd); } catch {}
+          }
+        }
+      } catch (e) {
+        console.warn('safeReplaceDetail: restore failed for', cap, e);
+      }
+    });
+  }
+
   function renderTasks() {
     const list = document.getElementById('taskList');
     const detailPanel = document.getElementById('taskDetailPanel');
@@ -2298,23 +2371,7 @@
     }
     // Don't overwrite detail panel if selected task is frozen (agent working)
     if (!frozenTasks.has(selectedTaskId)) {
-      // Preserve user input before re-render
-      const activeInput = detailPanel.querySelector('.panel-log-form input');
-      const savedInputValue = activeInput ? activeInput.value : '';
-      const activeNoteInput = detailPanel.querySelector('.panel-note-form input, .panel-note-form textarea');
-      const savedNoteValue = activeNoteInput ? activeNoteInput.value : '';
-
-      detailPanel.innerHTML = renderTaskDetail(tasks.find(t => t.id === selectedTaskId));
-
-      // Restore user input after re-render
-      if (savedInputValue) {
-        const restoredInput = detailPanel.querySelector('.panel-log-form input');
-        if (restoredInput) restoredInput.value = savedInputValue;
-      }
-      if (savedNoteValue) {
-        const restoredNote = detailPanel.querySelector('.panel-note-form input, .panel-note-form textarea');
-        if (restoredNote) restoredNote.value = savedNoteValue;
-      }
+      safeReplaceDetail(renderTaskDetail(tasks.find(t => t.id === selectedTaskId)));
     }
     // Highlight selected item
     document.getElementById('card-' + selectedTaskId)?.classList.add('selected');
@@ -2789,6 +2846,8 @@
     const detailPanel = document.getElementById('taskDetailPanel');
     if (detailPanel && task) {
       detailPanel.innerHTML = renderTaskDetail(task);
+      // α.3: Restore any saved drafts for this task's inputs.
+      if (typeof applyDraftsToPanel === 'function') applyDraftsToPanel(taskId);
     }
     saveUIState();
     // Restore pending plan if this task has one (server-persisted)
@@ -3642,8 +3701,7 @@
     // If this is the selected task, re-render detail to show frozen state
     if (taskId === selectedTaskId) {
       const task = tasks.find(t => t.id === taskId);
-      const detailPanel = document.getElementById('taskDetailPanel');
-      if (detailPanel && task) detailPanel.innerHTML = renderTaskDetail(task);
+      if (task) safeReplaceDetail(renderTaskDetail(task));
     }
   }
 
@@ -3675,8 +3733,7 @@
     // (re-rendering would destroy the plan/correction UI that was just shown)
     if (taskId === selectedTaskId && !pendingPlans[taskId]) {
       const task = tasks.find(t => t.id === taskId);
-      const detailPanel = document.getElementById('taskDetailPanel');
-      if (detailPanel && task) detailPanel.innerHTML = renderTaskDetail(task);
+      if (task) safeReplaceDetail(renderTaskDetail(task));
     }
   }
 
@@ -3699,8 +3756,7 @@
       }
       // If this is the selected task, refresh detail panel
       if (taskId === selectedTaskId) {
-        const detailPanel = document.getElementById('taskDetailPanel');
-        if (detailPanel) detailPanel.innerHTML = renderTaskDetail(task);
+        safeReplaceDetail(renderTaskDetail(task));
       }
     } catch (err) {
       console.error(`Failed to refresh task ${taskId}:`, err);
@@ -3884,6 +3940,103 @@
 
   // --- Init ---
   checkServerHealth();
+
+  // v3.4.0 Phase α.3: Draft auto-save for the detail-panel inputs.
+  // Any input typed into the currently-selected task is persisted to localStorage
+  // (keyed by taskId+field) and restored on task switch / reload. This prevents
+  // data loss when a background task re-render or browser refresh happens.
+  const DRAFT_KEY_PREFIX = 'a0.draft.';
+  const draftSaveTimers = new Map();
+  function getDraftFieldKey(el) {
+    // Stable key: id → name → data-field → tag+type+position within detail-panel
+    if (el.id) return 'id:' + el.id;
+    if (el.name) return 'name:' + el.name;
+    const df = el.getAttribute('data-field');
+    if (df) return 'df:' + df;
+    const panel = document.getElementById('taskDetailPanel');
+    if (!panel) return null;
+    const siblings = Array.from(panel.querySelectorAll(`${el.tagName.toLowerCase()}${el.type ? `[type="${el.type}"]` : ''}`));
+    const idx = siblings.indexOf(el);
+    return `pos:${el.tagName.toLowerCase()}:${el.type || ''}:${idx}`;
+  }
+  function saveDraft(taskId, fieldKey, value) {
+    if (!taskId || !fieldKey) return;
+    try {
+      if (value == null || value === '') {
+        localStorage.removeItem(DRAFT_KEY_PREFIX + taskId + '.' + fieldKey);
+      } else {
+        localStorage.setItem(DRAFT_KEY_PREFIX + taskId + '.' + fieldKey, value);
+      }
+    } catch {}
+  }
+  function loadDrafts(taskId) {
+    const out = {};
+    if (!taskId) return out;
+    const prefix = DRAFT_KEY_PREFIX + taskId + '.';
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(prefix)) out[k.substring(prefix.length)] = localStorage.getItem(k);
+      }
+    } catch {}
+    return out;
+  }
+  function clearDrafts(taskId) {
+    if (!taskId) return;
+    const prefix = DRAFT_KEY_PREFIX + taskId + '.';
+    try {
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(prefix)) keys.push(k);
+      }
+      keys.forEach(k => localStorage.removeItem(k));
+    } catch {}
+  }
+  function applyDraftsToPanel(taskId) {
+    if (!taskId) return;
+    const drafts = loadDrafts(taskId);
+    if (!Object.keys(drafts).length) return;
+    const panel = document.getElementById('taskDetailPanel');
+    if (!panel) return;
+    const fields = panel.querySelectorAll('input, textarea');
+    fields.forEach(el => {
+      // Skip buttons/submits/checkboxes — drafts are only for free-form text.
+      if (el.tagName === 'INPUT' && ['button', 'submit', 'checkbox', 'radio'].includes(el.type)) return;
+      const k = getDraftFieldKey(el);
+      if (k && drafts[k] != null && !el.value) {
+        el.value = drafts[k];
+      }
+    });
+  }
+  // Expose for the task-switch path.
+  window.applyDraftsToPanel = applyDraftsToPanel;
+  window.clearDraftsForTask = clearDrafts;
+  // Delegated listener: debounce per-field write so typing doesn't hit localStorage every keystroke.
+  const detailPanelEl = document.getElementById('taskDetailPanel');
+  if (detailPanelEl) {
+    detailPanelEl.addEventListener('input', (e) => {
+      const el = e.target;
+      if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) return;
+      if (el.type === 'button' || el.type === 'submit' || el.type === 'checkbox' || el.type === 'radio') return;
+      if (!selectedTaskId) return;
+      const k = getDraftFieldKey(el);
+      if (!k) return;
+      const timerKey = selectedTaskId + '|' + k;
+      const existing = draftSaveTimers.get(timerKey);
+      if (existing) clearTimeout(existing);
+      const val = el.value;
+      draftSaveTimers.set(timerKey, setTimeout(() => {
+        saveDraft(selectedTaskId, k, val);
+        draftSaveTimers.delete(timerKey);
+      }, 300));
+    });
+    // Clear drafts for this task when any form in the panel is submitted.
+    // The action handlers themselves handle server errors, so if submit fires, the user acted.
+    detailPanelEl.addEventListener('submit', () => {
+      if (selectedTaskId) clearDrafts(selectedTaskId);
+    }, true);
+  }
 
   // Fetch and display app version
   fetch('/api/version').then(r => r.json()).then(d => {
