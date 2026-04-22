@@ -26,6 +26,9 @@ Agent_Zero_Claude_Loop/
 # MSAL token cache (contains auth tokens — never commit)
 .msal-token-cache.json
 
+# Single-instance lock file (written at server start, removed on shutdown)
+.agent-zero.lock
+
 # Debug logs (may contain M365 content)
 logs/
 

@@ -4,6 +4,49 @@ All notable changes to this project are documented here.
 
 ---
 
+## v4.0.2 — April 22, 2026
+
+**Single-instance guard — Task Scheduler no longer creates duplicate instances**
+
+### Problem
+The Windows Task Scheduler is configured to launch Agent Zero at set times (e.g., morning starts). If a user-launched instance is already running, the scheduler was still starting a second instance on an alternative port (3001, 3002, …), leaving two competing Agent Zero processes that share the same `tasks.json` — causing inconsistent state and wasted resources.
+
+Root cause: the health-check in `START-AGENT-ZERO.bat` was unreliable in the Task Scheduler session context (different PATH, different user session, `CommandLine` not visible for the running process), so the batch fell through to the port-scan that picks a free alternative port.
+
+### Fix — `server.js`
+- **Lock file** (`.agent-zero.lock`) written on successful `app.listen`, removed on `SIGINT` / `SIGTERM` / `SIGBREAK` / normal exit. Stores `{ pid, port, startedAt, version }`.
+- **Startup guard** (`detectExistingInstance`) runs *before* `app.listen`:
+  1. Read lock file → if PID alive AND `/api/health` returns `service: "agent-zero"` on the stored port → exit 0.
+  2. Prioritized check on preferred `PORT` (2.5 s timeout — handles cold-socket delays on Windows).
+  3. Parallel port-scan 3000–3020 (1.5 s each) for any Agent Zero signature.
+  4. Any hit → log and `process.exit(0)` (Task Scheduler sees success, no notification).
+- **Listen-error fallback**: if another process wins the port race *after* our pre-check, the `EADDRINUSE` handler re-pings the port. If it's Agent Zero → exit 0. Otherwise clear error message.
+- **Defensive lock cleanup**: only removes the lock file if `pid` matches the current process — avoids racing with another instance.
+- **`/api/health`** now includes `service: "agent-zero"` and `port`, used as the signature by both the batch script and the server's own guard.
+
+### Fix — `START-AGENT-ZERO.bat`
+- **Step 1** now parses `.agent-zero.lock` via PowerShell (JSON), verifies the PID is alive, and hits `/api/health` — the exact same mechanism the server uses.
+- **Step 2** new: PowerShell-based port-scan 3000–3020 for the `service: "agent-zero"` signature, so the script detects existing instances even without a lock file (e.g., when the lock was manually deleted).
+- Zombie-cleanup logic preserved for true stuck processes.
+- Final-result path unchanged: browser opens to the detected or freshly-started port.
+
+### Task Scheduler recommendation
+Open the scheduled task → "Settings" tab → set **"If the task is already running, then the following rule applies: Do not start a new instance."** This provides a third line of defense.
+
+### Files touched
+- `package.json` — version 4.0.1 → 4.0.2
+- `server.js` — added lock-file + startup guard + health signature (+ ~130 lines before `app.listen`)
+- `START-AGENT-ZERO.bat` — replaced with lock-file-aware version
+- `.gitignore` — ignore `.agent-zero.lock`
+
+### Verified end-to-end
+- Fresh start → lock file written, `/api/health` exposes `service: "agent-zero"`, `port`, `pid`.
+- Duplicate `node server.js` attempt → detected via lockfile in ~50 ms → `exit 0`, no MCP subprocess started, no error.
+- Manually deleted lock → duplicate attempt → detected via portscan-primary (2.5 s) → `exit 0`.
+- `.bat` double-click while running → step 1 lock check fires → browser opens, no new process.
+
+---
+
 ## v4.0.1 — April 22, 2026
 
 **Merge and Consolidate now survive browser refresh**

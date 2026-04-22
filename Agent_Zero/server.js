@@ -1,6 +1,7 @@
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
+import http from 'node:http';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
@@ -1601,11 +1602,13 @@ app.get('/api/health', (req, res) => {
   let version = 'unknown';
   try { version = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8')).version; } catch {}
   res.json({
+    service: 'agent-zero',
     status: 'ok',
     uptime: Math.round(process.uptime()),
     activeSessions: activeSessions.size,
     memoryMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
     pid: process.pid,
+    port: PORT,
     version
   });
 });
@@ -4539,22 +4542,162 @@ markInterruptedGlobalJobs();
 // Startup cleanup: delete done tasks older than default retention (3 days)
 cleanupDoneTasks(3);
 
-app.listen(PORT, 'localhost', async () => {
-  console.log(`Agent Zero running at http://localhost:${PORT}`);
-  // Start persistent Work IQ MCP subprocess (auth once, EULA once, cached for session)
+// ============================================================================
+// Single-Instance Guard (v4.0.2)
+// ----------------------------------------------------------------------------
+// Prevents two Agent Zero instances from running simultaneously — important
+// because the Windows Task Scheduler may trigger a startup while an instance
+// is already running in the user session. Strategy:
+//   1. Lock file at .agent-zero.lock containing { pid, port, startedAt }.
+//   2. On startup, if lock exists AND pid is alive AND the port responds with
+//      service:"agent-zero" on /api/health → exit 0 gracefully (no error).
+//   3. Fallback: scan ports 3000–3020 in parallel for agent-zero signature.
+//   4. If another instance is detected → log + exit 0 (Task Scheduler sees
+//      success, no duplicate process).
+//   5. Otherwise remove stale lock, start listening, write fresh lock.
+//   6. On SIGINT/SIGTERM/exit → remove lock so next start isn't blocked.
+// ============================================================================
+const LOCK_FILE = path.join(__dirname, '.agent-zero.lock');
+const LOCK_SCAN_PORT_MIN = 3000;
+const LOCK_SCAN_PORT_MAX = 3020;
+
+function pingAgentZero(port, timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    const req = http.get({
+      host: '127.0.0.1', port, path: '/api/health', timeout: timeoutMs
+    }, (res) => {
+      let body = '';
+      res.on('data', (c) => { body += c; });
+      res.on('end', () => {
+        try {
+          const j = JSON.parse(body);
+          if (j && j.service === 'agent-zero') finish(j);
+          else finish(null);
+        } catch { finish(null); }
+      });
+    });
+    req.on('error', () => finish(null));
+    req.on('timeout', () => { try { req.destroy(); } catch {} finish(null); });
+  });
+}
+
+function isPidAlive(pid) {
+  if (!pid || typeof pid !== 'number') return false;
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+async function detectExistingInstance() {
+  // 1. Lock-file check (fastest, most reliable)
+  if (fs.existsSync(LOCK_FILE)) {
+    try {
+      const lock = JSON.parse(fs.readFileSync(LOCK_FILE, 'utf-8'));
+      if (lock.pid && lock.port && isPidAlive(lock.pid)) {
+        const info = await pingAgentZero(lock.port, 2500);
+        if (info) return { ...info, via: 'lockfile' };
+      }
+    } catch {}
+    // Stale lock — will be overwritten when we start
+  }
+  // 2. Prioritized check: our preferred PORT first with generous timeout
+  //    (localhost-to-localhost on Windows can take >800ms on cold sockets).
+  const primary = await pingAgentZero(PORT, 2500);
+  if (primary) return { ...primary, via: 'portscan-primary' };
+  // 3. Port-scan fallback — scan 3000..3020 in parallel for non-default ports
+  const ports = [];
+  for (let p = LOCK_SCAN_PORT_MIN; p <= LOCK_SCAN_PORT_MAX; p++) {
+    if (p !== PORT) ports.push(p);
+  }
+  const results = await Promise.all(ports.map(async (p) => {
+    const info = await pingAgentZero(p, 1500);
+    return info ? { ...info, via: 'portscan' } : null;
+  }));
+  return results.find((r) => r) || null;
+}
+
+function writeLockFile() {
   try {
-    await startWorkIQMCP();
-    console.log('[WORKIQ] ✅ Ready — persistent MCP subprocess with cached auth');
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
+    fs.writeFileSync(LOCK_FILE, JSON.stringify({
+      pid: process.pid,
+      port: PORT,
+      startedAt: new Date().toISOString(),
+      version: pkg.version
+    }, null, 2));
   } catch (e) {
-    console.warn(`[WORKIQ] ⚠️ MCP startup failed: ${e.message} — will retry on first query`);
+    console.warn(`[LOCK] Could not write lock file: ${e.message}`);
   }
-}).on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`\n❌ Port ${PORT} is already in use.`);
-    console.error(`   Another Agent Zero instance is likely running.`);
-    console.error(`   → Close the other instance first, or use START-AGENT-ZERO.bat which handles this automatically.\n`);
-  } else {
-    console.error(`\n❌ Server failed to start: ${err.message}\n`);
+}
+
+function removeLockFile() {
+  try {
+    if (fs.existsSync(LOCK_FILE)) {
+      // Only remove if it's OUR lock (defensive: avoid racing with another instance)
+      try {
+        const lock = JSON.parse(fs.readFileSync(LOCK_FILE, 'utf-8'));
+        if (lock.pid && lock.pid !== process.pid) return;
+      } catch {}
+      fs.unlinkSync(LOCK_FILE);
+    }
+  } catch {}
+}
+
+let lockRemovalRegistered = false;
+function registerLockCleanup() {
+  if (lockRemovalRegistered) return;
+  lockRemovalRegistered = true;
+  process.on('exit', removeLockFile);
+  const shutdown = (sig) => {
+    console.log(`[LOCK] Received ${sig} — cleaning up lock file.`);
+    removeLockFile();
+    process.exit(0);
+  };
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  // Windows: SIGBREAK from Ctrl+Break in cmd
+  process.on('SIGBREAK', () => shutdown('SIGBREAK'));
+}
+
+async function startServer() {
+  const existing = await detectExistingInstance();
+  if (existing) {
+    console.log(`[STARTUP] ✅ Agent Zero is already running (pid=${existing.pid}, port=${existing.port}, version=${existing.version}, detected via ${existing.via}).`);
+    console.log(`[STARTUP] No duplicate instance will be started. Access: http://localhost:${existing.port}`);
+    process.exit(0);
   }
-  process.exit(1);
-});
+
+  // Clean stale lock (if any)
+  try { if (fs.existsSync(LOCK_FILE)) fs.unlinkSync(LOCK_FILE); } catch {}
+
+  app.listen(PORT, 'localhost', async () => {
+    console.log(`Agent Zero running at http://localhost:${PORT}`);
+    writeLockFile();
+    registerLockCleanup();
+    // Start persistent Work IQ MCP subprocess (auth once, EULA once, cached for session)
+    try {
+      await startWorkIQMCP();
+      console.log('[WORKIQ] ✅ Ready — persistent MCP subprocess with cached auth');
+    } catch (e) {
+      console.warn(`[WORKIQ] ⚠️ MCP startup failed: ${e.message} — will retry on first query`);
+    }
+  }).on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      // Last-line-of-defense: port taken after our pre-check (rare race).
+      pingAgentZero(PORT).then((info) => {
+        if (info) {
+          console.log(`[STARTUP] ✅ Port ${PORT} is held by an existing Agent Zero instance (pid=${info.pid}). Exiting cleanly.`);
+          process.exit(0);
+        }
+        console.error(`\n❌ Port ${PORT} is already in use by a non-Agent-Zero process.`);
+        console.error(`   → Close that app, or use START-AGENT-ZERO.bat (picks a free port 3001–3020).\n`);
+        process.exit(1);
+      });
+    } else {
+      console.error(`\n❌ Server failed to start: ${err.message}\n`);
+      process.exit(1);
+    }
+  });
+}
+
+startServer();
