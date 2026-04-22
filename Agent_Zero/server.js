@@ -2366,8 +2366,12 @@ app.post('/api/scan', async (req, res) => {
     }
     let [emailResult, teamsResult] = await fetchScanPair();
     if (isStubErr(emailResult) || isStubErr(teamsResult)) {
-      console.warn('[SCAN] Phase 1 got EULA/permission stubs — waiting 8s for WorkIQ restart and retrying once');
-      debugLog('PHASE1', 'STUB-RETRY: waiting for WorkIQ restart');
+      console.warn('[SCAN] Phase 1 got EULA/permission stubs — force-restarting WorkIQ and retrying once');
+      debugLog('PHASE1', 'STUB-RETRY: force-restarting WorkIQ subprocess');
+      // Proactively kill the subprocess: the global consecutiveStubCount threshold (3) does not
+      // trigger on 2 parallel stubs (email+teams), so without this kill the retry would hit the
+      // same stubbing WorkIQ instance and fail again. See logs 2026-04-22T06:44 for repro.
+      if (wiqProc) { try { wiqProc.kill(); } catch {} }
       await new Promise(r => setTimeout(r, 8000));
       // Wait until subprocess is marked ready (up to 15s beyond the 8s nap)
       const retryDeadline = Date.now() + 15000;
