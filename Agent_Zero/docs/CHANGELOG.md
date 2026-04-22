@@ -4,6 +4,116 @@ All notable changes to this project are documented here.
 
 ---
 
+## v4.0.1 — April 22, 2026
+
+**Merge and Consolidate now survive browser refresh**
+
+### Problem diagnosed
+v4.0.0 moved `scan` to the server-side job orchestrator, but two other long-running AI calls were overlooked:
+
+- **`POST /api/tasks/merge`** — up to 90 s `session.sendAndWait` (AI generates unified summary). Pure request/response: no job registration, no persistence, no SSE.
+- **`POST /api/consolidate`** — up to 300 s AI analysis for the standalone "Find Duplicates" button. Same pattern.
+
+Symptoms reported by the user:
+1. Start a manual merge from the bottom merge-bar.
+2. Press F5 while the AI is composing the merged summary.
+3. UI completely forgets the merge was running — no progress indicator, no success notification when the server finishes ~60 s later.
+4. The merge itself *did* complete server-side (tasks.json reflected the merge), but the user had no feedback and couldn't tell whether to retry.
+
+Additionally, there was no idempotency — a double-click could start two parallel merges.
+
+### Code — server.js
+- **`runMergeJob(job)`** new runner (same shape as `runScanJob`): delegates to the existing `POST /api/tasks/merge` via internal HTTP, emits `job.started` / `job.completed` / `job.failed`, persists snapshot to `jobs.json`, releases singleton on completion. Input: `{ taskIds, suggestedTitle? }`. Result payload: `{ taskId, title }`.
+- **`runConsolidateJob(job)`** new runner: delegates to `POST /api/consolidate`. Result payload: `{ suggestions: [...] }`.
+- **`POST /api/jobs`** generalised via `SUPPORTED_JOB_KINDS = { scan, merge, consolidate }`. Per-kind input validation (merge requires ≥2 taskIds). Singleton guard + idempotency already existed — they now cover all three kinds.
+- **Legacy endpoints `POST /api/tasks/merge` and `POST /api/consolidate` are unchanged**: still synchronous, still used by the runners via internal HTTP, still called by `runScanJob` Phase 4. No business logic duplicated.
+
+### Code — index.html
+- **`triggerFindDuplicates()`** rewritten to `POST /api/jobs` with `kind: 'consolidate'` and a `clientRequestId`. Returns immediately with a 202 + `jobId`; SSE drives the completion UI.
+- **`executeMergeFromBar()`** rewritten the same way: `kind: 'merge'`, `input: { taskIds }`. State stored in `activeMergeJob = { jobId, taskIds, source: 'bar' | 'banner' }` so the completion handler knows whether to exit merge-mode or remove a suggestion card.
+- **`handleMerge(btn)`** (from the Find Duplicates suggestion banner) — same refactor. `source: 'banner'`; on completion, the matching card is removed by `data-merge-job-id` attribute.
+- **`handleConsolidateJobEvent(ev)`** and **`handleMergeJobEvent(ev)`** — new SSE handlers mirrored from `handleScanJobEvent`. Surface `job.completed` → notification + task refresh + UI reset; `job.failed` → error notification + button re-enable.
+- **`handleJobEvent`** routing extended: `ev.kind === 'consolidate'` and `ev.kind === 'merge'` are dispatched before the task-centric branch.
+- **`hydrateGlobalJobs()`** extended: after reload, restores `activeConsolidateJob` / `activeMergeJob` from the server snapshot, re-renders the progress banner, disables the "Find Duplicates" button while a consolidate is in flight, and shows the header progress bar for in-flight merges. When the server finishes, SSE completes the cycle.
+
+### Behavioural impact
+- **F5 during a merge or duplicate-search is safe.** The server keeps working, the client re-paints the progress indicator within ~1 s via `hydrateGlobalJobs()`, and the SSE stream delivers the completion event.
+- **Double-click on Merge or Find Duplicates is no-op.** The `clientRequestId` is enforced by the server's idempotency cache, and the `tryAcquireSingleton(kind)` guard returns 409 on concurrent attempts.
+- **User receives a success notification** when the merge finishes, even after a mid-flight refresh.
+- **No new logs needed** — merge / consolidate already log via `debugLog('MERGE'|'PHASE4', ...)` inside the legacy endpoints, which the new runners invoke.
+
+### Tests
+- `npm test` — 7/7 lifecycle tests pass unchanged (the `Job` class, idempotency, singleton, persistence logic were already generic).
+- `node tests/runs/check-html.cjs` — inline `<script>` block parses cleanly.
+- `node --check server.js` — passes.
+- E2E validation run (`tests/runs/e2e-v4-0-1.mjs`): opens the UI, confirms v4.0.1 label, triggers a full scan, observes phase transitions via `/api/jobs?active=true`, reloads the page mid-flight to exercise hydration.
+
+### Documentation
+- `ARCHITECTURE.md` — "Scan Resilience Architecture" renamed to "Job Orchestrator" and extended with `merge` / `consolidate` kinds.
+- `AGENT_ZERO_SPEC.md` — version + status line updated.
+- `README.md`, `AGENTS.md` — version bumped to 4.0.1.
+- `package.json` — version bumped to 4.0.1.
+
+---
+
+## v4.0.0 — April 22, 2026
+
+**Server-Side Job Registry — Scan + Log-Jobs survive browser refresh**
+
+### Problem diagnosed
+The pre-v4 scan was a client-side `for`-loop over phases. Closing the tab or even an F5 killed the whole orchestration mid-flight, leaving tasks in transient states (`enriching`, `checking`) that were only cleaned up on the next scheduled scan. Log-jobs (per-task "search inbox" requests) had the same issue: the visual "⏳ Agent working…" indicator disappeared on any re-render because `updateTaskJobUi` painted DOM directly without updating `frozenTasks`, and `hydrateActiveJobs` on reload was never actually invoked on the boot path and also read `jobId` incorrectly from a structured `activeJob` object.
+
+### Code — server.js (PR1)
+- **Job foundation** (`Job` class, `jobs` Map, `jobsByTask` Map, `activeJobByTask` Map, `idempotencyMap`): every `scan` / `log` / `consolidate` / `check` run is modelled as a `Job` with lifecycle (`queued → running → awaiting_input | completed | failed | cancelled`), monotonically-increasing `lastJobEventId`, and a persisted snapshot on `task.activeJob` (for per-task jobs) or in `jobs.json` (for global jobs).
+- **SSE broker** (`sseBroker`): `GET /api/events?since=<id>` opens a long-lived stream; events are fanned out with a per-event `globalEventSeq` so the client can resume at exactly the right cursor after reconnect (sessionStorage-seeded before `startSSE()`).
+- **Endpoints**: `POST /api/jobs/scan` (singleton-protected, 409 on conflict), `POST /api/jobs/log`, `POST /api/jobs/check`, `GET /api/jobs/:id`, `GET /api/jobs?active=true`, `POST /api/jobs/:id/cancel`, `POST /api/jobs/:id/reply` (for `awaiting_input`).
+- **Phase γ.F boot recovery**: on restart, any `task.activeJob` that was `queued` or `running` is marked `interrupted` in `jobHistory` and cleared so the UI shows a clean state; the next scan picks the task up again via the phase-independent filters.
+- **Scan runner** (`runScanJob`): moved the four-phase orchestration server-side. Phase 1 discovery, Phase 2 enrichment with auto-recovery, Phase 3 update-check with per-session query budget + stub auto-restart, Phase 4 consolidate. Emits `phase_started` / `phase_done` / `item_started` / `item_done` / `completed` / `failed` / `cancelled`.
+- **Singleton protection**: a module-level `scanSingleton` rejects a second scan cluster-wide (not just per tab) and returns the existing `jobId` so re-clicks are idempotent.
+
+### Code — index.html (PR1 → PR1d)
+- **SSE client**: persistent `EventSource('/api/events?since=<cursor>')` with cursor seeded from `sessionStorage`; automatic reconnect with exponential backoff; dispatches `handleScanJobEvent` (for `kind === 'scan'`) and `handleJobEvent` (for per-task jobs).
+- **`hydrateActiveJobs()` (PR1c)**: correctly reads `jobId` from the `task.activeJob` **object** (was treating it as a string → `/api/jobs/[object Object]` → 404 → silently dropped). Re-paints frozen badge and awaiting_input UI for every running job.
+- **Boot-path hydration (PR1d)**: `checkServerHealth()` now calls `hydrateActiveJobs()` after `renderTasks()` — previously only `fetchTasks()` did this, so a hard-refresh on a page that never called `fetchTasks()` left indicators blank.
+- **`updateTaskJobUi` (PR1b)**: now adds/removes `taskId` in `frozenTasks` in lockstep with card state. This makes the DOM-preservation branch in `renderTasks` apply to log-jobs, not just to client-side-frozen tasks. Respects `window.__scanHoldsFreezeFor` so a scan `item_started` / `item_done` cycle on a task doesn't steal the freeze of a parallel log-job (or vice-versa).
+- **`refreshSingleTask` (PR1b)**: skips `oldCard.replaceWith(newCard)` when the task is in `frozenTasks`; data is still updated in `tasks[idx]` and the next `unfreezeTask` re-renders. Eliminates the visible ~500ms gap where badges/step-dots were nuked and re-attached asynchronously.
+- **`handleScanJobEvent` (PR1b)**: `item_started` sets `window.__scanHoldsFreezeFor = taskId` and calls `freezeTask`; `item_done` clears the sentinel, releases the scan's freeze (only if no log-job is still active on the same task), and replaces the blunt `fetchTasks()` refresh with a surgical `refreshSingleTask(taskId)`.
+
+### Code — server.js build marker (PR1c → PR1d)
+- `GET /api/version` now returns the short git SHA alongside version + name. Resolved via `execSync('git rev-parse --short HEAD', { cwd: __dirname })` with a filesystem-walk-up fallback that reads `.git/HEAD` one parent level up (Agent_Zero is a sub-folder of the Work_IQ repo root, so the local dir has no `.git`). `execSync` imported as ESM (`import { spawn, execSync } from 'child_process'`), not `require()` — the server is `type: "module"`.
+- Boot log prints `[Agent Zero] Build commit: <sha>` to stdout for diagnostics.
+
+### UI — index.html
+- Footer version element now displays `v4.0.0 (<sha>)` with the short commit SHA. Tooltip: "Build `<sha>` — reload to refresh". Console log: `[Agent Zero] v4.0.0 build <sha>`. This makes it trivially verifiable whether a given browser session is serving the expected build (important for diagnosing cache issues after a push).
+
+### Tests
+- New unit tests in `tests/unit/job-lifecycle.mjs` (7 tests, all passing):
+  - Job construction (id, queued status, null progress)
+  - Snapshot shape (progress field always present)
+  - `emit()` monotonicity (`lastJobEventId` + `globalEventSeq`)
+  - Cancel transition (`queued → cancelling`, idempotent)
+  - Idempotency cache (new / hit / conflict)
+  - Singleton acquire/refuse/release
+  - `persistGlobalJobSnapshot` JSON round-trip
+- `tests/runs/check-html.cjs` — validates that `<script>` blocks in `index.html` parse as valid JavaScript (PR1b–PR1d touched inline script).
+
+### Documentation
+- `ARCHITECTURE.md` — "Scan Resilience Architecture" section rewritten to describe the server-side job registry, SSE with cursor continuity, `hydrateGlobalJobs` + `hydrateActiveJobs` on boot, `frozenTasks` preservation invariant, and build marker.
+- `AGENT_ZERO_SPEC.md` — version + status line updated.
+- `README.md`, `AGENTS.md`, `BUBBLE_EDITOR_GUIDE.md` — version bumped to 4.0.0.
+- `package.json` — version bumped to 4.0.0.
+
+### Behavioural impact
+- **F5 and Ctrl+Shift+R are safe during any scan or log-job.** The server keeps running, the UI re-paints the "⏳ Agent working…" badge and step-active dot within ~1 second, and SSE resumes at the correct cursor.
+- Closing the browser entirely no longer leaves tasks stuck in `enriching` / `checking` — the server-side job keeps progressing, and the next client to load sees the correct state.
+- Visual indicators no longer flicker when a scan runs in parallel to a log-job on the same (or a different) task.
+
+### Known limitations (deferred)
+- **Review-resolution summary update**: resolving open review items on an action item currently triggers a search but does not auto-update the task summary. Tracked for a separate PR.
+- **WorkIQ service timeouts**: recurring 90s timeouts in Phase 3 and Teams searches are a WorkIQ infrastructure issue, not an Agent Zero bug. The existing 3-strike retry strategy is correct; migration to a newer WorkIQ version is being evaluated separately.
+
+---
+
 ## v3.3.0 — April 20, 2026
 
 **Phase 3 (Update Check) — Stub Auto-Recovery & Retroactive Summary Reconciliation**

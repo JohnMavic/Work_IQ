@@ -1,9 +1,9 @@
 # Agent Zero — Product Specification
 
-**Version:** 3.2.4
-**Date:** April 19, 2026
+**Version:** 4.0.1
+**Date:** April 22, 2026
 **Author:** Martin Hämmerli
-**Status:** v3.2.4 — Phase 3 per-session query budget, self-EULA guard, M365 stub detection, richer observability
+**Status:** v4.0.1 — Merge and Find Duplicates now run through the server-side job orchestrator: every long-running AI call survives a browser refresh and is double-click safe
 
 ---
 
@@ -715,10 +715,15 @@ Agent_Zero/
 │   ├── CONSOLIDATE_SKILL.md         (Phase 4 task consolidation prompt)
 │   ├── SEARCH_SKILL.md               (intelligent search prompt, v2.2)
 │   ├── CORRECT_SKILL.md              (correction verification prompt, v2.6)
-│   ├── SCAN_SKILL.md                 (legacy scan prompt, fallback)
 │   ├── LOG_WORK_SKILL.md             (legacy log work prompt, fallback)
-│   ├── FEATURE_INVENTORY_Claude_Code_Codex_Analyse.md  (code review)
+│   ├── phase-1-discovery.html        (Phase 1 walkthrough, v4.0.1)
+│   ├── phase-2-enrichment.html       (Phase 2 walkthrough, v4.0.1)
+│   ├── phase-3-update-check.html     (Phase 3 walkthrough, v4.0.1)
+│   ├── phase-4-consolidate.html      (Phase 4 walkthrough, v4.0.1)
+│   ├── AGENT_ZERO_PRESENTATION.html  (demo presentation)
+│   ├── BUBBLE_EDITOR_GUIDE.md        (presentation bubble editor guide)
 │   ├── VIDEO_DESCRIPTION.md          (video script foundation)
+│   ├── Final Video/                  (final video assets)
 │   └── archive/                      (previous doc versions)
 ├── Specifactions/
 │   └── AGENT_ZERO_SPEC.md           (this document)

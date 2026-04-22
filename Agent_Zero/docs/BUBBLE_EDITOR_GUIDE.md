@@ -223,8 +223,9 @@ location.reload();
   - Added ~670 lines of JavaScript (lines 1850-2520)
 
 ## Version
-- Built: March 2026
-- Compatible with: Agent Zero v3.2.4
+- Built: March 2026 (v4.0.0 bubble editor) — still compatible through v4.0.1
+- v4.0.1 schema bump: `width` and `height` are now stored as **percentages of the slide** (previously stored as pixels — caused text to wrap one character per line). On first load after upgrade, localStorage is reset to the embedded defaults via `agent-zero-bubbles-schema = 2`.
+- Compatible with: Agent Zero v4.0.1
 - Browser requirements: Modern browsers with ES6+, IntersectionObserver
 
 ---

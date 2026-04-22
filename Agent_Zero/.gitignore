@@ -1,5 +1,5 @@
 # Test results - do not publish
-tests/
+tests/runs/
 test-results/
 
 # Node modules

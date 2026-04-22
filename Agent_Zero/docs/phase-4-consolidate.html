@@ -99,6 +99,7 @@ svg#flow{width:100%;height:100%}
   <div id="header">
     <h1>AGENT ZERO · PHASE 4</h1>
     <span class="sub">Consolidate — How Agent Zero spots duplicate tasks and suggests safe merges</span>
+    <span style="margin-left:12px;padding:3px 8px;background:rgba(0,255,200,.12);border:1px solid rgba(0,255,200,.35);border-radius:4px;font-size:10px;color:#00ffc8;letter-spacing:1px;font-weight:700">v4.0.1</span>
     <div id="controls">
       <div id="speed-ctl">
         <span>Speed</span>
@@ -138,8 +139,10 @@ svg#flow{width:100%;height:100%}
 
 /* ══════════════════════════════════════════════════════════════════
    PHASE 4 — CONSOLIDATE
-   Source: server.js  POST /api/consolidate  (lines 1874–1975)
+   Source: server.js  POST /api/consolidate  (lines 3249–3350)
    No Work IQ tool — pure text-level reasoning.
+   Orchestrator (v4.0.0+): runConsolidateJob wraps this endpoint so the
+   UI survives browser refresh during the 5-min analysis.
    ══════════════════════════════════════════════════════════════════ */
 
 const NODES = [
@@ -266,7 +269,7 @@ const DETAILS = {
   prompt:{ t:'📦 Prompt — Skill + Data + Exclusions',
     b:`<div class="dd">The final prompt is explicit about what the user has already decided:</div><div class="cb">CONSOLIDATE_SKILL +\n  "\\nHere are the active tasks to analyze:\\n" +\n  JSON.stringify(taskContext, null, 2) +\n  (dismissedPairs.size &gt; 0\n    ? "\\n\\nIMPORTANT: The user has already decided to\nkeep the following task pairs SEPARATE. Do NOT\nsuggest merging them:\\n" +\n      [...dismissedPairs]\n        .map(p =&gt; p.replace('|', ' and '))\n        .join('\\n')\n    : '');</div>` },
   session:{ t:'🤖 SDK Session — No Tools',
-    b:`<div class="dd">Unlike Phase 2 and Phase 3, Consolidate <strong>does not pass any tools</strong> to the session. Copilot cannot call Work IQ or touch M365 — it may only reason over the JSON it was given.</div><div class="cb">session = trackSession(await client.createSession({\n  onPermissionRequest: approveAll\n  // NO tools: [askWorkIQTool]\n}));\n\nconst response = await session.sendAndWait(\n  { prompt }, 300000  // 5-minute timeout\n);</div><div class="dd">This is a deliberate safety boundary: merge suggestions are never based on a fresh M365 search, only on already-enriched data.</div>` },
+    b:`<div class="dd">Unlike Phase 2 and Phase 3, Consolidate <strong>does not pass any tools</strong> to the session. Copilot cannot call Work IQ or touch M365 — it may only reason over the JSON it was given. The session is still throttled through the global SDK slot semaphore, so it never competes for SDK resources with a running scan.</div><div class="cb">await waitForSDKSlot();               // shared concurrency gate\nclient = new CopilotClient();\nsession = trackSession(await client.createSession({\n  onPermissionRequest: approveAll\n  // NO tools: [askWorkIQTool]\n}));\nlinkClientToSession(session, client);\n\nconst response = await session.sendAndWait(\n  { prompt }, 300000  // 5-minute timeout\n);</div><div class="dd">This is a deliberate safety boundary: merge suggestions are never based on a fresh M365 search, only on already-enriched data.</div>` },
   parser:{ t:'📋 JSON Parse — Suggestions Array',
     b:`<div class="dd"><code>parseJsonFromResponse</code> strips markdown fences and parses the array. Expected shape per suggestion:</div><div class="cb">{\n  "taskIds":     ["uuid-a", "uuid-b"],\n  "reason":      "Short user-facing explanation",\n  "confidence":  "high | medium | low",\n  "proposedTitle":  "…"   // optional\n}</div><div class="dd">If the response is not a JSON array, the endpoint returns an empty list — never a partial result.</div>` },
   validate:{ t:'✓ Validate — Two Safety Checks',

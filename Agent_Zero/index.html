@@ -1227,6 +1227,14 @@
   const frozenTasks = new Set();
   let scanAborted = false;
   let scanAbortController = null;
+  // v4.0.0-rc.1 — server-driven scan job state. When non-null, a scan job is
+  // owned by the server and this page is merely rendering its SSE updates.
+  let activeScanJob = null;
+  // v4.0.1 — server-driven consolidate / merge jobs (same resilience as scan).
+  // Set when a job is owned by the server; cleared on job.completed/failed/cancelled.
+  let activeConsolidateJob = null;
+  let activeMergeJob = null;    // { jobId, taskIds, source: 'bar' | 'banner' }
+  let scanUiTimerInterval = null;
   let selectedTaskId = localStorage.getItem('selectedTaskId') || null;
   let mergeMode = false;
   const selectedForMerge = new Set();
@@ -1244,6 +1252,14 @@
         tasks = data.tasks || [];
         updateLastScan(data.lastScan);
         renderTasks();
+        // v4.0.0-rc.1 — on boot / reconnect we also need to repaint any
+        // in-flight log-job indicators (frozen badge, awaiting_input UI).
+        // Without this, hard-refresh during a running log-job renders the
+        // task cards with no visual cue even though the server-side job is
+        // still executing. hydrateGlobalJobs (below) only covers scan jobs.
+        if (typeof hydrateActiveJobs === 'function') {
+          hydrateActiveJobs().catch(err => console.warn('hydrateActiveJobs failed', err));
+        }
         return true;
       }
       setServerStatus(false);
@@ -1362,20 +1378,10 @@
         const card = document.getElementById('card-' + taskId);
         if (card) card.classList.add('frozen');
       }
-      // Hydrate pendingPlans from server-persisted task.pendingPlan
-      for (const task of tasks) {
-        if (task.pendingPlan && !pendingPlans[task.id]) {
-          pendingPlans[task.id] = task.pendingPlan;
-        }
-      }
-      // Restore pending plan displays for selected task
-      if (selectedTaskId && pendingPlans[selectedTaskId]) {
-        const pending = pendingPlans[selectedTaskId];
-        if (pending.intent === 'correct') {
-          showCorrectionPlanUI(selectedTaskId, pending.plan);
-        } else {
-          showPlanUI(selectedTaskId, pending.plan, pending.fallback);
-        }
+      // Phase γ.D: hydrate active jobs so SSE cursor continuity survives a
+      // browser refresh mid-job. This also re-paints awaiting_input UI.
+      if (typeof hydrateActiveJobs === 'function') {
+        hydrateActiveJobs().catch(err => console.warn('hydrateActiveJobs failed', err));
       }
     } catch (err) {
       console.error('Failed to fetch tasks:', err);
@@ -1510,400 +1516,133 @@
     }
   }
 
-  function abortScan() {
+  // v4.0.0-rc.1 — abortScan asks the server to cancel the active scan job.
+  // The server honours the semantics "stop after current item" (in-flight
+  // LLM call finishes, no further items start), then emits job.cancelled.
+  async function abortScan() {
     scanAborted = true;
-    if (scanAbortController) { scanAbortController.abort(); }
     const abortBtn = document.getElementById('btnAbort');
     if (abortBtn) { abortBtn.disabled = true; abortBtn.textContent = '⏹ Stopping...'; }
     const loadingText = document.getElementById('loadingText');
     if (loadingText) loadingText.textContent += ' — Stopping after current task...';
+    if (activeScanJob) {
+      try {
+        await fetch(`/api/jobs/${activeScanJob}/cancel`, { method: 'POST' });
+      } catch (err) {
+        console.warn('[SCAN] cancel request failed', err);
+      }
+    } else if (scanAbortController) {
+      // Legacy path (should not occur once UI is fully migrated).
+      scanAbortController.abort();
+    }
   }
 
   let scanInProgress = false;
 
-  async function triggerScan() {
-    if (scanInProgress) {
-      showNotification('A scan is already in progress. Please wait.', 'error');
-      return;
-    }
+  // v4.0.0-rc.1 — UI helpers for the server-driven scan. The scan itself no
+  // longer lives in this file; we just render what the server emits via SSE.
+
+  function beginScanUi(scanDays) {
     scanInProgress = true;
     scanAborted = false;
-    scanAbortController = new AbortController();
     const btn = document.getElementById('btnScan');
     const overlay = document.getElementById('loadingOverlay');
     const loadingText = document.getElementById('loadingText');
     const loadingTimer = document.getElementById('loadingTimer');
-    const abortBtn = document.getElementById('btnAbort');
-
-    btn.disabled = true;
-    btn.innerHTML = '📡 Scanning...<span class="btn-sub">Scan Outlook &amp; Teams</span>';
-    overlay.classList.add('visible');
-    initScanReport();
-
-    const days = document.getElementById('scanDays').value || '4';
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '📡 Scanning...<span class="btn-sub">Scan Outlook &amp; Teams</span>';
+    }
+    if (overlay) overlay.classList.add('visible');
+    if (loadingText) loadingText.textContent = `Phase 1: Scanning subjects (last ${scanDays} days)...`;
+    if (loadingTimer) loadingTimer.textContent = '⏱ 00:00';
+    if (scanUiTimerInterval) clearInterval(scanUiTimerInterval);
     let elapsed = 0;
-    loadingText.textContent = 'Phase 1: Scanning subjects...';
-    loadingTimer.textContent = '⏱ 00:00';
-
-    const timerInterval = setInterval(() => {
+    scanUiTimerInterval = setInterval(() => {
       elapsed++;
       const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
       const ss = String(elapsed % 60).padStart(2, '0');
-      loadingTimer.textContent = `⏱ ${mm}:${ss}`;
+      if (loadingTimer) loadingTimer.textContent = `⏱ ${mm}:${ss}`;
     }, 1000);
+  }
 
-    try {
-      // Auto-cleanup: permanently delete expired done tasks before scanning
-      const retentionDays = parseInt(document.getElementById('cleanupDays')?.value) || 3;
-      try {
-        const cleanupRes = await fetch('/api/cleanup', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ retentionDays })
-        });
-        const cleanupData = await cleanupRes.json();
-        if (cleanupData.removed > 0) {
-          showNotification(`Auto-cleanup: ${cleanupData.removed} expired done task(s) permanently deleted`, 'success');
-          await fetchTasks();
-        }
-      } catch (e) { /* cleanup is best-effort */ }
-
-      // ═══════════════════════════════════════════════
-      // PHASE 1: Discovery — subjects only
-      // NON-FATAL: if this fails, Phase 2/3 still process existing pending tasks
-      // ═══════════════════════════════════════════════
-      loadingText.textContent = `Phase 1: Scanning subjects (last ${days} days)...`;
-      let phase1Success = false;
-      const p1Start = Date.now();
-      updatePhaseStatus('phase1', { status: 'running', startedAt: new Date().toISOString() });
-      try {
-        const scanRes = await fetch('/api/scan', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scanDays: parseInt(days) || 4 }),
-          signal: scanAbortController.signal
-        });
-        const scanData = await scanRes.json();
-
-        if (scanRes.ok) {
-          phase1Success = true;
-          const detail = `${scanData.added || 0} new, ${scanData.updated || 0} updated, ${scanData.skipped || 0} skipped`;
-          updatePhaseStatus('phase1', { status: 'success', completedAt: new Date().toISOString(), durationMs: Date.now() - p1Start, detail });
-          await fetchTasks();
-
-          if (scanData.added > 0) {
-            showNotification(
-              `Phase 1 complete: ${scanData.added} new task${scanData.added !== 1 ? 's' : ''} found` +
-              (scanData.updated ? `, ${scanData.updated} updated` : '') + '. Enriching content...',
-              'success'
-            );
-          } else {
-            showNotification(
-              'Phase 1 complete: no new action items found.' +
-              (scanData.updated ? ` ${scanData.updated} task${scanData.updated !== 1 ? 's' : ''} updated.` : ''),
-              'success'
-            );
-          }
-        } else {
-          console.error('[SCAN] Phase 1 failed:', scanData);
-          updatePhaseStatus('phase1', { status: 'failed', completedAt: new Date().toISOString(), durationMs: Date.now() - p1Start, error: friendlyError(scanData) });
-          showNotification(`⚠️ Phase 1 scan failed: ${friendlyError(scanData)}. Continuing with existing tasks...`, 'error');
-        }
-      } catch (phase1Err) {
-        console.error('[SCAN] Phase 1 error:', phase1Err);
-        updatePhaseStatus('phase1', { status: 'failed', completedAt: new Date().toISOString(), durationMs: Date.now() - p1Start, error: phase1Err.message });
-        if (phase1Err.name === 'TypeError' && phase1Err.message.includes('fetch')) {
-          setServerStatus(false);
-          showNotification('⚠️ Server unreachable during scan. Waiting for reconnection...', 'error');
-          // Wait up to 30s for server to come back
-          for (let w = 0; w < 10 && !serverOnline; w++) {
-            await new Promise(r => setTimeout(r, 3000));
-            try {
-              const healthCheck = await fetch('/api/tasks', { signal: AbortSignal.timeout(3000) });
-              if (healthCheck.ok) { setServerStatus(true); break; }
-            } catch {}
-          }
-          if (!serverOnline) {
-            showNotification('❌ Server did not recover. Scan aborted.', 'error');
-            return;
-          }
-          showNotification('✅ Server reconnected. Continuing scan...', 'success');
-        } else {
-          showNotification(`⚠️ Phase 1 failed: ${phase1Err.message}. Continuing with existing tasks...`, 'error');
-        }
-      }
-
-      clearInterval(timerInterval);
-      if (scanAborted) return;
-
-      // ═══════════════════════════════════════════════
-      // PHASE 2: Enrichment — ALL tasks without summary
-      // Independent of Phase 1 — works on server-side task status
-      // Per-task retry: 1 retry after 3s on failure
-      // ═══════════════════════════════════════════════
-      const phase2Tasks = await (await fetch('/api/tasks', { signal: scanAbortController.signal })).json();
-      const tasksToEnrich = (phase2Tasks.tasks || [])
-        .filter(t => t.enrichmentStatus === 'pending' && t.status !== 'done');
-
-      if (tasksToEnrich.length > 0) {
-        const p2Start = Date.now();
-        updatePhaseStatus('phase2', { status: 'running', startedAt: new Date().toISOString(), total: tasksToEnrich.length });
-        btn.textContent = 'Enriching...';
-        overlay.classList.add('visible');
-        let phase2Elapsed = 0;
-        loadingText.textContent = `Phase 2: Enriching content (0/${tasksToEnrich.length})...`;
-        loadingTimer.textContent = '⏱ 00:00';
-        const phase2Timer = setInterval(() => {
-          phase2Elapsed++;
-          const mm = String(Math.floor(phase2Elapsed / 60)).padStart(2, '0');
-          const ss = String(phase2Elapsed % 60).padStart(2, '0');
-          loadingTimer.textContent = `⏱ ${mm}:${ss}`;
-        }, 1000);
-
-        for (let i = 0; i < tasksToEnrich.length; i++) {
-          if (scanAborted) {
-            showNotification(`Scan stopped by user after enriching ${i}/${tasksToEnrich.length} tasks`, 'error');
-            break;
-          }
-          const task = tasksToEnrich[i];
-          loadingText.textContent = `Phase 2: Enriching content (${i + 1}/${tasksToEnrich.length})...`;
-          freezeTask(task.id, '📋 Analyzing content...');
-          updateStepIndicator(task.id, 2, 'active');
-
-          let success = false;
-          for (let attempt = 1; attempt <= 2 && !success; attempt++) {
-            try {
-              const enrichRes = await fetch(`/api/tasks/${task.id}/enrich`, { method: 'POST', signal: scanAbortController.signal });
-              const enrichData = await enrichRes.json();
-              if (enrichRes.ok && (enrichData.summary || enrichData.alreadyEnriched)) {
-                if (enrichData.ambiguities && enrichData.ambiguities.length > 0) {
-                  updateStepIndicator(task.id, 2, 'updated');
-                } else {
-                  updateStepIndicator(task.id, 2, 'done');
-                }
-                success = true;
-                scanReport.phases.phase2.success++;
-                if (attempt > 1) scanReport.phases.phase2.retried++;
-              } else if (attempt < 2) {
-                console.warn(`[SCAN] Enrichment attempt ${attempt} failed for ${task.id}, retrying in 3s...`);
-                updateFrozenStatus(task.id, '🔄 Retrying enrichment...');
-                await new Promise(r => setTimeout(r, 3000));
-              } else {
-                updateStepIndicator(task.id, 2, 'error');
-                scanReport.phases.phase2.failed++;
-                scanReport.phases.phase2.errors.push(`${task.title.substring(0, 40)}: server error`);
-              }
-            } catch (err) {
-              if (err.name === 'AbortError') { throw err; }
-              console.error(`[SCAN] Enrichment attempt ${attempt} error for ${task.id}:`, err);
-              if (err.name === 'TypeError' && err.message.includes('fetch')) {
-                setServerStatus(false);
-                updateFrozenStatus(task.id, '⏳ Waiting for server...');
-                await new Promise(r => setTimeout(r, 5000));
-                try {
-                  const h = await fetch('/api/tasks', { signal: AbortSignal.timeout(3000) });
-                  if (h.ok) setServerStatus(true);
-                } catch {}
-                if (!serverOnline && attempt >= 2) {
-                  scanReport.phases.phase2.failed++;
-                  scanReport.phases.phase2.errors.push(`${task.title.substring(0, 40)}: server unreachable`);
-                  scanAborted = true;
-                  break;
-                }
-              } else if (attempt >= 2) {
-                updateStepIndicator(task.id, 2, 'error');
-                scanReport.phases.phase2.failed++;
-                scanReport.phases.phase2.errors.push(`${task.title.substring(0, 40)}: ${err.message}`);
-              } else {
-                await new Promise(r => setTimeout(r, 3000));
-              }
-            }
-          }
-          unfreezeTask(task.id);
-          try { await refreshSingleTask(task.id); } catch {}
-          saveScanReport();
-        }
-        clearInterval(phase2Timer);
-        const p2Status = scanReport.phases.phase2.failed > 0 ? (scanReport.phases.phase2.success > 0 ? 'partial' : 'failed') : 'success';
-        updatePhaseStatus('phase2', { status: p2Status, completedAt: new Date().toISOString(), durationMs: Date.now() - p2Start });
-      } else {
-        updatePhaseStatus('phase2', { status: 'skipped', detail: 'No pending tasks' });
-      }
-
-      // ═══════════════════════════════════════════════
-      // PHASE 3: Update Check — ALL enriched/needs-review, non-done tasks
-      // Independent of Phase 1/2 — works on server-side task status
-      // Per-task retry: 1 retry after 3s on failure
-      // ═══════════════════════════════════════════════
-      if (!scanAborted) {
-      const phase3Tasks = await (await fetch('/api/tasks', { signal: scanAbortController.signal })).json();
-      const tasksToCheck = (phase3Tasks.tasks || [])
-        .filter(t => (t.enrichmentStatus === 'enriched' || t.enrichmentStatus === 'needs-review') && t.status !== 'done');
-
-      if (tasksToCheck.length > 0) {
-        const p3Start = Date.now();
-        updatePhaseStatus('phase3', { status: 'running', startedAt: new Date().toISOString(), total: tasksToCheck.length });
-        btn.textContent = 'Checking updates...';
-        overlay.classList.add('visible');
-        let phase3Elapsed = 0;
-        loadingText.textContent = `Phase 3: Checking for updates (0/${tasksToCheck.length})...`;
-        loadingTimer.textContent = '⏱ 00:00';
-        const phase3Timer = setInterval(() => {
-          phase3Elapsed++;
-          const mm = String(Math.floor(phase3Elapsed / 60)).padStart(2, '0');
-          const ss = String(phase3Elapsed % 60).padStart(2, '0');
-          loadingTimer.textContent = `⏱ ${mm}:${ss}`;
-        }, 1000);
-
-        for (let i = 0; i < tasksToCheck.length; i++) {
-          if (scanAborted) {
-            showNotification(`Scan stopped by user after checking ${i}/${tasksToCheck.length} tasks`, 'error');
-            break;
-          }
-          const task = tasksToCheck[i];
-          loadingText.textContent = `Phase 3: Checking for updates (${i + 1}/${tasksToCheck.length})...`;
-          freezeTask(task.id, '🔍 Checking for updates...');
-          updateStepIndicator(task.id, 3, 'active');
-
-          let success = false;
-          for (let attempt = 1; attempt <= 2 && !success; attempt++) {
-            try {
-              const checkRes = await fetch(`/api/tasks/${task.id}/check-update`, { method: 'POST', signal: scanAbortController.signal });
-              const checkData = await checkRes.json();
-              if (checkRes.ok) {
-                if (checkData.skipped) {
-                  // Pre-filter: not a real check, mark as done quietly
-                  updateStepIndicator(task.id, 3, 'done');
-                } else if (checkData.outcome === 'inconclusive') {
-                  // Inconclusive: budget/stub/wiq-down. Treated as "done" visually but
-                  // server has NOT advanced lastSuccessfulUpdateCheck → will retry next scan.
-                  updateStepIndicator(task.id, 3, 'done');
-                  console.warn(`[SCAN] Phase 3 inconclusive for ${task.id}:`, checkData.reasons || '?');
-                } else {
-                  updateStepIndicator(task.id, 3, checkData.hasUpdate ? 'updated' : 'done');
-                  if (checkData.hasUpdate) {
-                    showNotification(`Task updated: ${task.title.substring(0, 40)}...`, 'success');
-                  }
-                }
-                success = true;
-                scanReport.phases.phase3.success++;
-                if (attempt > 1) scanReport.phases.phase3.retried++;
-              } else if (attempt < 2) {
-                console.warn(`[SCAN] Update check attempt ${attempt} failed for ${task.id}, retrying in 3s...`);
-                updateFrozenStatus(task.id, '🔄 Retrying update check...');
-                await new Promise(r => setTimeout(r, 3000));
-              } else {
-                updateStepIndicator(task.id, 3, 'error');
-                scanReport.phases.phase3.failed++;
-                scanReport.phases.phase3.errors.push(`${task.title.substring(0, 40)}: server error`);
-              }
-            } catch (err) {
-              if (err.name === 'AbortError') { throw err; }
-              console.error(`[SCAN] Update check attempt ${attempt} error for ${task.id}:`, err);
-              if (err.name === 'TypeError' && err.message.includes('fetch')) {
-                setServerStatus(false);
-                updateFrozenStatus(task.id, '⏳ Waiting for server...');
-                await new Promise(r => setTimeout(r, 5000));
-                try {
-                  const h = await fetch('/api/tasks', { signal: AbortSignal.timeout(3000) });
-                  if (h.ok) setServerStatus(true);
-                } catch {}
-                if (!serverOnline && attempt >= 2) {
-                  scanReport.phases.phase3.failed++;
-                  scanReport.phases.phase3.errors.push(`${task.title.substring(0, 40)}: server unreachable`);
-                  scanAborted = true;
-                  break;
-                }
-              } else if (attempt >= 2) {
-                updateStepIndicator(task.id, 3, 'error');
-                scanReport.phases.phase3.failed++;
-                scanReport.phases.phase3.errors.push(`${task.title.substring(0, 40)}: ${err.message}`);
-              } else {
-                await new Promise(r => setTimeout(r, 3000));
-              }
-            }
-          }
-          unfreezeTask(task.id);
-          try { await refreshSingleTask(task.id); } catch {}
-          saveScanReport();
-        }
-        clearInterval(phase3Timer);
-        const p3Status = scanReport.phases.phase3.failed > 0 ? (scanReport.phases.phase3.success > 0 ? 'partial' : 'failed') : 'success';
-        updatePhaseStatus('phase3', { status: p3Status, completedAt: new Date().toISOString(), durationMs: Date.now() - p3Start });
-      } else {
-        updatePhaseStatus('phase3', { status: 'skipped', detail: 'No enriched tasks to check' });
-      }
-      } // end if (!scanAborted)
-
-      // ═══════════════════════════════════════════════
-      // PHASE 4: Consolidation — suggest merging related tasks
-      // Already non-fatal (has its own try-catch)
-      // ═══════════════════════════════════════════════
-      if (!scanAborted) {
-        const p4Start = Date.now();
-        updatePhaseStatus('phase4', { status: 'running', startedAt: new Date().toISOString() });
-        try {
-          loadingText.textContent = 'Phase 4: Analyzing task relationships...';
-          overlay.classList.add('visible');
-          loadingTimer.textContent = '⏱ 00:00';
-          let phase4Elapsed = 0;
-          const phase4Timer = setInterval(() => {
-            phase4Elapsed++;
-            const mm = String(Math.floor(phase4Elapsed / 60)).padStart(2, '0');
-            const ss = String(phase4Elapsed % 60).padStart(2, '0');
-            loadingTimer.textContent = `⏱ ${mm}:${ss}`;
-          }, 1000);
-
-          const consolidateRes = await fetch('/api/consolidate', { method: 'POST', signal: scanAbortController.signal });
-          const consolidateData = await consolidateRes.json();
-          clearInterval(phase4Timer);
-
-          const sugCount = consolidateData.suggestions?.length || 0;
-          updatePhaseStatus('phase4', { status: 'success', completedAt: new Date().toISOString(), durationMs: Date.now() - p4Start, detail: `${sugCount} merge suggestion(s)` });
-
-          if (sugCount > 0) {
-            showConsolidationBanner(consolidateData.suggestions);
-          }
-        } catch (err) {
-          console.error('Phase 4 consolidation failed (non-fatal):', err);
-          updatePhaseStatus('phase4', { status: 'failed', completedAt: new Date().toISOString(), durationMs: Date.now() - p4Start, error: err.message });
-          if (err.name === 'TypeError' && err.message.includes('fetch')) {
-            setServerStatus(false);
-          }
-        }
-      } else {
-        updatePhaseStatus('phase4', { status: 'skipped', detail: 'Scan was aborted' });
-      }
-
-      // Finalize scan report
-      if (scanReport) {
-        scanReport.completedAt = new Date().toISOString();
-        scanReport.aborted = scanAborted;
-        saveScanReport();
-      }
-
-      overlay.classList.remove('visible');
-      await fetchTasks();
-
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        // Scan was aborted by user — not an error
-        showNotification('Scan stopped by user', 'error');
-      } else if (err.name === 'TypeError' && err.message.includes('fetch')) {
-        setServerStatus(false);
-      } else {
-        showNotification('Scan failed: ' + err.message, 'error');
-      }
-    } finally {
-      scanInProgress = false;
-      clearInterval(timerInterval);
-      overlay.classList.remove('visible');
-      loadingText.className = 'loading-text';
+  function endScanUi() {
+    scanInProgress = false;
+    if (scanUiTimerInterval) { clearInterval(scanUiTimerInterval); scanUiTimerInterval = null; }
+    const btn = document.getElementById('btnScan');
+    const overlay = document.getElementById('loadingOverlay');
+    if (overlay) overlay.classList.remove('visible');
+    if (btn) {
       btn.disabled = !serverOnline;
       btn.innerHTML = '📡 Generate Action Items<span class="btn-sub">Scan Outlook &amp; Teams</span>';
-      scanAborted = false;
-      scanAbortController = null;
-      if (abortBtn) { abortBtn.disabled = false; abortBtn.textContent = '⏹ Stop'; }
+    }
+    const abortBtn = document.getElementById('btnAbort');
+    if (abortBtn) { abortBtn.disabled = false; abortBtn.textContent = '⏹ Stop'; }
+  }
+
+  // v4.0.0-rc.1 — starts a server-side scan job. The old in-browser for-loop
+  // (~380 LOC, see git history pre-4.0.0-rc.1) is gone: a browser refresh no
+  // longer terminates work because the loop lives on the server. The UI here
+  // only kicks off the job and then passively reflects SSE updates.
+  async function triggerScan() {
+    if (scanInProgress || activeScanJob) {
+      showNotification('A scan is already in progress. Please wait.', 'error');
+      return;
+    }
+    const days = parseInt(document.getElementById('scanDays')?.value, 10) || 4;
+
+    // Auto-cleanup (preserved from 3.x — best-effort, non-fatal).
+    try {
+      const retentionDays = parseInt(document.getElementById('cleanupDays')?.value, 10) || 3;
+      const cleanupRes = await fetch('/api/cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ retentionDays })
+      });
+      const cleanupData = await cleanupRes.json().catch(() => ({}));
+      if (cleanupData.removed > 0) {
+        showNotification(`Auto-cleanup: ${cleanupData.removed} expired done task(s) permanently deleted`, 'success');
+        await fetchTasks();
+      }
+    } catch { /* best-effort */ }
+
+    initScanReport();
+    beginScanUi(days);
+
+    try {
+      const clientRequestId = `scan-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const r = await fetch('/api/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'scan', input: { scanDays: days }, clientRequestId })
+      });
+      if (r.status === 409) {
+        const data = await r.json().catch(() => ({}));
+        endScanUi();
+        showNotification('A scan is already running on the server.', 'error');
+        if (data.existingJobId) {
+          activeScanJob = data.existingJobId;
+          beginScanUi(days);
+        }
+        return;
+      }
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        endScanUi();
+        showNotification('Failed to start scan: ' + (data.error || ('HTTP ' + r.status)), 'error');
+        return;
+      }
+      const body = await r.json();
+      activeScanJob = body.jobId;
+      // From here on everything is driven by SSE (handleScanJobEvent).
+    } catch (err) {
+      endScanUi();
+      if (err.name === 'TypeError' && /fetch/i.test(err.message || '')) {
+        setServerStatus(false);
+        showNotification('⚠️ Server unreachable. Please try again once reconnected.', 'error');
+      } else {
+        showNotification('Failed to start scan: ' + err.message, 'error');
+      }
     }
   }
 
@@ -1983,33 +1722,92 @@
     if (abortBtn) abortBtn.style.display = '';
   }
 
+  // v4.0.1 — Find Duplicates runs as a server-side job (kind='consolidate').
+  // This button only kicks off the job; job.completed via SSE drives the UI.
   async function triggerFindDuplicates() {
+    if (activeConsolidateJob) {
+      showNotification('Duplicate search already running — please wait.', 'info');
+      return;
+    }
     const btn = document.getElementById('btnFindDuplicates');
-    const origText = btn.textContent;
+    btn.dataset.origText = btn.textContent;
     btn.disabled = true;
     btn.textContent = '🔗 Analyzing...';
     showHeaderProgress('Finding duplicates — analyzing task relationships...');
 
     try {
-      const res = await fetch('/api/consolidate', { method: 'POST' });
-      const data = await res.json();
-      if (data.suggestions && data.suggestions.length > 0) {
-        showConsolidationBanner(data.suggestions);
-        showNotification(`${data.suggestions.length} potential duplicate(s) found`, 'success');
-      } else {
-        showNotification('No duplicates found — all action items are unique', 'success');
+      const clientRequestId = `consol-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const r = await fetch('/api/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'consolidate', input: {}, clientRequestId })
+      });
+      const data = await r.json().catch(() => ({}));
+      if (r.status === 409) {
+        showNotification('A duplicate search is already running on the server.', 'error');
+        if (data.existingJobId) activeConsolidateJob = data.existingJobId;
+        return;
       }
+      if (!r.ok || !data.jobId) {
+        throw new Error(data.error || `HTTP ${r.status}`);
+      }
+      activeConsolidateJob = data.jobId;
+      // From here on, SSE drives the UI (handleConsolidateJobEvent).
     } catch (err) {
       if (err.name === 'TypeError' && err.message.includes('fetch')) {
         setServerStatus(false);
       } else {
         showNotification('Duplicate check failed: ' + err.message, 'error');
       }
-    } finally {
       hideHeaderProgress();
       btn.disabled = false;
-      btn.textContent = origText;
+      btn.textContent = btn.dataset.origText || '🔗 Find Duplicates';
+      delete btn.dataset.origText;
     }
+  }
+
+  function resetFindDuplicatesButton() {
+    const btn = document.getElementById('btnFindDuplicates');
+    if (!btn) return;
+    btn.disabled = false;
+    btn.textContent = btn.dataset.origText || '🔗 Find Duplicates';
+    delete btn.dataset.origText;
+  }
+
+  // v4.0.1 — SSE handler for consolidate jobs.
+  function handleConsolidateJobEvent(ev) {
+    if (ev.kind !== 'consolidate') return false;
+    const { type, payload = {}, jobId } = ev;
+    switch (type) {
+      case 'job.started':
+        activeConsolidateJob = jobId;
+        break;
+      case 'job.completed': {
+        activeConsolidateJob = null;
+        hideHeaderProgress();
+        resetFindDuplicatesButton();
+        const suggestions = (payload && payload.suggestions) || [];
+        if (suggestions.length > 0) {
+          showConsolidationBanner(suggestions);
+          showNotification(`${suggestions.length} potential duplicate(s) found`, 'success');
+        } else {
+          showNotification('No duplicates found — all action items are unique', 'success');
+        }
+        break;
+      }
+      case 'job.failed':
+        activeConsolidateJob = null;
+        hideHeaderProgress();
+        resetFindDuplicatesButton();
+        showNotification('Duplicate check failed: ' + (payload.error || 'unknown'), 'error');
+        break;
+      case 'job.cancelled':
+        activeConsolidateJob = null;
+        hideHeaderProgress();
+        resetFindDuplicatesButton();
+        break;
+    }
+    return true;
   }
 
   // --- Merge Mode ---
@@ -2082,38 +1880,46 @@
     document.body.appendChild(bar);
   }
 
+  // v4.0.1 — Merge from bottom merge-bar runs as a server-side job (kind='merge').
+  // Survives refresh: jobs.json persists, SSE drives completion UI.
   async function executeMergeFromBar() {
     if (selectedForMerge.size < 2) return;
+    if (activeMergeJob) {
+      showNotification('A merge is already running — please wait.', 'info');
+      return;
+    }
     const taskIds = [...selectedForMerge];
     const mergeBtn = document.querySelector('.btn-do-merge');
     if (mergeBtn) { mergeBtn.disabled = true; mergeBtn.textContent = '⏳ Merging...'; }
     showHeaderProgress(`Merging ${taskIds.length} tasks — generating combined summary...`);
 
     try {
-      const res = await fetch('/api/tasks/merge', {
+      const clientRequestId = `merge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const r = await fetch('/api/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskIds })
+        body: JSON.stringify({ kind: 'merge', input: { taskIds }, clientRequestId })
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        toggleMergeMode();
-        showNotification(`✅ ${taskIds.length} tasks merged into: "${data.task.title}"`, 'success');
-        await fetchTasks();
-        selectTask(data.task.id);
-      } else {
-        showNotification('Merge failed: ' + (data.error || 'Unknown error'), 'error');
+      const data = await r.json().catch(() => ({}));
+      if (r.status === 409) {
+        showNotification('A merge is already running on the server.', 'error');
+        if (data.existingJobId) activeMergeJob = { jobId: data.existingJobId, taskIds, source: 'bar' };
         if (mergeBtn) { mergeBtn.disabled = false; mergeBtn.textContent = `🔗 Merge ${taskIds.length} Tasks`; }
+        return;
       }
+      if (!r.ok || !data.jobId) {
+        throw new Error(data.error || `HTTP ${r.status}`);
+      }
+      activeMergeJob = { jobId: data.jobId, taskIds, source: 'bar' };
+      // SSE (handleMergeJobEvent) drives the rest.
     } catch (err) {
+      hideHeaderProgress();
       if (err.name === 'TypeError' && err.message.includes('fetch')) {
         setServerStatus(false);
       } else {
         showNotification('Merge failed: ' + err.message, 'error');
       }
       if (mergeBtn) { mergeBtn.disabled = false; mergeBtn.textContent = `🔗 Merge ${taskIds.length} Tasks`; }
-    } finally {
-      hideHeaderProgress();
     }
   }
 
@@ -2147,35 +1953,95 @@
   }
 
   async function handleMerge(btn) {
+    if (activeMergeJob) {
+      showNotification('A merge is already running — please wait.', 'info');
+      return;
+    }
     const card = btn.closest('.merge-suggestion');
     const taskIds = JSON.parse(card.dataset.taskIds);
     btn.disabled = true;
     btn.textContent = '⏳ Merging...';
 
     try {
-      const res = await fetch('/api/tasks/merge', {
+      const clientRequestId = `merge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const r = await fetch('/api/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskIds })
+        body: JSON.stringify({ kind: 'merge', input: { taskIds }, clientRequestId })
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        card.remove();
-        showNotification(`Tasks merged into: "${data.task.title}"`, 'success');
-        await fetchTasks();
-        // Remove banner if no suggestions left
-        const banner = document.querySelector('.consolidation-banner');
-        if (banner && !banner.querySelector('.merge-suggestion')) banner.remove();
-      } else {
-        showNotification('Merge failed: ' + (data.error || 'Unknown error'), 'error');
+      const data = await r.json().catch(() => ({}));
+      if (r.status === 409) {
+        showNotification('A merge is already running on the server.', 'error');
         btn.disabled = false;
         btn.textContent = '🔗 Merge';
+        return;
       }
+      if (!r.ok || !data.jobId) {
+        throw new Error(data.error || `HTTP ${r.status}`);
+      }
+      activeMergeJob = { jobId: data.jobId, taskIds, source: 'banner' };
+      // SSE (handleMergeJobEvent) finishes the UI. Store card ref for removal.
+      card.dataset.mergeJobId = data.jobId;
     } catch (err) {
       showNotification('Merge failed: ' + err.message, 'error');
       btn.disabled = false;
       btn.textContent = '🔗 Merge';
     }
+  }
+
+  // v4.0.1 — SSE handler for merge jobs.
+  function handleMergeJobEvent(ev) {
+    if (ev.kind !== 'merge') return false;
+    const { type, payload = {}, jobId } = ev;
+    switch (type) {
+      case 'job.started':
+        if (!activeMergeJob) activeMergeJob = { jobId, taskIds: [], source: 'bar' };
+        break;
+      case 'job.completed': {
+        const source = activeMergeJob && activeMergeJob.source;
+        const nTasks = (activeMergeJob && activeMergeJob.taskIds && activeMergeJob.taskIds.length) || 2;
+        activeMergeJob = null;
+        hideHeaderProgress();
+
+        if (source === 'banner') {
+          const card = document.querySelector(`.merge-suggestion[data-merge-job-id="${jobId}"]`);
+          if (card) card.remove();
+          const banner = document.querySelector('.consolidation-banner');
+          if (banner && !banner.querySelector('.merge-suggestion')) banner.remove();
+          showNotification(`Tasks merged into: "${payload.title || 'merged task'}"`, 'success');
+        } else {
+          if (mergeMode) toggleMergeMode();
+          showNotification(`✅ ${nTasks} tasks merged into: "${payload.title || 'merged task'}"`, 'success');
+        }
+        fetchTasks().then(() => {
+          if (payload.taskId) selectTask(payload.taskId);
+        }).catch(() => {});
+        break;
+      }
+      case 'job.failed': {
+        const source = activeMergeJob && activeMergeJob.source;
+        activeMergeJob = null;
+        hideHeaderProgress();
+        showNotification('Merge failed: ' + (payload.error || 'unknown'), 'error');
+        if (source === 'banner') {
+          const card = document.querySelector(`.merge-suggestion[data-merge-job-id="${jobId}"]`);
+          if (card) {
+            const btn = card.querySelector('.btn-merge');
+            if (btn) { btn.disabled = false; btn.textContent = '🔗 Merge'; }
+            delete card.dataset.mergeJobId;
+          }
+        } else {
+          const mergeBtn = document.querySelector('.btn-do-merge');
+          if (mergeBtn) { mergeBtn.disabled = false; mergeBtn.textContent = '🔗 Merge Tasks'; }
+        }
+        break;
+      }
+      case 'job.cancelled':
+        activeMergeJob = null;
+        hideHeaderProgress();
+        break;
+    }
+    return true;
   }
 
   async function handleKeepSeparate(btn) {
@@ -2219,6 +2085,79 @@
   }
 
   // --- Rendering ---
+
+  // v3.4.0 Phase α.2: Universal input/focus/selection preservation helper.
+  // Captures all <input>, <textarea>, [contenteditable] values, focus, and cursor position
+  // from #taskDetailPanel, replaces HTML, then restores them in matching elements.
+  // Elements are matched by (id → name → position among siblings of same tag).
+  // Use when re-rendering the same task's panel (same-task redraw). On task switch use safeReplaceDetailForNewTask.
+  function safeReplaceDetail(html) {
+    const detailPanel = document.getElementById('taskDetailPanel');
+    if (!detailPanel) return;
+    const captured = [];
+    const fields = detailPanel.querySelectorAll('input, textarea, [contenteditable="true"]');
+    const typeCounters = {};
+    fields.forEach(el => {
+      const tag = el.tagName.toLowerCase();
+      typeCounters[tag] = (typeCounters[tag] || 0) + 1;
+      const isText = (tag === 'textarea') || (tag === 'input' && !['checkbox', 'radio', 'button', 'submit'].includes(el.type));
+      const value = isText ? el.value : (el.checked !== undefined ? el.checked : el.value);
+      const hasFocus = document.activeElement === el;
+      const selStart = (isText && el.selectionStart != null) ? el.selectionStart : null;
+      const selEnd = (isText && el.selectionEnd != null) ? el.selectionEnd : null;
+      captured.push({
+        id: el.id || '',
+        name: el.name || el.getAttribute('data-field') || '',
+        tag,
+        type: el.type || '',
+        index: typeCounters[tag] - 1,
+        value, hasFocus, selStart, selEnd,
+        isContentEditable: el.isContentEditable,
+        innerHTML: el.isContentEditable ? el.innerHTML : null,
+      });
+    });
+    detailPanel.innerHTML = html;
+    // Restore
+    const newFields = detailPanel.querySelectorAll('input, textarea, [contenteditable="true"]');
+    const newTypeCounters = {};
+    const newByTag = {};
+    newFields.forEach(el => {
+      const tag = el.tagName.toLowerCase();
+      newTypeCounters[tag] = (newTypeCounters[tag] || 0) + 1;
+      if (!newByTag[tag]) newByTag[tag] = [];
+      newByTag[tag].push(el);
+    });
+    captured.forEach(cap => {
+      let target = null;
+      if (cap.id) target = detailPanel.querySelector('#' + CSS.escape(cap.id));
+      if (!target && cap.name) {
+        target = detailPanel.querySelector(`[name="${CSS.escape(cap.name)}"], [data-field="${CSS.escape(cap.name)}"]`);
+      }
+      if (!target && newByTag[cap.tag] && newByTag[cap.tag][cap.index]) {
+        const candidate = newByTag[cap.tag][cap.index];
+        // Only positional match if types line up — prevents restoring a text value into a submit button.
+        if ((candidate.type || '') === (cap.type || '')) target = candidate;
+      }
+      if (!target) return;
+      try {
+        if (cap.isContentEditable && cap.innerHTML != null) {
+          target.innerHTML = cap.innerHTML;
+        } else if (cap.tag === 'input' && ['checkbox', 'radio'].includes(cap.type)) {
+          target.checked = !!cap.value;
+        } else if (cap.value !== undefined && cap.value !== null && cap.value !== '') {
+          target.value = cap.value;
+        }
+        if (cap.hasFocus) {
+          target.focus();
+          if (cap.selStart != null && cap.selEnd != null && target.setSelectionRange) {
+            try { target.setSelectionRange(cap.selStart, cap.selEnd); } catch {}
+          }
+        }
+      } catch (e) {
+        console.warn('safeReplaceDetail: restore failed for', cap, e);
+      }
+    });
+  }
 
   function renderTasks() {
     const list = document.getElementById('taskList');
@@ -2298,23 +2237,7 @@
     }
     // Don't overwrite detail panel if selected task is frozen (agent working)
     if (!frozenTasks.has(selectedTaskId)) {
-      // Preserve user input before re-render
-      const activeInput = detailPanel.querySelector('.panel-log-form input');
-      const savedInputValue = activeInput ? activeInput.value : '';
-      const activeNoteInput = detailPanel.querySelector('.panel-note-form input, .panel-note-form textarea');
-      const savedNoteValue = activeNoteInput ? activeNoteInput.value : '';
-
-      detailPanel.innerHTML = renderTaskDetail(tasks.find(t => t.id === selectedTaskId));
-
-      // Restore user input after re-render
-      if (savedInputValue) {
-        const restoredInput = detailPanel.querySelector('.panel-log-form input');
-        if (restoredInput) restoredInput.value = savedInputValue;
-      }
-      if (savedNoteValue) {
-        const restoredNote = detailPanel.querySelector('.panel-note-form input, .panel-note-form textarea');
-        if (restoredNote) restoredNote.value = savedNoteValue;
-      }
+      paintTaskDetail(tasks.find(t => t.id === selectedTaskId));
     }
     // Highlight selected item
     document.getElementById('card-' + selectedTaskId)?.classList.add('selected');
@@ -2499,33 +2422,71 @@
       .filter(e => e.type === 'update' || e.type === 'note' || e.type === 'review-response');
     const systemEvents = history.filter(e => e.type !== 'update' && e.type !== 'note' && e.type !== 'review-response');
 
-    return `
-      <div class="task-detail-view${isFrozen ? ' frozen' : ''}">
-        <div class="detail-header">
-          <div class="task-title">${escHtml(task.title)} ${stepIndicator}</div>
+    // Phase γ.C: emit stable slot markers so paintTaskDetail can update
+    // individual slots in place without touching the persistent form inputs.
+    const headerInner = `<div class="task-title">${escHtml(task.title)} ${stepIndicator}</div>
           <div class="task-meta">
             ${sourceBadge}
             <span>${fromText}${separator}${dateText}</span>
             ${linkHtml}
           </div>
-          ${timestampHtml}
-        </div>
-        ${summaryHtml}
-        ${ambiguityHtml}
-        ${notesHtml}
-        <div class="panel-log-form">
+          ${timestampHtml}`;
+
+    return `
+      <div class="task-detail-view${isFrozen ? ' frozen' : ''}" data-task-id="${task.id}">
+        <div class="detail-header" data-slot="header">${headerInner}</div>
+        <div data-slot="summary">${summaryHtml}</div>
+        <div data-slot="ambiguity">${ambiguityHtml}</div>
+        <div data-slot="notes">${notesHtml}</div>
+        <div class="panel-log-form" data-slot="form-log">
           <input type="text" placeholder="Message or update..." onkeydown="if(event.key==='Enter')analyzeLog('${task.id}',this)">
           <button class="btn btn-primary btn-sm" onclick="analyzeLog('${task.id}',this.previousElementSibling)" title="Send to agent">📤 Send</button>
           <button class="btn btn-ghost btn-sm" onclick="addNote('${task.id}',this.parentElement.querySelector('input'))" title="Save as note (no agent)">📝 Note</button>
         </div>
-        <div class="log-plan" id="plan-${task.id}"></div>
-        <div class="log-clarification" id="clarify-${task.id}">
+        <div class="log-plan" id="plan-${task.id}" data-slot="plan"></div>
+        <div class="log-clarification" id="clarify-${task.id}" data-slot="form-clarify">
           <input type="text" placeholder="Your answer..." onkeydown="if(event.key==='Enter')submitClarification('${task.id}',this)">
           <button class="btn btn-primary btn-sm" onclick="submitClarification('${task.id}',this.previousElementSibling)">Send</button>
         </div>
-        ${renderConversations(conversations, task.id)}
-        ${renderDetails(conversations, systemEvents, task.id)}
+        <div data-slot="conversations">${renderConversations(conversations, task.id)}</div>
+        <div data-slot="details">${renderDetails(conversations, systemEvents, task.id)}</div>
       </div>`;
+  }
+
+  // Phase γ.C: slot-patching painter. If the panel already shows the same
+  // task, patch individual non-persistent slots in place so form inputs keep
+  // DOM identity (focus, cursor, selection, IME composition, draft text).
+  // Falls back to a full replace via safeReplaceDetail when the task changes
+  // or the shell is missing (e.g. initial paint, task switch).
+  const PAINT_PERSISTENT_SLOTS = new Set(['form-log', 'plan', 'form-clarify']);
+  function paintTaskDetail(task) {
+    const panel = document.getElementById('taskDetailPanel');
+    if (!panel) return;
+    if (!task) {
+      panel.innerHTML = renderTaskDetail(null);
+      return;
+    }
+    const existing = panel.querySelector(`.task-detail-view[data-task-id="${CSS.escape(task.id)}"]`);
+    if (!existing) {
+      safeReplaceDetail(renderTaskDetail(task));
+      if (typeof applyDraftsToPanel === 'function') applyDraftsToPanel(task.id);
+      return;
+    }
+    const tpl = document.createElement('template');
+    tpl.innerHTML = renderTaskDetail(task);
+    const fresh = tpl.content.querySelector('.task-detail-view');
+    if (!fresh) {
+      safeReplaceDetail(renderTaskDetail(task));
+      return;
+    }
+    existing.classList.toggle('frozen', fresh.classList.contains('frozen'));
+    fresh.querySelectorAll('[data-slot]').forEach(newEl => {
+      const slot = newEl.getAttribute('data-slot');
+      if (PAINT_PERSISTENT_SLOTS.has(slot)) return;
+      const oldEl = existing.querySelector(`[data-slot="${slot}"]`);
+      if (!oldEl) return;
+      if (oldEl.innerHTML !== newEl.innerHTML) oldEl.innerHTML = newEl.innerHTML;
+    });
   }
 
   function renderConversations(conversations, taskId) {
@@ -2562,14 +2523,15 @@
 
       // Agent response — collapsible, Markdown formatted
       // For search intents: show agentResponse (final result) if available, otherwise understanding (plan)
-      const agentText = (agentIntent === 'search' && entry.agentResponse) ? entry.agentResponse
+      // Phase γ.E: answer-intent jobs also populate agentResponse with the reply.
+      const agentText = ((agentIntent === 'search' || agentIntent === 'answer') && entry.agentResponse) ? entry.agentResponse
         : entry.agentPlan ? (entry.agentPlan.understanding || '') : '';
 
       // v2.2: If agentExecution has a direct answer, show it prominently (never collapsed)
       const directAnswer = entry.agentExecution?.answer;
       const directConfidence = entry.agentExecution?.confidence;
 
-      if (directAnswer && agentIntent === 'search') {
+      if (directAnswer && (agentIntent === 'search' || agentIntent === 'answer')) {
         // v2.2: Prominent answer block — always visible, never collapsed
         const confColors = { high: '#4ade80', medium: '#fbbf24', low: '#fb923c', none: '#f87171' };
         const confIcons = { high: '✅', medium: '⚠️', low: '🔍', none: '❌' };
@@ -2788,20 +2750,16 @@
     const task = tasks.find(t => t.id === taskId);
     const detailPanel = document.getElementById('taskDetailPanel');
     if (detailPanel && task) {
-      detailPanel.innerHTML = renderTaskDetail(task);
+      paintTaskDetail(task);
+      // α.3: Restore any saved drafts for this task's inputs.
+      if (typeof applyDraftsToPanel === 'function') applyDraftsToPanel(taskId);
     }
     saveUIState();
-    // Restore pending plan if this task has one (server-persisted)
-    const pending = pendingPlans[taskId] || task?.pendingPlan;
-    if (pending) {
-      if (!pendingPlans[taskId]) pendingPlans[taskId] = pending;
-      setTimeout(() => {
-        if (pending.intent === 'correct') {
-          showCorrectionPlanUI(taskId, pending.plan);
-        } else {
-          showPlanUI(taskId, pending.plan, pending.fallback);
-        }
-      }, 50);
+    // Phase γ.E: paint active-job UI (awaiting_input question, frozen badge)
+    // if a job is in flight for this task (hydrateActiveJobs keeps this in sync).
+    const activeJobId = activeJobsByTask[taskId];
+    if (activeJobId && activeJobs[activeJobId]) {
+      updateTaskJobUi(taskId, activeJobs[activeJobId]);
     }
     // Scroll selected card into view in middle panel
     const card = document.getElementById('card-' + taskId);
@@ -2842,284 +2800,100 @@
     }
   }
 
+  // Phase γ.E: replace the legacy two-phase (analyze → Execute) flow with a
+  // one-call autonomous job. The user types → we POST /log → SSE drives
+  // the UI. No more plan previews, no more pendingPlans state, no manual
+  // Execute click. See server.js runLogJob for the backend side.
+
   async function analyzeLog(taskId, input) {
-    if (frozenTasks.has(taskId)) {
-      showNotification('This task is being processed. Please wait.', 'error');
+    if (!input || !input.value) return;
+    const text = String(input.value).trim();
+    if (!text) return;
+    if (activeJobsByTask[taskId]) {
+      showNotification('Agent is already working on this task', 'info');
       return;
     }
-    const text = input.value.trim();
-    if (!text) return;
-
-    let planEl = document.getElementById('plan-' + taskId);
-    let clarifyEl = document.getElementById('clarify-' + taskId);
+    const clientRequestId = `log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     input.disabled = true;
-
-    // Mark task as frozen (neon cyan highlight — same visual as scan phases)
-    freezeTask(taskId, '🤔 Analyzing request...');
-
-    planEl.innerHTML = '<div class="log-plan-understanding">🤔 Agent is analyzing your request...</div>';
-    planEl.classList.add('visible');
-    clarifyEl.classList.remove('visible');
-
     try {
-      const res = await fetch(`/api/tasks/${taskId}/log/analyze`, {
+      const res = await fetch(`/api/tasks/${taskId}/log`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text })
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': clientRequestId,
+        },
+        body: JSON.stringify({ text, clientRequestId }),
       });
-      const data = await res.json();
-
-      // Re-acquire DOM refs (may have been rebuilt by another task's fetchTasks)
-      planEl = document.getElementById('plan-' + taskId);
-      clarifyEl = document.getElementById('clarify-' + taskId);
-
-      // Check if user navigated away during async call
-      if (selectedTaskId !== taskId) {
-        const task = tasks.find(t => t.id === taskId);
-        const taskTitle = task?.title || 'Task';
-        const intent = data.intent || 'search';
-
-        if (res.ok) {
-          if ((intent === 'summarize' || intent === 'answer' || intent === 'rename' || intent === 'update') && (data.result || intent === 'update')) {
-            // Immediate results — data already saved on server, just notify
-            const msgs = { summarize: '✏️ Summary updated', answer: '💬 Answer saved', rename: '📝 Title updated', update: '🔄 Task updated' };
-            showTaskNotification(msgs[intent] || '✅ Done', taskId, taskTitle);
-            await fetchTasks();
-          } else if (intent === 'correct' && data.plan) {
-            // Correction plan — persist to server so it survives navigation + refresh
-            const planData = { plan: data.plan, originalText: text, intent: 'correct' };
-            pendingPlans[taskId] = planData;
-            await fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: planData }) });
-            showTaskNotification('🔍 Correction plan ready', taskId, taskTitle);
-            await fetchTasks();
-          } else if (data.plan && !data.plan.needsClarification) {
-            // Search plan — persist to server so it survives navigation + refresh
-            const planData = { plan: data.plan, originalText: text, fallback: !!data.fallback, intent: 'search' };
-            pendingPlans[taskId] = planData;
-            await fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: planData }) });
-            showTaskNotification('💡 Search plan ready', taskId, taskTitle);
-            await fetchTasks();
-          }
-        }
-        unfreezeTask(taskId);
-        const freshInput = document.querySelector(`#panel-${taskId} .panel-log-form input`);
-        if (freshInput) freshInput.disabled = false;
-        return;
-      }
-
-      if (!planEl) return;
-
-      if (!res.ok) {
-        showNotification(friendlyError(data), 'error');
-        planEl.classList.remove('visible');
-        return;
-      }
-
-      const intent = data.intent || 'search';
-
-      // Update frozen badge with intent-specific status
-      const statusLabels = { summarize: '📋 Updating summary...', answer: '💬 Preparing answer...', rename: '📝 Renaming...', update: '🔄 Updating task...', search: '🔍 Preparing search...', correct: '⚡ Verifying claim...' };
-      updateFrozenStatus(taskId, statusLabels[intent] || '⏳ Processing...');
-
-      // --- Intent: summarize, answer, rename, or update → result is immediate, already saved ---
-      if ((intent === 'summarize' || intent === 'answer' || intent === 'rename' || intent === 'update') && (data.result || intent === 'update')) {
-        const icons = { summarize: '📋', answer: '💬', rename: '📝', update: '🔄' };
-        const icon = icons[intent] || '💬';
-        let displayText = data.result;
-        if (intent === 'rename' && data.previousTitle) {
-          displayText = `Title changed:\n"${data.previousTitle}" → "${data.result}"`;
-        }
-        if (intent === 'update') {
-          const parts = [];
-          if (data.newTitle && data.previousTitle) {
-            parts.push(`**Title:** "${data.previousTitle}" → "${data.newTitle}"`);
-          }
-          if (data.newSummary) {
-            parts.push('**Summary** updated');
-          }
-          if (data.result && data.result !== 'Task updated') {
-            parts.push(data.result);
-          }
-          displayText = parts.length > 0 ? parts.join('\n') : 'Task updated';
-        }
-        planEl.innerHTML = `<div class="agent-msg-bot">${icon} ${renderMarkdown(displayText)}</div>`;
-        planEl.classList.add('visible');
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 202) {
         input.value = '';
-        const notifications = { summarize: '✏️ Summary updated', answer: '💬 Answer saved', rename: '📝 Title updated', update: '🔄 Task updated' };
-        showNotification(notifications[intent], 'success');
-        // Re-render to show in conversation history
-        await fetchTasks();
-        // Hide plan after re-render (it's now in conversation)
-        const freshPlanEl = document.getElementById('plan-' + taskId);
-        if (freshPlanEl) { freshPlanEl.classList.remove('visible'); freshPlanEl.innerHTML = ''; }
-        return;
-      }
-
-      // --- Intent: correct → show correction plan with Verify button ---
-      if (intent === 'correct' && data.plan) {
-        const planData = { plan: data.plan, originalText: text, intent: 'correct' };
-        pendingPlans[taskId] = planData;
-        fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: planData }) });
-        showCorrectionPlanUI(taskId, data.plan);
-        return;
-      }
-
-      // --- Intent: search → show plan with Execute ---
-      const plan = data.plan;
-      if (!plan) {
-        planEl.classList.remove('visible');
-        showNotification('Agent returned no actionable plan', 'error');
-        return;
-      }
-      const planData = { plan, originalText: text, fallback: !!data.fallback, intent: 'search' };
-      pendingPlans[taskId] = planData;
-      if (!plan.needsClarification) {
-        fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: planData }) });
-      }
-
-      if (plan.needsClarification && plan.clarificationQuestion) {
-        planEl.innerHTML = `<div class="log-plan-understanding">❓ ${plan.clarificationQuestion}</div>`;
-        planEl.classList.add('visible');
-        if (clarifyEl) {
-          clarifyEl.classList.add('visible');
-          clarifyEl.querySelector('input')?.focus();
-        }
+        if (typeof clearDraftsForTask === 'function') clearDraftsForTask(taskId);
+      } else if (res.status === 409) {
+        showNotification(data.error || 'A job is already running for this task', 'info');
       } else {
-        showPlanUI(taskId, plan, !!data.fallback);
+        showNotification(data.error || `Request failed (${res.status})`, 'error');
       }
     } catch (err) {
-      showNotification('Analysis failed: ' + err.message, 'error');
-      const el = document.getElementById('plan-' + taskId);
-      if (el) el.classList.remove('visible');
+      showNotification('Network error: ' + err.message, 'error');
     } finally {
-      const freshInput = document.querySelector(`#panel-${taskId} .panel-log-form input`);
-      if (freshInput) freshInput.disabled = false;
-      unfreezeTask(taskId);
+      input.disabled = false;
     }
   }
 
   async function submitClarification(taskId, input) {
-    const answer = input.value.trim();
+    const answer = (input.value || '').trim();
     if (!answer) return;
-
-    const pending = pendingPlans[taskId];
-    if (!pending) return;
-
-    // Re-analyze with additional context
-    const logInput = document.querySelector(`#panel-${taskId} .panel-log-form input`);
-    logInput.value = pending.originalText + '. Additional context: ' + answer;
-    input.value = '';
-    document.getElementById('clarify-' + taskId).classList.remove('visible');
-    analyzeLog(taskId, logInput);
-  }
-
-  async function executeLog(taskId) {
-    const pending = pendingPlans[taskId];
-    if (!pending) return;
-
-    let planEl = document.getElementById('plan-' + taskId);
-
-    // Mark task as frozen (neon cyan highlight — same visual as scan phases)
-    freezeTask(taskId, '📤 Searching emails & Teams...');
-
-    // Step 1: Show sending status
-    if (planEl) planEl.innerHTML = '<div class="log-plan-understanding">📤 Sending search to Work IQ...</div>';
-
-    // Step 2: After 10s, upgrade to "waiting" if still running
-    const waitTimer = setTimeout(() => {
-      const el = document.getElementById('plan-' + taskId);
-      if (el) el.innerHTML = '<div class="log-plan-understanding">⏳ Searching M365... this may take up to 90 seconds</div>';
-      updateFrozenStatus(taskId, '⏳ Searching M365...');
-    }, 10000);
-
+    const jobId = activeJobsByTask[taskId];
+    if (!jobId) {
+      showNotification('No pending clarification — refresh the page', 'error');
+      return;
+    }
+    input.disabled = true;
     try {
-      const res = await fetch(`/api/tasks/${taskId}/log`, {
+      const res = await fetch(`/api/jobs/${jobId}/reply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: pending.originalText, plan: pending.plan })
+        body: JSON.stringify({ text: answer }),
       });
-
-      clearTimeout(waitTimer);
-
-      const data = await res.json();
-
-      // Re-acquire DOM ref (may have been rebuilt by another task's fetchTasks)
-      planEl = document.getElementById('plan-' + taskId);
-
-      // Check if user navigated away during async search
-      if (selectedTaskId !== taskId) {
-        const task = tasks.find(t => t.id === taskId);
-        const taskTitle = task?.title || 'Task';
-        const commCount = data.history?.[data.history.length - 1]?.communications?.length || 0;
-
-        delete pendingPlans[taskId];
-        fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: null }) }).catch(() => {});
-
-        const msg = commCount > 0 ? `✅ ${commCount} result(s) found` : '🔍 No results found';
-        showTaskNotification(msg, taskId, taskTitle);
-
-        try { await fetchTasks(); } catch {}
-        unfreezeTask(taskId);
-        return;
+      if (res.ok) {
+        input.value = '';
+        const clarifyEl = document.getElementById('clarify-' + taskId);
+        if (clarifyEl) {
+          clarifyEl.classList.remove('visible');
+          const q = clarifyEl.querySelector('.clarify-question');
+          if (q) q.textContent = '';
+        }
+      } else {
+        const data = await res.json().catch(() => ({}));
+        showNotification(data.error || 'Reply failed', 'error');
       }
-
-      if (!res.ok) {
-        if (planEl) planEl.innerHTML = `<div class="log-plan-understanding">❌ ${friendlyError(data)}</div>`;
-        showNotification(friendlyError(data), 'error');
-        return;
-      }
-
-      // Step 3: Response received
-      const commCount = data.history?.[data.history.length - 1]?.communications?.length || 0;
-      updateFrozenStatus(taskId, commCount > 0 ? `✅ ${commCount} result(s) found` : '🔍 No results');
-      if (planEl) {
-        planEl.innerHTML = commCount > 0
-          ? `<div class="log-plan-understanding">✅ Done — ${commCount} communication(s) found</div>`
-          : '<div class="log-plan-understanding">🔍 No communications found</div>';
-      }
-
-      const logInput = document.querySelector(`#panel-${taskId} .panel-log-form input`);
-      if (logInput) logInput.value = '';
-      showNotification('✅ Work logged', 'success');
-
-      // Post-search evaluation feedback
-      if (data.evaluation) {
-        const ev = data.evaluation;
-        if (ev.titleChanged) showNotification('📝 Title updated based on new findings', 'success');
-        if (ev.summaryChanged) showNotification('📋 Summary updated based on new findings', 'success');
-      }
-
-      // Clear pending plan BEFORE re-render so showPlanUI() won't restore it
-      delete pendingPlans[taskId];
-      fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: null }) });
-
-      // Re-render but keep panels open
-      await fetchTasks();
-
-      // Hide plan div after re-render (conversation is now shown in renderConversations)
-      const freshPlanEl = document.getElementById('plan-' + taskId);
-      if (freshPlanEl) {
-        freshPlanEl.classList.remove('visible');
-        freshPlanEl.innerHTML = '';
-      }
-
     } catch (err) {
-      clearTimeout(waitTimer);
-      const freshPlanEl = document.getElementById('plan-' + taskId);
-      if (freshPlanEl) freshPlanEl.innerHTML = `<div class="log-plan-understanding">❌ Search failed: ${escHtml(err.message)}</div>`;
-      showNotification('Failed to log work: ' + err.message, 'error');
+      showNotification('Network error: ' + err.message, 'error');
     } finally {
-      delete pendingPlans[taskId];
-      fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: null }) }).catch(() => {});
-      unfreezeTask(taskId);
+      input.disabled = false;
     }
   }
 
-  function cancelPlan(taskId) {
-    document.getElementById('plan-' + taskId).classList.remove('visible');
-    document.getElementById('clarify-' + taskId).classList.remove('visible');
-    delete pendingPlans[taskId];
-    fetch(`/api/tasks/${taskId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pendingPlan: null }) });
+  // Legacy executeLog: removed in Phase γ.E. No-op stub retained because the
+  // old correction-plan UI still references `onclick="executeLog(...)"`
+  // in HTML strings that may have been serialised into jobHistory entries.
+  async function executeLog(taskId) {
+    console.warn('[gamma.E] executeLog is deprecated — sendMessage is the one-call flow', taskId);
+  }
+
+  async function cancelPlan(taskId) {
+    const jobId = activeJobsByTask[taskId];
+    if (!jobId) {
+      // Nothing to cancel on the server — just clear local UI remnants.
+      document.getElementById('plan-' + taskId)?.classList.remove('visible');
+      document.getElementById('clarify-' + taskId)?.classList.remove('visible');
+      return;
+    }
+    try {
+      await fetch(`/api/jobs/${jobId}/cancel`, { method: 'POST' });
+    } catch (err) {
+      showNotification('Cancel failed: ' + err.message, 'error');
+    }
   }
 
   async function addNote(taskId, input) {
@@ -3642,8 +3416,7 @@
     // If this is the selected task, re-render detail to show frozen state
     if (taskId === selectedTaskId) {
       const task = tasks.find(t => t.id === taskId);
-      const detailPanel = document.getElementById('taskDetailPanel');
-      if (detailPanel && task) detailPanel.innerHTML = renderTaskDetail(task);
+      if (task) paintTaskDetail(task);
     }
   }
 
@@ -3675,8 +3448,7 @@
     // (re-rendering would destroy the plan/correction UI that was just shown)
     if (taskId === selectedTaskId && !pendingPlans[taskId]) {
       const task = tasks.find(t => t.id === taskId);
-      const detailPanel = document.getElementById('taskDetailPanel');
-      if (detailPanel && task) detailPanel.innerHTML = renderTaskDetail(task);
+      if (task) paintTaskDetail(task);
     }
   }
 
@@ -3691,16 +3463,18 @@
       if (idx !== -1) tasks[idx] = task;
       // Re-render list card
       const oldCard = document.getElementById('card-' + taskId);
-      if (oldCard) {
+      if (oldCard && !frozenTasks.has(taskId)) {
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = renderTaskCard(task);
         const newCard = tempDiv.firstElementChild;
         oldCard.replaceWith(newCard);
       }
+      // If the card is frozen (active log-job or scan item), skip the DOM
+      // swap — tasks[idx] was already updated above, and unfreezeTask()
+      // will re-render from fresh data when the job terminates.
       // If this is the selected task, refresh detail panel
       if (taskId === selectedTaskId) {
-        const detailPanel = document.getElementById('taskDetailPanel');
-        if (detailPanel) detailPanel.innerHTML = renderTaskDetail(task);
+        paintTaskDetail(task);
       }
     } catch (err) {
       console.error(`Failed to refresh task ${taskId}:`, err);
@@ -3885,10 +3659,529 @@
   // --- Init ---
   checkServerHealth();
 
-  // Fetch and display app version
+  // v3.4.0 Phase α.3: Draft auto-save for the detail-panel inputs.
+  // Any input typed into the currently-selected task is persisted to localStorage
+  // (keyed by taskId+field) and restored on task switch / reload. This prevents
+  // data loss when a background task re-render or browser refresh happens.
+  const DRAFT_KEY_PREFIX = 'a0.draft.';
+  const draftSaveTimers = new Map();
+  function getDraftFieldKey(el) {
+    // Stable key: id → name → data-field → tag+type+position within detail-panel
+    if (el.id) return 'id:' + el.id;
+    if (el.name) return 'name:' + el.name;
+    const df = el.getAttribute('data-field');
+    if (df) return 'df:' + df;
+    const panel = document.getElementById('taskDetailPanel');
+    if (!panel) return null;
+    const siblings = Array.from(panel.querySelectorAll(`${el.tagName.toLowerCase()}${el.type ? `[type="${el.type}"]` : ''}`));
+    const idx = siblings.indexOf(el);
+    return `pos:${el.tagName.toLowerCase()}:${el.type || ''}:${idx}`;
+  }
+  function saveDraft(taskId, fieldKey, value) {
+    if (!taskId || !fieldKey) return;
+    try {
+      if (value == null || value === '') {
+        localStorage.removeItem(DRAFT_KEY_PREFIX + taskId + '.' + fieldKey);
+      } else {
+        localStorage.setItem(DRAFT_KEY_PREFIX + taskId + '.' + fieldKey, value);
+      }
+    } catch {}
+  }
+  function loadDrafts(taskId) {
+    const out = {};
+    if (!taskId) return out;
+    const prefix = DRAFT_KEY_PREFIX + taskId + '.';
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(prefix)) out[k.substring(prefix.length)] = localStorage.getItem(k);
+      }
+    } catch {}
+    return out;
+  }
+  function clearDrafts(taskId) {
+    if (!taskId) return;
+    const prefix = DRAFT_KEY_PREFIX + taskId + '.';
+    try {
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(prefix)) keys.push(k);
+      }
+      keys.forEach(k => localStorage.removeItem(k));
+    } catch {}
+  }
+  function applyDraftsToPanel(taskId) {
+    if (!taskId) return;
+    const drafts = loadDrafts(taskId);
+    if (!Object.keys(drafts).length) return;
+    const panel = document.getElementById('taskDetailPanel');
+    if (!panel) return;
+    const fields = panel.querySelectorAll('input, textarea');
+    fields.forEach(el => {
+      // Skip buttons/submits/checkboxes — drafts are only for free-form text.
+      if (el.tagName === 'INPUT' && ['button', 'submit', 'checkbox', 'radio'].includes(el.type)) return;
+      const k = getDraftFieldKey(el);
+      if (k && drafts[k] != null && !el.value) {
+        el.value = drafts[k];
+      }
+    });
+  }
+  // Expose for the task-switch path.
+  window.applyDraftsToPanel = applyDraftsToPanel;
+  window.clearDraftsForTask = clearDrafts;
+  // Delegated listener: debounce per-field write so typing doesn't hit localStorage every keystroke.
+  const detailPanelEl = document.getElementById('taskDetailPanel');
+  if (detailPanelEl) {
+    detailPanelEl.addEventListener('input', (e) => {
+      const el = e.target;
+      if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) return;
+      if (el.type === 'button' || el.type === 'submit' || el.type === 'checkbox' || el.type === 'radio') return;
+      if (!selectedTaskId) return;
+      const k = getDraftFieldKey(el);
+      if (!k) return;
+      const timerKey = selectedTaskId + '|' + k;
+      const existing = draftSaveTimers.get(timerKey);
+      if (existing) clearTimeout(existing);
+      const val = el.value;
+      draftSaveTimers.set(timerKey, setTimeout(() => {
+        saveDraft(selectedTaskId, k, val);
+        draftSaveTimers.delete(timerKey);
+      }, 300));
+    });
+    // Clear drafts for this task when any form in the panel is submitted.
+    // The action handlers themselves handle server errors, so if submit fires, the user acted.
+    detailPanelEl.addEventListener('submit', () => {
+      if (selectedTaskId) clearDrafts(selectedTaskId);
+    }, true);
+  }
+
+  // --- Phase γ.D: SSE client --------------------------------------------
+  // Opens a persistent EventSource to /api/events and dispatches:
+  //   hello                → detect server-restart / dropped-events and
+  //                          trigger a full reload when the cursor is stale
+  //   job.started          → mark task as having an active job
+  //   job.progress         → update per-job progress (used by γ.E onwards)
+  //   job.awaiting_input   → store the question so UI can render (γ.E)
+  //   job.completed        → refresh the affected task, drop active job
+  //   job.failed           → refresh task, drop active job, show error
+  //   job.cancelled        → drop active job, refresh task
+  // lastEventId is persisted in sessionStorage and only advanced *after*
+  // an event has been processed (not from hello) so a disconnect mid-
+  // dispatch can replay that event on reconnect.
+  const activeJobs = {}; // jobId → { taskId, status, question?, lastSeenAt }
+  const activeJobsByTask = {}; // taskId → jobId
+  let sseEventSource = null;
+  let sseKnownServerInstanceId = null;
+  let sseConnectBackoff = 1000;
+
+  function getLastEventId() {
+    const n = parseInt(sessionStorage.getItem('sseLastEventId') || '0', 10);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }
+  function setLastEventId(n) {
+    if (typeof n === 'number' && n > 0) sessionStorage.setItem('sseLastEventId', String(n));
+  }
+
+  function updateTaskJobUi(taskId, entry) {
+    // Render the in-progress state when this task is selected. We never
+    // touch the log-form input itself — only the clarify slot and the
+    // frozen badge on the list card — so user drafts stay stable.
+    const clarifyEl = document.getElementById('clarify-' + taskId);
+    if (entry && entry.status === 'awaiting_input') {
+      if (clarifyEl) {
+        let q = clarifyEl.querySelector('.clarify-question');
+        if (!q) {
+          q = document.createElement('div');
+          q.className = 'clarify-question';
+          q.style.cssText = 'margin:6px 0;color:#fbbf24;font-weight:bold';
+          clarifyEl.insertBefore(q, clarifyEl.firstChild);
+        }
+        q.textContent = '❓ ' + (entry.question || 'Agent needs more info');
+        clarifyEl.classList.add('visible');
+        if (taskId === selectedTaskId) {
+          const inp = clarifyEl.querySelector('input');
+          if (inp) { inp.disabled = false; inp.focus(); }
+        }
+      }
+    } else if (!entry) {
+      // Terminal — hide clarify UI remnants.
+      if (clarifyEl) {
+        clarifyEl.classList.remove('visible');
+        const q = clarifyEl.querySelector('.clarify-question');
+        if (q) q.textContent = '';
+      }
+    }
+    // Surface "agent working" visually AND register in frozenTasks so any
+    // subsequent renderTasks() preserves the card's DOM (see the
+    // preservation branch in renderTasks ~2074). Without this, a re-render
+    // triggered by fetchTasks() or SSE events would rebuild the card from
+    // renderTaskCard(task) and drop the .frozen class + badge mid-job.
+    const isRunning = entry && (entry.status === 'running' || entry.status === 'awaiting_input');
+    const card = document.getElementById('card-' + taskId);
+    if (isRunning) {
+      frozenTasks.add(taskId);
+      if (card) {
+        card.classList.add('frozen');
+        let badge = card.querySelector('.frozen-badge');
+        if (!badge) {
+          badge = document.createElement('div');
+          badge.className = 'frozen-badge';
+          card.appendChild(badge);
+        }
+        const label = entry.status === 'awaiting_input'
+          ? '❓ Needs input'
+          : (entry.lastPhase === 'llm_round' ? '🧠 Thinking…' : '⏳ Agent working…');
+        badge.textContent = label;
+      }
+    } else {
+      // Only release the freeze if a scan item isn't currently holding it
+      // (scan's item_started sets window.__scanHoldsFreezeFor = taskId).
+      const scanHoldsFreeze = activeScanJob && window.__scanHoldsFreezeFor === taskId;
+      if (!scanHoldsFreeze) frozenTasks.delete(taskId);
+      if (card) {
+        card.classList.remove('frozen');
+        const badge = card.querySelector('.frozen-badge');
+        if (badge) badge.remove();
+      }
+    }
+  }
+
+  // v4.0.0-rc.1 — handler for global 'scan' jobs. These have taskId=null in
+  // the event envelope (the scan job orchestrates multiple tasks serially)
+  // and surface via phase_changed / phase_done / item_started / item_done /
+  // completed / failed / cancelled events. Everything UI-related that used
+  // to run inline in the old client-side scan loop is now driven from here.
+  function handleScanJobEvent(ev) {
+    if (ev.kind !== 'scan') return false;
+    const { type, payload = {}, jobId } = ev;
+    const loadingText = document.getElementById('loadingText');
+    const PHASE_TO_KEY = { scan: 'phase1', enrich: 'phase2', check: 'phase3', consolidate: 'phase4' };
+
+    switch (type) {
+      case 'job.started': {
+        activeScanJob = jobId;
+        if (!scanReport) initScanReport();
+        break;
+      }
+      case 'job.phase_changed': {
+        const { phase, totalItems, scanDays } = payload;
+        const now = new Date().toISOString();
+        if (phase === 'scan') {
+          if (loadingText) loadingText.textContent = `Phase 1: Scanning subjects${scanDays ? ` (last ${scanDays} days)` : ''}...`;
+          updatePhaseStatus('phase1', { status: 'running', startedAt: now });
+        } else if (phase === 'enrich') {
+          if (loadingText) loadingText.textContent = `Phase 2: Enriching content (0/${totalItems || 0})...`;
+          updatePhaseStatus('phase2', { status: 'running', startedAt: now, total: totalItems || 0 });
+        } else if (phase === 'check') {
+          if (loadingText) loadingText.textContent = `Phase 3: Checking updates (0/${totalItems || 0})...`;
+          updatePhaseStatus('phase3', { status: 'running', startedAt: now, total: totalItems || 0 });
+        } else if (phase === 'consolidate') {
+          if (loadingText) loadingText.textContent = 'Phase 4: Finding duplicates...';
+          updatePhaseStatus('phase4', { status: 'running', startedAt: now });
+        }
+        break;
+      }
+      case 'job.phase_done': {
+        const { phase } = payload;
+        const now = new Date().toISOString();
+        if (phase === 'scan') {
+          const detail = `${payload.added || 0} new, ${payload.updated || 0} updated, ${payload.skipped || 0} skipped`;
+          updatePhaseStatus('phase1', { status: 'success', completedAt: now, detail });
+          fetchTasks().catch(() => {});
+        } else if (phase === 'enrich') {
+          updatePhaseStatus('phase2', { status: 'success', completedAt: now });
+        } else if (phase === 'check') {
+          updatePhaseStatus('phase3', { status: 'success', completedAt: now });
+        } else if (phase === 'consolidate') {
+          updatePhaseStatus('phase4', { status: 'success', completedAt: now, detail: `${payload.suggestions || 0} merge suggestion(s)` });
+        }
+        break;
+      }
+      case 'job.phase_error': {
+        const key = PHASE_TO_KEY[payload.phase];
+        if (key) updatePhaseStatus(key, { status: 'failed', completedAt: new Date().toISOString(), error: payload.error });
+        break;
+      }
+      case 'job.item_started': {
+        const { phase, taskId, index, total } = payload;
+        if (phase === 'enrich') {
+          if (loadingText) loadingText.textContent = `Phase 2: Enriching content (${(index || 0) + 1}/${total || 0})...`;
+          window.__scanHoldsFreezeFor = taskId;
+          if (typeof freezeTask === 'function') freezeTask(taskId, '📋 Analyzing content...');
+          if (typeof updateStepIndicator === 'function') updateStepIndicator(taskId, 2, 'active');
+        } else if (phase === 'check') {
+          if (loadingText) loadingText.textContent = `Phase 3: Checking updates (${(index || 0) + 1}/${total || 0})...`;
+          window.__scanHoldsFreezeFor = taskId;
+          if (typeof freezeTask === 'function') freezeTask(taskId, '🔍 Checking for updates...');
+          if (typeof updateStepIndicator === 'function') updateStepIndicator(taskId, 3, 'active');
+        }
+        break;
+      }
+      case 'job.item_done': {
+        const { phase, taskId, ok, error, title } = payload;
+        const step = phase === 'enrich' ? 2 : (phase === 'check' ? 3 : null);
+        if (step != null && typeof updateStepIndicator === 'function') {
+          updateStepIndicator(taskId, step, ok ? 'done' : 'error');
+        }
+        const bucket = phase === 'enrich' ? 'phase2' : (phase === 'check' ? 'phase3' : null);
+        if (bucket && scanReport && scanReport.phases[bucket]) {
+          if (ok) scanReport.phases[bucket].success++;
+          else {
+            scanReport.phases[bucket].failed++;
+            scanReport.phases[bucket].errors.push(`${(title || taskId).toString().substring(0, 40)}: ${error || 'failed'}`);
+          }
+          saveScanReport();
+        }
+        // Release scan's freeze hold on this task; keep it frozen if a
+        // parallel log-job is still running on the same task.
+        window.__scanHoldsFreezeFor = null;
+        if (!activeJobsByTask[taskId] && typeof unfreezeTask === 'function') {
+          unfreezeTask(taskId);
+        }
+        // Surgical single-card refresh — no full list re-render, no flicker.
+        if (typeof refreshSingleTask === 'function') {
+          refreshSingleTask(taskId).catch(() => {});
+        }
+        break;
+      }
+      case 'job.completed':
+      case 'job.failed':
+      case 'job.cancelled': {
+        if (scanReport) {
+          scanReport.completedAt = new Date().toISOString();
+          scanReport.aborted = type === 'job.cancelled';
+          saveScanReport();
+        }
+        endScanUi();
+        activeScanJob = null;
+        scanAborted = false;
+        if (type === 'job.failed') {
+          showNotification('Scan failed: ' + (payload.error || 'unknown'), 'error');
+        } else if (type === 'job.cancelled') {
+          showNotification('Scan stopped by user', 'info');
+        } else {
+          showNotification('Scan complete', 'success');
+        }
+        fetchTasks().catch(() => {});
+        break;
+      }
+    }
+    return true;
+  }
+
+  function handleJobEvent(ev) {
+    // Route global jobs (taskId=null) by kind.
+    if (ev.kind === 'scan') return handleScanJobEvent(ev);
+    if (ev.kind === 'consolidate') return handleConsolidateJobEvent(ev);
+    if (ev.kind === 'merge') return handleMergeJobEvent(ev);
+    const jobId = ev.jobId;
+    const taskId = ev.taskId;
+    if (!jobId || !taskId) return;
+    const entry = activeJobs[jobId] || { jobId, taskId };
+    entry.lastSeenAt = ev.ts;
+    entry.kind = ev.kind;
+    switch (ev.type) {
+      case 'job.started':
+        entry.status = 'running';
+        entry.question = null;
+        activeJobs[jobId] = entry;
+        activeJobsByTask[taskId] = jobId;
+        updateTaskJobUi(taskId, entry);
+        break;
+      case 'job.progress':
+        entry.status = 'running';
+        entry.lastPhase = ev.payload && ev.payload.phase;
+        updateTaskJobUi(taskId, entry);
+        break;
+      case 'job.awaiting_input':
+        entry.status = 'awaiting_input';
+        entry.question = ev.payload && ev.payload.question;
+        updateTaskJobUi(taskId, entry);
+        break;
+      case 'job.completed':
+      case 'job.failed':
+      case 'job.cancelled':
+        entry.status = ev.type.slice(4);
+        delete activeJobs[jobId];
+        if (activeJobsByTask[taskId] === jobId) delete activeJobsByTask[taskId];
+        updateTaskJobUi(taskId, null);
+        if (ev.type === 'job.failed' && ev.payload && ev.payload.error) {
+          showNotification('Agent failed: ' + ev.payload.error, 'error');
+        } else if (ev.type === 'job.cancelled') {
+          showNotification('Agent cancelled', 'info');
+        }
+        if (typeof refreshSingleTask === 'function') refreshSingleTask(taskId);
+        break;
+      default:
+        break;
+    }
+  }
+
+  function startSSE() {
+    if (sseEventSource) {
+      try { sseEventSource.close(); } catch {}
+      sseEventSource = null;
+    }
+    const lastId = getLastEventId();
+    const url = '/api/events' + (lastId ? `?lastEventId=${lastId}` : '');
+    const es = new EventSource(url);
+    sseEventSource = es;
+
+    es.addEventListener('hello', (e) => {
+      sseConnectBackoff = 1000;
+      let payload;
+      try { payload = JSON.parse(e.data); } catch { return; }
+      // First hello in this browsing session: remember serverInstanceId.
+      if (!sseKnownServerInstanceId) {
+        sseKnownServerInstanceId = payload.serverInstanceId;
+        console.log('[SSE] connected', payload);
+        return;
+      }
+      // Subsequent hello (after reconnect): detect server restart or
+      // buffer overflow and force a full refresh so UI state is coherent.
+      if (payload.serverInstanceId !== sseKnownServerInstanceId || payload.lastEventsDropped) {
+        console.warn('[SSE] server changed / events dropped — forcing reload', payload);
+        sessionStorage.removeItem('sseLastEventId');
+        window.location.reload();
+      }
+    });
+
+    const onJobEvent = (e) => {
+      let ev;
+      try { ev = JSON.parse(e.data); } catch { return; }
+      try { handleJobEvent(ev); } catch (err) { console.error('[SSE] handler error', err, ev); }
+      if (typeof ev.id === 'number') setLastEventId(ev.id);
+    };
+    ['job.started', 'job.progress', 'job.awaiting_input',
+     'job.completed', 'job.failed', 'job.cancelled',
+     'job.phase_changed', 'job.phase_done', 'job.phase_error',
+     'job.item_started', 'job.item_done'].forEach(t => {
+      es.addEventListener(t, onJobEvent);
+    });
+
+    es.onerror = () => {
+      // EventSource auto-reconnects with its own backoff but we cap ours
+      // for the explicit reconnect path below. Close and retry manually
+      // if we're in CLOSED state.
+      if (es.readyState === EventSource.CLOSED) {
+        setTimeout(startSSE, sseConnectBackoff);
+        sseConnectBackoff = Math.min(sseConnectBackoff * 2, 30000);
+      }
+    };
+  }
+
+  // Fetch the server-side snapshot for any tasks the server says currently
+  // have an active job. Called from fetchTasks so the UI can reflect
+  // in-flight work (jobs can survive a client refresh).
+  async function hydrateActiveJobs() {
+    const tasksWithJobs = (tasks || []).filter(t => t.activeJob);
+    if (tasksWithJobs.length === 0) return;
+    await Promise.all(tasksWithJobs.map(async (t) => {
+      // v4.0.0-rc.1 — t.activeJob is an object since PR1 (server-side job
+      // registry persists {jobId, kind, status, startedAt, ...}). Fall back
+      // to string for forward-compat with any legacy snapshot.
+      const jobId = (t.activeJob && typeof t.activeJob === 'object')
+        ? t.activeJob.jobId
+        : t.activeJob;
+      if (!jobId) return;
+      try {
+        const r = await fetch(`/api/jobs/${jobId}`);
+        if (!r.ok) return;
+        const snap = await r.json();
+        const entry = {
+          jobId,
+          taskId: t.id,
+          status: snap.status,
+          question: snap.pendingClarification && snap.pendingClarification.question,
+          kind: snap.kind,
+          lastSeenAt: Date.now(),
+        };
+        activeJobs[jobId] = entry;
+        activeJobsByTask[t.id] = jobId;
+        updateTaskJobUi(t.id, entry);
+      } catch (err) {
+        console.warn('[SSE] hydrate failed for job', jobId, err);
+      }
+    }));
+  }
+  window.hydrateActiveJobs = hydrateActiveJobs;
+  window.activeJobs = activeJobs;
+  window.activeJobsByTask = activeJobsByTask;
+
+  // v4.0.0-rc.1 — hydrate any active global job (scan / consolidate) from
+  // the server on page load. Returns the atomic snapshotEventId so that the
+  // SSE subscription opens at the correct cursor and no events are lost or
+  // duplicated between snapshot and live stream. Seeding sessionStorage
+  // before startSSE() guarantees the ordering.
+  async function hydrateGlobalJobs() {
+    try {
+      const r = await fetch('/api/jobs?active=true');
+      if (!r.ok) return null;
+      const data = await r.json();
+      const list = Array.isArray(data.jobs) ? data.jobs : [];
+      const scan = list.find(j => j.kind === 'scan' && !['completed', 'failed', 'cancelled'].includes(j.status));
+      if (scan) {
+        activeScanJob = scan.jobId;
+        const days = (scan.input && scan.input.scanDays) || 4;
+        if (!scanReport) initScanReport();
+        beginScanUi(days);
+        const loadingText = document.getElementById('loadingText');
+        const p = scan.progress;
+        if (p && loadingText) {
+          const idx = (p.currentItemIndex || 0) + 1;
+          const tot = p.totalItems || 0;
+          const labels = {
+            scan: `Phase 1: Scanning subjects (last ${days} days)...`,
+            enrich: `Phase 2: Enriching content (${idx}/${tot})...`,
+            check: `Phase 3: Checking updates (${idx}/${tot})...`,
+            consolidate: 'Phase 4: Finding duplicates...'
+          };
+          if (labels[p.phase]) loadingText.textContent = labels[p.phase];
+        }
+      }
+      // v4.0.1 — restore active merge / consolidate jobs on refresh so the UI
+      // doesn't silently lose track of a 90–300 s AI call in progress.
+      const consol = list.find(j => j.kind === 'consolidate' && !['completed', 'failed', 'cancelled'].includes(j.status));
+      if (consol) {
+        activeConsolidateJob = consol.jobId;
+        const btn = document.getElementById('btnFindDuplicates');
+        if (btn) {
+          btn.dataset.origText = btn.textContent;
+          btn.disabled = true;
+          btn.textContent = '🔗 Analyzing...';
+        }
+        showHeaderProgress('Finding duplicates — analyzing task relationships...');
+      }
+      const merge = list.find(j => j.kind === 'merge' && !['completed', 'failed', 'cancelled'].includes(j.status));
+      if (merge) {
+        const taskIds = (merge.input && merge.input.taskIds) || [];
+        activeMergeJob = { jobId: merge.jobId, taskIds, source: 'bar' };
+        showHeaderProgress(`Merging ${taskIds.length || ''} tasks — generating combined summary...`);
+      }
+      // Seed SSE cursor for boot-race safety (if sessionStorage is empty).
+      if (typeof data.snapshotEventId === 'number' && !sessionStorage.getItem('sseLastEventId')) {
+        sessionStorage.setItem('sseLastEventId', String(data.snapshotEventId));
+      }
+      return data;
+    } catch (err) {
+      console.warn('[SSE] hydrateGlobalJobs failed', err);
+      return null;
+    }
+  }
+  window.hydrateGlobalJobs = hydrateGlobalJobs;
+
+  hydrateGlobalJobs().finally(() => startSSE());
+  // --- End Phase γ.D -----------------------------------------------------
+
+
   fetch('/api/version').then(r => r.json()).then(d => {
     const el = document.getElementById('appVersion');
-    if (el && d.version) el.textContent = `v${d.version}`;
+    if (el && d.version) {
+      el.textContent = d.commit ? `v${d.version} (${d.commit})` : `v${d.version}`;
+      el.title = `Build ${d.commit || 'unknown'} — reload to refresh`;
+    }
+    if (d.commit) console.log(`[Agent Zero] v${d.version} build ${d.commit}`);
   }).catch(() => {});
 
   // Auto-trigger scan when opened with ?autoScan=true (used by scheduled task)

@@ -1,10 +1,11 @@
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import { CopilotClient, approveAll, defineTool } from '@github/copilot-sdk';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { EventEmitter } from 'events';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -57,8 +58,14 @@ let wiqStdout = '';
 let wiqReady = false;
 let wiqRequestId = 0;
 const wiqPending = new Map(); // id → { resolve, reject, timer }
-let wiq41ErrorCount = 0;    // consecutive 41-char error counter (diagnostic)
-let wiqCooldownUntil = 0;   // timestamp: reject all queries until this time
+let wiq41ErrorCount = 0;    // consecutive 41-char error counter (global fallback for calls without taskId)
+let wiqCooldownUntil = 0;   // timestamp: reject global queries until this time
+// v3.4.0 — Phase α.1: per-task cooldowns so one failing task never blocks another.
+// Task-scoped calls use these maps; task-less calls (Phase-1 scan) fall back to the global counter above.
+const wiqTaskErrorCounts = new Map();   // taskId → consecutive 41-char errors
+const wiqTaskCooldowns = new Map();     // taskId → cooldown-until-ms
+const WIQ_TASK_COOLDOWN_MS = 60000;
+const WIQ_TASK_ERROR_THRESHOLD = 4;
 let wiqRestartCount = 0;    // auto-restart attempts since last clean start
 const MAX_RESTARTS = 5;     // give up after this many consecutive failures
 // v3.3.0: Stub-Recovery — after N consecutive EULA/permission stubs across
@@ -157,6 +164,10 @@ function startWorkIQMCP() {
             const text = msg2.result?.content?.[0]?.text || '';
             console.log('[WORKIQ] EULA:', text.substring(0, 60));
             wiqReady = true;
+            // v3.4.1: signal to any session waiting on wiq-down grace period that
+            // WorkIQ is back online. Listeners can then keep waiting on their
+            // sendAndWait normally instead of aborting.
+            try { wiqEvents.emit('wiq-up'); } catch {}
             resolve();
           },
           reject,
@@ -180,20 +191,33 @@ function startWorkIQMCP() {
   });
 }
 
-function askWorkIQDirect(question, timeoutMs = 90000) {
+function askWorkIQDirect(question, timeoutMs = 90000, taskId = null) {
   const queryStart = Date.now();
   const shortQ = question.substring(0, 100);
-  debugLog('WORKIQ-QUERY', `START "${shortQ}..."`, { timeoutMs, questionLen: question.length });
+  debugLog('WORKIQ-QUERY', `START "${shortQ}..."`, { timeoutMs, questionLen: question.length, taskId });
   return new Promise(async (resolve, reject) => {
-    // Cooldown check — stop hammering subprocess after repeated failures
+    // Per-task cooldown check (only when taskId is provided) — isolates tasks from each other.
+    if (taskId) {
+      const taskCdUntil = wiqTaskCooldowns.get(taskId) || 0;
+      if (Date.now() < taskCdUntil) {
+        const remaining = Math.ceil((taskCdUntil - Date.now()) / 1000);
+        debugLog('WORKIQ-QUERY', `Task ${taskId} in cooldown (${remaining}s remaining) — rejecting "${shortQ}..."`);
+        return reject(new Error(`WorkIQ in cooldown for this task — try again in ${remaining}s`));
+      }
+      if (taskCdUntil > 0) {
+        debugLog('WORKIQ-QUERY', `Task ${taskId} cooldown expired — resetting error counter`);
+        wiqTaskErrorCounts.set(taskId, 0);
+        wiqTaskCooldowns.delete(taskId);
+      }
+    }
+    // Global cooldown check — safety net for calls without taskId (Phase 1 scan) and hard-stop across everything.
     if (Date.now() < wiqCooldownUntil) {
       const remaining = Math.ceil((wiqCooldownUntil - Date.now()) / 1000);
-      debugLog('WORKIQ-QUERY', `In cooldown (${remaining}s remaining) — rejecting "${shortQ}..."`);
+      debugLog('WORKIQ-QUERY', `Global cooldown (${remaining}s remaining) — rejecting "${shortQ}..."`);
       return reject(new Error('WorkIQ in cooldown — try again later'));
     }
-    // Cooldown just expired — reset counter so we get 3 fresh chances
     if (wiqCooldownUntil > 0) {
-      debugLog('WORKIQ-QUERY', `Cooldown expired — resetting error counter, fresh start`);
+      debugLog('WORKIQ-QUERY', `Global cooldown expired — resetting counter, fresh start`);
       wiq41ErrorCount = 0;
       wiqCooldownUntil = 0;
     }
@@ -218,22 +242,48 @@ function askWorkIQDirect(question, timeoutMs = 90000) {
         const elapsed = ((Date.now() - queryStart) / 1000).toFixed(1);
         // Detect the known WorkIQ subprocess health error (exactly 41 chars)
         if (text === "An error occurred invoking 'ask_work_iq'.") {
+          // Increment per-task counter if scoped; always increment the global one as safety net.
+          if (taskId) {
+            const next = (wiqTaskErrorCounts.get(taskId) || 0) + 1;
+            wiqTaskErrorCounts.set(taskId, next);
+            debugLog('WORKIQ-QUERY', `Got 41-char error for task ${taskId} (task-count: ${next}) "${shortQ}..."`);
+            if (next > WIQ_TASK_ERROR_THRESHOLD) {
+              wiqTaskCooldowns.set(taskId, Date.now() + WIQ_TASK_COOLDOWN_MS);
+              debugLog('WORKIQ-QUERY', `Task ${taskId} entering ${WIQ_TASK_COOLDOWN_MS / 1000}s cooldown after ${next} failures`);
+              return reject(new Error('WorkIQ temporarily unavailable for this task — cooling down'));
+            }
+            return reject(new Error('WorkIQ: M365 returned no data for this query'));
+          }
           wiq41ErrorCount++;
-          debugLog('WORKIQ-QUERY', `Got 41-char error (count: ${wiq41ErrorCount}) "${shortQ}..."`);
-          if (wiq41ErrorCount <= 4) {
-            // K3: M365 data error for this query — WorkIQ subprocess is healthy (wiq:OK),
-            // M365 just can't find this specific data. Reject without killing WorkIQ.
-            // Killing a healthy process causes cascading failures for all concurrent sessions.
+          debugLog('WORKIQ-QUERY', `Got 41-char error (global count: ${wiq41ErrorCount}) "${shortQ}..."`);
+          if (wiq41ErrorCount <= WIQ_TASK_ERROR_THRESHOLD) {
             reject(new Error('WorkIQ: M365 returned no data for this query'));
           } else {
-            // After 3 failed errors: 60s cooldown, stop restart loop
-            wiqCooldownUntil = Date.now() + 60000;
-            debugLog('WORKIQ-QUERY', `Entering 60s cooldown after ${wiq41ErrorCount} consecutive failures`);
+            wiqCooldownUntil = Date.now() + WIQ_TASK_COOLDOWN_MS;
+            debugLog('WORKIQ-QUERY', `Entering ${WIQ_TASK_COOLDOWN_MS / 1000}s global cooldown after ${wiq41ErrorCount} consecutive failures`);
             reject(new Error('WorkIQ temporarily unavailable — cooling down'));
           }
           return;
         }
-        wiq41ErrorCount = 0; // Reset on healthy response
+        // v3.4.0 Phase α follow-up: detect EULA/permission stubs at the source so
+        // direct callers (Phase-1 scan) get the same stub handling as tool callers.
+        // Without this, scan parses stubs as empty data and silently returns 0 items.
+        if (text && isStubResponse(text)) {
+          consecutiveStubCount++;
+          debugLog('WORKIQ-QUERY', `STUB detected (${text.length} chars, consecutive=${consecutiveStubCount}/${STUB_RESTART_THRESHOLD}) "${shortQ}..."`);
+          console.warn(`[WORKIQ] STUB response detected (consecutive: ${consecutiveStubCount}/${STUB_RESTART_THRESHOLD})`);
+          if (consecutiveStubCount >= STUB_RESTART_THRESHOLD && wiqProc) {
+            console.warn(`[WORKIQ] ${consecutiveStubCount} consecutive stubs — force-restarting subprocess`);
+            debugLog('WORKIQ', `Force-restart triggered by ${consecutiveStubCount} consecutive stubs (from askWorkIQDirect)`);
+            consecutiveStubCount = 0;
+            try { wiqProc.kill(); } catch {}
+          }
+          return reject(new Error('WorkIQ returned EULA/permission stub — service temporarily unavailable'));
+        }
+        // Healthy response — reset whichever counter applies.
+        if (taskId) wiqTaskErrorCounts.set(taskId, 0);
+        wiq41ErrorCount = 0;
+        consecutiveStubCount = 0;
         debugLog('WORKIQ-QUERY', `OK in ${elapsed}s (${text.length} chars) "${shortQ}..."`);
         if (text) resolve(text);
         else reject(new Error('Empty response from Work IQ'));
@@ -257,29 +307,56 @@ function askWorkIQDirect(question, timeoutMs = 90000) {
 }
 
 // K2: Race session.sendAndWait() against wiq-down crashes.
-// When WorkIQ crashes during an active session, sendAndWait would hang for the full
-// timeout (the SDK's AI agent retries internally and never errors out on its own).
-// This wrapper aborts the session promise immediately when WorkIQ goes down.
+// v3.4.1 (softened): Transient force-restarts (triggered by EULA stubs) no longer
+// hard-abort an ongoing LLM session. When 'wiq-down' fires we open a grace period
+// during which either: (a) 'wiq-up' fires (WorkIQ came back — keep waiting on
+// sendAndWait), or (b) sendAndWait settles on its own (LLM produced its final
+// answer without needing WorkIQ again). Only if neither happens within GRACE_MS
+// do we reject — so the user still doesn't sit for 300s on a genuinely dead WorkIQ.
+const WIQ_GRACE_MS = parseInt(process.env.WIQ_GRACE_MS, 10) || 30000;
 function runWithWiqGuard(session, prompt, timeoutMs) {
   return new Promise((resolve, reject) => {
     let settled = false;
+    let graceTimer = null;
+    let storedErr = null;
+
+    const clearGuard = () => {
+      if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
+      wiqEvents.removeListener('wiq-down', onWiqDown);
+      wiqEvents.removeListener('wiq-up', onWiqUp);
+    };
+    const onWiqUp = () => {
+      if (settled) return;
+      // WorkIQ is healthy again — cancel the grace timer and keep waiting on
+      // sendAndWait as if nothing happened.
+      if (graceTimer) { clearTimeout(graceTimer); graceTimer = null; }
+      storedErr = null;
+    };
     const onWiqDown = (err) => {
       if (settled) return;
-      settled = true;
-      reject(err || new Error('WorkIQ crashed during session'));
+      if (graceTimer) return; // already in a grace window
+      storedErr = err || new Error('WorkIQ subprocess down');
+      graceTimer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        clearGuard();
+        reject(storedErr);
+      }, WIQ_GRACE_MS);
     };
-    wiqEvents.once('wiq-down', onWiqDown);
+    wiqEvents.on('wiq-down', onWiqDown);
+    wiqEvents.on('wiq-up', onWiqUp);
+
     session.sendAndWait({ prompt }, timeoutMs)
       .then(result => {
         if (settled) return;
         settled = true;
-        wiqEvents.removeListener('wiq-down', onWiqDown);
+        clearGuard();
         resolve(result);
       })
       .catch(err => {
         if (settled) return;
         settled = true;
-        wiqEvents.removeListener('wiq-down', onWiqDown);
+        clearGuard();
         reject(err);
       });
   });
@@ -353,7 +430,7 @@ const askWorkIQTool = defineTool('ask_work_iq', {
     console.log(`[M365] Query ${phase3Ctx}: "${question.substring(0, 80)}..."`);
     const start = Date.now();
     try {
-      const result = await askWorkIQDirect(question);
+      const result = await askWorkIQDirect(question, 90000, tracking?.taskId || null);
       const durationMs = Date.now() - start;
       const charsReturned = result ? result.length : 0;
       const stubDetected = isStubResponse(result);
@@ -385,17 +462,143 @@ const askWorkIQTool = defineTool('ask_work_iq', {
     } catch (e) {
       const durationMs = Date.now() - start;
       console.error(`[M365] Failed in ${(durationMs / 1000).toFixed(1)}s ${phase3Ctx}: ${e.message}`);
+      // v3.4.0 follow-up: stubs now reject inside askWorkIQDirect. Translate the
+      // error into the same SERVICE_UNAVAILABLE message the LLM already knows
+      // how to handle, so we don't regress tool-side behavior after moving
+      // stub detection into the direct layer.
+      const isStubError = /eula\/permission stub|eula\s*\/?\s*permission/i.test(e.message);
       if (tracking) {
-        tracking.calls.push({ queryIndex, outcome: 'error', durationMs, error: e.message });
+        tracking.calls.push({ queryIndex, outcome: isStubError ? 'stub' : 'error', durationMs, error: e.message });
+        if (isStubError) tracking.stubCount++;
         if (/cooldown|wiq|workiq|exited|crashed|down/i.test(e.message)) tracking.wiqDown = true;
-        debugLog('PHASE3-TOOL', `ERROR ${e.message}`, { sessionId, taskId: tracking.taskId, queryIndex, durationMs });
+        debugLog('PHASE3-TOOL', `${isStubError ? 'STUB' : 'ERROR'} ${e.message}`, { sessionId, taskId: tracking.taskId, queryIndex, durationMs });
+      }
+      if (isStubError) {
+        return 'SERVICE_UNAVAILABLE: M365 search backend returned a permission/EULA stub instead of results. Do NOT retry. Return your final JSON now: {"hasUpdate": false, "inconclusive": true} — the server will retry this task in the next scan.';
       }
       return `Error: ${e.message}`;
     }
   }
 });
 
-// --- Global Error Handlers (crash prevention) ---
+// v3.4.0 Phase β.1: parallel_search — runs up to 3 Work-IQ queries concurrently.
+// Dramatically faster than sequential ask_work_iq for multi-angle searches
+// (e.g. email + teams, or targeted + broader). Returns a single aggregated
+// response so the model gets everything at once without round-tripping.
+const parallelSearchTool = defineTool('parallel_search', {
+  description: 'Run up to 3 Work IQ searches concurrently and get all results at once. Use this when you want to combine two complementary search angles (e.g. targeted query + broader query, or email-focused + teams-focused). Much faster than calling ask_work_iq multiple times sequentially.',
+  parameters: {
+    type: 'object',
+    properties: {
+      queries: {
+        type: 'array',
+        description: 'Array of 2 or 3 natural-language questions, each a different angle on what you want to find. Do not submit near-duplicates — each query should explore a distinct angle.',
+        items: { type: 'string' },
+        minItems: 2,
+        maxItems: 3
+      }
+    },
+    required: ['queries']
+  },
+  skipPermission: true,
+  handler: async ({ queries }, invocation) => {
+    const sessionId = invocation && invocation.sessionId;
+    const tracking = sessionId ? phase3Get(sessionId) : null;
+    const phase3Ctx = tracking ? `[task=${tracking.taskId}]` : '';
+
+    if (!Array.isArray(queries) || queries.length < 2) {
+      return 'Error: parallel_search requires at least 2 queries. Use ask_work_iq for single queries.';
+    }
+    if (queries.length > 3) queries = queries.slice(0, 3);
+
+    // Pre-check each query for self-EULA attempts — reject upfront.
+    for (const q of queries) {
+      if (typeof q !== 'string' || !q.trim()) {
+        return 'Error: all queries must be non-empty strings.';
+      }
+      if (SELF_EULA_QUERY.test(q)) {
+        console.warn(`[M365] BLOCKED self-EULA query in parallel_search ${phase3Ctx}`);
+        debugLog('PHASE3-TOOL', `BLOCKED self-EULA in parallel_search`, { sessionId, taskId: tracking?.taskId, query: q.substring(0, 120) });
+        if (tracking) tracking.stubCount++;
+        return 'TOOL_GUIDANCE: EULA acceptance is handled by the server at startup. Do not include EULA-related queries.';
+      }
+    }
+
+    // Budget enforcement — parallel_search counts as queries.length against the budget.
+    if (tracking && tracking.count + queries.length > PHASE3_QUERY_BUDGET) {
+      tracking.budgetHit = true;
+      console.warn(`[M365] BUDGET_EXHAUSTED ${phase3Ctx} — parallel_search would exceed ${PHASE3_QUERY_BUDGET}`);
+      debugLog('PHASE3-TOOL', `BUDGET_EXHAUSTED in parallel_search`, { sessionId, taskId: tracking.taskId, count: tracking.count, requested: queries.length, budget: PHASE3_QUERY_BUDGET });
+      return `BUDGET_EXHAUSTED: This parallel_search would exceed the budget of ${PHASE3_QUERY_BUDGET} Work IQ calls. STOP searching and return your final JSON now.`;
+    }
+
+    if (tracking) tracking.count += queries.length;
+    const startAll = Date.now();
+    console.log(`[M365] parallel_search ${phase3Ctx} (${queries.length} queries)`);
+    debugLog('PARALLEL-SEARCH', `START ${queries.length} queries`, { sessionId, taskId: tracking?.taskId, queries: queries.map(q => q.substring(0, 80)) });
+
+    const results = await Promise.allSettled(
+      queries.map(q => askWorkIQDirect(q, 90000, tracking?.taskId || null))
+    );
+
+    const durationMs = Date.now() - startAll;
+    let okCount = 0, stubCount = 0, errorCount = 0;
+    const parts = results.map((r, i) => {
+      const shortQ = queries[i].substring(0, 80);
+      if (r.status === 'fulfilled') {
+        const text = r.value || '';
+        const isStub = isStubResponse(text);
+        if (isStub) {
+          stubCount++;
+          if (tracking) tracking.stubCount++;
+          return `=== Query ${i + 1}: "${shortQ}" ===\nSERVICE_UNAVAILABLE (stub response — service permission/EULA issue)`;
+        }
+        okCount++;
+        return `=== Query ${i + 1}: "${shortQ}" ===\n${text}`;
+      } else {
+        errorCount++;
+        const errMsg = r.reason?.message || 'unknown';
+        // v3.4.0 follow-up: stubs now reject from askWorkIQDirect — re-categorize them here.
+        if (/eula\/permission stub|eula\s*\/?\s*permission/i.test(errMsg)) {
+          errorCount--;
+          stubCount++;
+          if (tracking) tracking.stubCount++;
+          return `=== Query ${i + 1}: "${shortQ}" ===\nSERVICE_UNAVAILABLE (stub response — service permission/EULA issue)`;
+        }
+        if (tracking && /cooldown|wiq|workiq|exited|crashed|down/i.test(errMsg)) tracking.wiqDown = true;
+        return `=== Query ${i + 1}: "${shortQ}" ===\nError: ${errMsg}`;
+      }
+    });
+
+    // v3.3.0 stub tracking parity with ask_work_iq
+    if (stubCount > 0) {
+      consecutiveStubCount += stubCount;
+      if (consecutiveStubCount >= STUB_RESTART_THRESHOLD && wiqProc) {
+        console.warn(`[WORKIQ] ${consecutiveStubCount} consecutive stubs from parallel_search — force-restarting`);
+        debugLog('WORKIQ', `Force-restart from parallel_search stubs (${consecutiveStubCount})`);
+        consecutiveStubCount = 0;
+        try { wiqProc.kill(); } catch {}
+      }
+    } else if (okCount > 0) {
+      consecutiveStubCount = 0;
+    }
+
+    console.log(`[M365] parallel_search OK in ${(durationMs / 1000).toFixed(1)}s ${phase3Ctx} (ok=${okCount} stub=${stubCount} err=${errorCount})`);
+    debugLog('PARALLEL-SEARCH', `DONE in ${durationMs}ms`, { sessionId, taskId: tracking?.taskId, ok: okCount, stub: stubCount, error: errorCount });
+    if (tracking) {
+      tracking.calls.push({ queryIndex: tracking.count, outcome: 'parallel', durationMs, ok: okCount, stub: stubCount, error: errorCount });
+    }
+
+    // If ALL queries returned stubs or errors, give the model a clear signal to bail.
+    if (okCount === 0) {
+      return `PARALLEL_SEARCH_ALL_FAILED (stubs=${stubCount} errors=${errorCount}): Work IQ did not return usable data for any of the ${queries.length} queries. Do NOT retry — return your final JSON now with confidence "none" or hasUpdate=false / inconclusive=true as appropriate.\n\n${parts.join('\n\n')}`;
+    }
+
+    return parts.join('\n\n');
+  }
+});
+
+
 // Prevent server termination from unhandled errors in SDK child processes.
 // The Copilot SDK's JSON-RPC streams can emit errors asynchronously
 // (e.g. ERR_STREAM_DESTROYED) after session.destroy() — these must not crash the server.
@@ -428,13 +631,49 @@ const activeSessions = new Set();
 const sessionTimestamps = new Map();
 const sessionClients = new WeakMap(); // session → CopilotClient
 
-// Session concurrency limit — prevents WorkIQ subprocess from being overwhelmed
-const MAX_CONCURRENT_SDK = 2;
+// Session concurrency limit — prevents WorkIQ subprocess from being overwhelmed.
+// v3.4.0 Phase β.4: bumped 2 → 4. With parallel_search each session now issues fewer
+// sequential WorkIQ calls, so concurrent sessions put less pressure on the subprocess.
+// Raising the cap lets the user interact with multiple tasks simultaneously.
+const MAX_CONCURRENT_SDK = parseInt(process.env.MAX_CONCURRENT_SDK, 10) || 4;
 async function waitForSDKSlot() {
   while (activeSessions.size >= MAX_CONCURRENT_SDK) {
     debugLog('SDK-SESSION', `Waiting for slot (${activeSessions.size}/${MAX_CONCURRENT_SDK} active)`);
     await new Promise(r => setTimeout(r, 2000));
   }
+}
+
+// v3.4.0 Phase β.4: per-task serialization — ensures only one agent run per task at a time,
+// even when the user triggers multiple mutations quickly. Different tasks proceed in
+// parallel (up to MAX_CONCURRENT_SDK), but the same task's operations queue.
+const taskQueues = new Map(); // taskId → Promise chain tail
+function runOnTaskQueue(taskId, fn) {
+  if (!taskId) return fn();
+  const prev = taskQueues.get(taskId) || Promise.resolve();
+  const next = prev.then(() => fn(), () => fn()); // don't let a prior failure block the next run
+  // Store the tail; clean up when it's the current tail and has settled.
+  taskQueues.set(taskId, next);
+  next.finally(() => {
+    if (taskQueues.get(taskId) === next) taskQueues.delete(taskId);
+  });
+  return next;
+}
+
+// Phase γ.B.2: wrap an Express handler so the handler body runs inside
+// runOnTaskQueue for the task specified by :id. Serialises mutations for
+// the same task across skills (log-job, enrich, check-update, review,
+// correct, correct/resolve) while keeping different tasks parallel.
+function withTaskQueue(handler) {
+  return async (req, res, next) => {
+    const id = req.params && req.params.id;
+    try {
+      await runOnTaskQueue(id, () => handler(req, res, next));
+    } catch (err) {
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Handler failed', detail: err.message });
+      }
+    }
+  };
 }
 
 function trackSession(session) {
@@ -928,6 +1167,433 @@ function migrateToV3() {
   console.log(`Migrated tasks.json to v3 (${data.tasks.length} tasks)`);
 }
 
+// --- Schema Migration v3 → v4 (Phase γ.A — Job model, additive only) ---
+// Adds task.activeJob and task.jobHistory. Does NOT remove pendingPlan (kept
+// until Phase γ.F for rollback safety). Creates timestamped backup before
+// the very first v3→v4 upgrade on this tasks.json.
+function migrateToV4() {
+  const data = readTasks();
+  if (data.version >= 4) return;
+  try {
+    const backup = path.join(__dirname, `tasks.json.v3-${new Date().toISOString().replace(/[:.]/g, '-')}.bak`);
+    fs.copyFileSync(TASKS_FILE, backup);
+    console.log(`[GAMMA.A] Backup written: ${path.basename(backup)}`);
+  } catch (err) {
+    console.error(`[GAMMA.A] Backup failed: ${err.message} — aborting v4 migration`);
+    return;
+  }
+  for (const task of data.tasks) {
+    if (task.activeJob === undefined) task.activeJob = null;
+    if (!Array.isArray(task.jobHistory)) task.jobHistory = [];
+    // Phase γ.F: legacy pendingPlan is no longer used. Convert any leftover
+    // pendingPlan into a jobHistory entry so we don't silently drop user work,
+    // then remove the field entirely.
+    if (task.pendingPlan) {
+      task.jobHistory.push({
+        jobId: `legacy-${Math.random().toString(36).slice(2, 10)}`,
+        kind: 'log',
+        status: 'abandoned',
+        startedAt: task.updatedAt || new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+        legacy: true,
+        input: { text: task.pendingPlan.text || '' }
+      });
+      if (task.jobHistory.length > JOB_HISTORY_CAP) task.jobHistory.shift();
+      delete task.pendingPlan;
+    }
+  }
+  data.version = 4;
+  writeTasks(data);
+  console.log(`[GAMMA.A] Migrated tasks.json to v4 (${data.tasks.length} tasks, additive)`);
+}
+
+// Phase γ.F — After server restart, any task whose activeJob was queued,
+// running, or awaiting_input is no longer attached to a live runner. We
+// record the interruption in jobHistory and clear activeJob so the UI shows
+// a clean "retry" state. Runs after migrateToV4() at every startup.
+function markInterruptedJobs() {
+  const data = readTasks();
+  let count = 0;
+  for (const t of data.tasks) {
+    const aj = t.activeJob;
+    if (aj && ['queued', 'running', 'awaiting_input'].includes(aj.status)) {
+      if (!Array.isArray(t.jobHistory)) t.jobHistory = [];
+      t.jobHistory.push({
+        jobId: aj.jobId,
+        kind: aj.kind,
+        status: 'interrupted',
+        startedAt: aj.startedAt,
+        completedAt: new Date().toISOString(),
+        reason: 'Server restart'
+      });
+      if (t.jobHistory.length > JOB_HISTORY_CAP) t.jobHistory.shift();
+      t.activeJob = null;
+      count++;
+    }
+  }
+  if (count > 0) {
+    writeTasks(data);
+    console.log(`[GAMMA.F] Marked ${count} interrupted job(s) at startup`);
+  }
+}
+
+// ============================================================================
+// Phase γ.A — Job foundation, SSE broker, event bus
+// ============================================================================
+// Decisions in this block are purely mechanical (state machine, transport,
+// deduplication). All SEMANTIC decisions stay in LLM calls (see Phase γ.B).
+// ----------------------------------------------------------------------------
+
+const SERVER_INSTANCE_ID = uuidv4();
+const JOB_HISTORY_CAP = 20;
+const IDEMPOTENCY_TTL_MS = 5 * 60 * 1000;
+const GLOBAL_EVENT_BUFFER_CAP = 2000;
+const JOB_PER_EVENT_CAP = 200;
+
+const jobs = new Map();              // jobId → Job
+const jobsByTask = new Map();        // taskId → Set<jobId>
+const activeJobByTask = new Map();   // taskId → jobId (only open jobs)
+const idempotencyMap = new Map();    // key → { jobId, bodyHash, expiresAt }
+let globalEventSeq = 0;
+const globalEventBuffer = [];        // ring, max GLOBAL_EVENT_BUFFER_CAP
+
+console.log(`[GAMMA.A] Server instance id: ${SERVER_INSTANCE_ID}`);
+
+function hashBody(body) {
+  return crypto.createHash('sha256').update(JSON.stringify(body || {})).digest('hex');
+}
+
+function cleanIdempotency() {
+  const now = Date.now();
+  for (const [k, v] of idempotencyMap.entries()) {
+    if (v.expiresAt < now) idempotencyMap.delete(k);
+  }
+}
+
+function checkIdempotency(key, bodyHash) {
+  if (!key) return { status: 'no-key' };
+  cleanIdempotency();
+  const entry = idempotencyMap.get(key);
+  if (!entry) return { status: 'new' };
+  if (entry.bodyHash !== bodyHash) return { status: 'conflict' };
+  return { status: 'hit', jobId: entry.jobId };
+}
+
+function storeIdempotency(key, jobId, bodyHash) {
+  if (!key) return;
+  idempotencyMap.set(key, { jobId, bodyHash, expiresAt: Date.now() + IDEMPOTENCY_TTL_MS });
+}
+
+// Persist only the JSON-safe slice of a job to task.activeJob.
+// v4.0.0-rc.1 — when job.taskId is null (global jobs like 'scan'), delegates
+// to persistGlobalJobSnapshot which writes to jobs.json instead.
+async function persistJobSnapshot(job) {
+  if (!job.taskId) {
+    return persistGlobalJobSnapshot(job);
+  }
+  await safeWriteTasks((data) => {
+    const t = data.tasks.find(x => x.id === job.taskId);
+    if (!t) return null;
+    t.activeJob = {
+      jobId: job.id,
+      kind: job.kind,
+      status: job.status,
+      startedAt: job.startedAt,
+      lastJobEventId: job.lastJobEventId,
+      pendingClarification: job.pendingClarification
+    };
+    return t;
+  });
+}
+
+// --- SSE Broker ------------------------------------------------------------
+const sseBroker = {
+  subscribers: new Set(),  // { res, heartbeat }
+  subscribe(req, res) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const rawLast = req.headers['last-event-id'] || req.query.lastEventId || '0';
+    const lastEventId = parseInt(rawLast, 10) || 0;
+
+    // If the client's cursor is older than the oldest buffered event, we
+    // cannot replay — client must do a full refetch.
+    const oldestBuffered = globalEventBuffer.length > 0 ? globalEventBuffer[0].id : globalEventSeq;
+    const tooOld = lastEventId > 0 && lastEventId < oldestBuffered - 1;
+
+    const helloPayload = {
+      serverInstanceId: SERVER_INSTANCE_ID,
+      lastGlobalEventId: globalEventSeq,
+      lastEventsDropped: tooOld
+    };
+    try {
+      res.write(`event: hello\nid: ${globalEventSeq}\ndata: ${JSON.stringify(helloPayload)}\n\n`);
+    } catch {}
+
+    if (!tooOld && lastEventId > 0) {
+      for (const ev of globalEventBuffer) {
+        if (ev.id > lastEventId) this._write(res, ev);
+      }
+    }
+
+    const heartbeat = setInterval(() => {
+      try { res.write(': keepalive\n\n'); } catch {}
+    }, 20000);
+
+    const entry = { res, heartbeat };
+    this.subscribers.add(entry);
+
+    const cleanup = () => {
+      clearInterval(heartbeat);
+      this.subscribers.delete(entry);
+    };
+    req.on('close', cleanup);
+    req.on('error', cleanup);
+  },
+  broadcast(event) {
+    for (const entry of this.subscribers) {
+      try { this._write(entry.res, event); } catch {}
+    }
+  },
+  _write(res, event) {
+    res.write(`event: ${event.type}\nid: ${event.id}\ndata: ${JSON.stringify(event)}\n\n`);
+  }
+};
+
+// --- Job class -------------------------------------------------------------
+class Job {
+  constructor({ taskId, kind, input, clientRequestId }) {
+    this.id = uuidv4();
+    this.taskId = taskId;
+    this.kind = kind;                 // 'log' for γ.B, others future
+    this.status = 'queued';           // queued|running|awaiting_input|cancelling|cancelled|completed|failed
+    this.input = input;
+    this.clientRequestId = clientRequestId || null;
+    this.abortController = new AbortController();
+    this.startedAt = null;
+    this.completedAt = null;
+    this.result = null;
+    this.error = null;
+    this.pendingClarification = null;
+    this.replyResolver = null;
+    this.events = [];                 // per-job ring
+    this.lastJobEventId = 0;
+    this.sdkSessionId = null;
+    this._session = null;             // transient, not serialised
+    // v4.0.0-rc.1 — progress fields for global (multi-phase) jobs like 'scan'.
+    // Shape: { phase, phaseStartedAt, currentItemIndex, totalItems, currentTaskId }
+    this.progress = null;
+  }
+
+  emit(type, payload = {}) {
+    this.lastJobEventId++;
+    globalEventSeq++;
+    const event = {
+      v: 1,
+      id: globalEventSeq,
+      jobEventId: this.lastJobEventId,
+      ts: Date.now(),
+      serverInstanceId: SERVER_INSTANCE_ID,
+      taskId: this.taskId,
+      jobId: this.id,
+      kind: this.kind,
+      type,
+      payload
+    };
+    this.events.push(event);
+    if (this.events.length > JOB_PER_EVENT_CAP) this.events.shift();
+    globalEventBuffer.push(event);
+    if (globalEventBuffer.length > GLOBAL_EVENT_BUFFER_CAP) globalEventBuffer.shift();
+    sseBroker.broadcast(event);
+  }
+
+  async awaitReply(question) {
+    this.status = 'awaiting_input';
+    this.pendingClarification = { question, askedAt: Date.now() };
+    this.emit('job.awaiting_input', { question });
+    await persistJobSnapshot(this);
+    return new Promise((resolve, reject) => {
+      this.replyResolver = { resolve, reject };
+    });
+  }
+
+  acceptReply(text) {
+    if (!this.replyResolver) throw new Error('Job not awaiting input');
+    this.pendingClarification = null;
+    this.status = 'running';
+    this.emit('job.progress', { phase: 'reply_received', chars: String(text).length });
+    const r = this.replyResolver;
+    this.replyResolver = null;
+    r.resolve(text);
+  }
+
+  cancel() {
+    if (['completed', 'failed', 'cancelled'].includes(this.status)) return false;
+    this.status = 'cancelling';
+    try { this.abortController.abort(); } catch {}
+    if (this.replyResolver) {
+      const r = this.replyResolver;
+      this.replyResolver = null;
+      try { r.reject(new Error('Job cancelled')); } catch {}
+    }
+    // If an SDK session is bound, destroy it so sendAndWait unblocks.
+    if (this._session) {
+      try { destroySession(this._session); } catch {}
+    }
+    return true;
+  }
+
+  snapshot() {
+    return {
+      jobId: this.id,
+      taskId: this.taskId,
+      kind: this.kind,
+      status: this.status,
+      startedAt: this.startedAt,
+      completedAt: this.completedAt,
+      pendingClarification: this.pendingClarification,
+      result: this.result,
+      error: this.error,
+      lastJobEventId: this.lastJobEventId,
+      serverInstanceId: SERVER_INSTANCE_ID,
+      clientRequestId: this.clientRequestId,
+      sdkSessionId: this.sdkSessionId,
+      progress: this.progress
+    };
+  }
+}
+
+// Register a job in the in-memory maps. Call AFTER persistJobSnapshot succeeded.
+// v4.0.0-rc.1 — supports null taskId for global jobs ('scan', 'consolidate'),
+// which are tracked in globalActiveJobByKind (singleton semantics).
+function registerJob(job) {
+  jobs.set(job.id, job);
+  if (job.taskId) {
+    let set = jobsByTask.get(job.taskId);
+    if (!set) { set = new Set(); jobsByTask.set(job.taskId, set); }
+    set.add(job.id);
+    activeJobByTask.set(job.taskId, job.id);
+  } else {
+    globalActiveJobByKind.set(job.kind, job.id);
+  }
+}
+
+function unregisterActiveJob(job) {
+  if (job.taskId) {
+    if (activeJobByTask.get(job.taskId) === job.id) {
+      activeJobByTask.delete(job.taskId);
+    }
+  } else {
+    if (globalActiveJobByKind.get(job.kind) === job.id) {
+      globalActiveJobByKind.delete(job.kind);
+    }
+  }
+}
+
+// Expose to future phases (Phase γ.B runner will be wired here).
+// eslint-disable-next-line no-unused-vars
+const __gammaA = { Job, jobs, jobsByTask, activeJobByTask, idempotencyMap, sseBroker, registerJob, unregisterActiveJob, persistJobSnapshot, hashBody, checkIdempotency, storeIdempotency };
+
+// ============================================================================
+// Phase γ.A.2 — Global (non-task-bound) job registry (v4.0.0-rc.1)
+// ============================================================================
+// Jobs whose lifecycle spans multiple tasks (like a 4-phase 'scan') live here.
+// They persist to jobs.json so a browser refresh can hydrate from server state,
+// and a server restart can tombstone them as 'failed:server-restart' without
+// losing the history.
+// ----------------------------------------------------------------------------
+
+const JOBS_FILE = path.join(__dirname, 'jobs.json');
+const GLOBAL_JOBS_HISTORY_CAP = 100;
+const globalActiveJobByKind = new Map();   // 'scan' | 'consolidate' → jobId
+
+function readJobsFile() {
+  try {
+    if (!fs.existsSync(JOBS_FILE)) return { jobs: [] };
+    const raw = fs.readFileSync(JOBS_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.jobs)) return { jobs: [] };
+    return parsed;
+  } catch (err) {
+    console.error(`[GAMMA.A2] readJobsFile failed: ${err.message}`);
+    return { jobs: [] };
+  }
+}
+
+function writeJobsFile(data) {
+  try {
+    fs.writeFileSync(JOBS_FILE, JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.error(`[GAMMA.A2] writeJobsFile failed: ${err.message}`);
+  }
+}
+
+async function persistGlobalJobSnapshot(job) {
+  const data = readJobsFile();
+  const snap = {
+    ...job.snapshot(),
+    lastUpdate: Date.now()
+  };
+  const idx = data.jobs.findIndex(j => j.jobId === job.id);
+  if (idx >= 0) data.jobs[idx] = snap;
+  else data.jobs.push(snap);
+  // Trim history (keep most recent)
+  if (data.jobs.length > GLOBAL_JOBS_HISTORY_CAP) {
+    data.jobs = data.jobs.slice(-GLOBAL_JOBS_HISTORY_CAP);
+  }
+  writeJobsFile(data);
+}
+
+// Check if a global singleton kind is currently active. Returns
+// { acquired: true } if free, or { acquired: false, existingJobId } if busy.
+function tryAcquireSingleton(kind) {
+  const existingId = globalActiveJobByKind.get(kind);
+  if (existingId) {
+    const job = jobs.get(existingId);
+    if (job && !['completed', 'failed', 'cancelled'].includes(job.status)) {
+      return { acquired: false, existingJobId: existingId };
+    }
+    // Stale entry — clean up and allow acquisition.
+    globalActiveJobByKind.delete(kind);
+  }
+  return { acquired: true };
+}
+
+// On server boot, mark any globally-persisted jobs that were running as failed.
+// Called immediately after this block is defined (see startup section).
+function markInterruptedGlobalJobs() {
+  const data = readJobsFile();
+  let count = 0;
+  for (const j of data.jobs) {
+    if (['queued', 'running', 'cancelling', 'awaiting_input'].includes(j.status)) {
+      j.status = 'failed';
+      j.error = (j.error ? j.error + ' | ' : '') + 'server-restart';
+      j.completedAt = new Date().toISOString();
+      count++;
+    }
+  }
+  if (count > 0) {
+    writeJobsFile(data);
+    console.log(`[GAMMA.A2] Tombstoned ${count} interrupted global job(s) at startup`);
+  }
+}
+
+// Lock used by GET /api/jobs?active=true to return {jobs, snapshotEventId}
+// atomically, preventing the SSE boot-race: the snapshotEventId is captured
+// while the jobs list is also captured, so the client can use it as the
+// lastEventId when subscribing to /api/events without losing or duplicating.
+function snapshotActiveJobs() {
+  const list = [];
+  for (const j of jobs.values()) {
+    if (['completed', 'failed', 'cancelled'].includes(j.status)) continue;
+    list.push(j.snapshot());
+  }
+  return { jobs: list, snapshotEventId: globalEventSeq };
+}
+
 // --- API Endpoints ---
 
 // Health check endpoint — used by startup scripts to verify server is alive and healthy
@@ -958,14 +1624,607 @@ app.post('/api/debug-log', (req, res) => {
   res.json({ enabled: DEBUG_LOG });
 });
 
-// GET /api/version — return app version from package.json
+// Cached at boot. Walks up from __dirname to find .git (Agent_Zero is a
+// sub-folder of the Work_IQ repo root, so the local dir has no .git of its
+// own). Tries `git rev-parse` first (fast when git is on PATH); falls back
+// to reading .git/HEAD directly when the server is launched from a cmd that
+// doesn't inherit git in PATH. Server is ESM so no require().
+const BUILD_COMMIT = (() => {
+  try {
+    return execSync('git rev-parse --short HEAD', { cwd: __dirname, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {}
+  try {
+    let dir = __dirname;
+    for (let i = 0; i < 6; i++) {
+      const gitPath = path.join(dir, '.git');
+      if (fs.existsSync(gitPath)) {
+        const head = fs.readFileSync(path.join(gitPath, 'HEAD'), 'utf-8').trim();
+        if (head.startsWith('ref: ')) {
+          const refFile = path.join(gitPath, head.slice(5));
+          if (fs.existsSync(refFile)) return fs.readFileSync(refFile, 'utf-8').trim().slice(0, 7);
+          const packed = path.join(gitPath, 'packed-refs');
+          if (fs.existsSync(packed)) {
+            const ref = head.slice(5);
+            const line = fs.readFileSync(packed, 'utf-8').split(/\r?\n/).find(l => l.endsWith(' ' + ref));
+            if (line) return line.slice(0, 7);
+          }
+          return 'noref';
+        }
+        return head.slice(0, 7);
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {}
+  return 'nogit';
+})();
+console.log(`[Agent Zero] Build commit: ${BUILD_COMMIT}`);
+
+// GET /api/version — return app version from package.json + short git SHA
+// so the UI can prove which build is actually running (useful after a patch).
 app.get('/api/version', (req, res) => {
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
-    res.json({ version: pkg.version, name: pkg.name });
+    res.json({ version: pkg.version, name: pkg.name, commit: BUILD_COMMIT });
   } catch {
-    res.json({ version: 'unknown' });
+    res.json({ version: 'unknown', commit: BUILD_COMMIT });
   }
+});
+
+// ----------------------------------------------------------------------------
+// Phase γ.A endpoints — SSE stream + job inspection/control
+// ----------------------------------------------------------------------------
+
+// GET /api/events — Server-Sent Events stream of all job events.
+// Supports ?lastEventId=N or Last-Event-ID header for reconnect replay.
+app.get('/api/events', (req, res) => {
+  sseBroker.subscribe(req, res);
+});
+
+// GET /api/jobs/:jobId — full snapshot (used for refresh hydration)
+app.get('/api/jobs/:jobId', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'job not found' });
+  res.json({ ...job.snapshot(), events: job.events.slice(-JOB_PER_EVENT_CAP) });
+});
+
+// POST /api/jobs/:jobId/cancel — request cancellation.
+// Returns ok:true + cancelled:true when the job transitioned to 'cancelling',
+// cancelled:false when the job was already finished (idempotent no-op).
+app.post('/api/jobs/:jobId/cancel', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'job not found' });
+  const cancelled = job.cancel();
+  res.json({ ok: true, cancelled, status: job.status });
+});
+
+// POST /api/jobs/:jobId/reply — answer to a clarification question.
+app.post('/api/jobs/:jobId/reply', (req, res) => {
+  const job = jobs.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: 'job not found' });
+  if (['completed', 'failed', 'cancelled'].includes(job.status)) {
+    return res.status(410).json({ error: `job is ${job.status}` });
+  }
+  if (job.status !== 'awaiting_input') {
+    return res.status(409).json({ error: 'job not awaiting input', status: job.status });
+  }
+  const text = (req.body && typeof req.body.text === 'string') ? req.body.text : '';
+  if (!text.trim()) return res.status(400).json({ error: 'empty reply text' });
+  try {
+    job.acceptReply(text);
+  } catch (err) {
+    return res.status(409).json({ error: err.message });
+  }
+  res.json({ ok: true });
+});
+
+// ============================================================================
+// Phase γ.B — Log-Job runner (1-call autonomous LLM)
+// ============================================================================
+// PRINCIPLE: every semantic decision (intent, search strategy, title/summary
+// changes, clarification-vs-act) is made by a Copilot CLI LLM instance. No
+// regex pre-filters, no keyword heuristics, no deterministic shortcuts. The
+// system prompt is the SEARCH_SKILL.md file (same pattern as phases 1-4).
+// Only mechanical work (serialisation, JSON schema enforcement, history write,
+// SSE emit) is deterministic.
+// ----------------------------------------------------------------------------
+
+const GAMMA_LOG_TIMEOUT_MS = 300000;
+const GAMMA_LOG_MAX_ROUNDS = 3; // 1 initial + up to 2 clarification rounds
+
+function formatRecentHistoryForPrompt(task) {
+  return (task.history || [])
+    .filter(h => h.type === 'update' || h.type === 'note')
+    .slice(-8)
+    .map(h => {
+      let entry = `[${h.timestamp}] USER: ${h.text}`;
+      if (h.agentPlan) {
+        const intent = h.agentPlan.intent || 'search';
+        entry += `\nAGENT (${intent}): ${h.agentPlan.understanding || ''}`;
+      }
+      if (Array.isArray(h.communications) && h.communications.length > 0) {
+        for (const c of h.communications) {
+          entry += `\n  📧 ${c.from || '?'} → ${c.to || '?'}: ${c.summary || '(no summary)'}`;
+        }
+      }
+      return entry;
+    })
+    .join('\n---\n');
+}
+
+function formatConversationForPrompt(convo) {
+  return convo.map(turn => {
+    if (turn.role === 'user') return `USER: ${turn.text}`;
+    if (turn.role === 'agent-clarification') return `AGENT (asked for clarification): ${turn.text}`;
+    return `${turn.role.toUpperCase()}: ${turn.text}`;
+  }).join('\n\n');
+}
+
+// Compose the system prompt (SEARCH_SKILL.md) + dynamic task/assignment context.
+// Same pattern as the Scan/Enrich/Check-Update/Review phases: skill file is
+// the durable system prompt, assignment below is the dynamic task context.
+function buildLogJobPrompt(task, convo) {
+  const taskDate = task.date || task.createdAt || '';
+  const recentHistory = formatRecentHistoryForPrompt(task);
+  const conversation = formatConversationForPrompt(convo);
+  const skill = SEARCH_SKILL || '';
+
+  return `${skill}
+
+## Your Assignment (Agent Zero — Log Work, unified 1-call)
+
+You act on behalf of the user on an action item tracked in Agent Zero. The user sent you one or more messages about this item. Decide yourself, based on meaning and context, what the user actually wants — do NOT rely on keywords or phrase-matching. Then act autonomously in a single turn.
+
+### TASK CONTEXT
+- Title: "${task.title}"
+- From: ${task.from || 'unknown'}
+- Source: ${task.source || 'unknown'}
+- Date: ${taskDate}
+- Current summary: ${task.summary ? `"${task.summary.substring(0, 1500)}"` : '(none)'}
+${recentHistory ? `\n### RECENT HISTORY (last 8 updates)\n${recentHistory}\n` : ''}
+### CONVERSATION WITH USER
+${conversation}
+
+### DECISION RULES
+
+You MUST make every decision yourself by reasoning about the user's message. Never act on keyword shortcuts.
+
+Possible intents:
+- search     : the user wants you to find communications / the current status / an answer by looking in email and Teams
+- update     : the user tells you they did something, or reports a new fact about the item — update title/summary to reflect it, DO NOT search unless they explicitly also ask you to verify
+- rename     : the user explicitly asks for a title change
+- summarize  : the user explicitly asks for a summary change or migration
+- correct    : the user says something is wrong, outdated, or hallucinated — fix title/summary accordingly
+- answer     : the user asks a conceptual question that needs no search, no write (pure Q&A)
+- clarify    : the user's message is genuinely ambiguous — ask ONE short question and wait
+
+Rules:
+- Never ask for permission to act. If you can decide, decide and act.
+- For **search** intent: use the SEARCH_SKILL strategy above (parallel_search with 2-3 angles, self-assess, optional 3rd attempt). Integrate findings into title/summary when relevant.
+- For **update / correct / rename / summarize** intents: normally do NOT call tools. Act directly on the user's information.
+- For **answer** intent: provide a direct answer in \`answer\`; leave communications empty; do not touch title/summary.
+- For **clarify** intent: set \`clarification\` to exactly ONE short question (user's language). Do not call tools. Do not set titleChanged/summaryChanged.
+- Title: concise (max ~15 words), no emoji, reflects CURRENT state.
+- Summary: structured 3-section format:
+  [1-2 sentence context]
+  ---
+  🔴 **Nächste Schritte:** / **Next steps:**
+  - …
+  ---
+  ✅ **Bisheriger Verlauf:** / **History:**
+  - DD.MM. — milestone (newest first)
+  Keep the language of the existing content. Migrate older 📌-Update-style summaries into this structure when touching them.
+- Only set \`titleChanged\` or \`summaryChanged\` to true when there is a GENUINE reason in this turn.
+
+### OUTPUT
+Output EXACTLY this JSON object and nothing else (no prose, no markdown fences):
+{
+  "intent": "search" | "update" | "rename" | "summarize" | "correct" | "answer" | "clarify",
+  "clarification": "single short question in the user's language" | null,
+  "communications": [ { "type": "email"|"teams", "from": "", "to": "", "date": "ISO-8601", "summary": "", "link": "" }, ... ],
+  "answer": "user-facing answer text, may be empty string for pure updates" | null,
+  "confidence": "high" | "medium" | "low" | "none",
+  "searchAttempts": [ { "angle": "", "query": "", "foundCount": 0 }, ... ],
+  "ambiguities": [ "..." ],
+  "titleChanged": true | false,
+  "newTitle": "..." | null,
+  "summaryChanged": true | false,
+  "newSummary": "..." | null,
+  "reasoning": "one concise sentence explaining what you decided and why"
+}`;
+}
+
+// Wrap an existing tool so the owning Job sees live tool-call progress events.
+// IMPORTANT: we intentionally do NOT rebuild the tool via defineTool here.
+// The SDK tool object's exact internal shape (private fields, permission
+// hooks, session-context plumbing) is not part of a public contract, so
+// rebuilding risks losing features (skipPermission, session-id plumbing,
+// etc.). Instead we return the tool unchanged and emit a single
+// "tool_round" job.progress event BEFORE the LLM round; per-tool-call
+// granularity can be added later once the SDK shape is verified.
+// Keeping the same name + signature so the runner call-site is stable.
+function withJobContext(/* job, tool */_job, tool) {
+  return tool;
+}
+
+function buildAgentResponseString(parsed, communications) {
+  if (parsed.intent === 'clarify' && parsed.clarification) {
+    return `❓ ${parsed.clarification}`;
+  }
+  if (parsed.intent === 'answer' && parsed.answer) {
+    return parsed.answer;
+  }
+  const confIcon = { high: '✅', medium: '⚠️', low: '🔍', none: '❌' }[parsed.confidence] || '';
+  const head = parsed.answer ? `${confIcon} ${parsed.answer}`.trim() : (parsed.reasoning || '');
+  let out = head;
+  if (Array.isArray(parsed.ambiguities) && parsed.ambiguities.length > 0) {
+    out += '\n\n⚠️ ' + parsed.ambiguities.join('\n⚠️ ');
+  }
+  if (communications.length > 0) {
+    const summaries = communications.map((c, i) => {
+      const icon = c.type === 'teams' ? '💬' : '📧';
+      const date = c.date ? (() => { try { return new Date(c.date).toLocaleDateString('de-CH'); } catch { return c.date; } })() : '';
+      return `${i + 1}. ${icon} **${c.from || 'Unknown'}** → ${c.to || ''} (${date})${c.summary ? ': ' + c.summary : ''}`;
+    }).join('\n');
+    out += `\n\n📋 ${communications.length} communication(s):\n${summaries}`;
+  }
+  return out || '(no response)';
+}
+
+// v3.4.1 — Persist failure state so UI/hydration doesn't stay stuck.
+// Called from every fail branch in runLogJob. Writes a history entry describing
+// the failure, clears task.activeJob, and appends to jobHistory.
+async function persistJobFailure(job, reason, extras = {}) {
+  try {
+    const finalTask = await safeWriteTasks((d) => {
+      const t = d.tasks.find(x => x.id === job.taskId);
+      if (!t) return null;
+      const now = new Date().toISOString();
+      if (!t.history) t.history = [];
+      t.history.push({
+        timestamp: now,
+        type: 'update',
+        text: job.input && job.input.text ? job.input.text : '(agent request)',
+        communications: [],
+        agentResponse: `⚠️ Agent failed: ${reason}`,
+        agentPlan: { intent: 'answer', understanding: reason, confidence: 'none', userConfirmed: false, jobId: job.id },
+        agentExecution: {
+          parsedCount: 0,
+          confidence: 'none',
+          answer: null,
+          searchAttempts: [],
+          ambiguities: [],
+          durationMs: job.startedAt ? Date.now() - job.startedAt : 0,
+          method: 'gamma-single-call-v1',
+          rounds: extras.rounds || 0,
+          error: reason,
+          rawPreview: typeof extras.rawPreview === 'string' ? extras.rawPreview.substring(0, 400) : null
+        }
+      });
+      t.activeJob = null;
+      t.jobHistory = t.jobHistory || [];
+      t.jobHistory.push({
+        jobId: job.id,
+        kind: job.kind,
+        status: 'failed',
+        startedAt: job.startedAt ? new Date(job.startedAt).toISOString() : null,
+        completedAt: now,
+        clientRequestId: job.clientRequestId,
+        sdkSessionId: job.sdkSessionId,
+        error: reason
+      });
+      if (t.jobHistory.length > JOB_HISTORY_CAP) t.jobHistory.shift();
+      t.updatedAt = now;
+      return t;
+    });
+    return finalTask;
+  } catch (persistErr) {
+    console.error(`[GAMMA.B] persistJobFailure error job=${job.id.substring(0,8)}: ${persistErr.message}`);
+    return null;
+  }
+}
+
+async function runLogJob(job) {
+  return runOnTaskQueue(job.taskId, async () => {
+    // Re-read task state at queue front (might have changed while queued)
+    const data = readTasks();
+    const task = data.tasks.find(t => t.id === job.taskId);
+    if (!task) {
+      job.status = 'failed';
+      job.error = 'Task deleted while queued';
+      job.emit('job.failed', { error: job.error });
+      activeJobByTask.delete(job.taskId);
+      return;
+    }
+
+    if (job.status === 'cancelling') {
+      await safeWriteTasks((d) => { const t = d.tasks.find(x=>x.id===job.taskId); if(t) t.activeJob = null; return t; });
+      job.status = 'cancelled';
+      job.completedAt = Date.now();
+      job.emit('job.cancelled', {});
+      activeJobByTask.delete(job.taskId);
+      return;
+    }
+
+    job.status = 'running';
+    job.startedAt = Date.now();
+    job.emit('job.started', { title: task.title });
+    await persistJobSnapshot(job);
+
+    const convo = [{ role: 'user', text: job.input.text }];
+    let parsed = null;
+    let rounds = 0;
+    let rawContent = null;
+
+    try {
+      while (rounds < GAMMA_LOG_MAX_ROUNDS) {
+        if (job.status === 'cancelling') break;
+        rounds++;
+
+        await waitForSDKSlot();
+        if (job.status === 'cancelling') break;
+
+        const prompt = buildLogJobPrompt(task, convo);
+        console.log(`[GAMMA.B] log-job ${job.id.substring(0, 8)} round ${rounds} prompt=${prompt.length} chars`);
+
+        // One fresh session per round so we never depend on an unverified
+        // multi-turn API on the SDK session. The conversation is passed in
+        // the prompt itself.
+        const client = new CopilotClient();
+        const session = trackSession(await client.createSession({
+          tools: [
+            withJobContext(job, askWorkIQTool),
+            withJobContext(job, parallelSearchTool)
+          ],
+          onPermissionRequest: approveAll
+        }));
+        linkClientToSession(session, client);
+        job._session = session;
+        if (session && session.id && !job.sdkSessionId) job.sdkSessionId = session.id;
+
+        job.emit('job.progress', { phase: 'llm_round', round: rounds });
+
+        let response;
+        try {
+          response = await runWithWiqGuard(session, prompt, GAMMA_LOG_TIMEOUT_MS);
+        } catch (err) {
+          await destroySession(session);
+          try { await client.dispose(); } catch {}
+          job._session = null;
+          if (job.status === 'cancelling') break;
+          job.status = 'failed';
+          job.error = `LLM call failed: ${err.message}`;
+          await persistJobFailure(job, job.error, { rounds });
+          job.emit('job.failed', { error: job.error });
+          activeJobByTask.delete(job.taskId);
+          return;
+        }
+
+        await destroySession(session);
+        try { await client.dispose(); } catch {}
+        job._session = null;
+
+        if (job.status === 'cancelling') break;
+
+        rawContent = response && response.data ? response.data.content : null;
+        parsed = parseJsonFromResponse(rawContent);
+
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          job.status = 'failed';
+          job.error = 'LLM response was not valid JSON object';
+          await persistJobFailure(job, job.error, { rounds, rawPreview: typeof rawContent === 'string' ? rawContent : null });
+          job.emit('job.failed', { error: job.error, rawPreview: typeof rawContent === 'string' ? rawContent.substring(0, 400) : null });
+          activeJobByTask.delete(job.taskId);
+          return;
+        }
+
+        // Clarification loop: only if the LLM itself decided to ask.
+        if (parsed.intent === 'clarify' && typeof parsed.clarification === 'string' && parsed.clarification.trim() && rounds < GAMMA_LOG_MAX_ROUNDS) {
+          try {
+            const reply = await job.awaitReply(parsed.clarification.trim());
+            convo.push({ role: 'agent-clarification', text: parsed.clarification.trim() });
+            convo.push({ role: 'user', text: reply });
+            continue; // next round with accumulated conversation
+          } catch (err) {
+            if (job.status === 'cancelling') break;
+            job.status = 'failed';
+            job.error = `Clarification interrupted: ${err.message}`;
+            await persistJobFailure(job, job.error, { rounds });
+            job.emit('job.failed', { error: job.error });
+            activeJobByTask.delete(job.taskId);
+            return;
+          }
+        }
+        break; // final answer produced
+      }
+    } finally {
+      if (job._session) {
+        try { await destroySession(job._session); } catch {}
+        job._session = null;
+      }
+    }
+
+    if (job.status === 'cancelling') {
+      await safeWriteTasks((d) => { const t = d.tasks.find(x=>x.id===job.taskId); if(t) t.activeJob = null; return t; });
+      job.status = 'cancelled';
+      job.completedAt = Date.now();
+      job.emit('job.cancelled', {});
+      activeJobByTask.delete(job.taskId);
+      return;
+    }
+
+    if (!parsed) {
+      job.status = 'failed';
+      job.error = 'No parseable response received';
+      await persistJobFailure(job, job.error, { rounds });
+      job.emit('job.failed', { error: job.error });
+      activeJobByTask.delete(job.taskId);
+      return;
+    }
+
+    // ------------------------------------------------------------------
+    // Apply the LLM's decisions to tasks.json — purely mechanical write.
+    // ------------------------------------------------------------------
+    const communications = Array.isArray(parsed.communications) ? parsed.communications : [];
+    const intent = typeof parsed.intent === 'string' ? parsed.intent : 'answer';
+    const agentResponse = buildAgentResponseString(parsed, communications);
+
+    const finalTask = await safeWriteTasks((d) => {
+      const t = d.tasks.find(x => x.id === job.taskId);
+      if (!t) return null;
+      const now = new Date().toISOString();
+      if (!t.history) t.history = [];
+
+      t.history.push({
+        timestamp: now,
+        type: 'update',
+        text: job.input.text,
+        communications,
+        agentResponse,
+        agentPlan: {
+          intent,
+          understanding: parsed.reasoning || '',
+          confidence: parsed.confidence || null,
+          userConfirmed: true,
+          jobId: job.id
+        },
+        agentExecution: {
+          parsedCount: communications.length,
+          confidence: parsed.confidence || null,
+          answer: parsed.answer || null,
+          searchAttempts: Array.isArray(parsed.searchAttempts) ? parsed.searchAttempts : [],
+          ambiguities: Array.isArray(parsed.ambiguities) ? parsed.ambiguities : [],
+          durationMs: Date.now() - job.startedAt,
+          method: 'gamma-single-call-v1',
+          rounds
+        }
+      });
+
+      if (parsed.titleChanged && parsed.newTitle && String(parsed.newTitle).trim() !== t.title) {
+        const prev = t.title;
+        t.title = String(parsed.newTitle).trim();
+        t.history.push({
+          timestamp: now,
+          type: 'title-change',
+          text: `📝 Title updated: "${prev}" → "${t.title}"\nReason: ${parsed.reasoning || ''}`
+        });
+      }
+      if (parsed.summaryChanged && parsed.newSummary) {
+        const prevLen = (t.summary || '').length;
+        t.summary = String(parsed.newSummary).trim();
+        t.history.push({
+          timestamp: now,
+          type: 'summary-update',
+          text: `📋 Summary updated (prev ${prevLen} chars)\nReason: ${parsed.reasoning || ''}`
+        });
+      }
+
+      t.activeJob = null;
+      t.jobHistory = t.jobHistory || [];
+      t.jobHistory.push({
+        jobId: job.id,
+        kind: job.kind,
+        status: 'completed',
+        startedAt: new Date(job.startedAt).toISOString(),
+        completedAt: now,
+        clientRequestId: job.clientRequestId,
+        sdkSessionId: job.sdkSessionId,
+        intent,
+        rounds
+      });
+      if (t.jobHistory.length > JOB_HISTORY_CAP) t.jobHistory.shift();
+
+      t.updatedAt = now;
+      return t;
+    });
+
+    if (!finalTask) {
+      job.status = 'failed';
+      job.error = 'Task was deleted before final write';
+      job.emit('job.failed', { error: job.error });
+      activeJobByTask.delete(job.taskId);
+      return;
+    }
+
+    job.result = {
+      task: finalTask,
+      evaluation: {
+        titleChanged: !!parsed.titleChanged,
+        summaryChanged: !!parsed.summaryChanged,
+        reasoning: parsed.reasoning || ''
+      }
+    };
+    job.status = 'completed';
+    job.completedAt = Date.now();
+    job.emit('job.completed', { task: finalTask, evaluation: job.result.evaluation });
+    activeJobByTask.delete(job.taskId);
+  });
+}
+
+// POST /api/tasks/:id/log-job — TEMPORARY endpoint for Phase γ.B.
+// Old /log/analyze and /log remain active until Phase γ.F cut-over.
+// Accepts Idempotency-Key header (optional but recommended).
+app.post('/api/tasks/:id/log', async (req, res) => {
+  const { id } = req.params;
+  const { text } = req.body || {};
+  const idempKey = req.headers['idempotency-key'] || null;
+
+  if (!text || !String(text).trim()) {
+    return res.status(400).json({ error: 'Log text is required' });
+  }
+
+  // Confirm task exists (fast read, no lock)
+  try {
+    const data = readTasks();
+    const t = data.tasks.find(x => x.id === id);
+    if (!t) return res.status(404).json({ error: 'Task not found' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to read tasks', detail: err.message });
+  }
+
+  // Idempotency replay protection
+  const bodyHash = hashBody({ text: String(text).trim() });
+  const idem = checkIdempotency(idempKey, bodyHash);
+  if (idem.status === 'conflict') {
+    return res.status(409).json({ error: 'Idempotency-Key reused with different body' });
+  }
+  if (idem.status === 'hit') {
+    const existing = jobs.get(idem.jobId);
+    return res.status(202).json({ jobId: idem.jobId, status: existing ? existing.status : 'unknown', idempotent: true });
+  }
+
+  // One active log-job per task at a time
+  const activeId = activeJobByTask.get(id);
+  if (activeId) {
+    return res.status(409).json({ error: 'Task already has an active job', existingJobId: activeId });
+  }
+
+  const job = new Job({
+    taskId: id,
+    kind: 'log',
+    input: { text: String(text).trim() },
+    clientRequestId: idempKey
+  });
+  registerJob(job);
+  storeIdempotency(idempKey, job.id, bodyHash);
+
+  await persistJobSnapshot(job);
+
+  // Kick off runner asynchronously — respond 202 immediately.
+  setImmediate(() => {
+    runLogJob(job).catch(err => {
+      console.error(`[GAMMA.B] runLogJob unhandled error: ${err.stack || err.message}`);
+      if (!['completed', 'failed', 'cancelled'].includes(job.status)) {
+        job.status = 'failed';
+        job.error = `Unhandled: ${err.message}`;
+        try { job.emit('job.failed', { error: job.error }); } catch {}
+        activeJobByTask.delete(job.taskId);
+      }
+    });
+  });
+
+  res.status(202).json({ jobId: job.id, status: 'queued' });
 });
 
 // GET /api/tasks — return all tasks
@@ -1062,7 +2321,7 @@ app.patch('/api/tasks/:id', async (req, res) => {
         });
       }
 
-      const allowedFields = ['status', 'notes', 'title', 'summary', 'enrichmentStatus', 'updateCheckStatus', 'pendingPlan'];
+      const allowedFields = ['status', 'notes', 'title', 'summary', 'enrichmentStatus', 'updateCheckStatus'];
       for (const field of allowedFields) {
         if (updates[field] !== undefined) {
           t[field] = typeof updates[field] === 'string' ? updates[field].trim() : updates[field];
@@ -1085,6 +2344,25 @@ app.patch('/api/tasks/:id', async (req, res) => {
 app.delete('/api/tasks/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const forceCancel = String(req.query.cancelActive || '').toLowerCase() === 'true';
+
+    // Phase γ.F: refuse to delete tasks with an active job unless ?cancelActive=true.
+    const activeJobId = activeJobByTask.get(id);
+    if (activeJobId) {
+      const job = jobs.get(activeJobId);
+      if (job && !['completed', 'failed', 'cancelled'].includes(job.status)) {
+        if (!forceCancel) {
+          return res.status(409).json({
+            error: 'Task has an active job',
+            existingJobId: activeJobId,
+            hint: 'Retry with ?cancelActive=true to cancel first'
+          });
+        }
+        try { job.cancel(); } catch {}
+        // Give the runner a moment to observe cancellation before we remove the task.
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    }
 
     const found = await safeWriteTasks((data) => {
       const index = data.tasks.findIndex(t => t.id === id);
@@ -1232,10 +2510,34 @@ app.post('/api/scan', async (req, res) => {
     const emailQuery = `Which of my emails from the ${daysText} require me to take action — respond, approve, review, call back, deliver, decide, or follow up? Include emails from external senders. For each actionable email show: exact Subject line, From (sender name), Date received, and a direct Outlook Web link to open it.`;
     const teamsQuery = `Which of my Teams messages from the ${daysText} require me to take action — respond, review, deliver, or follow up? Only include messages with explicit requests. For each show: who sent it, date, topic, and what action is needed.`;
 
-    const [emailResult, teamsResult] = await Promise.allSettled([
-      askWorkIQDirect(emailQuery, 90000),
-      askWorkIQDirect(teamsQuery, 90000),
-    ]);
+    // v3.4.0 follow-up: retry once if askWorkIQDirect rejected because WorkIQ returned stubs.
+    // The stub-handler in askWorkIQDirect force-restarts the subprocess on the 3rd stub, so a
+    // single retry after a short wait lets Phase-1 self-heal instead of silently returning 0 items.
+    const isStubErr = (r) => r.status === 'rejected' && /eula\/permission stub/i.test(r.reason?.message || '');
+    async function fetchScanPair() {
+      return Promise.allSettled([
+        askWorkIQDirect(emailQuery, 90000),
+        askWorkIQDirect(teamsQuery, 90000),
+      ]);
+    }
+    let [emailResult, teamsResult] = await fetchScanPair();
+    if (isStubErr(emailResult) || isStubErr(teamsResult)) {
+      console.warn('[SCAN] Phase 1 got EULA/permission stubs — force-restarting WorkIQ and retrying once');
+      debugLog('PHASE1', 'STUB-RETRY: force-restarting WorkIQ subprocess');
+      // Proactively kill the subprocess: the global consecutiveStubCount threshold (3) does not
+      // trigger on 2 parallel stubs (email+teams), so without this kill the retry would hit the
+      // same stubbing WorkIQ instance and fail again. See logs 2026-04-22T06:44 for repro.
+      if (wiqProc) { try { wiqProc.kill(); } catch {} }
+      await new Promise(r => setTimeout(r, 8000));
+      // Wait until subprocess is marked ready (up to 15s beyond the 8s nap)
+      const retryDeadline = Date.now() + 15000;
+      while (!wiqReady && Date.now() < retryDeadline) {
+        await new Promise(r => setTimeout(r, 500));
+      }
+      [emailResult, teamsResult] = await fetchScanPair();
+      console.log(`[SCAN] Phase 1 retry complete (email=${emailResult.status}, teams=${teamsResult.status})`);
+      debugLog('PHASE1', `STUB-RETRY done`, { email: emailResult.status, teams: teamsResult.status });
+    }
 
     const emailRaw = emailResult.status === 'fulfilled' ? emailResult.value : '';
     const teamsRaw = teamsResult.status === 'fulfilled' ? teamsResult.value : '';
@@ -1485,7 +2787,7 @@ app.post('/api/scan', async (req, res) => {
 });
 
 // POST /api/tasks/:id/enrich — Phase 2: content extraction & summary
-app.post('/api/tasks/:id/enrich', async (req, res) => {
+app.post('/api/tasks/:id/enrich', withTaskQueue(async (req, res) => {
   const { id } = req.params;
 
   let task;
@@ -1558,7 +2860,7 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
     }
     client = new CopilotClient();
     session = trackSession(await client.createSession({
-      tools: [askWorkIQTool],
+      tools: [askWorkIQTool, parallelSearchTool],
       onPermissionRequest: approveAll
     }));
     linkClientToSession(session, client);
@@ -1656,12 +2958,12 @@ app.post('/api/tasks/:id/enrich', async (req, res) => {
       try { await client.dispose(); } catch {}
     }
   }
-});
+}));
 
 // POST /api/tasks/:id/check-update — Phase 3: check for thread updates
 // v3.3: Action-Item-State injection, hard query budget, stub detection,
 // tristate outcome (updated/no-update/inconclusive), no eval session, pre-filter.
-app.post('/api/tasks/:id/check-update', async (req, res) => {
+app.post('/api/tasks/:id/check-update', withTaskQueue(async (req, res) => {
   const { id } = req.params;
   const force = req.query.force === '1' || req.body?.force === true;
 
@@ -1732,7 +3034,7 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
     }
     client = new CopilotClient();
     session = trackSession(await client.createSession({
-      tools: [askWorkIQTool],
+      tools: [askWorkIQTool, parallelSearchTool],
       onPermissionRequest: approveAll
     }));
     linkClientToSession(session, client);
@@ -1941,7 +3243,7 @@ app.post('/api/tasks/:id/check-update', async (req, res) => {
       try { await client.dispose(); } catch {}
     }
   }
-});
+}));
 
 // POST /api/consolidate — Phase 4: suggest merging semantically related tasks
 app.post('/api/consolidate', async (req, res) => {
@@ -2256,1055 +3558,9 @@ app.post('/api/tasks/:id/dismiss-merge', async (req, res) => {
 });
 
 // POST /api/tasks/:id/log/analyze — Phase 1: AI analyzes log request (v1.4, intent-based v1.5)
-app.post('/api/tasks/:id/log/analyze', async (req, res) => {
-  const { id } = req.params;
-  const { text } = req.body;
-
-  if (!text || !text.trim()) {
-    return res.status(400).json({ error: 'Log text is required' });
-  }
-
-  // Read task context
-  let task;
-  try {
-    const data = readTasks();
-    task = data.tasks.find(t => t.id === id);
-    if (!task) return res.status(404).json({ error: 'Task not found' });
-  } catch (err) {
-    return res.status(500).json({ error: 'Failed to read tasks', detail: err.message });
-  }
-
-  const taskDate = task.date || task.createdAt || '';
-  debugLog('USER-ACTION', `Log Work analyze: "${text.substring(0, 80)}" for task "${task.title.substring(0, 50)}"`, { taskId: id });
-  const recentHistory = (task.history || [])
-    .filter(h => h.type === 'update' || h.type === 'note')
-    .slice(-8)
-    .map(h => {
-      let entry = `[${h.timestamp}] USER: ${h.text}`;
-      if (h.agentPlan) {
-        const intent = h.agentPlan.intent || 'search';
-        entry += `\nAGENT (${intent}): ${h.agentPlan.understanding}`;
-      }
-      if (h.communications && h.communications.length > 0) {
-        for (const c of h.communications) {
-          entry += `\n  📧 ${c.from || '?'} → ${c.to || '?'}: ${c.summary || '(no summary)'}`;
-        }
-      }
-      return entry;
-    })
-    .join('\n---\n');
-
-  // Try AI analysis (Copilot SDK without Work IQ — fast, just reasoning)
-  let client, session, preSession;
-  try {
-    client = new CopilotClient();
-
-    // Pre-filter: if user explicitly reports an action ("Ich habe X bestätigt/mitgeteilt/..."),
-    // skip intent classification entirely and use a dedicated update-only prompt.
-    // This prevents the LLM from misclassifying user action reports as search requests.
-    const lowerText = text.toLowerCase().trim();
-    // Negation check: if the user says "Ich habe NICHT bestätigt" or "I did NOT confirm", skip the pre-filter
-    const hasNegation = /\b(nicht|never|not|nie|kein|keine|keinen|keinem|keiner)\b/.test(lowerText);
-    const ichHabeAction = !hasNegation && /\bich habe\b/.test(lowerText) &&
-      /\b(bestätigt|gesendet|editiert|mitgeteilt|erledigt|geschickt|gemacht|aktualisiert|abgeschlossen|eingereicht|gespeichert|geändert|übermittelt|informiert|kommuniziert|fertiggestellt|verschickt|weitergeleitet|submitted|confirmed)\b/.test(lowerText);
-    const iDidAction = !hasNegation && /\bi (did|sent|edited|confirmed|completed|finished|told|communicated|submitted|forwarded)\b/i.test(lowerText);
-    
-    if (ichHabeAction || iDidAction) {
-      console.log(`[ANALYZE] Pre-filter: detected "Ich habe..." action report → forcing update-only prompt`);
-      preSession = trackSession(await client.createSession({ onPermissionRequest: approveAll }));
-      linkClientToSession(preSession, client);
-      try {
-        const updateOnlyPrompt = `You are updating a task tracker. The user is providing information and wants the task updated.
-
-TASK:
-Title: "${task.title}"
-Summary: ${task.summary || '(none)'}
-${recentHistory ? `\nHistory:\n${recentHistory}\n` : ''}
-USER'S MESSAGE:
-"${text.trim()}"
-
-RULES FOR THE SUMMARY — STRUCTURED FORMAT:
-The summary MUST follow this exact structure with 3 visually separated sections:
-
-[1-2 sentence context: what this task is about]
-
----
-
-🔴 **Nächste Schritte:** (or **Next steps:** if content is in English)
-- What needs to happen NOW based on latest information
-- Who must act, what are we waiting for
-
----
-
-✅ **Bisheriger Verlauf:** (or **History:** if content is in English)
-- DD.MM. — One-line milestone (most recent first)
-
-RULES:
-- Integrate the user's new information into the appropriate section
-- If something was completed → move from 🔴 to ✅
-- If something new is pending → add to 🔴
-- NEVER use "📌 Update (date):" block format — that is deprecated
-- If the existing summary uses the old format (stacked 📌 Update blocks), MIGRATE it to the new structured format
-- EXCEPTION: If the user says content is FALSE/WRONG → remove that specific false content, add a note in ✅ explaining the correction
-- Write in the same language as the existing content
-
-Return ONLY this JSON (no markdown, no explanation):
-{
-  "intent": "update",
-  "newTitle": "Updated title reflecting current state (max ~15 words). Keep the original title if it still fits: ${JSON.stringify(task.title)}",
-  "newSummary": "The COMPLETE updated summary in structured format",
-  "changeDescription": "Brief description of what changed based on the user's message"
-}`;
-        const updateResponse = await preSession.sendAndWait({ prompt: updateOnlyPrompt }, 60000);
-        await destroySession(preSession);
-        if (updateResponse) {
-          const updateResult = parseJsonFromResponse(updateResponse.data.content);
-          if (updateResult && updateResult.intent === 'update') {
-            const newTitle = updateResult.newTitle ? String(updateResult.newTitle).trim() : null;
-            const newSummary = updateResult.newSummary ? String(updateResult.newSummary).trim() : null;
-            const changeDescription = updateResult.changeDescription || '';
-
-            const savedTask = await safeWriteTasks((data) => {
-              const t = data.tasks.find(t => t.id === id);
-              if (!t) return null;
-              const now = new Date().toISOString();
-              if (!t.history) t.history = [];
-              if (newTitle && newTitle !== t.title) {
-                const previousTitle = t.title;
-                t.title = newTitle;
-                t.history.push({ timestamp: now, type: 'title-change', text: `📝 Title changed:\n"${previousTitle}" → "${newTitle}"` });
-              }
-              if (newSummary) {
-                const previousSummary = t.summary;
-                t.summary = newSummary;
-                t.history.push({ timestamp: now, type: 'summary-update', text: `✏️ Summary updated via user interaction` + (previousSummary ? `\nPrevious: ${previousSummary.length > 300 ? previousSummary.substring(0, 300) + '...' : previousSummary}` : '') });
-              }
-              t.history.push({ timestamp: now, type: 'user-update', text: `💬 User: ${text.trim()}${changeDescription ? `\n→ ${changeDescription}` : ''}` });
-              return t;
-            });
-            return res.json({ intent: 'update', result: updateResult.changeDescription || 'Task updated', newTitle, newSummary, changeDescription, task: savedTask });
-          }
-        }
-      } catch (preErr) {
-        console.log(`[ANALYZE] Pre-filter update failed: ${preErr.message}, falling through to normal classification`);
-        await destroySession(preSession);
-      }
-    }
-
-    session = trackSession(await client.createSession({ onPermissionRequest: approveAll }));
-
-    linkClientToSession(session, client);
-    const analyzePrompt = `You are an intelligent assistant managing a task tracker. The user sends you messages about a specific task. Your job is to UNDERSTAND what the user wants and act accordingly.
-
-TASK CONTEXT:
-Title: "${task.title}"
-Summary: ${task.summary || '(no summary available)'}
-From: ${task.from || 'unknown'}
-Source: ${task.source}
-Date: ${taskDate}
-
-RECENT CONVERSATION:
-${recentHistory || '(no prior conversation)'}
-
-USER'S MESSAGE:
-"${text.trim()}"
-
-## HOW TO THINK ABOUT THIS
-
-FUNDAMENTAL PRINCIPLE — ask yourself ONE question first:
-**"Does the user's message CONTAIN the information, or is the user asking me to GO FIND it?"**
-- If the information is IN the message → the intent is **"update"** (or summarize/rename/answer)
-- If the user asks you to SEARCH for information they don't have → the intent is **"search"**
-This distinction overrides everything else. A message that contains concrete details (dates, names, meeting info, status updates) is NEVER a search request, even if those details look like they came from an email or calendar.
-
-Follow this decision tree IN ORDER. Stop at the first match:
-
-### Step 1: Is the user PROVIDING information or asking you to UPDATE the task?
-The user gives you concrete data — meeting details, dates, names, decisions, quotes, status changes, links — and wants the task updated.
-Examples: "Aktualisiere mit diesen Infos: Dry-Run am 16.3...", "Hier ist das Ergebnis: ...", "Das Meeting ist am Montag um 14 Uhr bestätigt."
-→ If the user GIVES you concrete information in their message: this is **"update"**.
-
-### Step 1.5: Is the user REPORTING something they did?
-Patterns: "Ich habe...", "I did...", "I sent...", "I edited...", "I confirmed..."
-→ If YES: this is **"update"**.
-⚠️ Even if the message mentions "E-Mail", "Teams", "Chat" — these describe HOW the user communicated. They are NOT requests to search!
-
-### Step 1.7: Is the user CORRECTING or DISPUTING existing information AND wants VERIFICATION?
-The user says something currently stored in the title or summary is WRONG, inaccurate, or did not happen, AND wants you to CHECK in M365 whether it's true. Look for:
-- Explicit denial + request to verify: "Das stimmt nicht, überprüfe das", "Check if that's true"
-- Contradiction where the user is UNSURE: "Ich glaube das wurde nie bestellt", "I don't think I confirmed that"
-⚠️ If the user KNOWS it's wrong and just wants it REMOVED (e.g. "ist komplett falsch und muss entfernt werden", "remove this, it's wrong") → this is **"update"** with removal, NOT "correct". The user is not asking you to verify — they are telling you to fix it.
-→ If the user wants M365 VERIFICATION before changing: **"correct"**
-
-### Step 2: Does the user ask to ONLY rename the title?
-Look for: "nenne es...", "ändere den Titel zu...", "rename to..."
-→ If YES and only the title should change: **"rename"**
-
-### Step 3: Does the user explicitly ask for a summary?
-Look for: "fasse zusammen", "summarize" — AND the user is NOT providing information to incorporate
-→ If YES: **"summarize"**
-
-### Step 4: Does the user ask a question answerable from the task context?
-Look for questions about dates, people, status, next steps — where the answer is in the summary/context
-→ If YES: **"answer"**
-
-### Step 5: Does the user explicitly ask to FIND or CHECK communications?
-The user does NOT have the information and wants you to GO LOOK for it.
-Look for: "gibt es neue Nachrichten", "suche nach", "check my inbox", "find emails from", "was hat X geschrieben", "schau in meiner Inbox nach"
-⚠️ CRITICAL CHECK: Re-read the user's message. Does it already CONTAIN specific details (dates, times, participants, decisions)? If YES → go back to Step 1, this is "update". The user is NOT asking you to search — they already have the information!
-→ If the user genuinely asks you to find something they don't know: **"search"**
-
-### Step 6: Default
-If the user provides ANY new information (a link, a date, a status update, a quote from someone) → **"update"**
-If truly nothing matches → **"search"** as last resort
-
-## KEY ANTI-PATTERNS (NEVER do these):
-- "Aktualisiere die Zusammenfassung mit diesen Informationen: [details]" → **UPDATE**. The user GAVE you the information. Do NOT search for it.
-- "Ich habe X per E-Mail bestätigt" → **UPDATE**. The user told you what they did.
-- "Hier ist Jawads Antwort: ..." → **UPDATE**. The user pasted the answer. Do NOT search.
-- The word "E-Mail" in a user's OWN action report is NEVER a trigger to search emails.
-
-## INTENTS
-
-Choose the intent that best matches what the user actually wants:
-
-**"update"** — The user provides new information AND wants the task updated (title, summary, or both). Use this when:
-  - User reports an action they took ("I edited...", "I sent...", "I talked to...")
-  - User provides new context with a link or reference
-  - User asks to update BOTH title and summary
-  - User describes what changed and wants the task to reflect it
-  This is the most common intent when a user interacts with a task to keep it current.
-
-**"summarize"** — The user provides text/content to summarize, OR wants ONLY the summary corrected/replaced (not the title).
-
-**"rename"** — The user wants ONLY the title changed (not the summary).
-
-**"answer"** — The user asks a question answerable from the task context, conversation history, or general knowledge. No external search needed.
-
-**"correct"** — The user disputes or denies existing information in the task's title or summary. They claim something is WRONG, did not happen, or is inaccurate. This requires VERIFICATION against M365 communications before any change is made.
-  Use this when the user contradicts stored facts — NOT when they simply add new information.
-
-**"search"** — The user explicitly wants you to FIND communications in their M365 environment (emails, Teams, calendar). This requires Work IQ search and is the ONLY intent that triggers an external search.
-  ONLY use "search" when the user clearly asks you to look up, find, search, or check something in their communications.
-
-## RESPONSE FORMAT
-
-EVERY response MUST start with a "_reasoning" field. Think through this BEFORE choosing an intent.
-
-For "update":
-{
-  "_reasoning": "The user says 'Ich habe...' / reports an action / provides new information → update",
-  "intent": "update",
-  "newTitle": "Short, factual title reflecting the current state of the action item (max ~15 words). If the user doesn't ask for a title change, keep the original: ${JSON.stringify(task.title)}",
-  "newSummary": "IMPORTANT: The summary MUST use the STRUCTURED FORMAT with 3 sections separated by '---' (Markdown horizontal rules):\n\n[1-2 sentence context]\n\n---\n\n🔴 **Nächste Schritte:**\n- Current pending items\n\n---\n\n✅ **Bisheriger Verlauf:**\n- DD.MM. — Milestone\n\nIntegrate new information into the appropriate section. Move completed items from 🔴 to ✅. NEVER use '📌 Update (date):' format — it is deprecated. If the existing summary uses the old stacked update format, MIGRATE it to the structured format. EXCEPTION: If the user says content is FALSE/WRONG → remove it and note the correction in ✅.",
-  "changeDescription": "Brief human-readable description of what you changed and why"
-}
-
-For "summarize":
-{
-  "_reasoning": "The user explicitly asks for a summary / 'fasse zusammen'",
-  "intent": "summarize",
-  "result": "The complete updated summary. Write in the same language as the user's message."
-}
-
-For "rename":
-{
-  "_reasoning": "The user wants only the title changed",
-  "intent": "rename",
-  "result": "The new task title — concise, clear, max ~15 words."
-}
-
-For "answer":
-{
-  "_reasoning": "The user asks a question I can answer from context",
-  "intent": "answer",
-  "result": "Your direct answer to the user's question."
-}
-
-For "search":
-{
-  "_reasoning": "The user explicitly asks me to FIND/LOOK UP/CHECK communications — they are NOT reporting their own action",
-  "intent": "search",
-  "understanding": "A clear action plan: what you will search, where, and what you expect to find. Use 'I will...' or 'Ich werde...'",
-  "expectedAnswer": "What KIND of answer the user needs. Examples: 'A person name', 'A date', 'A status update'.",
-  "searchFrom": "WHO to search for — a person name, email domain, or null if searching by topic only",
-  "keywords": ["primary", "search", "terms", "in the user's language"],
-  "keywordsEnglish": ["English", "translations", "if user writes in German"],
-  "timeWindow": {
-    "from": "ISO date string — use task date as default start",
-    "to": "ISO date string or 'now'",
-    "reasoning": "why this time window"
-  },
-  "searchTargets": "inbox, sent, teams, or all",
-  "needsClarification": false,
-  "clarificationQuestion": null
-}
-
-For "correct":
-{
-  "_reasoning": "The user says the current title/summary contains wrong information about X — this needs verification against M365",
-  "intent": "correct",
-  "disputedClaim": "What specific claim the user says is wrong (extracted from current title/summary)",
-  "userAssertion": "What the user says is actually true (in their own words)",
-  "affectedFields": ["title", "summary"],
-  "keywords": ["search", "terms", "to verify the claim"],
-  "keywordsEnglish": ["English", "translations"],
-  "verificationQuestion": "The specific question to answer by searching M365 — e.g. 'Was a Cisco SSD actually ordered?'"
-}
-
-## GUIDELINES
-
-- For "update", "summarize", "answer", "rename": provide the result IMMEDIATELY — the user should not need to click Execute.
-- For "correct": return the correction plan — the frontend will show a "Verify" button. The user's claim must be checked against M365 evidence before any change is made.
-- For "search": think about WHO sends the relevant emails (person name or company domain → searchFrom). If the user writes in German but emails may be in English, provide keywordsEnglish with translated terms.
-- Write in the same language as the user's message (German → German, English → English).
-- When unsure between "update" and "correct": if the user says existing info is WRONG → "correct". If the user provides NEW info → "update".
-- When unsure between "update" and "search": if the user's message starts with "Ich habe..." or "I did..." or contains information they are GIVING you (a link, a status report, a completed action), it's ALWAYS "update" — NEVER "search".
-- NEVER interpret "per E-Mail", "per Teams", "per Chat" as a signal to search. These describe the user's OWN actions, not a request to find communications.
-- "search" should ONLY be used when the user explicitly asks you to LOOK FOR or FIND something in their communications.
-
-## FINAL CHECK (do this before responding)
-Before you output your JSON, ask yourself:
-1. "Does the user's message contain 'Ich habe' or 'I did/sent/edited/confirmed'?" If YES → "update" (unless negated: "Ich habe NICHT..." → could be "correct").
-2. "Does the user say something in the title/summary is WRONG or did not happen?" If YES → "correct".
-
-## CLASSIFICATION EXAMPLES (follow these exactly)
-
-User: "Ich habe das ATP an Jamie per E-Mail bestätigt. Er kann jetzt die Rechnung stellen."
-→ {"_reasoning": "User says 'Ich habe bestätigt' — reporting own action", "intent": "update", ...}
-
-User: "Ich habe Harshitha mein Thema mitgeteilt: Agent Zero Demo"
-→ {"_reasoning": "User says 'Ich habe mitgeteilt' — reporting own action", "intent": "update", ...}
-
-User: "Ich habe das Slide Deck editiert. https://sharepoint.com/... Aktualisiere die Zusammenfassung."
-→ {"_reasoning": "User says 'Ich habe editiert' + wants update", "intent": "update", ...}
-
-User: "Das stimmt nicht, die SSD wurde nie bestellt."
-→ {"_reasoning": "User disputes existing info — says SSD was never ordered, contradicts summary", "intent": "correct", ...}
-
-User: "Der Titel ist falsch. Es geht nicht um eine Bestellung, sondern um eine Anfrage."
-→ {"_reasoning": "User says title is wrong — current info is factually incorrect", "intent": "correct", ...}
-
-User: "Ich habe das NICHT bestätigt, das ist falsch."
-→ {"_reasoning": "User denies having confirmed — negation + dispute of stored info", "intent": "correct", ...}
-
-User: "Gibt es neue Nachrichten von Sebastian wegen der SSD?"
-→ {"_reasoning": "User asks to FIND communications", "intent": "search", ...}
-
-User: "Was ist der nächste Schritt?"
-→ {"_reasoning": "Question answerable from context", "intent": "answer", ...}
-
-Return ONLY the JSON object. No markdown, no explanation.`;
-
-    const response = await session.sendAndWait({ prompt: analyzePrompt }, 60000);
-    await destroySession(session);
-
-    if (response) {
-      const result = parseJsonFromResponse(response.data.content);
-      if (result && typeof result === 'object' && result.intent) {
-        // For summarize/answer: save immediately to history
-        if ((result.intent === 'summarize' || result.intent === 'answer') && result.result) {
-          const savedTask = await safeWriteTasks((data) => {
-            const t = data.tasks.find(t => t.id === id);
-            if (!t) return null;
-            const now = new Date().toISOString();
-            if (!t.history) t.history = [];
-
-            // When intent is "summarize", overwrite the main task summary
-            if (result.intent === 'summarize') {
-              const previousSummary = t.summary;
-              t.summary = String(result.result).trim();
-              t.history.push({
-                timestamp: now,
-                type: 'summary-update',
-                text: `✏️ Summary updated via user interaction` +
-                  (previousSummary ? `\nPrevious: ${previousSummary.length > 300 ? previousSummary.substring(0, 300) + '...' : previousSummary}` : '')
-              });
-              console.log(`[${now}] Summary updated for task "${task.title}" (${id})`);
-            }
-
-            t.history.push({
-              timestamp: now,
-              type: 'update',
-              text: text.trim(),
-              agentPlan: {
-                intent: result.intent,
-                understanding: result.result
-              }
-            });
-            t.updatedAt = now;
-            return t;
-          });
-          return res.json({ intent: result.intent, result: result.result, task: savedTask });
-        }
-
-        // For rename: update title immediately and log the change
-        if (result.intent === 'rename' && result.result) {
-          const newTitle = String(result.result).trim();
-          const savedTask = await safeWriteTasks((data) => {
-            const t = data.tasks.find(t => t.id === id);
-            if (!t) return null;
-            const now = new Date().toISOString();
-            if (!t.history) t.history = [];
-
-            const previousTitle = t.title;
-            t.title = newTitle;
-            t.history.push({
-              timestamp: now,
-              type: 'title-change',
-              text: `📝 Title changed:\n"${previousTitle}" → "${newTitle}"`
-            });
-            t.history.push({
-              timestamp: now,
-              type: 'update',
-              text: text.trim(),
-              agentPlan: {
-                intent: 'rename',
-                understanding: `Title renamed from "${previousTitle}" to "${newTitle}"`
-              }
-            });
-            t.updatedAt = now;
-            return t;
-          });
-          console.log(`[${new Date().toISOString()}] Title renamed for task (${id}): "${task.title}" → "${newTitle}"`);
-          return res.json({ intent: 'rename', result: newTitle, previousTitle: task.title, task: savedTask });
-        }
-
-        // For update: verify-and-improve loop before saving
-        if (result.intent === 'update') {
-          let newTitle = result.newTitle ? String(result.newTitle).trim() : null;
-          let newSummary = result.newSummary ? String(result.newSummary).trim() : null;
-          let changeDescription = result.changeDescription || '';
-
-          // VERIFY-AND-IMPROVE LOOP: Agent checks its own work
-          // Max 2 iterations to avoid infinite loops
-          let verifyClient, verifySession;
-          try {
-            for (let attempt = 1; attempt <= 2; attempt++) {
-              verifyClient = new CopilotClient();
-              verifySession = trackSession(await verifyClient.createSession({ onPermissionRequest: approveAll }));
-
-              linkClientToSession(verifySession, verifyClient);
-              const verifyPrompt = `You are a quality reviewer. A user gave an instruction to update a task. An agent produced changes. Your job is to verify whether the agent's changes correctly fulfil the user's instruction.
-
-USER'S ORIGINAL INSTRUCTION:
-"${text.trim()}"
-
-TASK BEFORE CHANGES:
-Title: "${task.title}"
-Summary: ${task.summary || '(none)'}
-
-AGENT'S PROPOSED CHANGES:
-New Title: ${newTitle ? `"${newTitle}"` : '(unchanged)'}
-New Summary: ${newSummary ? `"${newSummary.substring(0, 2000)}"` : '(unchanged)'}
-Change Description: "${changeDescription}"
-
-EVALUATE:
-1. Does the new title correctly reflect the user's instruction? Did the agent change what the user asked for?
-2. Does the new summary correctly reflect the user's instruction? If the user asked to REMOVE something, is it actually removed? If the user asked to ADD something, is it actually added?
-3. Is important existing content preserved (unless the user explicitly asked to remove it)?
-4. Overall: did the agent do what the user asked?
-
-Return ONLY valid JSON:
-{
-  "fulfilled": true or false,
-  "issues": "If not fulfilled: describe specifically what is wrong or missing. If fulfilled: null"
-}`;
-
-              const verifyResponse = await verifySession.sendAndWait({ prompt: verifyPrompt }, 60000);
-              await destroySession(verifySession);
-
-              if (verifyResponse) {
-                const verifyResult = parseJsonFromResponse(verifyResponse.data.content);
-                if (verifyResult && verifyResult.fulfilled === true) {
-                  console.log(`[VERIFY] Update verified on attempt ${attempt} ✅`);
-                  break;
-                } else if (verifyResult && verifyResult.fulfilled === false && attempt < 2) {
-                  // Agent didn't fulfil the request — try again with feedback
-                  console.log(`[VERIFY] Issues found on attempt ${attempt}: ${verifyResult.issues}`);
-                  
-                  let retryClient, retrySession;
-                  try {
-                    retryClient = new CopilotClient();
-                    retrySession = trackSession(await retryClient.createSession({ onPermissionRequest: approveAll }));
-                    
-                    const retryPrompt = `You previously tried to update a task but the result was not correct. Fix the issues and try again.
-
-USER'S ORIGINAL INSTRUCTION:
-"${text.trim()}"
-
-CURRENT TASK:
-Title: "${task.title}"
-Summary: ${task.summary || '(none)'}
-
-YOUR PREVIOUS ATTEMPT:
-New Title: ${newTitle ? `"${newTitle}"` : '(unchanged)'}
-New Summary: ${newSummary ? `"${newSummary.substring(0, 2000)}"` : '(unchanged)'}
-
-ISSUES WITH YOUR PREVIOUS ATTEMPT:
-${verifyResult.issues}
-
-Fix these issues. Return ONLY valid JSON:
-{
-  "newTitle": "Corrected title",
-  "newSummary": "Corrected summary",
-  "changeDescription": "What you fixed"
-}`;
-
-                    const retryResponse = await retrySession.sendAndWait({ prompt: retryPrompt }, 60000);
-                    
-                    if (retryResponse) {
-                      const retryResult = parseJsonFromResponse(retryResponse.data.content);
-                      if (retryResult) {
-                        if (retryResult.newTitle) newTitle = String(retryResult.newTitle).trim();
-                        if (retryResult.newSummary) newSummary = String(retryResult.newSummary).trim();
-                        changeDescription = retryResult.changeDescription || changeDescription;
-                        console.log(`[VERIFY] Retry produced improved result, verifying again...`);
-                      }
-                    }
-                  } finally {
-                    if (retrySession) await destroySession(retrySession);
-                    if (retryClient) { try { await retryClient.dispose(); } catch {} }
-                  }
-                } else {
-                  console.log(`[VERIFY] Verification inconclusive on attempt ${attempt}, proceeding with current result`);
-                  break;
-                }
-              } else {
-                console.log(`[VERIFY] No verification response, proceeding with current result`);
-                break;
-              }
-
-              try { await verifyClient.dispose(); } catch {}
-              verifyClient = null;
-            }
-          } catch (verifyErr) {
-            console.warn(`[VERIFY] Verification failed (non-fatal): ${verifyErr.message}`);
-          } finally {
-            if (verifySession) await destroySession(verifySession);
-            if (verifyClient) { try { await verifyClient.dispose(); } catch {} }
-          }
-
-          // Save the (potentially improved) result
-          const savedTask = await safeWriteTasks((data) => {
-            const t = data.tasks.find(t => t.id === id);
-            if (!t) return null;
-            const now = new Date().toISOString();
-            if (!t.history) t.history = [];
-
-            const changes = [];
-
-            if (newTitle && newTitle !== t.title) {
-              const previousTitle = t.title;
-              t.title = newTitle;
-              t.history.push({
-                timestamp: now,
-                type: 'title-change',
-                text: `📝 Title changed:\n"${previousTitle}" → "${newTitle}"`
-              });
-              changes.push(`Title: "${previousTitle}" → "${newTitle}"`);
-            }
-
-            if (newSummary) {
-              const previousSummary = t.summary;
-              t.summary = newSummary;
-              t.history.push({
-                timestamp: now,
-                type: 'summary-update',
-                text: `✏️ Summary updated via user interaction` +
-                  (previousSummary ? `\nPrevious: ${previousSummary.length > 300 ? previousSummary.substring(0, 300) + '...' : previousSummary}` : '')
-              });
-              changes.push('Summary updated');
-            }
-
-            t.history.push({
-              timestamp: now,
-              type: 'update',
-              text: text.trim(),
-              agentPlan: {
-                intent: 'update',
-                understanding: changeDescription || changes.join(', ')
-              }
-            });
-            t.updatedAt = now;
-            return t;
-          });
-          console.log(`[${new Date().toISOString()}] Task updated (${id}): ${changeDescription}`);
-          return res.json({
-            intent: 'update',
-            result: changeDescription || 'Task updated',
-            newTitle: newTitle,
-            newSummary: newSummary,
-            previousTitle: newTitle ? task.title : undefined,
-            task: savedTask
-          });
-        }
-
-        // For correct: return correction plan for frontend verification flow
-        if (result.intent === 'correct') {
-          const correctionPlan = {
-            disputedClaim: result.disputedClaim || '',
-            userAssertion: result.userAssertion || '',
-            affectedFields: result.affectedFields || ['summary'],
-            keywords: result.keywords || [],
-            keywordsEnglish: result.keywordsEnglish || [],
-            verificationQuestion: result.verificationQuestion || ''
-          };
-          return res.json({ intent: 'correct', plan: correctionPlan });
-        }
-
-        // For search: return plan as before
-        if (result.intent === 'search') {
-          const plan = {
-            understanding: result.understanding || '',
-            searchFrom: result.searchFrom || null,
-            keywords: result.keywords || [],
-            timeWindow: result.timeWindow || { from: taskDate, to: 'now' },
-            searchTargets: result.searchTargets || 'all',
-            needsClarification: result.needsClarification || false,
-            clarificationQuestion: result.clarificationQuestion || null
-          };
-          return res.json({ intent: 'search', plan });
-        }
-
-        // Unknown intent with result — treat as answer
-        if (result.result) {
-          const savedTask = await safeWriteTasks((data) => {
-            const t = data.tasks.find(t => t.id === id);
-            if (!t) return null;
-            const now = new Date().toISOString();
-            if (!t.history) t.history = [];
-            t.history.push({
-              timestamp: now,
-              type: 'update',
-              text: text.trim(),
-              agentPlan: { intent: 'answer', understanding: result.result }
-            });
-            t.updatedAt = now;
-            return t;
-          });
-          return res.json({ intent: 'answer', result: result.result, task: savedTask });
-        }
-      }
-    }
-
-    // AI returned nothing useful → fall through to deterministic fallback
-    throw new Error('AI returned no valid response');
-  } catch (err) {
-    console.warn('AI analysis failed, using deterministic fallback:', err.message);
-
-    // Deterministic fallback: extract keywords from title, default time window
-    const keywords = extractKeywords(task.title);
-    const plan = {
-      understanding: `I will search your inbox and Teams for messages related to "${task.title}" from ${task.from || 'the sender'}, starting from the task date. If I find relevant communications, I will summarize them for you.`,
-      keywords,
-      timeWindow: {
-        from: taskDate || new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
-        to: 'now',
-        reasoning: 'Default: from task date to today'
-      },
-      searchTargets: 'inbox and teams',
-      needsClarification: false,
-      clarificationQuestion: null
-    };
-    return res.json({ intent: 'search', plan, fallback: true });
-  } finally {
-    await destroySession(preSession);
-    await destroySession(session);
-    if (client) {
-      try { await client.dispose(); } catch {}
-    }
-  }
-});
-
-// POST /api/tasks/:id/log — log work with AI communication search (v2.2: intelligent search)
-app.post('/api/tasks/:id/log', async (req, res) => {
-  const { id } = req.params;
-  const { text, plan } = req.body;
-
-  if (!text || !text.trim()) {
-    return res.status(400).json({ error: 'Log text is required' });
-  }
-
-  // Read task context for the prompt (outside write queue)
-  let taskContext;
-  try {
-    const data = readTasks();
-    taskContext = data.tasks.find(t => t.id === id);
-    if (!taskContext) {
-      return res.status(404).json({ error: 'Task not found' });
-    }
-  } catch (err) {
-    return res.status(500).json({ error: 'Failed to read tasks', detail: err.message });
-  }
-
-  // AI communication search (v2.2: Copilot SDK + Work IQ MCP + SEARCH_SKILL.md)
-  debugLog('USER-ACTION', `Log Work execute: intent=${plan?.intent || 'unknown'} for task "${taskContext.title.substring(0, 50)}"`, { taskId: id });
-  let communications = [];
-  let rawResponseText = null;
-  let promptContext = null;
-  let searchError = null;
-  let searchMethod = 'copilot-sdk-search-skill';
-  let searchConfidence = null;
-  let searchAnswer = null;
-  let searchAttempts = [];
-  let searchAmbiguities = [];
-  const searchStartTime = Date.now();
-
-  let client, session;
-  try {
-    const taskDate = taskContext.date || taskContext.createdAt || '';
-
-    // Build the search prompt from the plan (v2.2) or fallback
-    let searchPrompt;
-    if (plan && SEARCH_SKILL) {
-      // v2.2: Intelligent search with SEARCH_SKILL.md
-      const allKeywords = [
-        ...(plan.keywords || []),
-        ...(plan.keywordsEnglish || [])
-      ].filter(Boolean);
-
-      const timeDesc = plan.timeWindow
-        ? `from ${plan.timeWindow.from || taskDate} to ${plan.timeWindow.to || 'now'}`
-        : `from ${taskDate} onward`;
-
-      searchPrompt = SEARCH_SKILL + '\n\n' +
-        `## Your Search Assignment\n\n` +
-        `USER'S QUESTION: "${text.trim()}"\n` +
-        `EXPECTED ANSWER TYPE: ${plan.expectedAnswer || 'general information'}\n\n` +
-        `TASK CONTEXT:\n` +
-        `- Title: "${taskContext.title}"\n` +
-        `- From: ${taskContext.from || 'unknown'}\n` +
-        `- Source: ${taskContext.source}\n` +
-        `- Date: ${taskDate}\n` +
-        `- Summary: ${taskContext.summary || '(no summary)'}\n\n` +
-        `SEARCH PARAMETERS:\n` +
-        `- Keywords: ${allKeywords.join(', ') || 'use task title keywords'}\n` +
-        `- Search from: ${plan.searchFrom || 'any sender'}\n` +
-        `- Time window: ${timeDesc}\n` +
-        `- Search targets: ${plan.searchTargets || 'all'}\n\n` +
-        `ACTION PLAN: ${plan.understanding || 'Search for communications related to the task'}\n\n` +
-        `Execute your search now. Remember: 3 attempts, self-assessment after each, discard irrelevant results.`;
-
-      searchMethod = 'copilot-sdk-search-skill';
-    } else if (LOG_WORK_SKILL) {
-      // Fallback: LOG_WORK_SKILL.md (legacy, no plan available)
-      searchPrompt = LOG_WORK_SKILL + '\n\n' +
-        `TASK CONTEXT:\n` +
-        `Task: "${taskContext.title}"\n` +
-        `Original sender: ${taskContext.from || 'unknown'}, Source: ${taskContext.source}, Date: ${taskDate}\n\n` +
-        `USER LOG:\n` +
-        `"${text.trim()}"\n\n` +
-        `Search from ${taskDate} onward.`;
-
-      searchMethod = 'copilot-sdk-legacy';
-    } else {
-      // Minimal fallback: no skill file at all
-      searchPrompt = `The user logged work on this task:\n` +
-        `Task: "${taskContext.title}"\n` +
-        `Original sender: ${taskContext.from || 'unknown'}, Source: ${taskContext.source}, Date: ${taskDate}\n\n` +
-        `User says: "${text.trim()}"\n\n` +
-        `Search my emails and Teams messages for the FULL conversation thread ` +
-        `related to this task. Use the task title keywords as search terms. ` +
-        `Search from ${taskDate} onward. Include ALL replies, forwards, and ` +
-        `CC responses in the thread — not just the original message.\n\n` +
-        `For each message found, return a JSON object with:\n` +
-        `type ("email" or "teams"), from (sender name), to (recipient names), ` +
-        `date (ISO 8601), summary (1-2 sentence summary), ` +
-        `link (URL or null).\n\n` +
-        `Return ONLY a JSON array ordered by date (oldest first). No markdown.\n` +
-        `If nothing found, return [].`;
-
-      searchMethod = 'copilot-sdk-minimal';
-    }
-
-    promptContext = `[${searchMethod}] Task: "${taskContext.title}" | From: ${taskContext.from || 'unknown'} | Date: ${taskDate} | User: "${text.trim()}"`;
-
-    console.log(`[LOG] ${searchMethod} for task "${taskContext.title}" at ${new Date().toISOString()}`);
-    console.log(`[LOG] Prompt size: ${searchPrompt.length} chars`);
-
-    client = new CopilotClient();
-    session = trackSession(await client.createSession({
-      tools: [askWorkIQTool],
-      onPermissionRequest: approveAll
-    }));
-
-    linkClientToSession(session, client);
-    const response = await session.sendAndWait({ prompt: searchPrompt }, 300000);
-    const elapsed = Date.now() - searchStartTime;
-    console.log(`[LOG] Response received in ${elapsed}ms`);
-    await destroySession(session);
-
-    if (response) {
-      const rawContent = response.data.content;
-      rawResponseText = typeof rawContent === 'string' ? rawContent.substring(0, 8000) : JSON.stringify(rawContent).substring(0, 8000);
-      console.log(`[LOG] Preview: ${rawResponseText.substring(0, 300)}...`);
-
-      const parsed = parseJsonFromResponse(rawContent);
-
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.answer !== undefined) {
-        // v2.2 SEARCH_SKILL response format: { answer, confidence, searchAttempts, communications, ambiguities }
-        searchAnswer = parsed.answer || null;
-        searchConfidence = parsed.confidence || null;
-        searchAttempts = parsed.searchAttempts || [];
-        searchAmbiguities = parsed.ambiguities || [];
-        communications = Array.isArray(parsed.communications) ? parsed.communications : [];
-        console.log(`[LOG] SEARCH_SKILL response: confidence=${searchConfidence}, comms=${communications.length}, attempts=${searchAttempts.length}`);
-      } else if (Array.isArray(parsed)) {
-        // Legacy format: plain JSON array of communications
-        communications = parsed;
-        console.log(`[LOG] Legacy format: ${communications.length} communications`);
-      } else {
-        // Try Markdown email parser as fallback
-        const mdEmails = parseMarkdownEmails(rawContent);
-        if (mdEmails) {
-          communications = mdEmails;
-          console.log(`[LOG] Parsed ${communications.length} communications (Markdown)`);
-        } else {
-          console.warn(`[LOG] No structured data parsed — storing natural language response`);
-        }
-      }
-    }
-  } catch (err) {
-    const elapsed = Date.now() - searchStartTime;
-    console.error(`[LOG] ${searchMethod} failed after ${elapsed}ms:`, err.message);
-    searchError = err.message;
-  } finally {
-    await destroySession(session);
-    if (client) {
-      try { await client.dispose(); } catch {}
-    }
-  }
-
-  const searchDurationMs = Date.now() - searchStartTime;
-
-  // Build a final agent response summary (v2.2: 3-tier honest formatting)
-  let agentResponse = '';
-  if (searchError) {
-    agentResponse = `❌ Search failed: ${searchError}`;
-  } else if (searchAnswer) {
-    // v2.2: Use the agent's own answer (it already evaluated relevance)
-    const confidenceIcon = { high: '✅', medium: '⚠️', low: '🔍', none: '❌' }[searchConfidence] || '🔍';
-    agentResponse = `${confidenceIcon} ${searchAnswer}`;
-    if (searchAmbiguities.length > 0) {
-      agentResponse += '\n\n⚠️ ' + searchAmbiguities.join('\n⚠️ ');
-    }
-    if (communications.length > 0) {
-      const summaries = communications.map((c, i) => {
-        const icon = c.type === 'teams' ? '💬' : '📧';
-        const date = c.date ? new Date(c.date).toLocaleDateString('de-CH') : '';
-        return `${i + 1}. ${icon} **${c.from || 'Unknown'}** → ${c.to || ''} (${date})${c.summary ? ': ' + c.summary : ''}`;
-      }).join('\n');
-      agentResponse += `\n\n📋 ${communications.length} communication(s):\n${summaries}`;
-    }
-  } else if (communications.length > 0) {
-    // Legacy format: communications without answer
-    const summaries = communications.map((c, i) => {
-      const icon = c.type === 'teams' ? '💬' : '📧';
-      const date = c.date ? new Date(c.date).toLocaleDateString('de-CH') : '';
-      return `${i + 1}. ${icon} **${c.from || 'Unknown'}** → ${c.to || ''} (${date})${c.summary ? ': ' + c.summary : ''}`;
-    }).join('\n');
-    agentResponse = `✅ ${communications.length} communication(s) found:\n\n${summaries}`;
-  } else if (rawResponseText) {
-    // Agent returned text but no structured results — show the natural language answer
-    agentResponse = rawResponseText;
-  } else {
-    agentResponse = `🔍 No results found. The search did not return any matching emails or Teams messages. Would you like to try again with different keywords or a broader time window?`;
-  }
-
-  // Write the history entry via queue
-  try {
-    let task = await safeWriteTasks((data) => {
-      const t = data.tasks.find(t => t.id === id);
-      if (!t) return null;
-      if (!t.history) t.history = [];
-
-      const now = new Date().toISOString();
-      t.history.push({
-        timestamp: now,
-        type: 'update',
-        text: text.trim(),
-        communications,
-        agentResponse,
-        agentPlan: plan ? {
-          intent: plan.intent || 'search',
-          understanding: plan.understanding || '',
-          expectedAnswer: plan.expectedAnswer || '',
-          keywords: plan.keywords || [],
-          keywordsEnglish: plan.keywordsEnglish || [],
-          timeWindow: plan.timeWindow || {},
-          searchTargets: plan.searchTargets || 'all',
-          userConfirmed: true,
-          fallback: !!plan.fallback
-        } : undefined,
-        agentExecution: {
-          promptSent: promptContext,
-          rawResponse: rawResponseText,
-          parsedCount: communications.length,
-          confidence: searchConfidence,
-          answer: searchAnswer,
-          searchAttempts,
-          ambiguities: searchAmbiguities,
-          error: searchError,
-          durationMs: searchDurationMs,
-          method: searchMethod
-        }
-      });
-      t.updatedAt = now;
-      return t;
-    });
-
-    if (!task) {
-      return res.status(404).json({ error: 'Task not found' });
-    }
-
-    // Post-search evaluation: check if title and summary need updating based on new information
-    let evaluation = null;
-    if (!searchError && (searchAnswer || communications.length > 0)) {
-      let evalClient, evalSession;
-      try {
-        console.log(`[EVAL] Starting post-search evaluation for task "${task.title}" (${id})`);
-        evalClient = new CopilotClient();
-        evalSession = trackSession(await evalClient.createSession({ onPermissionRequest: approveAll }));
-
-        linkClientToSession(evalSession, evalClient);
-        const commSummaries = communications.slice(0, 10).map(c => {
-          const date = c.date ? new Date(c.date).toLocaleDateString('de-CH') : '';
-          return `- ${c.from || '?'} → ${c.to || '?'} (${date}): ${c.summary || c.subject || ''}`;
-        }).join('\n');
-
-        const evalPrompt = `You are evaluating whether a task's title and summary need updating based on new information from a search.
-
-CURRENT TASK:
-Title: "${task.title}"
-Summary: ${task.summary ? `"${task.summary}"` : '(no summary)'}
-
-USER'S REQUEST:
-"${text.trim()}"
-
-SEARCH RESULTS:
-Answer: ${searchAnswer || '(no structured answer)'}
-Confidence: ${searchConfidence || 'unknown'}
-Communications found: ${communications.length}
-${commSummaries ? `Details:\n${commSummaries}` : ''}
-
-INSTRUCTIONS:
-
-CRITICAL RULE: If the user EXPLICITLY asks you to update the title and/or summary (e.g. "aktualisiere die Zusammenfassung", "update the title", "ändere den Titel"), you MUST do so using the search results. The user's request is an ORDER, not a suggestion. Only skip updating if the search returned zero results.
-
-1. TITLE evaluation — be PROACTIVE about updating:
-   - The title must reflect the CURRENT state of this action item, not the original request.
-   - If the search reveals that the situation has evolved (reply received, decision made, deadline passed, request fulfilled, meeting confirmed), UPDATE the title.
-   - If the user explicitly asked to update the title, you MUST update it to reflect the latest findings.
-   - Be decisive: if the search reveals a changed situation, the title MUST change.
-   - Keep it concise: max 15 words, factual, no emojis.
-
-2. SUMMARY — use STRUCTURED FORMAT with 3 visually separated sections:
-
-   The summary MUST follow this exact structure:
-
-   [1-2 sentence context: what this task is about]
-
-   ---
-
-   🔴 **Nächste Schritte:** (or **Next steps:** if content is in English)
-   - What needs to happen NOW based on latest information
-   - Who must act, what are we waiting for
-   - 📧 *Source reference if known*
-
-   ---
-
-   ✅ **Bisheriger Verlauf:** (or **History:** if content is in English)
-   - DD.MM. — One-line milestone (most recent first)
-   - DD.MM. — One-line milestone
-
-   RULES:
-   - The CONTEXT section (top) stays stable — only update if the core nature of the task changed.
-   - The 🔴 section reflects the CURRENT state after integrating search results.
-   - Move resolved items from 🔴 to ✅ as one-liners.
-   - Use "---" (Markdown horizontal rule) between each section.
-   - NEVER use "📌 Update (date):" block format — that is deprecated.
-   - Do NOT duplicate information between sections.
-   - Write in the SAME language as the existing content.
-   - If the existing summary uses the old format (stacked 📌 Update blocks), MIGRATE it to the new structured format.
-   - Only skip summary changes if the search returned zero results AND the user did NOT explicitly request an update.
-
-3. Only set *Changed to true when there is a GENUINE reason to update. An explicit user request to update IS a genuine reason.
-
-Return ONLY valid JSON, no markdown:
-{
-  "titleChanged": true or false,
-  "newTitle": "new title text (only if titleChanged is true, otherwise omit)",
-  "summaryChanged": true or false,
-  "newSummary": "full updated summary text (only if summaryChanged is true, otherwise omit)",
-  "reasoning": "One sentence explaining why changes were or were not needed"
-}`;
-
-        const evalResponse = await evalSession.sendAndWait({ prompt: evalPrompt }, 90000);  // was 60000
-        await destroySession(evalSession);
-
-        if (evalResponse) {
-          const evalResult = parseJsonFromResponse(evalResponse.data.content);
-          if (evalResult && typeof evalResult === 'object') {
-            evaluation = evalResult;
-            console.log(`[EVAL] Result: titleChanged=${evalResult.titleChanged}, summaryChanged=${evalResult.summaryChanged}, reasoning="${evalResult.reasoning || ''}"`);
-
-            if (evalResult.titleChanged || evalResult.summaryChanged) {
-              const updatedTask = await safeWriteTasks((data) => {
-                const t = data.tasks.find(t => t.id === id);
-                if (!t) return null;
-                const now = new Date().toISOString();
-                if (!t.history) t.history = [];
-
-                if (evalResult.titleChanged && evalResult.newTitle) {
-                  const prevTitle = t.title;
-                  t.title = String(evalResult.newTitle).trim();
-                  t.history.push({
-                    timestamp: now,
-                    type: 'title-change',
-                    text: `📝 Title updated after search:\n"${prevTitle}" → "${t.title}"\nReason: ${evalResult.reasoning || 'New information from search'}`
-                  });
-                  console.log(`[EVAL] Title changed: "${prevTitle}" → "${t.title}"`);
-                }
-
-                if (evalResult.summaryChanged && evalResult.newSummary) {
-                  const prevSummary = t.summary;
-                  t.summary = String(evalResult.newSummary).trim();
-                  t.history.push({
-                    timestamp: now,
-                    type: 'summary-update',
-                    text: `📋 Summary updated after search\nReason: ${evalResult.reasoning || 'New information from search'}` +
-                      (prevSummary ? `\nPrevious: ${prevSummary.length > 300 ? prevSummary.substring(0, 300) + '...' : prevSummary}` : '')
-                  });
-                  console.log(`[EVAL] Summary updated (${t.summary.length} chars)`);
-                }
-
-                t.updatedAt = now;
-                return t;
-              });
-              if (updatedTask) task = updatedTask;
-            }
-          }
-        }
-      } catch (evalErr) {
-        console.error(`[EVAL] Post-search evaluation failed (non-fatal): ${evalErr.message}`);
-      } finally {
-        await destroySession(evalSession);
-        if (evalClient) {
-          try { await evalClient.dispose(); } catch {}
-        }
-      }
-    }
-
-    res.json({ ...task, evaluation });
-    debugLog('USER-ACTION', `Log Work DONE: result=OK`, { taskId: id });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to log work', detail: err.message });
-  }
-});
 
 // POST /api/tasks/:id/review — User responds to ambiguity review items (v2.1)
-app.post('/api/tasks/:id/review', async (req, res) => {
+app.post('/api/tasks/:id/review', withTaskQueue(async (req, res) => {
   const { id } = req.params;
   const { response } = req.body;
 
@@ -3335,7 +3591,7 @@ app.post('/api/tasks/:id/review', async (req, res) => {
   try {
     client = new CopilotClient();
     session = trackSession(await client.createSession({
-      tools: [askWorkIQTool],
+      tools: [askWorkIQTool, parallelSearchTool],
       onPermissionRequest: approveAll
     }));
 
@@ -3474,10 +3730,10 @@ Return ONLY the JSON object. No markdown, no explanation.`;
       try { await client.dispose(); } catch {}
     }
   }
-});
+}));
 
 // POST /api/tasks/:id/correct — Evidence-based correction verification (v2.6: Opus 4.6 + Work IQ MCP)
-app.post('/api/tasks/:id/correct', async (req, res) => {
+app.post('/api/tasks/:id/correct', withTaskQueue(async (req, res) => {
   const { id } = req.params;
   const { plan } = req.body;
 
@@ -3501,7 +3757,7 @@ app.post('/api/tasks/:id/correct', async (req, res) => {
   try {
     client = new CopilotClient();
     session = trackSession(await client.createSession({
-      tools: [askWorkIQTool],
+      tools: [askWorkIQTool, parallelSearchTool],
       onPermissionRequest: approveAll
     }));
 
@@ -3635,10 +3891,10 @@ app.post('/api/tasks/:id/correct', async (req, res) => {
       try { await client.dispose(); } catch {}
     }
   }
-});
+}));
 
 // POST /api/tasks/:id/correct/resolve — User resolves correction discussion (accept evidence or veto)
-app.post('/api/tasks/:id/correct/resolve', async (req, res) => {
+app.post('/api/tasks/:id/correct/resolve', withTaskQueue(async (req, res) => {
   const { id } = req.params;
   const { action, correctedTitle, correctedSummary } = req.body;
 
@@ -3722,7 +3978,7 @@ app.post('/api/tasks/:id/correct/resolve', async (req, res) => {
 
   console.log(`[${now}] Correction resolved (veto): task "${task.title}" (${id})`);
   return res.json({ success: true, action: 'veto', task: updatedTask });
-});
+}));
 
 // Extract JSON array from AI response (handles markdown code blocks)
 function parseJsonFromResponse(text) {
@@ -3825,11 +4081,440 @@ function parseTeamsMessages(text) {
   return messages;
 }
 
+// ============================================================================
+// Phase γ.A.3 — Scan Job runner (v4.0.0-rc.1)
+// ============================================================================
+// A 'scan' job is the server-side driver of Phases 1-4 (scan / enrich / check /
+// consolidate). It replaces the former client-side for-loop in index.html so
+// that a browser refresh no longer terminates the work.
+//
+// Business logic is NOT duplicated: the job uses internal HTTP requests to the
+// existing endpoints (/api/scan, /api/tasks/:id/enrich, /api/tasks/:id/check-
+// update, /api/consolidate). Overhead is negligible compared to the 60-300 s
+// LLM calls inside each step, and risk of regressions is minimal because the
+// legacy endpoints are unchanged.
+//
+// Cancel semantics: "stop after current item" — the in-flight LLM call is
+// allowed to finish (aborting mid-call has historically been unstable), but
+// no further items are started.
+// ----------------------------------------------------------------------------
+
+async function runScanJob(job) {
+  const baseUrl = `http://127.0.0.1:${PORT}`;
+  const FETCH_HEADERS = { 'Content-Type': 'application/json' };
+
+  job.status = 'running';
+  job.startedAt = new Date().toISOString();
+  job.emit('job.started', {});
+  await persistJobSnapshot(job);
+
+  const setPhase = async (phase, extra = {}) => {
+    job.progress = {
+      phase,
+      phaseStartedAt: Date.now(),
+      currentItemIndex: 0,
+      totalItems: 0,
+      currentTaskId: null,
+      ...extra
+    };
+    job.emit('job.phase_changed', { phase, ...extra });
+    await persistJobSnapshot(job);
+  };
+
+  const isCancelling = () => ['cancelling', 'cancelled'].includes(job.status);
+
+  const markCancelled = async () => {
+    job.status = 'cancelled';
+    job.completedAt = new Date().toISOString();
+    job.emit('job.cancelled', { atPhase: job.progress?.phase || null });
+    unregisterActiveJob(job);
+    await persistJobSnapshot(job);
+  };
+
+  const scanDays = Math.min(14, Math.max(1, parseInt(job.input?.scanDays, 10) || 4));
+
+  try {
+    // ── Phase 1: Scan M365 via legacy endpoint ──
+    await setPhase('scan', { scanDays });
+    let phase1Summary = { added: 0, updated: 0, skipped: 0, total: 0 };
+    try {
+      const r = await fetch(`${baseUrl}/api/scan`, {
+        method: 'POST',
+        headers: FETCH_HEADERS,
+        body: JSON.stringify({ scanDays })
+      });
+      if (!r.ok) {
+        const txt = await r.text().catch(() => '');
+        throw new Error(`Phase 1 HTTP ${r.status}: ${txt.substring(0, 200)}`);
+      }
+      const payload = await r.json();
+      phase1Summary = {
+        added: payload.added || 0,
+        updated: payload.updated || 0,
+        skipped: payload.skipped || 0,
+        total: payload.total || 0
+      };
+    } catch (err) {
+      job.emit('job.phase_error', { phase: 'scan', error: err.message });
+      throw err;
+    }
+    job.emit('job.phase_done', { phase: 'scan', ...phase1Summary });
+    if (isCancelling()) return markCancelled();
+
+    // ── Phase 2: Enrich pending / error-retry tasks ──
+    const afterScan = readTasks();
+    const pendingForEnrich = afterScan.tasks.filter(t =>
+      !['done', 'completed'].includes(t.status) &&
+      (!t.enrichmentStatus || t.enrichmentStatus === 'pending' || t.enrichmentStatus === 'error')
+    );
+    await setPhase('enrich', { totalItems: pendingForEnrich.length });
+
+    for (let i = 0; i < pendingForEnrich.length; i++) {
+      if (isCancelling()) return markCancelled();
+      const t = pendingForEnrich[i];
+      job.progress = {
+        ...job.progress,
+        currentItemIndex: i,
+        totalItems: pendingForEnrich.length,
+        currentTaskId: t.id
+      };
+      job.emit('job.item_started', {
+        phase: 'enrich',
+        taskId: t.id,
+        index: i,
+        total: pendingForEnrich.length,
+        title: (t.title || '').substring(0, 80)
+      });
+      let ok = false;
+      let itemError = null;
+      try {
+        const r = await fetch(`${baseUrl}/api/tasks/${encodeURIComponent(t.id)}/enrich`, {
+          method: 'POST',
+          headers: FETCH_HEADERS,
+          body: '{}'
+        });
+        ok = r.ok;
+        if (!r.ok) itemError = `HTTP ${r.status}`;
+      } catch (err) {
+        itemError = err.message;
+      }
+      job.emit('job.item_done', {
+        phase: 'enrich',
+        taskId: t.id,
+        index: i,
+        total: pendingForEnrich.length,
+        ok,
+        error: itemError
+      });
+      await persistJobSnapshot(job);
+    }
+    job.emit('job.phase_done', { phase: 'enrich', processed: pendingForEnrich.length });
+    if (isCancelling()) return markCancelled();
+
+    // ── Phase 3: Check for updates on enriched tasks ──
+    const afterEnrich = readTasks();
+    const eligibleForCheck = afterEnrich.tasks.filter(t =>
+      !['done', 'completed'].includes(t.status) &&
+      ['enriched', 'needs-review'].includes(t.enrichmentStatus)
+    );
+    await setPhase('check', { totalItems: eligibleForCheck.length });
+
+    for (let i = 0; i < eligibleForCheck.length; i++) {
+      if (isCancelling()) return markCancelled();
+      const t = eligibleForCheck[i];
+      job.progress = {
+        ...job.progress,
+        currentItemIndex: i,
+        totalItems: eligibleForCheck.length,
+        currentTaskId: t.id
+      };
+      job.emit('job.item_started', {
+        phase: 'check',
+        taskId: t.id,
+        index: i,
+        total: eligibleForCheck.length,
+        title: (t.title || '').substring(0, 80)
+      });
+      let ok = false;
+      let itemError = null;
+      try {
+        const r = await fetch(`${baseUrl}/api/tasks/${encodeURIComponent(t.id)}/check-update`, {
+          method: 'POST',
+          headers: FETCH_HEADERS,
+          body: '{}'
+        });
+        ok = r.ok;
+        if (!r.ok) itemError = `HTTP ${r.status}`;
+      } catch (err) {
+        itemError = err.message;
+      }
+      job.emit('job.item_done', {
+        phase: 'check',
+        taskId: t.id,
+        index: i,
+        total: eligibleForCheck.length,
+        ok,
+        error: itemError
+      });
+      await persistJobSnapshot(job);
+    }
+    job.emit('job.phase_done', { phase: 'check', processed: eligibleForCheck.length });
+    if (isCancelling()) return markCancelled();
+
+    // ── Phase 4: Consolidate duplicates ──
+    await setPhase('consolidate', {});
+    let consolidateSummary = { suggestions: 0 };
+    try {
+      const r = await fetch(`${baseUrl}/api/consolidate`, {
+        method: 'POST',
+        headers: FETCH_HEADERS,
+        body: '{}'
+      });
+      if (r.ok) {
+        const payload = await r.json().catch(() => ({}));
+        consolidateSummary = {
+          suggestions: (payload && payload.suggestions && payload.suggestions.length) || 0
+        };
+      } else {
+        consolidateSummary.error = `HTTP ${r.status}`;
+      }
+    } catch (err) {
+      consolidateSummary.error = err.message;
+    }
+    job.emit('job.phase_done', { phase: 'consolidate', ...consolidateSummary });
+
+    // ── Completion ──
+    job.status = 'completed';
+    job.completedAt = new Date().toISOString();
+    job.result = {
+      phase1: phase1Summary,
+      phase2Processed: pendingForEnrich.length,
+      phase3Processed: eligibleForCheck.length,
+      phase4: consolidateSummary
+    };
+    job.emit('job.completed', { result: job.result });
+    unregisterActiveJob(job);
+    await persistJobSnapshot(job);
+  } catch (err) {
+    console.error(`[SCAN-JOB] ${job.id} failed: ${err.stack || err.message}`);
+    if (!['completed', 'failed', 'cancelled'].includes(job.status)) {
+      job.status = 'failed';
+      job.error = err.message || String(err);
+      job.completedAt = new Date().toISOString();
+      job.emit('job.failed', { error: job.error, atPhase: job.progress?.phase || null });
+      unregisterActiveJob(job);
+      try { await persistJobSnapshot(job); } catch {}
+    }
+  }
+}
+
+// ============================================================================
+// v4.0.1 — Merge Job runner
+// ============================================================================
+// A 'merge' job is the server-side driver for POST /api/tasks/merge. Same
+// rationale as scan: the merge AI call can take up to 90 s, so it must
+// survive a browser refresh. The runner delegates the actual work to the
+// existing /api/tasks/merge endpoint via internal HTTP, exactly like
+// runScanJob does for /api/consolidate.
+//
+// Input:   { taskIds: string[], suggestedTitle?: string }
+// Output:  { task: {...merged task...} }
+// ----------------------------------------------------------------------------
+
+async function runMergeJob(job) {
+  const baseUrl = `http://127.0.0.1:${PORT}`;
+  job.status = 'running';
+  job.startedAt = new Date().toISOString();
+  job.progress = { phase: 'merge', totalItems: (job.input?.taskIds || []).length };
+  job.emit('job.started', { kind: 'merge', taskIds: job.input?.taskIds || [] });
+  await persistJobSnapshot(job);
+
+  try {
+    const r = await fetch(`${baseUrl}/api/tasks/merge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(job.input || {})
+    });
+    const payload = await r.json().catch(() => ({}));
+    if (!r.ok || !payload.success) {
+      throw new Error(payload.error || payload.detail || `HTTP ${r.status}`);
+    }
+    job.status = 'completed';
+    job.completedAt = new Date().toISOString();
+    job.result = { task: payload.task };
+    job.emit('job.completed', {
+      kind: 'merge',
+      taskId: payload.task && payload.task.id,
+      title: payload.task && payload.task.title
+    });
+    unregisterActiveJob(job);
+    await persistJobSnapshot(job);
+  } catch (err) {
+    console.error(`[MERGE-JOB] ${job.id} failed: ${err.message}`);
+    if (!['completed', 'failed', 'cancelled'].includes(job.status)) {
+      job.status = 'failed';
+      job.error = err.message || String(err);
+      job.completedAt = new Date().toISOString();
+      job.emit('job.failed', { kind: 'merge', error: job.error });
+      unregisterActiveJob(job);
+      try { await persistJobSnapshot(job); } catch {}
+    }
+  }
+}
+
+// ============================================================================
+// v4.0.1 — Consolidate Job runner
+// ============================================================================
+// A 'consolidate' job is the standalone server-side driver for the
+// "Find Duplicates" button. (The 4-phase scan job still calls /api/consolidate
+// directly via internal HTTP — that internal call does NOT spawn a separate
+// job.) The consolidate AI call can take up to 300 s, so a refresh-resilient
+// job wrapper is essential.
+//
+// Output:  { suggestions: [...] }
+// ----------------------------------------------------------------------------
+
+async function runConsolidateJob(job) {
+  const baseUrl = `http://127.0.0.1:${PORT}`;
+  job.status = 'running';
+  job.startedAt = new Date().toISOString();
+  job.progress = { phase: 'consolidate' };
+  job.emit('job.started', { kind: 'consolidate' });
+  await persistJobSnapshot(job);
+
+  try {
+    const r = await fetch(`${baseUrl}/api/consolidate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}'
+    });
+    const payload = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      throw new Error(payload.error || payload.reason || `HTTP ${r.status}`);
+    }
+    job.status = 'completed';
+    job.completedAt = new Date().toISOString();
+    job.result = { suggestions: payload.suggestions || [] };
+    job.emit('job.completed', {
+      kind: 'consolidate',
+      suggestions: payload.suggestions || []
+    });
+    unregisterActiveJob(job);
+    await persistJobSnapshot(job);
+  } catch (err) {
+    console.error(`[CONSOLIDATE-JOB] ${job.id} failed: ${err.message}`);
+    if (!['completed', 'failed', 'cancelled'].includes(job.status)) {
+      job.status = 'failed';
+      job.error = err.message || String(err);
+      job.completedAt = new Date().toISOString();
+      job.emit('job.failed', { kind: 'consolidate', error: job.error });
+      unregisterActiveJob(job);
+      try { await persistJobSnapshot(job); } catch {}
+    }
+  }
+}
+
+// ----------------------------------------------------------------------------
+// POST /api/jobs — generic job creator.
+// Body: { kind, input?, clientRequestId? }
+// Supported kinds: 'scan', 'merge', 'consolidate'
+// Responses:
+//   202 { jobId, status:'queued' }              — new job started
+//   202 { jobId, status, idempotent:true }      — same clientRequestId, same body
+//   409 { error, existingJobId }                — singleton already running, or conflict
+//   400 { error }                               — unsupported kind / missing field
+// ----------------------------------------------------------------------------
+const SUPPORTED_JOB_KINDS = {
+  scan: runScanJob,
+  merge: runMergeJob,
+  consolidate: runConsolidateJob
+};
+
+app.post('/api/jobs', async (req, res) => {
+  const { kind, input = {}, clientRequestId = null } = req.body || {};
+  if (!kind || typeof kind !== 'string') {
+    return res.status(400).json({ error: 'kind is required' });
+  }
+  const runner = SUPPORTED_JOB_KINDS[kind];
+  if (!runner) {
+    return res.status(400).json({
+      error: `kind='${kind}' not supported (supported: ${Object.keys(SUPPORTED_JOB_KINDS).join(', ')})`
+    });
+  }
+
+  // Per-kind input validation
+  if (kind === 'merge') {
+    const ids = input && input.taskIds;
+    if (!Array.isArray(ids) || ids.length < 2) {
+      return res.status(400).json({ error: 'merge requires input.taskIds with >= 2 entries' });
+    }
+  }
+
+  const bodyHash = hashBody({ kind, input });
+  const idem = checkIdempotency(clientRequestId, bodyHash);
+  if (idem.status === 'conflict') {
+    return res.status(409).json({ error: 'clientRequestId reused with different body' });
+  }
+  if (idem.status === 'hit') {
+    const existing = jobs.get(idem.jobId);
+    return res.status(202).json({
+      jobId: idem.jobId,
+      status: existing ? existing.status : 'unknown',
+      idempotent: true
+    });
+  }
+
+  const guard = tryAcquireSingleton(kind);
+  if (!guard.acquired) {
+    return res.status(409).json({
+      error: `A '${kind}' job is already running`,
+      existingJobId: guard.existingJobId
+    });
+  }
+
+  const job = new Job({ taskId: null, kind, input, clientRequestId });
+  registerJob(job);
+  storeIdempotency(clientRequestId, job.id, bodyHash);
+  await persistJobSnapshot(job);
+
+  setImmediate(() => {
+    runner(job).catch(err => {
+      console.error(`[${kind.toUpperCase()}-JOB] unhandled: ${err.stack || err.message}`);
+      if (!['completed', 'failed', 'cancelled'].includes(job.status)) {
+        job.status = 'failed';
+        job.error = `Unhandled: ${err.message}`;
+        try { job.emit('job.failed', { kind, error: job.error }); } catch {}
+        unregisterActiveJob(job);
+      }
+    });
+  });
+
+  res.status(202).json({ jobId: job.id, status: 'queued' });
+});
+
+// GET /api/jobs?active=true
+// Returns { jobs, snapshotEventId } atomically for SSE boot-race safety:
+// the client uses snapshotEventId as lastEventId when opening /api/events,
+// guaranteeing no gap and no duplicate events between the snapshot and the
+// live stream.
+app.get('/api/jobs', (req, res) => {
+  const activeOnly = req.query.active === 'true' || req.query.active === '1';
+  if (activeOnly) {
+    return res.json(snapshotActiveJobs());
+  }
+  const list = [];
+  for (const j of jobs.values()) list.push(j.snapshot());
+  res.json({ jobs: list, snapshotEventId: globalEventSeq });
+});
+
 // --- Start Server ---
 
 migrateTasks();
 migrateStatuses();
 migrateToV3();
+migrateToV4();
+markInterruptedJobs();
+markInterruptedGlobalJobs();
 
 // Reset stuck transitional statuses from interrupted enrichment/update-check
 (function resetStuckStatuses() {
