@@ -4,6 +4,63 @@ All notable changes to this project are documented here.
 
 ---
 
+## v4.1.0 — April 22, 2026
+
+**Chat reliability: WorkIQ stub recycling + retrieval-by-reference prompt fix**
+
+### Problem
+
+Two compounding defects caused ~90–95% of chat-driven action-item updates to fail:
+
+1. **WorkIQ subprocess aging** — after extended runtime or many queries the `workiq` MCP subprocess occasionally returned very short "stub" responses (~260 chars) instead of real search results. The server passed these stubs through to the agent, which then produced unusable summaries.
+2. **Retrieval-by-reference blind spot** — when the user referenced a specific recent message ("analyse what I just sent to X"), the search agent anchored its queries on the **action-item topic** (title/keywords). But a referenced message can be about a different subject than the task — so the topic anchor actively hid the target message even though Work IQ had indexed it.
+
+### Fix — `server.js` (Option 4: Stub-Recycling + Auto-Retry)
+
+Infrastructure layer — solves defect #1, makes chat queries resilient against WorkIQ subprocess drift:
+
+- **Proactive recycling** — `wiqStartedAt`, `wiqQueryCount`, `wiqRecycling` state vars; `WIQ_MAX_AGE_MS = 30 min`, `WIQ_MAX_QUERIES = 100`. `maybeRecycleWiq()` gracefully restarts the subprocess before it ages out.
+- **Auto-retry on stubs** — `askWorkIQDirect(_isRetry)` detects stub responses (< 260 chars or known stub patterns), triggers a recycle, and retries the query once. Downstream code sees only real results.
+- **`waitForWiqUp()`** — after a recycle, blocks until the subprocess reports healthy before forwarding queries.
+- **Stub-preview log** — when a stub is detected, logs the first 160 chars to `logs/debug.log` for diagnostics.
+
+### Fix — `docs/SEARCH_SKILL.md` (retrieval-by-reference prompt)
+
+Prompt layer — solves defect #2, changes how the agent formulates queries. Pure prompt engineering, no deterministic rules in code:
+
+- **New section "CRITICAL — Retrieval-by-reference pitfall"** describes the pattern (not the case): user references an act of communication (singular message) with a recipient/sender and a recency cue.
+- **Pattern-based signals, not if-then rules** — the agent uses its judgement to recognise when topic anchoring is wrong.
+- **Do-not-anchor-on-topic guidance** — anchor on sender/recipient/channel/time instead; include "regardless of topic" or "any subject" in at least one query.
+- **Two practical phrasing rules that matter with Graph Search**:
+  - **First person** ("messages I sent") over third person ("sent by <user>") — third-person phrasing is treated as a generic name match, not "self".
+  - **Message-count cap** ("last 5 messages") over date windows ("last 7 days") — Graph date filters are approximate and can exclude messages sent today.
+- **Query B reworded** — topic-free when the retrieval-by-reference pattern matches, otherwise broader keywords (unchanged fallback).
+- **Generic counter-example** — Bob / Q3 budget action item / vacation-plans message — keeps the guidance out of any specific case.
+
+### Verified end-to-end
+
+- **Positive test** — "Analyse die Nachricht, die ich gerade an Oliver geschickt habe" on a task titled "Copilot CLI / MSSpace room classification validation". Agent issued two parallel topic-free queries with "regardless of topic"; `confidence: high`; summary correctly updated to the actual content (AI tool / Git / node.js / IT managers) rather than the task topic.
+- **Gegen-test** — topic-specific informational question on the same action item. Agent correctly did **not** inject "regardless of topic" and did **not** pollute the summary. Confirms the new pattern is not over-applied.
+- Two consecutive chat runs after the stub-recycling infra change: no stubs observed, no retries needed, clean queries.
+
+### Files touched
+
+- `package.json` — version 4.0.2 → 4.1.0
+- `server.js` — Option 4 infra (~85 lines: state, recycling helpers, stub detection, auto-retry, stub-preview log)
+- `docs/SEARCH_SKILL.md` — new retrieval-by-reference section (~25 lines) + Query B description tweak
+- `docs/AGENT_ZERO_PRESENTATION.html` — presentation updates
+- `index.html` — header slogan _"Built with AI, powered by curiosity."_
+- `README.md`, `AGENTS.md`, `docs/ARCHITECTURE.md`, `Specifactions/AGENT_ZERO_SPEC.md` — version bumped to 4.1.0
+- `docs/CHANGELOG.md` — this entry
+
+### Design notes
+
+- **Both fixes are independent but complementary.** Option 4 solves infra flakiness (stubs). The prompt fix solves query formulation. One without the other still leaves ~half the failures in place.
+- **Why prompt, not code, for the retrieval pattern?** A deterministic heuristic (e.g., "if user says 'just sent' → strip topic") would overfit the exact phrasings tested and miss the long tail. A pattern described in the skill lets the agent generalise to 1000 future phrasings — German, English, mixed — as long as the signals match.
+- **Scope discipline** — the skill deliberately uses `<person>` and `<channel>` placeholders, a failure-mode example in an unrelated domain (Q3 budget / vacation), and no names from the case that prompted the fix. The skill should behave the same tomorrow for a completely unrelated task.
+
+---
+
 ## v4.0.2 — April 22, 2026
 
 **Single-instance guard — Task Scheduler no longer creates duplicate instances**

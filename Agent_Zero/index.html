@@ -27,6 +27,14 @@
       gap: 6px;
     }
     header h1 { font-size: 1.4rem; font-weight: 600; color: #fff; margin: 0; }
+    header .slogan {
+      font-size: 0.78rem;
+      font-weight: 400;
+      color: #94a3b8;
+      font-style: italic;
+      margin-left: 4px;
+    }
+    header .slogan::before { content: "— "; color: #64748b; font-style: normal; }
 
     /* Row 2: Status (idle) / Progress (scanning) */
     .header-row-2 {
@@ -1086,7 +1094,7 @@
   <!-- Header -->
   <header>
     <!-- Row 1: App name -->
-    <h1>📋 Agent Zero <span id="appVersion" style="font-size:0.5em;font-weight:400;color:#64748b;vertical-align:middle"></span></h1>
+    <h1>📋 Agent Zero <span id="appVersion" style="font-size:0.5em;font-weight:400;color:#64748b;vertical-align:middle"></span> <span class="slogan">Built with AI, powered by curiosity.</span></h1>
 
     <!-- Row 2: Status (idle) ↔ Progress (scanning) — same height always -->
     <div class="header-row-2">

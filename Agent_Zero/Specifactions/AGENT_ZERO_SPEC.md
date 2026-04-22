@@ -1,9 +1,9 @@
 # Agent Zero — Product Specification
 
-**Version:** 4.0.1
+**Version:** 4.1.0
 **Date:** April 22, 2026
 **Author:** Martin Hämmerli
-**Status:** v4.0.1 — Merge and Find Duplicates now run through the server-side job orchestrator: every long-running AI call survives a browser refresh and is double-click safe
+**Status:** v4.1.0 — Retrieval-by-reference prompt fix + WorkIQ stub-recycling & auto-retry: chat-driven action-item updates are now reliable even when the user references a specific recent message whose content diverges from the task topic.
 
 ---
 
