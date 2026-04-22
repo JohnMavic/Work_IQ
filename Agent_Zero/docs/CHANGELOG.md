@@ -4,6 +4,64 @@ All notable changes to this project are documented here.
 
 ---
 
+## v4.0.0 — April 22, 2026
+
+**Server-Side Job Registry — Scan + Log-Jobs survive browser refresh**
+
+### Problem diagnosed
+The pre-v4 scan was a client-side `for`-loop over phases. Closing the tab or even an F5 killed the whole orchestration mid-flight, leaving tasks in transient states (`enriching`, `checking`) that were only cleaned up on the next scheduled scan. Log-jobs (per-task "search inbox" requests) had the same issue: the visual "⏳ Agent working…" indicator disappeared on any re-render because `updateTaskJobUi` painted DOM directly without updating `frozenTasks`, and `hydrateActiveJobs` on reload was never actually invoked on the boot path and also read `jobId` incorrectly from a structured `activeJob` object.
+
+### Code — server.js (PR1)
+- **Job foundation** (`Job` class, `jobs` Map, `jobsByTask` Map, `activeJobByTask` Map, `idempotencyMap`): every `scan` / `log` / `consolidate` / `check` run is modelled as a `Job` with lifecycle (`queued → running → awaiting_input | completed | failed | cancelled`), monotonically-increasing `lastJobEventId`, and a persisted snapshot on `task.activeJob` (for per-task jobs) or in `jobs.json` (for global jobs).
+- **SSE broker** (`sseBroker`): `GET /api/events?since=<id>` opens a long-lived stream; events are fanned out with a per-event `globalEventSeq` so the client can resume at exactly the right cursor after reconnect (sessionStorage-seeded before `startSSE()`).
+- **Endpoints**: `POST /api/jobs/scan` (singleton-protected, 409 on conflict), `POST /api/jobs/log`, `POST /api/jobs/check`, `GET /api/jobs/:id`, `GET /api/jobs?active=true`, `POST /api/jobs/:id/cancel`, `POST /api/jobs/:id/reply` (for `awaiting_input`).
+- **Phase γ.F boot recovery**: on restart, any `task.activeJob` that was `queued` or `running` is marked `interrupted` in `jobHistory` and cleared so the UI shows a clean state; the next scan picks the task up again via the phase-independent filters.
+- **Scan runner** (`runScanJob`): moved the four-phase orchestration server-side. Phase 1 discovery, Phase 2 enrichment with auto-recovery, Phase 3 update-check with per-session query budget + stub auto-restart, Phase 4 consolidate. Emits `phase_started` / `phase_done` / `item_started` / `item_done` / `completed` / `failed` / `cancelled`.
+- **Singleton protection**: a module-level `scanSingleton` rejects a second scan cluster-wide (not just per tab) and returns the existing `jobId` so re-clicks are idempotent.
+
+### Code — index.html (PR1 → PR1d)
+- **SSE client**: persistent `EventSource('/api/events?since=<cursor>')` with cursor seeded from `sessionStorage`; automatic reconnect with exponential backoff; dispatches `handleScanJobEvent` (for `kind === 'scan'`) and `handleJobEvent` (for per-task jobs).
+- **`hydrateActiveJobs()` (PR1c)**: correctly reads `jobId` from the `task.activeJob` **object** (was treating it as a string → `/api/jobs/[object Object]` → 404 → silently dropped). Re-paints frozen badge and awaiting_input UI for every running job.
+- **Boot-path hydration (PR1d)**: `checkServerHealth()` now calls `hydrateActiveJobs()` after `renderTasks()` — previously only `fetchTasks()` did this, so a hard-refresh on a page that never called `fetchTasks()` left indicators blank.
+- **`updateTaskJobUi` (PR1b)**: now adds/removes `taskId` in `frozenTasks` in lockstep with card state. This makes the DOM-preservation branch in `renderTasks` apply to log-jobs, not just to client-side-frozen tasks. Respects `window.__scanHoldsFreezeFor` so a scan `item_started` / `item_done` cycle on a task doesn't steal the freeze of a parallel log-job (or vice-versa).
+- **`refreshSingleTask` (PR1b)**: skips `oldCard.replaceWith(newCard)` when the task is in `frozenTasks`; data is still updated in `tasks[idx]` and the next `unfreezeTask` re-renders. Eliminates the visible ~500ms gap where badges/step-dots were nuked and re-attached asynchronously.
+- **`handleScanJobEvent` (PR1b)**: `item_started` sets `window.__scanHoldsFreezeFor = taskId` and calls `freezeTask`; `item_done` clears the sentinel, releases the scan's freeze (only if no log-job is still active on the same task), and replaces the blunt `fetchTasks()` refresh with a surgical `refreshSingleTask(taskId)`.
+
+### Code — server.js build marker (PR1c → PR1d)
+- `GET /api/version` now returns the short git SHA alongside version + name. Resolved via `execSync('git rev-parse --short HEAD', { cwd: __dirname })` with a filesystem-walk-up fallback that reads `.git/HEAD` one parent level up (Agent_Zero is a sub-folder of the Work_IQ repo root, so the local dir has no `.git`). `execSync` imported as ESM (`import { spawn, execSync } from 'child_process'`), not `require()` — the server is `type: "module"`.
+- Boot log prints `[Agent Zero] Build commit: <sha>` to stdout for diagnostics.
+
+### UI — index.html
+- Footer version element now displays `v4.0.0 (<sha>)` with the short commit SHA. Tooltip: "Build `<sha>` — reload to refresh". Console log: `[Agent Zero] v4.0.0 build <sha>`. This makes it trivially verifiable whether a given browser session is serving the expected build (important for diagnosing cache issues after a push).
+
+### Tests
+- New unit tests in `tests/unit/job-lifecycle.mjs` (7 tests, all passing):
+  - Job construction (id, queued status, null progress)
+  - Snapshot shape (progress field always present)
+  - `emit()` monotonicity (`lastJobEventId` + `globalEventSeq`)
+  - Cancel transition (`queued → cancelling`, idempotent)
+  - Idempotency cache (new / hit / conflict)
+  - Singleton acquire/refuse/release
+  - `persistGlobalJobSnapshot` JSON round-trip
+- `tests/runs/check-html.cjs` — validates that `<script>` blocks in `index.html` parse as valid JavaScript (PR1b–PR1d touched inline script).
+
+### Documentation
+- `ARCHITECTURE.md` — "Scan Resilience Architecture" section rewritten to describe the server-side job registry, SSE with cursor continuity, `hydrateGlobalJobs` + `hydrateActiveJobs` on boot, `frozenTasks` preservation invariant, and build marker.
+- `AGENT_ZERO_SPEC.md` — version + status line updated.
+- `README.md`, `AGENTS.md`, `BUBBLE_EDITOR_GUIDE.md` — version bumped to 4.0.0.
+- `package.json` — version bumped to 4.0.0.
+
+### Behavioural impact
+- **F5 and Ctrl+Shift+R are safe during any scan or log-job.** The server keeps running, the UI re-paints the "⏳ Agent working…" badge and step-active dot within ~1 second, and SSE resumes at the correct cursor.
+- Closing the browser entirely no longer leaves tasks stuck in `enriching` / `checking` — the server-side job keeps progressing, and the next client to load sees the correct state.
+- Visual indicators no longer flicker when a scan runs in parallel to a log-job on the same (or a different) task.
+
+### Known limitations (deferred)
+- **Review-resolution summary update**: resolving open review items on an action item currently triggers a search but does not auto-update the task summary. Tracked for a separate PR.
+- **WorkIQ service timeouts**: recurring 90s timeouts in Phase 3 and Teams searches are a WorkIQ infrastructure issue, not an Agent Zero bug. The existing 3-strike retry strategy is correct; migration to a newer WorkIQ version is being evaluated separately.
+
+---
+
 ## v3.3.0 — April 20, 2026
 
 **Phase 3 (Update Check) — Stub Auto-Recovery & Retroactive Summary Reconciliation**

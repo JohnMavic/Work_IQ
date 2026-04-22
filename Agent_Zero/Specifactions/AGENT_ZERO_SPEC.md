@@ -1,9 +1,9 @@
 # Agent Zero — Product Specification
 
-**Version:** 3.2.4
-**Date:** April 19, 2026
+**Version:** 4.0.0
+**Date:** April 22, 2026
 **Author:** Martin Hämmerli
-**Status:** v3.2.4 — Phase 3 per-session query budget, self-EULA guard, M365 stub detection, richer observability
+**Status:** v4.0.0 — Server-side job registry: scan + log-jobs now survive browser refresh; visual indicators stay stable through re-renders
 
 ---
 

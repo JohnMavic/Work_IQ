@@ -1,6 +1,6 @@
 # Agent Zero — Architecture
 
-> Version 3.2.4 · April 19, 2026 · Author: Martin Hämmerli
+> Version 4.0.0 · April 22, 2026 · Author: Martin Hämmerli
 
 Agent Zero is a personal action-item tracker that scans Microsoft 365 emails and Teams messages for tasks,
 extracts content summaries, and monitors threads for updates — all powered by AI.
@@ -207,14 +207,17 @@ Used for update-intent rewriting and post-update refinement when the agent chang
 
 **Non-fatal:** Phase 4 failures are silently caught — the scan still completes successfully.
 
-### Scan Resilience Architecture
+### Scan Resilience Architecture (v4.0.0)
 
-The scan orchestration in `index.html` is designed to recover phase-by-phase instead of failing as one monolithic job:
+Since v4.0.0 the scan orchestration lives on the **server** (not in the browser). A client clicking "Scan" calls `POST /api/jobs/scan`, which creates a singleton `scan` job in the server-side job registry (`server.js` — `Job` class, `activeJobByTask` map, global `scanSingleton`). All four phases run in a server loop independent of the client; the UI is fed via a persistent SSE connection (`GET /api/events`) and keeps an atomic event cursor in `sessionStorage` for exactly-once delivery across refreshes.
 
-- **Phase 1 is non-fatal:** If discovery fails, the UI records the error in the scan report and still continues with already-known pending/enriched tasks.
-- **Phase-independent processing:** Phase 2 reloads all `enrichmentStatus: 'pending'` tasks from the server; Phase 3 reloads all `enriched` / `needs-review` tasks. This allows partial recovery after transient failures or server restarts.
-- **Per-task retry loops:** Enrichment and update-check retry each task once after a 3-second delay before marking the task as failed.
-- **Scan lock + reporting:** A frontend `scanInProgress` lock prevents overlapping scans, while the expandable **Last scan** panel stores per-phase durations, retry counts, failures, and error details.
+- **Browser refresh is harmless:** On reload the client calls `hydrateGlobalJobs()` (for `scan` / `consolidate`) **and** `hydrateActiveJobs()` (for per-task `log` jobs) from both `checkServerHealth()` and `fetchTasks()`. Each active job is re-painted from its persisted snapshot (`task.activeJob = { jobId, kind, status, startedAt, lastJobEventId, pendingClarification }`). SSE then resumes from the last cursor without dropping or duplicating events.
+- **Phase 1 is non-fatal:** discovery failures are recorded in the scan report; Phase 2+ continue with already-known tasks.
+- **Phase-independent processing:** Phase 2 processes all `enrichmentStatus: 'pending'` tasks; Phase 3 processes `enriched` / `needs-review` tasks.
+- **Per-task retry:** enrichment and update-check each retry once after a 3-second delay before marking the task failed.
+- **Scan singleton:** the server-side `scanSingleton` blocks concurrent scans cluster-wide (not just per browser tab); `POST /api/jobs/scan` returns 409 with the existing `jobId` for idempotent re-clicks.
+- **Visual freeze preservation:** `frozenTasks` Set + `renderTasks` preservation branch + `updateTaskJobUi` (running → add to Set, finished → remove) keep the "⏳ Agent working…" badge and step-active dot stable across scan events and log-job events on the same task (`window.__scanHoldsFreezeFor` sentinel prevents one job from stealing another's freeze). `refreshSingleTask` skips DOM replace for frozen tasks so active badges are never nuked mid-operation.
+- **Build marker:** `GET /api/version` returns the short git SHA so the UI footer displays `v4.0.0 (abcd123)`; proof the browser is serving the expected build.
 
 ### Visual Step Indicators
 
