@@ -3324,12 +3324,15 @@
       if (idx !== -1) tasks[idx] = task;
       // Re-render list card
       const oldCard = document.getElementById('card-' + taskId);
-      if (oldCard) {
+      if (oldCard && !frozenTasks.has(taskId)) {
         const tempDiv = document.createElement('div');
         tempDiv.innerHTML = renderTaskCard(task);
         const newCard = tempDiv.firstElementChild;
         oldCard.replaceWith(newCard);
       }
+      // If the card is frozen (active log-job or scan item), skip the DOM
+      // swap — tasks[idx] was already updated above, and unfreezeTask()
+      // will re-render from fresh data when the job terminates.
       // If this is the selected task, refresh detail panel
       if (taskId === selectedTaskId) {
         paintTaskDetail(task);
@@ -3670,10 +3673,16 @@
         if (q) q.textContent = '';
       }
     }
-    // Surface "agent working" visually on the list card without rebuilding it.
+    // Surface "agent working" visually AND register in frozenTasks so any
+    // subsequent renderTasks() preserves the card's DOM (see the
+    // preservation branch in renderTasks ~2074). Without this, a re-render
+    // triggered by fetchTasks() or SSE events would rebuild the card from
+    // renderTaskCard(task) and drop the .frozen class + badge mid-job.
+    const isRunning = entry && (entry.status === 'running' || entry.status === 'awaiting_input');
     const card = document.getElementById('card-' + taskId);
-    if (card) {
-      if (entry && (entry.status === 'running' || entry.status === 'awaiting_input')) {
+    if (isRunning) {
+      frozenTasks.add(taskId);
+      if (card) {
         card.classList.add('frozen');
         let badge = card.querySelector('.frozen-badge');
         if (!badge) {
@@ -3685,7 +3694,13 @@
           ? '❓ Needs input'
           : (entry.lastPhase === 'llm_round' ? '🧠 Thinking…' : '⏳ Agent working…');
         badge.textContent = label;
-      } else {
+      }
+    } else {
+      // Only release the freeze if a scan item isn't currently holding it
+      // (scan's item_started sets window.__scanHoldsFreezeFor = taskId).
+      const scanHoldsFreeze = activeScanJob && window.__scanHoldsFreezeFor === taskId;
+      if (!scanHoldsFreeze) frozenTasks.delete(taskId);
+      if (card) {
         card.classList.remove('frozen');
         const badge = card.querySelector('.frozen-badge');
         if (badge) badge.remove();
@@ -3753,10 +3768,12 @@
         const { phase, taskId, index, total } = payload;
         if (phase === 'enrich') {
           if (loadingText) loadingText.textContent = `Phase 2: Enriching content (${(index || 0) + 1}/${total || 0})...`;
+          window.__scanHoldsFreezeFor = taskId;
           if (typeof freezeTask === 'function') freezeTask(taskId, '📋 Analyzing content...');
           if (typeof updateStepIndicator === 'function') updateStepIndicator(taskId, 2, 'active');
         } else if (phase === 'check') {
           if (loadingText) loadingText.textContent = `Phase 3: Checking updates (${(index || 0) + 1}/${total || 0})...`;
+          window.__scanHoldsFreezeFor = taskId;
           if (typeof freezeTask === 'function') freezeTask(taskId, '🔍 Checking for updates...');
           if (typeof updateStepIndicator === 'function') updateStepIndicator(taskId, 3, 'active');
         }
@@ -3777,8 +3794,16 @@
           }
           saveScanReport();
         }
-        // Reload tasks so the list reflects new enrichment/update data.
-        fetchTasks().catch(() => {});
+        // Release scan's freeze hold on this task; keep it frozen if a
+        // parallel log-job is still running on the same task.
+        window.__scanHoldsFreezeFor = null;
+        if (!activeJobsByTask[taskId] && typeof unfreezeTask === 'function') {
+          unfreezeTask(taskId);
+        }
+        // Surgical single-card refresh — no full list re-render, no flicker.
+        if (typeof refreshSingleTask === 'function') {
+          refreshSingleTask(taskId).catch(() => {});
+        }
         break;
       }
       case 'job.completed':
