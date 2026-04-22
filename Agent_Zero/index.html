@@ -1227,6 +1227,10 @@
   const frozenTasks = new Set();
   let scanAborted = false;
   let scanAbortController = null;
+  // v4.0.0-rc.1 — server-driven scan job state. When non-null, a scan job is
+  // owned by the server and this page is merely rendering its SSE updates.
+  let activeScanJob = null;
+  let scanUiTimerInterval = null;
   let selectedTaskId = localStorage.getItem('selectedTaskId') || null;
   let mergeMode = false;
   const selectedForMerge = new Set();
@@ -1500,400 +1504,133 @@
     }
   }
 
-  function abortScan() {
+  // v4.0.0-rc.1 — abortScan asks the server to cancel the active scan job.
+  // The server honours the semantics "stop after current item" (in-flight
+  // LLM call finishes, no further items start), then emits job.cancelled.
+  async function abortScan() {
     scanAborted = true;
-    if (scanAbortController) { scanAbortController.abort(); }
     const abortBtn = document.getElementById('btnAbort');
     if (abortBtn) { abortBtn.disabled = true; abortBtn.textContent = '⏹ Stopping...'; }
     const loadingText = document.getElementById('loadingText');
     if (loadingText) loadingText.textContent += ' — Stopping after current task...';
+    if (activeScanJob) {
+      try {
+        await fetch(`/api/jobs/${activeScanJob}/cancel`, { method: 'POST' });
+      } catch (err) {
+        console.warn('[SCAN] cancel request failed', err);
+      }
+    } else if (scanAbortController) {
+      // Legacy path (should not occur once UI is fully migrated).
+      scanAbortController.abort();
+    }
   }
 
   let scanInProgress = false;
 
-  async function triggerScan() {
-    if (scanInProgress) {
-      showNotification('A scan is already in progress. Please wait.', 'error');
-      return;
-    }
+  // v4.0.0-rc.1 — UI helpers for the server-driven scan. The scan itself no
+  // longer lives in this file; we just render what the server emits via SSE.
+
+  function beginScanUi(scanDays) {
     scanInProgress = true;
     scanAborted = false;
-    scanAbortController = new AbortController();
     const btn = document.getElementById('btnScan');
     const overlay = document.getElementById('loadingOverlay');
     const loadingText = document.getElementById('loadingText');
     const loadingTimer = document.getElementById('loadingTimer');
-    const abortBtn = document.getElementById('btnAbort');
-
-    btn.disabled = true;
-    btn.innerHTML = '📡 Scanning...<span class="btn-sub">Scan Outlook &amp; Teams</span>';
-    overlay.classList.add('visible');
-    initScanReport();
-
-    const days = document.getElementById('scanDays').value || '4';
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '📡 Scanning...<span class="btn-sub">Scan Outlook &amp; Teams</span>';
+    }
+    if (overlay) overlay.classList.add('visible');
+    if (loadingText) loadingText.textContent = `Phase 1: Scanning subjects (last ${scanDays} days)...`;
+    if (loadingTimer) loadingTimer.textContent = '⏱ 00:00';
+    if (scanUiTimerInterval) clearInterval(scanUiTimerInterval);
     let elapsed = 0;
-    loadingText.textContent = 'Phase 1: Scanning subjects...';
-    loadingTimer.textContent = '⏱ 00:00';
-
-    const timerInterval = setInterval(() => {
+    scanUiTimerInterval = setInterval(() => {
       elapsed++;
       const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
       const ss = String(elapsed % 60).padStart(2, '0');
-      loadingTimer.textContent = `⏱ ${mm}:${ss}`;
+      if (loadingTimer) loadingTimer.textContent = `⏱ ${mm}:${ss}`;
     }, 1000);
+  }
 
-    try {
-      // Auto-cleanup: permanently delete expired done tasks before scanning
-      const retentionDays = parseInt(document.getElementById('cleanupDays')?.value) || 3;
-      try {
-        const cleanupRes = await fetch('/api/cleanup', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ retentionDays })
-        });
-        const cleanupData = await cleanupRes.json();
-        if (cleanupData.removed > 0) {
-          showNotification(`Auto-cleanup: ${cleanupData.removed} expired done task(s) permanently deleted`, 'success');
-          await fetchTasks();
-        }
-      } catch (e) { /* cleanup is best-effort */ }
-
-      // ═══════════════════════════════════════════════
-      // PHASE 1: Discovery — subjects only
-      // NON-FATAL: if this fails, Phase 2/3 still process existing pending tasks
-      // ═══════════════════════════════════════════════
-      loadingText.textContent = `Phase 1: Scanning subjects (last ${days} days)...`;
-      let phase1Success = false;
-      const p1Start = Date.now();
-      updatePhaseStatus('phase1', { status: 'running', startedAt: new Date().toISOString() });
-      try {
-        const scanRes = await fetch('/api/scan', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scanDays: parseInt(days) || 4 }),
-          signal: scanAbortController.signal
-        });
-        const scanData = await scanRes.json();
-
-        if (scanRes.ok) {
-          phase1Success = true;
-          const detail = `${scanData.added || 0} new, ${scanData.updated || 0} updated, ${scanData.skipped || 0} skipped`;
-          updatePhaseStatus('phase1', { status: 'success', completedAt: new Date().toISOString(), durationMs: Date.now() - p1Start, detail });
-          await fetchTasks();
-
-          if (scanData.added > 0) {
-            showNotification(
-              `Phase 1 complete: ${scanData.added} new task${scanData.added !== 1 ? 's' : ''} found` +
-              (scanData.updated ? `, ${scanData.updated} updated` : '') + '. Enriching content...',
-              'success'
-            );
-          } else {
-            showNotification(
-              'Phase 1 complete: no new action items found.' +
-              (scanData.updated ? ` ${scanData.updated} task${scanData.updated !== 1 ? 's' : ''} updated.` : ''),
-              'success'
-            );
-          }
-        } else {
-          console.error('[SCAN] Phase 1 failed:', scanData);
-          updatePhaseStatus('phase1', { status: 'failed', completedAt: new Date().toISOString(), durationMs: Date.now() - p1Start, error: friendlyError(scanData) });
-          showNotification(`⚠️ Phase 1 scan failed: ${friendlyError(scanData)}. Continuing with existing tasks...`, 'error');
-        }
-      } catch (phase1Err) {
-        console.error('[SCAN] Phase 1 error:', phase1Err);
-        updatePhaseStatus('phase1', { status: 'failed', completedAt: new Date().toISOString(), durationMs: Date.now() - p1Start, error: phase1Err.message });
-        if (phase1Err.name === 'TypeError' && phase1Err.message.includes('fetch')) {
-          setServerStatus(false);
-          showNotification('⚠️ Server unreachable during scan. Waiting for reconnection...', 'error');
-          // Wait up to 30s for server to come back
-          for (let w = 0; w < 10 && !serverOnline; w++) {
-            await new Promise(r => setTimeout(r, 3000));
-            try {
-              const healthCheck = await fetch('/api/tasks', { signal: AbortSignal.timeout(3000) });
-              if (healthCheck.ok) { setServerStatus(true); break; }
-            } catch {}
-          }
-          if (!serverOnline) {
-            showNotification('❌ Server did not recover. Scan aborted.', 'error');
-            return;
-          }
-          showNotification('✅ Server reconnected. Continuing scan...', 'success');
-        } else {
-          showNotification(`⚠️ Phase 1 failed: ${phase1Err.message}. Continuing with existing tasks...`, 'error');
-        }
-      }
-
-      clearInterval(timerInterval);
-      if (scanAborted) return;
-
-      // ═══════════════════════════════════════════════
-      // PHASE 2: Enrichment — ALL tasks without summary
-      // Independent of Phase 1 — works on server-side task status
-      // Per-task retry: 1 retry after 3s on failure
-      // ═══════════════════════════════════════════════
-      const phase2Tasks = await (await fetch('/api/tasks', { signal: scanAbortController.signal })).json();
-      const tasksToEnrich = (phase2Tasks.tasks || [])
-        .filter(t => t.enrichmentStatus === 'pending' && t.status !== 'done');
-
-      if (tasksToEnrich.length > 0) {
-        const p2Start = Date.now();
-        updatePhaseStatus('phase2', { status: 'running', startedAt: new Date().toISOString(), total: tasksToEnrich.length });
-        btn.textContent = 'Enriching...';
-        overlay.classList.add('visible');
-        let phase2Elapsed = 0;
-        loadingText.textContent = `Phase 2: Enriching content (0/${tasksToEnrich.length})...`;
-        loadingTimer.textContent = '⏱ 00:00';
-        const phase2Timer = setInterval(() => {
-          phase2Elapsed++;
-          const mm = String(Math.floor(phase2Elapsed / 60)).padStart(2, '0');
-          const ss = String(phase2Elapsed % 60).padStart(2, '0');
-          loadingTimer.textContent = `⏱ ${mm}:${ss}`;
-        }, 1000);
-
-        for (let i = 0; i < tasksToEnrich.length; i++) {
-          if (scanAborted) {
-            showNotification(`Scan stopped by user after enriching ${i}/${tasksToEnrich.length} tasks`, 'error');
-            break;
-          }
-          const task = tasksToEnrich[i];
-          loadingText.textContent = `Phase 2: Enriching content (${i + 1}/${tasksToEnrich.length})...`;
-          freezeTask(task.id, '📋 Analyzing content...');
-          updateStepIndicator(task.id, 2, 'active');
-
-          let success = false;
-          for (let attempt = 1; attempt <= 2 && !success; attempt++) {
-            try {
-              const enrichRes = await fetch(`/api/tasks/${task.id}/enrich`, { method: 'POST', signal: scanAbortController.signal });
-              const enrichData = await enrichRes.json();
-              if (enrichRes.ok && (enrichData.summary || enrichData.alreadyEnriched)) {
-                if (enrichData.ambiguities && enrichData.ambiguities.length > 0) {
-                  updateStepIndicator(task.id, 2, 'updated');
-                } else {
-                  updateStepIndicator(task.id, 2, 'done');
-                }
-                success = true;
-                scanReport.phases.phase2.success++;
-                if (attempt > 1) scanReport.phases.phase2.retried++;
-              } else if (attempt < 2) {
-                console.warn(`[SCAN] Enrichment attempt ${attempt} failed for ${task.id}, retrying in 3s...`);
-                updateFrozenStatus(task.id, '🔄 Retrying enrichment...');
-                await new Promise(r => setTimeout(r, 3000));
-              } else {
-                updateStepIndicator(task.id, 2, 'error');
-                scanReport.phases.phase2.failed++;
-                scanReport.phases.phase2.errors.push(`${task.title.substring(0, 40)}: server error`);
-              }
-            } catch (err) {
-              if (err.name === 'AbortError') { throw err; }
-              console.error(`[SCAN] Enrichment attempt ${attempt} error for ${task.id}:`, err);
-              if (err.name === 'TypeError' && err.message.includes('fetch')) {
-                setServerStatus(false);
-                updateFrozenStatus(task.id, '⏳ Waiting for server...');
-                await new Promise(r => setTimeout(r, 5000));
-                try {
-                  const h = await fetch('/api/tasks', { signal: AbortSignal.timeout(3000) });
-                  if (h.ok) setServerStatus(true);
-                } catch {}
-                if (!serverOnline && attempt >= 2) {
-                  scanReport.phases.phase2.failed++;
-                  scanReport.phases.phase2.errors.push(`${task.title.substring(0, 40)}: server unreachable`);
-                  scanAborted = true;
-                  break;
-                }
-              } else if (attempt >= 2) {
-                updateStepIndicator(task.id, 2, 'error');
-                scanReport.phases.phase2.failed++;
-                scanReport.phases.phase2.errors.push(`${task.title.substring(0, 40)}: ${err.message}`);
-              } else {
-                await new Promise(r => setTimeout(r, 3000));
-              }
-            }
-          }
-          unfreezeTask(task.id);
-          try { await refreshSingleTask(task.id); } catch {}
-          saveScanReport();
-        }
-        clearInterval(phase2Timer);
-        const p2Status = scanReport.phases.phase2.failed > 0 ? (scanReport.phases.phase2.success > 0 ? 'partial' : 'failed') : 'success';
-        updatePhaseStatus('phase2', { status: p2Status, completedAt: new Date().toISOString(), durationMs: Date.now() - p2Start });
-      } else {
-        updatePhaseStatus('phase2', { status: 'skipped', detail: 'No pending tasks' });
-      }
-
-      // ═══════════════════════════════════════════════
-      // PHASE 3: Update Check — ALL enriched/needs-review, non-done tasks
-      // Independent of Phase 1/2 — works on server-side task status
-      // Per-task retry: 1 retry after 3s on failure
-      // ═══════════════════════════════════════════════
-      if (!scanAborted) {
-      const phase3Tasks = await (await fetch('/api/tasks', { signal: scanAbortController.signal })).json();
-      const tasksToCheck = (phase3Tasks.tasks || [])
-        .filter(t => (t.enrichmentStatus === 'enriched' || t.enrichmentStatus === 'needs-review') && t.status !== 'done');
-
-      if (tasksToCheck.length > 0) {
-        const p3Start = Date.now();
-        updatePhaseStatus('phase3', { status: 'running', startedAt: new Date().toISOString(), total: tasksToCheck.length });
-        btn.textContent = 'Checking updates...';
-        overlay.classList.add('visible');
-        let phase3Elapsed = 0;
-        loadingText.textContent = `Phase 3: Checking for updates (0/${tasksToCheck.length})...`;
-        loadingTimer.textContent = '⏱ 00:00';
-        const phase3Timer = setInterval(() => {
-          phase3Elapsed++;
-          const mm = String(Math.floor(phase3Elapsed / 60)).padStart(2, '0');
-          const ss = String(phase3Elapsed % 60).padStart(2, '0');
-          loadingTimer.textContent = `⏱ ${mm}:${ss}`;
-        }, 1000);
-
-        for (let i = 0; i < tasksToCheck.length; i++) {
-          if (scanAborted) {
-            showNotification(`Scan stopped by user after checking ${i}/${tasksToCheck.length} tasks`, 'error');
-            break;
-          }
-          const task = tasksToCheck[i];
-          loadingText.textContent = `Phase 3: Checking for updates (${i + 1}/${tasksToCheck.length})...`;
-          freezeTask(task.id, '🔍 Checking for updates...');
-          updateStepIndicator(task.id, 3, 'active');
-
-          let success = false;
-          for (let attempt = 1; attempt <= 2 && !success; attempt++) {
-            try {
-              const checkRes = await fetch(`/api/tasks/${task.id}/check-update`, { method: 'POST', signal: scanAbortController.signal });
-              const checkData = await checkRes.json();
-              if (checkRes.ok) {
-                if (checkData.skipped) {
-                  // Pre-filter: not a real check, mark as done quietly
-                  updateStepIndicator(task.id, 3, 'done');
-                } else if (checkData.outcome === 'inconclusive') {
-                  // Inconclusive: budget/stub/wiq-down. Treated as "done" visually but
-                  // server has NOT advanced lastSuccessfulUpdateCheck → will retry next scan.
-                  updateStepIndicator(task.id, 3, 'done');
-                  console.warn(`[SCAN] Phase 3 inconclusive for ${task.id}:`, checkData.reasons || '?');
-                } else {
-                  updateStepIndicator(task.id, 3, checkData.hasUpdate ? 'updated' : 'done');
-                  if (checkData.hasUpdate) {
-                    showNotification(`Task updated: ${task.title.substring(0, 40)}...`, 'success');
-                  }
-                }
-                success = true;
-                scanReport.phases.phase3.success++;
-                if (attempt > 1) scanReport.phases.phase3.retried++;
-              } else if (attempt < 2) {
-                console.warn(`[SCAN] Update check attempt ${attempt} failed for ${task.id}, retrying in 3s...`);
-                updateFrozenStatus(task.id, '🔄 Retrying update check...');
-                await new Promise(r => setTimeout(r, 3000));
-              } else {
-                updateStepIndicator(task.id, 3, 'error');
-                scanReport.phases.phase3.failed++;
-                scanReport.phases.phase3.errors.push(`${task.title.substring(0, 40)}: server error`);
-              }
-            } catch (err) {
-              if (err.name === 'AbortError') { throw err; }
-              console.error(`[SCAN] Update check attempt ${attempt} error for ${task.id}:`, err);
-              if (err.name === 'TypeError' && err.message.includes('fetch')) {
-                setServerStatus(false);
-                updateFrozenStatus(task.id, '⏳ Waiting for server...');
-                await new Promise(r => setTimeout(r, 5000));
-                try {
-                  const h = await fetch('/api/tasks', { signal: AbortSignal.timeout(3000) });
-                  if (h.ok) setServerStatus(true);
-                } catch {}
-                if (!serverOnline && attempt >= 2) {
-                  scanReport.phases.phase3.failed++;
-                  scanReport.phases.phase3.errors.push(`${task.title.substring(0, 40)}: server unreachable`);
-                  scanAborted = true;
-                  break;
-                }
-              } else if (attempt >= 2) {
-                updateStepIndicator(task.id, 3, 'error');
-                scanReport.phases.phase3.failed++;
-                scanReport.phases.phase3.errors.push(`${task.title.substring(0, 40)}: ${err.message}`);
-              } else {
-                await new Promise(r => setTimeout(r, 3000));
-              }
-            }
-          }
-          unfreezeTask(task.id);
-          try { await refreshSingleTask(task.id); } catch {}
-          saveScanReport();
-        }
-        clearInterval(phase3Timer);
-        const p3Status = scanReport.phases.phase3.failed > 0 ? (scanReport.phases.phase3.success > 0 ? 'partial' : 'failed') : 'success';
-        updatePhaseStatus('phase3', { status: p3Status, completedAt: new Date().toISOString(), durationMs: Date.now() - p3Start });
-      } else {
-        updatePhaseStatus('phase3', { status: 'skipped', detail: 'No enriched tasks to check' });
-      }
-      } // end if (!scanAborted)
-
-      // ═══════════════════════════════════════════════
-      // PHASE 4: Consolidation — suggest merging related tasks
-      // Already non-fatal (has its own try-catch)
-      // ═══════════════════════════════════════════════
-      if (!scanAborted) {
-        const p4Start = Date.now();
-        updatePhaseStatus('phase4', { status: 'running', startedAt: new Date().toISOString() });
-        try {
-          loadingText.textContent = 'Phase 4: Analyzing task relationships...';
-          overlay.classList.add('visible');
-          loadingTimer.textContent = '⏱ 00:00';
-          let phase4Elapsed = 0;
-          const phase4Timer = setInterval(() => {
-            phase4Elapsed++;
-            const mm = String(Math.floor(phase4Elapsed / 60)).padStart(2, '0');
-            const ss = String(phase4Elapsed % 60).padStart(2, '0');
-            loadingTimer.textContent = `⏱ ${mm}:${ss}`;
-          }, 1000);
-
-          const consolidateRes = await fetch('/api/consolidate', { method: 'POST', signal: scanAbortController.signal });
-          const consolidateData = await consolidateRes.json();
-          clearInterval(phase4Timer);
-
-          const sugCount = consolidateData.suggestions?.length || 0;
-          updatePhaseStatus('phase4', { status: 'success', completedAt: new Date().toISOString(), durationMs: Date.now() - p4Start, detail: `${sugCount} merge suggestion(s)` });
-
-          if (sugCount > 0) {
-            showConsolidationBanner(consolidateData.suggestions);
-          }
-        } catch (err) {
-          console.error('Phase 4 consolidation failed (non-fatal):', err);
-          updatePhaseStatus('phase4', { status: 'failed', completedAt: new Date().toISOString(), durationMs: Date.now() - p4Start, error: err.message });
-          if (err.name === 'TypeError' && err.message.includes('fetch')) {
-            setServerStatus(false);
-          }
-        }
-      } else {
-        updatePhaseStatus('phase4', { status: 'skipped', detail: 'Scan was aborted' });
-      }
-
-      // Finalize scan report
-      if (scanReport) {
-        scanReport.completedAt = new Date().toISOString();
-        scanReport.aborted = scanAborted;
-        saveScanReport();
-      }
-
-      overlay.classList.remove('visible');
-      await fetchTasks();
-
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        // Scan was aborted by user — not an error
-        showNotification('Scan stopped by user', 'error');
-      } else if (err.name === 'TypeError' && err.message.includes('fetch')) {
-        setServerStatus(false);
-      } else {
-        showNotification('Scan failed: ' + err.message, 'error');
-      }
-    } finally {
-      scanInProgress = false;
-      clearInterval(timerInterval);
-      overlay.classList.remove('visible');
-      loadingText.className = 'loading-text';
+  function endScanUi() {
+    scanInProgress = false;
+    if (scanUiTimerInterval) { clearInterval(scanUiTimerInterval); scanUiTimerInterval = null; }
+    const btn = document.getElementById('btnScan');
+    const overlay = document.getElementById('loadingOverlay');
+    if (overlay) overlay.classList.remove('visible');
+    if (btn) {
       btn.disabled = !serverOnline;
       btn.innerHTML = '📡 Generate Action Items<span class="btn-sub">Scan Outlook &amp; Teams</span>';
-      scanAborted = false;
-      scanAbortController = null;
-      if (abortBtn) { abortBtn.disabled = false; abortBtn.textContent = '⏹ Stop'; }
+    }
+    const abortBtn = document.getElementById('btnAbort');
+    if (abortBtn) { abortBtn.disabled = false; abortBtn.textContent = '⏹ Stop'; }
+  }
+
+  // v4.0.0-rc.1 — starts a server-side scan job. The old in-browser for-loop
+  // (~380 LOC, see git history pre-4.0.0-rc.1) is gone: a browser refresh no
+  // longer terminates work because the loop lives on the server. The UI here
+  // only kicks off the job and then passively reflects SSE updates.
+  async function triggerScan() {
+    if (scanInProgress || activeScanJob) {
+      showNotification('A scan is already in progress. Please wait.', 'error');
+      return;
+    }
+    const days = parseInt(document.getElementById('scanDays')?.value, 10) || 4;
+
+    // Auto-cleanup (preserved from 3.x — best-effort, non-fatal).
+    try {
+      const retentionDays = parseInt(document.getElementById('cleanupDays')?.value, 10) || 3;
+      const cleanupRes = await fetch('/api/cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ retentionDays })
+      });
+      const cleanupData = await cleanupRes.json().catch(() => ({}));
+      if (cleanupData.removed > 0) {
+        showNotification(`Auto-cleanup: ${cleanupData.removed} expired done task(s) permanently deleted`, 'success');
+        await fetchTasks();
+      }
+    } catch { /* best-effort */ }
+
+    initScanReport();
+    beginScanUi(days);
+
+    try {
+      const clientRequestId = `scan-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const r = await fetch('/api/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'scan', input: { scanDays: days }, clientRequestId })
+      });
+      if (r.status === 409) {
+        const data = await r.json().catch(() => ({}));
+        endScanUi();
+        showNotification('A scan is already running on the server.', 'error');
+        if (data.existingJobId) {
+          activeScanJob = data.existingJobId;
+          beginScanUi(days);
+        }
+        return;
+      }
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        endScanUi();
+        showNotification('Failed to start scan: ' + (data.error || ('HTTP ' + r.status)), 'error');
+        return;
+      }
+      const body = await r.json();
+      activeScanJob = body.jobId;
+      // From here on everything is driven by SSE (handleScanJobEvent).
+    } catch (err) {
+      endScanUi();
+      if (err.name === 'TypeError' && /fetch/i.test(err.message || '')) {
+        setServerStatus(false);
+        showNotification('⚠️ Server unreachable. Please try again once reconnected.', 'error');
+      } else {
+        showNotification('Failed to start scan: ' + err.message, 'error');
+      }
     }
   }
 
@@ -3956,7 +3693,123 @@
     }
   }
 
+  // v4.0.0-rc.1 — handler for global 'scan' jobs. These have taskId=null in
+  // the event envelope (the scan job orchestrates multiple tasks serially)
+  // and surface via phase_changed / phase_done / item_started / item_done /
+  // completed / failed / cancelled events. Everything UI-related that used
+  // to run inline in the old client-side scan loop is now driven from here.
+  function handleScanJobEvent(ev) {
+    if (ev.kind !== 'scan') return false;
+    const { type, payload = {}, jobId } = ev;
+    const loadingText = document.getElementById('loadingText');
+    const PHASE_TO_KEY = { scan: 'phase1', enrich: 'phase2', check: 'phase3', consolidate: 'phase4' };
+
+    switch (type) {
+      case 'job.started': {
+        activeScanJob = jobId;
+        if (!scanReport) initScanReport();
+        break;
+      }
+      case 'job.phase_changed': {
+        const { phase, totalItems, scanDays } = payload;
+        const now = new Date().toISOString();
+        if (phase === 'scan') {
+          if (loadingText) loadingText.textContent = `Phase 1: Scanning subjects${scanDays ? ` (last ${scanDays} days)` : ''}...`;
+          updatePhaseStatus('phase1', { status: 'running', startedAt: now });
+        } else if (phase === 'enrich') {
+          if (loadingText) loadingText.textContent = `Phase 2: Enriching content (0/${totalItems || 0})...`;
+          updatePhaseStatus('phase2', { status: 'running', startedAt: now, total: totalItems || 0 });
+        } else if (phase === 'check') {
+          if (loadingText) loadingText.textContent = `Phase 3: Checking updates (0/${totalItems || 0})...`;
+          updatePhaseStatus('phase3', { status: 'running', startedAt: now, total: totalItems || 0 });
+        } else if (phase === 'consolidate') {
+          if (loadingText) loadingText.textContent = 'Phase 4: Finding duplicates...';
+          updatePhaseStatus('phase4', { status: 'running', startedAt: now });
+        }
+        break;
+      }
+      case 'job.phase_done': {
+        const { phase } = payload;
+        const now = new Date().toISOString();
+        if (phase === 'scan') {
+          const detail = `${payload.added || 0} new, ${payload.updated || 0} updated, ${payload.skipped || 0} skipped`;
+          updatePhaseStatus('phase1', { status: 'success', completedAt: now, detail });
+          fetchTasks().catch(() => {});
+        } else if (phase === 'enrich') {
+          updatePhaseStatus('phase2', { status: 'success', completedAt: now });
+        } else if (phase === 'check') {
+          updatePhaseStatus('phase3', { status: 'success', completedAt: now });
+        } else if (phase === 'consolidate') {
+          updatePhaseStatus('phase4', { status: 'success', completedAt: now, detail: `${payload.suggestions || 0} merge suggestion(s)` });
+        }
+        break;
+      }
+      case 'job.phase_error': {
+        const key = PHASE_TO_KEY[payload.phase];
+        if (key) updatePhaseStatus(key, { status: 'failed', completedAt: new Date().toISOString(), error: payload.error });
+        break;
+      }
+      case 'job.item_started': {
+        const { phase, taskId, index, total } = payload;
+        if (phase === 'enrich') {
+          if (loadingText) loadingText.textContent = `Phase 2: Enriching content (${(index || 0) + 1}/${total || 0})...`;
+          if (typeof freezeTask === 'function') freezeTask(taskId, '📋 Analyzing content...');
+          if (typeof updateStepIndicator === 'function') updateStepIndicator(taskId, 2, 'active');
+        } else if (phase === 'check') {
+          if (loadingText) loadingText.textContent = `Phase 3: Checking updates (${(index || 0) + 1}/${total || 0})...`;
+          if (typeof freezeTask === 'function') freezeTask(taskId, '🔍 Checking for updates...');
+          if (typeof updateStepIndicator === 'function') updateStepIndicator(taskId, 3, 'active');
+        }
+        break;
+      }
+      case 'job.item_done': {
+        const { phase, taskId, ok, error, title } = payload;
+        const step = phase === 'enrich' ? 2 : (phase === 'check' ? 3 : null);
+        if (step != null && typeof updateStepIndicator === 'function') {
+          updateStepIndicator(taskId, step, ok ? 'done' : 'error');
+        }
+        const bucket = phase === 'enrich' ? 'phase2' : (phase === 'check' ? 'phase3' : null);
+        if (bucket && scanReport && scanReport.phases[bucket]) {
+          if (ok) scanReport.phases[bucket].success++;
+          else {
+            scanReport.phases[bucket].failed++;
+            scanReport.phases[bucket].errors.push(`${(title || taskId).toString().substring(0, 40)}: ${error || 'failed'}`);
+          }
+          saveScanReport();
+        }
+        // Reload tasks so the list reflects new enrichment/update data.
+        fetchTasks().catch(() => {});
+        break;
+      }
+      case 'job.completed':
+      case 'job.failed':
+      case 'job.cancelled': {
+        if (scanReport) {
+          scanReport.completedAt = new Date().toISOString();
+          scanReport.aborted = type === 'job.cancelled';
+          saveScanReport();
+        }
+        endScanUi();
+        activeScanJob = null;
+        scanAborted = false;
+        if (type === 'job.failed') {
+          showNotification('Scan failed: ' + (payload.error || 'unknown'), 'error');
+        } else if (type === 'job.cancelled') {
+          showNotification('Scan stopped by user', 'info');
+        } else {
+          showNotification('Scan complete', 'success');
+        }
+        fetchTasks().catch(() => {});
+        break;
+      }
+    }
+    return true;
+  }
+
   function handleJobEvent(ev) {
+    // Route scan jobs separately so their envelope (taskId=null) doesn't
+    // trip the early return in the legacy task-centric handler.
+    if (ev.kind === 'scan') return handleScanJobEvent(ev);
     const jobId = ev.jobId;
     const taskId = ev.taskId;
     if (!jobId || !taskId) return;
@@ -4036,7 +3889,9 @@
       if (typeof ev.id === 'number') setLastEventId(ev.id);
     };
     ['job.started', 'job.progress', 'job.awaiting_input',
-     'job.completed', 'job.failed', 'job.cancelled'].forEach(t => {
+     'job.completed', 'job.failed', 'job.cancelled',
+     'job.phase_changed', 'job.phase_done', 'job.phase_error',
+     'job.item_started', 'job.item_done'].forEach(t => {
       es.addEventListener(t, onJobEvent);
     });
 
@@ -4083,7 +3938,50 @@
   window.activeJobs = activeJobs;
   window.activeJobsByTask = activeJobsByTask;
 
-  startSSE();
+  // v4.0.0-rc.1 — hydrate any active global job (scan / consolidate) from
+  // the server on page load. Returns the atomic snapshotEventId so that the
+  // SSE subscription opens at the correct cursor and no events are lost or
+  // duplicated between snapshot and live stream. Seeding sessionStorage
+  // before startSSE() guarantees the ordering.
+  async function hydrateGlobalJobs() {
+    try {
+      const r = await fetch('/api/jobs?active=true');
+      if (!r.ok) return null;
+      const data = await r.json();
+      const list = Array.isArray(data.jobs) ? data.jobs : [];
+      const scan = list.find(j => j.kind === 'scan' && !['completed', 'failed', 'cancelled'].includes(j.status));
+      if (scan) {
+        activeScanJob = scan.jobId;
+        const days = (scan.input && scan.input.scanDays) || 4;
+        if (!scanReport) initScanReport();
+        beginScanUi(days);
+        const loadingText = document.getElementById('loadingText');
+        const p = scan.progress;
+        if (p && loadingText) {
+          const idx = (p.currentItemIndex || 0) + 1;
+          const tot = p.totalItems || 0;
+          const labels = {
+            scan: `Phase 1: Scanning subjects (last ${days} days)...`,
+            enrich: `Phase 2: Enriching content (${idx}/${tot})...`,
+            check: `Phase 3: Checking updates (${idx}/${tot})...`,
+            consolidate: 'Phase 4: Finding duplicates...'
+          };
+          if (labels[p.phase]) loadingText.textContent = labels[p.phase];
+        }
+      }
+      // Seed SSE cursor for boot-race safety (if sessionStorage is empty).
+      if (typeof data.snapshotEventId === 'number' && !sessionStorage.getItem('sseLastEventId')) {
+        sessionStorage.setItem('sseLastEventId', String(data.snapshotEventId));
+      }
+      return data;
+    } catch (err) {
+      console.warn('[SSE] hydrateGlobalJobs failed', err);
+      return null;
+    }
+  }
+  window.hydrateGlobalJobs = hydrateGlobalJobs;
+
+  hydrateGlobalJobs().finally(() => startSSE());
   // --- End Phase γ.D -----------------------------------------------------
 
 
