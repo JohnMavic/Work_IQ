@@ -1248,6 +1248,14 @@
         tasks = data.tasks || [];
         updateLastScan(data.lastScan);
         renderTasks();
+        // v4.0.0-rc.1 — on boot / reconnect we also need to repaint any
+        // in-flight log-job indicators (frozen badge, awaiting_input UI).
+        // Without this, hard-refresh during a running log-job renders the
+        // task cards with no visual cue even though the server-side job is
+        // still executing. hydrateGlobalJobs (below) only covers scan jobs.
+        if (typeof hydrateActiveJobs === 'function') {
+          hydrateActiveJobs().catch(err => console.warn('hydrateActiveJobs failed', err));
+        }
         return true;
       }
       setServerStatus(false);
