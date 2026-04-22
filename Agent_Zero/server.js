@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
 import { CopilotClient, approveAll, defineTool } from '@github/copilot-sdk';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { EventEmitter } from 'events';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1624,16 +1624,42 @@ app.post('/api/debug-log', (req, res) => {
   res.json({ enabled: DEBUG_LOG });
 });
 
-// Cached at boot. Walks up from __dirname to find .git (the Agent_Zero folder
-// lives inside the Work_IQ repo root, so the local dir has no .git of its own).
+// Cached at boot. Walks up from __dirname to find .git (Agent_Zero is a
+// sub-folder of the Work_IQ repo root, so the local dir has no .git of its
+// own). Tries `git rev-parse` first (fast when git is on PATH); falls back
+// to reading .git/HEAD directly when the server is launched from a cmd that
+// doesn't inherit git in PATH. Server is ESM so no require().
 const BUILD_COMMIT = (() => {
   try {
-    const { execSync } = require('child_process');
-    return execSync('git rev-parse --short HEAD', { cwd: __dirname, encoding: 'utf-8' }).trim();
-  } catch {
-    return 'nogit';
-  }
+    return execSync('git rev-parse --short HEAD', { cwd: __dirname, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {}
+  try {
+    let dir = __dirname;
+    for (let i = 0; i < 6; i++) {
+      const gitPath = path.join(dir, '.git');
+      if (fs.existsSync(gitPath)) {
+        const head = fs.readFileSync(path.join(gitPath, 'HEAD'), 'utf-8').trim();
+        if (head.startsWith('ref: ')) {
+          const refFile = path.join(gitPath, head.slice(5));
+          if (fs.existsSync(refFile)) return fs.readFileSync(refFile, 'utf-8').trim().slice(0, 7);
+          const packed = path.join(gitPath, 'packed-refs');
+          if (fs.existsSync(packed)) {
+            const ref = head.slice(5);
+            const line = fs.readFileSync(packed, 'utf-8').split(/\r?\n/).find(l => l.endsWith(' ' + ref));
+            if (line) return line.slice(0, 7);
+          }
+          return 'noref';
+        }
+        return head.slice(0, 7);
+      }
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  } catch {}
+  return 'nogit';
 })();
+console.log(`[Agent Zero] Build commit: ${BUILD_COMMIT}`);
 
 // GET /api/version — return app version from package.json + short git SHA
 // so the UI can prove which build is actually running (useful after a patch).
