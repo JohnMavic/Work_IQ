@@ -2030,7 +2030,7 @@
 
             <p class="hero-subtitle">Your AI-powered action item manager for Microsoft 365</p>
             <p class="hero-slogan">Built with AI, powered by curiosity.</p>
-            <div class="version-badge">v3.2.4</div>
+            <div class="version-badge">v4.0.1</div>
 
             <div class="problem-solution-grid">
                 <div class="ps-card problem">
@@ -2198,8 +2198,10 @@
                     <div class="arch-layer-label">Server</div>
                     <div class="arch-layer-nodes">
                         <div class="arch-node" data-anim-id="express" data-tip="&lt;strong&gt;Express 5 on Node.js v18+&lt;/strong&gt; (ES Modules). Local-only server — your data never touches the cloud. Zero external dependencies." data-tip-color="#3b82f6">⚡ Express 5</div>
-                        <div class="arch-node" data-anim-id="api-routes" data-tip="Full REST API: task CRUD, AI phase triggers (scan, enrich, update, search, consolidate, correct), chat, manual add — &lt;strong&gt;20+ endpoints&lt;/strong&gt; in server.js." data-tip-color="#3b82f6">🔌 20+ API Routes</div>
-                        <div class="arch-node" data-anim-id="session-mgr" data-tip="Creates &lt;strong&gt;fresh Copilot sessions per request&lt;/strong&gt; via CopilotClient. Auto-reaps orphans after 10 min. Graceful shutdown on SIGTERM/SIGINT." data-tip-color="#3b82f6">🔄 Session Manager</div>
+                        <div class="arch-node" data-anim-id="api-routes" data-tip="Full REST API: task CRUD, AI phase triggers (scan, enrich, update, search, consolidate, correct, merge), chat, manual add — &lt;strong&gt;25+ endpoints&lt;/strong&gt; in server.js." data-tip-color="#3b82f6">🔌 25+ API Routes</div>
+                        <div class="arch-node" data-anim-id="job-orch" data-tip="&lt;strong&gt;Server-side Job Orchestrator (v4.0.0+)&lt;/strong&gt; — singleton jobs for scan, merge, consolidate. Survives browser refresh. Live SSE progress + idempotency via clientRequestId." data-tip-color="#3b82f6">🗂️ Job Orchestrator</div>
+                        <div class="arch-node" data-anim-id="sse" data-tip="&lt;strong&gt;Server-Sent Events&lt;/strong&gt; stream at /api/events — pushes job progress, phase transitions, and task updates to every open tab in real time." data-tip-color="#3b82f6">📶 SSE Events</div>
+                        <div class="arch-node" data-anim-id="session-mgr" data-tip="Creates &lt;strong&gt;fresh Copilot sessions per request&lt;/strong&gt; via CopilotClient. Shared SDK throttle (waitForSDKSlot), orphan reap after 10 min, graceful SIGTERM/SIGINT shutdown." data-tip-color="#3b82f6">🔄 Session Manager</div>
                     </div>
                 </div>
 
@@ -2279,6 +2281,7 @@
                     <div class="arch-power" data-tip="LLM-based overlap detection finds duplicate tasks and suggests intelligent merges" data-tip-color="#8b5cf6">🔗 Semantic Merging</div>
                     <div class="arch-power" data-tip="Chat naturally to discuss, rename, verify, or search your tasks — the AI understands context" data-tip-color="#8b5cf6">💬 Conversational AI</div>
                     <div class="arch-power" data-tip="Disputes are checked against actual M365 data — truth hierarchy ensures accuracy" data-tip-color="#8b5cf6">🛡️ Evidence Check</div>
+                    <div class="arch-power" data-tip="Server-side Job Orchestrator keeps scan / merge / consolidate running even if you refresh the browser — SSE re-hydrates live progress" data-tip-color="#8b5cf6">🗂️ Resilient Jobs</div>
                     <div class="arch-power" data-tip="Everything runs on your machine. No cloud storage, no telemetry — your data never leaves localhost" data-tip-color="#8b5cf6">🔒 100% Local</div>
                 </div>
             </div>
@@ -2287,9 +2290,9 @@
             <div class="arch-flow">
                 <span class="arch-flow-step" data-anim-id="spa">🖥️ Agent Zero UI</span>
                 <span class="arch-flow-sep">→</span>
-                <span class="arch-flow-step" data-anim-id="fetch">Frontend</span>
+                <span class="arch-flow-step" data-anim-id="fetch">fetch REST</span>
                 <span class="arch-flow-sep">→</span>
-                <span class="arch-flow-step" data-anim-id="express,api-routes">Express API</span>
+                <span class="arch-flow-step" data-anim-id="express,api-routes,job-orch">Express + Job Orchestrator</span>
                 <span class="arch-flow-sep">→</span>
                 <span class="arch-flow-step" data-anim-id="copilot-sdk,skills">Copilot SDK + Skill</span>
                 <span class="arch-flow-sep">→</span>
@@ -2301,7 +2304,7 @@
                 <span class="arch-flow-sep">→</span>
                 <span class="arch-flow-step" data-anim-id="task-store">tasks.json</span>
                 <span class="arch-flow-sep">→</span>
-                <span class="arch-flow-step" data-anim-id="spa">Frontend Update ✨</span>
+                <span class="arch-flow-step" data-anim-id="sse,spa">SSE → UI ✨</span>
             </div>
 
             <script>
@@ -2346,43 +2349,43 @@
                 const PHASES = {
                     1: { name: 'Discovery', emoji: '🔍', steps: [
                         { label: 'User', text: "🖥️ User clicks 'Scan' in the Agent Zero UI", nodes: ['spa'] },
-                        { label: 'Frontend → Server', text: '📡 Frontend sends POST /api/scan to Express', nodes: ['fetch', 'express', 'api-routes'] },
-                        { label: 'Server prepares', text: '📜 Express loads SCAN_DISCOVERY_SKILL.md', nodes: ['skills'] },
+                        { label: 'Job queued', text: '📡 Frontend POSTs /api/jobs {kind:"scan"} — Job Orchestrator registers a singleton job', nodes: ['fetch', 'express', 'api-routes', 'job-orch'] },
+                        { label: 'Server prepares', text: '📜 runScanJob loads SCAN_DISCOVERY_SKILL.md and starts streaming SSE progress', nodes: ['skills', 'sse'] },
                         { label: 'Session created', text: '🔄 Session Manager creates CopilotClient + Work IQ Model Context Protocol (MCP) session', nodes: ['session-mgr'] },
                         { label: 'AI + Microsoft 365', text: '🧠 Copilot SDK scans Outlook & Teams subject lines via Work IQ MCP', nodes: ['copilot-sdk', 'workiq', 'm365'] },
-                        { label: 'AI decides', text: '🧠 AI returns decisions: create new, update existing, or skip', nodes: ['copilot-sdk'] },
-                        { label: 'Dedup & save', text: '⚡ Express deduplicates (Jaccard similarity > 0.6), saves to tasks.json', nodes: ['express', 'task-store'] },
-                        { label: 'UI updates', text: '🖥️ Agent Zero UI refreshes — new action items appear', nodes: ['spa'] }
+                        { label: 'AI decides', text: '🧠 AI returns per-item decisions: create new, update existing, or skip', nodes: ['copilot-sdk'] },
+                        { label: 'Dedup & save', text: '⚡ Action-aware dedup (link match → Jaccard similarity > 0.6), saves to tasks.json', nodes: ['express', 'task-store'] },
+                        { label: 'UI updates', text: '🖥️ SSE pushes job progress — Agent Zero UI refreshes live, survives browser reload', nodes: ['sse', 'spa'] }
                     ]},
                     2: { name: 'Enrichment', emoji: '📋', steps: [
                         { label: 'Trigger', text: '🖥️ Runs automatically for each new task after Discovery', nodes: ['spa'] },
                         { label: 'API call', text: '📡 Frontend sends POST /api/tasks/:id/enrich', nodes: ['fetch', 'api-routes'] },
                         { label: 'Skill loaded', text: '📜 Express loads ENRICH_SKILL.md with temporal reasoning', nodes: ['skills'] },
-                        { label: 'Full thread', text: '🧠 Copilot SDK reads full conversation thread via Work IQ Model Context Protocol (MCP)', nodes: ['copilot-sdk', 'workiq', 'm365'] },
+                        { label: 'Tools ready', text: '🧠 Session gets askWorkIQTool + parallelSearchTool for M365 access', nodes: ['copilot-sdk', 'session-mgr'] },
+                        { label: 'Full thread', text: '🔗 Copilot SDK reads full conversation thread via Work IQ MCP', nodes: ['copilot-sdk', 'workiq', 'm365'] },
                         { label: 'Summary', text: '🧠 AI creates structured summary with key decisions & next steps', nodes: ['copilot-sdk'] },
-                        { label: 'Ambiguity', text: '🧠 Flags ambiguities for human review if information is unclear', nodes: ['copilot-sdk'] },
-                        { label: 'Persist', text: '💾 Summary + enrichment status saved to tasks.json', nodes: ['task-store'] },
+                        { label: 'Persist', text: '💾 Summary + enrichmentStatus="enriched" saved to tasks.json', nodes: ['task-store'] },
                         { label: 'UI shows', text: '🖥️ Task card shows rich summary in Agent Zero UI', nodes: ['spa'] }
                     ]},
                     3: { name: 'Update Check', emoji: '🔄', steps: [
                         { label: 'Trigger', text: '🖥️ Runs for enriched tasks during each scan cycle', nodes: ['spa'] },
                         { label: 'API call', text: '📡 Frontend sends POST /api/tasks/:id/check-update', nodes: ['fetch', 'api-routes'] },
-                        { label: 'Skill loaded', text: '📜 Express loads UPDATE_CHECK_SKILL.md — searches only AFTER last check date', nodes: ['skills'] },
-                        { label: 'Search new', text: '🔗 Work IQ Model Context Protocol (MCP) searches Microsoft 365 for newer messages', nodes: ['workiq', 'm365'] },
-                        { label: 'New found?', text: '🧠 AI analyzes: is there genuinely new information?', nodes: ['copilot-sdk'] },
-                        { label: 'Append', text: '💾 New findings appended as timestamped update notes', nodes: ['task-store'] },
-                        { label: 'Re-evaluate', text: '🧠 Second AI pass: should title or summary be revised?', nodes: ['copilot-sdk', 'session-mgr'] },
+                        { label: 'Reconcile', text: '🔧 Retroactive summary reconciliation heals stale status before the AI runs', nodes: ['express', 'task-store'] },
+                        { label: 'Skill loaded', text: '📜 Loads UPDATE_CHECK_SKILL.md — searches only AFTER last check date (600 s guard)', nodes: ['skills'] },
+                        { label: 'Search new', text: '🔗 askWorkIQTool + parallelSearchTool query M365 for newer messages', nodes: ['copilot-sdk', 'workiq', 'm365'] },
+                        { label: 'Single-session decide', text: '🧠 One AI response returns newSummary + newTitle + newStatus (no 2nd eval session)', nodes: ['copilot-sdk'] },
+                        { label: 'State heal', text: '💾 State reconciliation also runs on no-update path (e.g. stale "new" → "in-progress")', nodes: ['task-store'] },
                         { label: 'Updated', text: "🖥️ Task shows 'Updated' badge in Agent Zero UI", nodes: ['spa'] }
                     ]},
                     4: { name: 'Consolidation', emoji: '🔗', steps: [
-                        { label: 'Trigger', text: "🖥️ User clicks 'Find Duplicates' or runs after scan", nodes: ['spa'] },
-                        { label: 'API call', text: '📡 Frontend sends POST /api/consolidate', nodes: ['fetch', 'api-routes'] },
-                        { label: 'Collect tasks', text: '⚡ Express collects all active enriched tasks with summaries', nodes: ['express', 'task-store'] },
-                        { label: 'Skill loaded', text: '📜 Express loads CONSOLIDATE_SKILL.md for semantic grouping', nodes: ['skills'] },
-                        { label: 'LLM analysis', text: '🧠 Copilot SDK analyzes semantic overlap between all tasks', nodes: ['copilot-sdk'] },
+                        { label: 'Trigger', text: "🖥️ User clicks 'Find Duplicates' or runs at end of Scan", nodes: ['spa'] },
+                        { label: 'Job queued', text: '📡 Frontend POSTs /api/jobs {kind:"consolidate"} — Job Orchestrator owns the run', nodes: ['fetch', 'api-routes', 'job-orch'] },
+                        { label: 'Collect tasks', text: '⚡ runConsolidateJob collects all active enriched tasks with summaries', nodes: ['express', 'task-store'] },
+                        { label: 'Skill loaded', text: '📜 Loads CONSOLIDATE_SKILL.md for semantic grouping', nodes: ['skills'] },
+                        { label: 'LLM analysis', text: '🧠 Copilot SDK analyzes semantic overlap between all tasks (waitForSDKSlot throttle)', nodes: ['copilot-sdk', 'session-mgr'] },
                         { label: 'Suggestions', text: '🧠 AI returns merge group suggestions (filtered against vetoed pairs)', nodes: ['copilot-sdk'] },
-                        { label: 'User decides', text: '🖥️ User reviews: merge or dismiss each suggestion in Agent Zero UI', nodes: ['spa'] },
-                        { label: 'Merge', text: '🧠💾 If approved: AI builds unified summary, merges histories & links', nodes: ['task-store', 'copilot-sdk'] }
+                        { label: 'User decides', text: '🖥️ SSE delivers suggestions — user reviews & approves in the UI', nodes: ['sse', 'spa'] },
+                        { label: 'Merge job', text: '🧠💾 Approved merges go through POST /api/jobs {kind:"merge"} — AI builds unified summary', nodes: ['job-orch', 'task-store', 'copilot-sdk'] }
                     ]}
                 };
 
@@ -3683,6 +3686,9 @@
         // ===== BUBBLE EDITOR SYSTEM =====
         const BubbleEditor = (function() {
             const STORAGE_KEY = 'agent-zero-bubbles';
+            // v4.0.1: width/height switched from pixels to percent — bump schema to purge legacy px values.
+            const SCHEMA_KEY = 'agent-zero-bubbles-schema';
+            const SCHEMA_VERSION = 2;
             const COLORS = {
                 cyan: '#00d4ff',
                 blue: '#3b82f6',
@@ -3734,13 +3740,19 @@
             // Load bubbles from localStorage, falling back to embedded defaults
             function loadBubbles() {
                 try {
-                    const stored = localStorage.getItem(STORAGE_KEY);
-                    if (stored) {
-                        const parsed = JSON.parse(stored);
-                        // Only use stored data if it actually has bubble entries
-                        if (Object.keys(parsed).length > 0) {
-                            allBubbles = parsed;
-                            return;
+                    const storedSchema = parseInt(localStorage.getItem(SCHEMA_KEY) || '1', 10);
+                    if (storedSchema !== SCHEMA_VERSION) {
+                        // Legacy pixel-based width/height entries — discard and repopulate from defaults
+                        localStorage.removeItem(STORAGE_KEY);
+                        localStorage.setItem(SCHEMA_KEY, String(SCHEMA_VERSION));
+                    } else {
+                        const stored = localStorage.getItem(STORAGE_KEY);
+                        if (stored) {
+                            const parsed = JSON.parse(stored);
+                            if (Object.keys(parsed).length > 0) {
+                                allBubbles = parsed;
+                                return;
+                            }
                         }
                     }
                 } catch (e) {
@@ -3749,6 +3761,7 @@
                 // Fall back to embedded defaults and persist them
                 allBubbles = JSON.parse(JSON.stringify(DEFAULT_BUBBLES));
                 saveBubbles();
+                try { localStorage.setItem(SCHEMA_KEY, String(SCHEMA_VERSION)); } catch (_) {}
             }
 
             // Save bubbles to localStorage
@@ -3971,8 +3984,8 @@
                     id: `bubble-${Date.now()}`,
                     x: 50, // percentage
                     y: 50, // percentage
-                    width: 200,
-                    height: 80,
+                    width: 18,  // percentage of slide width
+                    height: 10, // percentage of slide height
                     text: 'New bubble text',
                     color: preselectedColor,
                     pointerAngle: 90,
@@ -4145,8 +4158,8 @@
                 bubble.setAttribute('data-color', data.color);
                 bubble.style.left = `${data.x}%`;
                 bubble.style.top = `${data.y}%`;
-                bubble.style.width = `${data.width}px`;
-                bubble.style.height = `${data.height}px`;
+                bubble.style.width = `${data.width}%`;
+                bubble.style.height = `${data.height}%`;
 
                 // Bubble text
                 const text = document.createElement('div');
@@ -4247,12 +4260,14 @@
 
                 // Resize handle
                 resize.addEventListener('mousedown', (e) => {
+                    const rect = bubble.parentElement.getBoundingClientRect();
                     resizeState = {
                         bubble,
                         startX: e.clientX,
                         startY: e.clientY,
                         startWidth: bubble.offsetWidth,
-                        startHeight: bubble.offsetHeight
+                        startHeight: bubble.offsetHeight,
+                        containerRect: rect
                     };
                     e.preventDefault();
                     e.stopPropagation();
@@ -4286,10 +4301,13 @@
                     const dy = e.clientY - resizeState.startY;
                     const newWidth = Math.max(80, resizeState.startWidth + dx);
                     const newHeight = Math.max(40, resizeState.startHeight + dy);
-                    
-                    resizeState.bubble.style.width = `${newWidth}px`;
-                    resizeState.bubble.style.height = `${newHeight}px`;
-                    
+                    const rect = resizeState.containerRect;
+                    const widthPct = (newWidth / rect.width) * 100;
+                    const heightPct = (newHeight / rect.height) * 100;
+
+                    resizeState.bubble.style.width = `${widthPct}%`;
+                    resizeState.bubble.style.height = `${heightPct}%`;
+
                     // Update pointer position
                     const bubbleData = getBubbleData(resizeState.bubble);
                     if (bubbleData) {
@@ -4313,13 +4331,14 @@
                 }
 
                 if (resizeState) {
-                    // Save size
+                    // Save size (as percentage of slide)
                     const slideId = selectedSlideId;
                     const bubbleId = resizeState.bubble.getAttribute('data-bubble-id');
                     const bubbleData = allBubbles[slideId]?.find(b => b.id === bubbleId);
                     if (bubbleData) {
-                        bubbleData.width = resizeState.bubble.offsetWidth;
-                        bubbleData.height = resizeState.bubble.offsetHeight;
+                        const rect = resizeState.containerRect;
+                        bubbleData.width = (resizeState.bubble.offsetWidth / rect.width) * 100;
+                        bubbleData.height = (resizeState.bubble.offsetHeight / rect.height) * 100;
                         saveBubbles();
                     }
                     resizeState = null;
