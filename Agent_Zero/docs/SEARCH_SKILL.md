@@ -32,6 +32,33 @@ Work IQ runs on Microsoft Graph Search, which has an **indexing lag of several m
 - When the user says "heute / today / gerade / eben / in der Zwischenzeit / just now", search a window of **at least the last 7 days** (14 days for Teams group chats) and then filter the results yourself by date in your answer.
 - For messages the user says *they themselves* sent, explicitly include `Sent Items`, `sent by me`, `posted in Teams` or equivalent phrasing — otherwise Work IQ tends to return only inbox/incoming messages.
 
+### CRITICAL — Retrieval-by-reference pitfall
+
+Sometimes the user's request is not about finding "any communication on topic X", but about **retrieving one specific recent message** that they or their counterpart actually produced. Recognising this is important — the search strategy is fundamentally different from a topic search.
+
+Signals that this is a retrieval-by-reference request (non-exhaustive — use your judgement):
+
+- The user mentions **an act of communication** they (or someone else) performed recently: "I just sent…", "ich habe gerade geschrieben", "analyse what X replied", "look at the message Y posted", "the update Z sent earlier", "check what was just shared in the chat".
+- The phrasing points at **a message** (singular, specific), not at a **status, answer, or decision** that could live across multiple messages.
+- There is an implicit or explicit **recipient/sender/channel** ("to Oliver", "in our 1:1", "in the group chat") and a **recency cue** ("just", "earlier today", "gerade", "in the meantime").
+
+In this situation:
+
+- Do **NOT** use the action-item title or its topic keywords as query anchors. The referenced message may be about a completely different subject than the action item, because a conversation thread can drift or branch.
+- Anchor the query on **sender, recipient, channel type (1:1 / group / channel), and time window** — not on topic.
+- Include "regardless of topic" or "any subject" explicitly in at least one of your `parallel_search` queries to signal a topic-free retrieval to Work IQ.
+- A good query shape is:
+  *"Show the **last N messages I sent** to <person> in our 1:1 Teams chat, regardless of topic."*
+  or
+  *"What did <person> post to me in <channel-or-thread> recently, any subject?"*
+
+  Two concrete phrasing rules that matter in practice:
+  - **Use first person** for self-referential messages ("messages I sent", "I posted", "my reply"). Third-person phrasing with your own name ("sent by Martin", "by <user>") is less reliable because Work IQ tends to treat it as a generic name match rather than "self".
+  - **Prefer a message-count cap over an explicit date window** for "latest" requests — "last 5 messages" or "most recent 3 replies" is more reliable than "in the last 7 days", because Work IQ's date filters are approximate and can exclude a message that was in fact sent today.
+- Only **after** you have retrieved the actual message and read its content may you refine further with topic-based follow-ups.
+
+Common failure mode to avoid: assuming the referenced message is on the action-item's topic, and narrowing the query accordingly. A user asking "analyse meine letzte Nachricht an Bob" on an action item about *Q3 budget* does not imply the message is about Q3 budget — it may be about vacation plans. A topic filter then hides exactly what the user asked for. The default for retrieval-by-reference is **topic-free**; add a topic filter only if the user explicitly restates the topic.
+
 ### How parallel_search works
 
 Call `parallel_search({ queries: [q1, q2] })` — both queries run concurrently in Work IQ. You get back both answers at once. This is dramatically faster than sequential searches.
@@ -41,7 +68,7 @@ Call `parallel_search({ queries: [q1, q2] })` — both queries run concurrently 
 Issue **one** `parallel_search` call with exactly two queries:
 
 - **Query A — Targeted**: the most distinctive search (specific keywords, names, project identifiers, reference numbers). Think: "the narrow query most likely to hit the exact answer."
-- **Query B — Broader / Sender-focused**: a complementary angle — either broader keywords, a person's name, or a synonym-based reformulation. Think: "the wider net that catches matches Query A might miss."
+- **Query B — Broader / Sender-focused**: a complementary angle. If the user's question points at a specific recent communication of their own or of a counterpart (see "Retrieval-by-reference pitfall" above), this query should be **topic-free** — anchored only on sender/recipient/channel-type/time-window, letting the message content speak for itself. Otherwise: broader keywords, a person's name, or a synonym-based reformulation. Think: "the wider net that catches matches Query A might miss."
 
 Formulate the queries in **English** for Work IQ, but include terms from the user's language if they are distinctive (e.g. German product names). Use both-language variants when the user writes in German and emails may be English (or vice versa):
 

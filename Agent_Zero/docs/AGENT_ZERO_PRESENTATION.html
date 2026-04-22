@@ -904,10 +904,10 @@
 
         /* Superpowers */
         .arch-superpowers {
-            margin-top: 30px;
+            margin-top: 22px;
             text-align: center;
             width: 100%;
-            max-width: 860px;
+            max-width: 1240px;
         }
 
         .arch-superpowers-label {
@@ -947,13 +947,13 @@
 
         /* Flow bar */
         .arch-flow {
-            margin-top: 24px;
+            margin-top: 18px;
             display: flex;
             align-items: center;
             justify-content: center;
             flex-wrap: wrap;
             width: 100%;
-            max-width: 860px;
+            max-width: 1240px;
             padding: 8px 16px;
             background: rgba(255, 255, 255, 0.015);
             border: 1px solid rgba(255, 255, 255, 0.04);
@@ -984,12 +984,12 @@
         /* === Phase Flow Animation Panel === */
         .phase-flow-panel {
             width: 100%;
-            max-width: 860px;
-            margin: 18px auto 0;
+            max-width: 1240px;
+            margin: 16px auto 0;
             background: rgba(10, 14, 26, 0.92);
             border: 1px solid rgba(255, 255, 255, 0.08);
             border-radius: 12px;
-            padding: 12px 18px 10px;
+            padding: 12px 22px 10px;
         }
 
         .pf-tabs {
@@ -1052,6 +1052,15 @@
             background: rgba(0, 212, 255, 0.15);
             border-color: #00d4ff;
             color: #00d4ff;
+        }
+        .pf-btn:disabled, .pf-btn.pf-btn-disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+        }
+        .pf-btn:not(:disabled):hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(139, 92, 246, 0.4);
+            color: #e2e8f0;
         }
 
         .pf-step-info {
@@ -1169,6 +1178,81 @@
 
         .arch-node.anim-active { animation: pfGlowPulse 1.5s ease-in-out infinite; }
 
+        /* ── Two-column stage: diagram on the left, big narration on the right ── */
+        .arch-stage {
+            display: flex;
+            gap: 28px;
+            width: 100%;
+            max-width: 1240px;
+            margin: 0 auto;
+            align-items: stretch;
+        }
+        .arch-stage .arch-diagram {
+            flex: 0 0 640px;
+            max-width: 640px;
+            margin: 0;
+        }
+        .arch-narration-panel {
+            flex: 1;
+            min-width: 340px;
+            background: linear-gradient(160deg, rgba(10,14,26,0.92) 0%, rgba(17,23,46,0.92) 100%);
+            border: 1px solid rgba(139, 92, 246, 0.28);
+            border-radius: 14px;
+            padding: 22px 26px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04);
+            position: relative;
+            overflow: hidden;
+        }
+        .arch-narration-panel::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, #00d4ff, #3b82f6, #8b5cf6, #e879f9, #fbbf24);
+            opacity: 0.75;
+        }
+        .arch-narr-phase {
+            font-size: 0.72em;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            color: #94a3b8;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+        .arch-narr-phase .arch-narr-phase-name {
+            color: #e879f9;
+        }
+        .arch-narr-step {
+            font-size: 0.85em;
+            color: #64748b;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+            margin-bottom: 18px;
+            letter-spacing: 0.06em;
+        }
+        .arch-narr-text {
+            font-size: 1.18em;
+            line-height: 1.55;
+            color: #e2e8f0;
+            font-weight: 500;
+            min-height: 4.5em;
+        }
+        .arch-narr-text.arch-narr-idle {
+            color: #94a3b8;
+            font-style: italic;
+            font-weight: 400;
+        }
+        .arch-narr-text.arch-narr-complete {
+            color: #34d399;
+            font-weight: 600;
+        }
+
+        /* Hide the legacy inline narration — the big right-side panel replaces it */
+        .architecture-slide .pf-narration { display: none; }
+
         .arch-flow-step.flow-active {
             color: var(--flow-glow-color, #3b82f6);
             text-shadow: 0 0 8px var(--flow-glow-color, #3b82f6), 0 0 16px var(--flow-glow-color, #3b82f6);
@@ -1279,6 +1363,12 @@
             .phase-content.active.expanded {
                 flex-direction: column;
             }
+        }
+
+        @media (max-width: 1100px) {
+            .arch-stage { flex-direction: column; gap: 18px; }
+            .arch-stage .arch-diagram { flex: 1 1 auto; max-width: 860px; width: 100%; }
+            .arch-narration-panel { min-width: 0; }
         }
 
         @media (max-width: 768px) {
@@ -2109,8 +2199,8 @@
                     </div>
                     <div class="phase-description">
                         <h3>🔍 Update Check</h3>
-                        <p>Later, Agent Zero re-checks each thread for new activity. New replies, decisions, or deadline changes are detected and prepended to the task summary.</p>
-                        <p>You never miss an update. The AI continuously monitors your conversations and surfaces relevant changes, keeping your action items fresh and accurate.</p>
+                        <p>Later, Agent Zero re-checks each thread for messages dated after the last successful check. When new activity is found, the AI rewrites the task summary, title, and lifecycle status in a single pass.</p>
+                        <p>You never miss an update. The AI continuously monitors your conversations and reconciles the task state with reality — even when there are no new messages, it heals stale titles and statuses that no longer match the current situation.</p>
                     </div>
                 </div>
 
@@ -2178,7 +2268,8 @@
             <!-- Floating tooltip (positioned by JS) -->
             <div class="arch-tip-float" id="archTipFloat"></div>
 
-            <div class="arch-diagram">
+            <div class="arch-stage">
+                <div class="arch-diagram">
                 <!-- USER LAYER -->
                 <div class="arch-layer arch-layer--user">
                     <div class="arch-layer-label">Frontend</div>
@@ -2247,6 +2338,14 @@
                 </div>
             </div>
 
+            <!-- Prominent narration panel — updated live by the phase-flow animation -->
+            <aside class="arch-narration-panel">
+                <div class="arch-narr-phase">Now running: <span class="arch-narr-phase-name" id="archNarrPhaseName">① Discovery</span></div>
+                <div class="arch-narr-step" id="archNarrStep">Step 0 / 8</div>
+                <div class="arch-narr-text arch-narr-idle" id="archNarrText">Select a phase below and press ▶ Start to watch the data flow light up across the architecture.</div>
+            </aside>
+        </div>
+
             <!-- Phase Flow Animation Panel -->
             <div class="phase-flow-panel" id="phaseFlowPanel">
                 <div class="pf-tabs">
@@ -2256,7 +2355,9 @@
                     <button class="pf-tab" data-pf-phase="4">④ Consolidation</button>
                 </div>
                 <div class="pf-controls">
+                    <button class="pf-btn" id="pfPrev" title="Previous step">⏮ Prev</button>
                     <button class="pf-btn" id="pfPlay" title="Play / Pause">▶ Start</button>
+                    <button class="pf-btn" id="pfNext" title="Next step">Next ⏭</button>
                     <button class="pf-btn" id="pfReset" title="Reset">↺ Reset</button>
                     <div class="pf-speed-group">
                         <span class="pf-speed-label">Speed</span>
@@ -2349,43 +2450,47 @@
                 const PHASES = {
                     1: { name: 'Discovery', emoji: '🔍', steps: [
                         { label: 'User', text: "🖥️ User clicks 'Scan' in the Agent Zero UI", nodes: ['spa'] },
-                        { label: 'Job queued', text: '📡 Frontend POSTs /api/jobs {kind:"scan"} — Job Orchestrator registers a singleton job', nodes: ['fetch', 'express', 'api-routes', 'job-orch'] },
-                        { label: 'Server prepares', text: '📜 runScanJob loads SCAN_DISCOVERY_SKILL.md and starts streaming SSE progress', nodes: ['skills', 'sse'] },
-                        { label: 'Session created', text: '🔄 Session Manager creates CopilotClient + Work IQ Model Context Protocol (MCP) session', nodes: ['session-mgr'] },
-                        { label: 'AI + Microsoft 365', text: '🧠 Copilot SDK scans Outlook & Teams subject lines via Work IQ MCP', nodes: ['copilot-sdk', 'workiq', 'm365'] },
-                        { label: 'AI decides', text: '🧠 AI returns per-item decisions: create new, update existing, or skip', nodes: ['copilot-sdk'] },
-                        { label: 'Dedup & save', text: '⚡ Action-aware dedup (link match → Jaccard similarity > 0.6), saves to tasks.json', nodes: ['express', 'task-store'] },
-                        { label: 'UI updates', text: '🖥️ SSE pushes job progress — Agent Zero UI refreshes live, survives browser reload', nodes: ['sse', 'spa'] }
+                        { label: 'Job queued', text: '📡 Frontend POSTs /api/jobs {kind:"scan"} — the Job Orchestrator registers a singleton scan job that survives browser refreshes', nodes: ['fetch', 'express', 'api-routes', 'job-orch'] },
+                        { label: 'SSE opens', text: '📶 runScanJob emits job.started and streams live progress over Server-Sent Events to every open browser tab', nodes: ['sse', 'spa'] },
+                        { label: 'Build two questions', text: '⚡ The server builds two plain-English questions on the fly — one for Outlook emails, one for Teams — asking which messages of the last 4 days require the user to act. NOTE: Phase 1 does NOT open a Copilot session; there is no skill file here, just a directly-crafted natural-language query to Work IQ.', nodes: ['express'] },
+                        { label: 'Parallel Work IQ calls', text: '🔗 Both questions are sent in parallel to the Work IQ MCP subprocess via askWorkIQDirect (Promise.allSettled). If Work IQ returns EULA/permission stubs, the subprocess is force-restarted and the pair is retried once.', nodes: ['express', 'workiq'] },
+                        { label: 'Work IQ → M365', text: '☁️ Work IQ queries Microsoft 365 (Outlook + Teams) and classifies which messages are actionable — subject lines & metadata only, message bodies are NOT read', nodes: ['workiq', 'm365'] },
+                        { label: 'Parse Markdown', text: '⚡ Server parses Work IQ\'s Markdown reply into structured items (subject, sender, date, direct link, source=email|teams) using parseMarkdownEmails + parseTeamsMessages', nodes: ['express'] },
+                        { label: 'Dedup & save', text: '⚡ Action-aware dedup: exact link match → normalized title match → Jaccard similarity > 0.6 safety-net. New tasks are written to tasks.json with enrichmentStatus="pending".', nodes: ['express', 'task-store'] },
+                        { label: 'UI updates', text: '🖥️ SSE pushes added / skipped / updated counters — the UI refreshes live and, thanks to the Job Orchestrator, keeps running even if the user reloads the browser', nodes: ['sse', 'spa'] }
                     ]},
                     2: { name: 'Enrichment', emoji: '📋', steps: [
-                        { label: 'Trigger', text: '🖥️ Runs automatically for each new task after Discovery', nodes: ['spa'] },
-                        { label: 'API call', text: '📡 Frontend sends POST /api/tasks/:id/enrich', nodes: ['fetch', 'api-routes'] },
-                        { label: 'Skill loaded', text: '📜 Express loads ENRICH_SKILL.md with temporal reasoning', nodes: ['skills'] },
-                        { label: 'Tools ready', text: '🧠 Session gets askWorkIQTool + parallelSearchTool for M365 access', nodes: ['copilot-sdk', 'session-mgr'] },
-                        { label: 'Full thread', text: '🔗 Copilot SDK reads full conversation thread via Work IQ MCP', nodes: ['copilot-sdk', 'workiq', 'm365'] },
-                        { label: 'Summary', text: '🧠 AI creates structured summary with key decisions & next steps', nodes: ['copilot-sdk'] },
-                        { label: 'Persist', text: '💾 Summary + enrichmentStatus="enriched" saved to tasks.json', nodes: ['task-store'] },
-                        { label: 'UI shows', text: '🖥️ Task card shows rich summary in Agent Zero UI', nodes: ['spa'] }
+                        { label: 'Trigger', text: '🖥️ For every new pending task after Discovery, the Job Orchestrator triggers an enrichment (the user can also trigger it manually for a single task)', nodes: ['spa', 'job-orch'] },
+                        { label: 'API call', text: '📡 POST /api/tasks/:id/enrich hits Express; the route acquires a task-level queue lock and flips enrichmentStatus to "enriching"', nodes: ['fetch', 'api-routes', 'express'] },
+                        { label: 'Load skill (system prompt)', text: '📜 ENRICH_SKILL.md was loaded once at server startup — it is the STATIC SYSTEM PROMPT that tells Copilot the rules: three-attempt search strategy, temporal reasoning, required JSON output shape', nodes: ['skills'] },
+                        { label: 'Build dynamic instruction', text: '⚡ Express extracts keywords from the task title, parses Teams/Outlook link IDs, and assembles the DYNAMIC TASK INSTRUCTION: "Search for the thread about <keywords>, sender <from>, discovery date <createdAt>, apply temporal reasoning…". Skill + instruction are concatenated into the final prompt.', nodes: ['express'] },
+                        { label: 'Throttle + session', text: '🔄 waitForSDKSlot() holds a shared semaphore so only a few Copilot sessions run at once. Then CopilotClient.createSession() opens a FRESH Copilot SDK session and hands it two tools: ask_work_iq and parallel_search.', nodes: ['session-mgr', 'copilot-sdk'] },
+                        { label: 'Copilot reads thread', text: '🧠 sendAndWait() gives Copilot the full prompt; Copilot decides when to call ask_work_iq. Work IQ fetches the complete conversation (all replies) from M365 and streams it back.', nodes: ['copilot-sdk', 'workiq', 'm365'] },
+                        { label: 'AI returns JSON', text: '🧠 Copilot returns a strict JSON object: { summary, confidence, language, ambiguities[], link? } — parseJsonFromResponse tolerates Markdown code fences', nodes: ['copilot-sdk'] },
+                        { label: 'Persist', text: '💾 Summary saved to tasks.json; enrichmentStatus becomes "enriched" (or "needs-review" if ambiguities were flagged)', nodes: ['task-store'] },
+                        { label: 'UI shows', text: '🖥️ SSE pushes the new summary — the task card now shows the rich summary, confidence badge, and detected language', nodes: ['sse', 'spa'] }
                     ]},
                     3: { name: 'Update Check', emoji: '🔄', steps: [
-                        { label: 'Trigger', text: '🖥️ Runs for enriched tasks during each scan cycle', nodes: ['spa'] },
-                        { label: 'API call', text: '📡 Frontend sends POST /api/tasks/:id/check-update', nodes: ['fetch', 'api-routes'] },
-                        { label: 'Reconcile', text: '🔧 Retroactive summary reconciliation heals stale status before the AI runs', nodes: ['express', 'task-store'] },
-                        { label: 'Skill loaded', text: '📜 Loads UPDATE_CHECK_SKILL.md — searches only AFTER last check date (600 s guard)', nodes: ['skills'] },
-                        { label: 'Search new', text: '🔗 askWorkIQTool + parallelSearchTool query M365 for newer messages', nodes: ['copilot-sdk', 'workiq', 'm365'] },
-                        { label: 'Single-session decide', text: '🧠 One AI response returns newSummary + newTitle + newStatus (no 2nd eval session)', nodes: ['copilot-sdk'] },
-                        { label: 'State heal', text: '💾 State reconciliation also runs on no-update path (e.g. stale "new" → "in-progress")', nodes: ['task-store'] },
-                        { label: 'Updated', text: "🖥️ Task shows 'Updated' badge in Agent Zero UI", nodes: ['spa'] }
+                        { label: 'Trigger', text: '🖥️ Runs automatically for every enriched task during a scan cycle (or manually per task)', nodes: ['spa', 'job-orch'] },
+                        { label: 'API call', text: '📡 POST /api/tasks/:id/check-update — the route enforces a min-interval guard (600 s) to avoid redundant work', nodes: ['fetch', 'api-routes', 'express'] },
+                        { label: 'Self-heal first', text: '🔧 BEFORE the AI runs, Express performs a retroactive Summary/History reconciliation — any thread-update that was logged earlier without refreshing the summary is healed so the AI sees the true state', nodes: ['express', 'task-store'] },
+                        { label: 'Load skill (system prompt)', text: '📜 UPDATE_CHECK_SKILL.md is the STATIC SYSTEM PROMPT: it caps the AI at 3 ask_work_iq calls, forces searches AFTER the temporal anchor, requires querying the Sent Items folder, and defines the JSON response shape', nodes: ['skills'] },
+                        { label: 'Build dynamic instruction', text: '⚡ Express assembles the DYNAMIC TASK INSTRUCTION: an "Action Item State" block with the current title, summary, recent history, and the temporal anchor (lastSuccessfulUpdateCheck). The skill + state block become the full prompt.', nodes: ['express'] },
+                        { label: 'Copilot session + search', text: '🧠 waitForSDKSlot → CopilotClient session with ask_work_iq + parallel_search. Copilot searches M365 for messages newer than the temporal anchor (incoming AND messages the user sent themselves).', nodes: ['session-mgr', 'copilot-sdk', 'workiq', 'm365'] },
+                        { label: 'Single-session decision', text: '🧠 One Copilot response returns { hasUpdate, updateSummary, newSummary?, newTitle?, newStatus? } — no second "evaluation" session, which cuts latency roughly in half', nodes: ['copilot-sdk'] },
+                        { label: 'Apply or reconcile', text: '💾 If there are new messages, newSummary/newTitle/newStatus replace the current values. If NO new messages, state reconciliation still fires (e.g. stale "new" → "in-progress" to match the existing summary).', nodes: ['task-store'] },
+                        { label: 'UI updates', text: '🖥️ SSE pushes the result — the task card shows an "Updated" badge and, when relevant, a refined title/status', nodes: ['sse', 'spa'] }
                     ]},
                     4: { name: 'Consolidation', emoji: '🔗', steps: [
-                        { label: 'Trigger', text: "🖥️ User clicks 'Find Duplicates' or runs at end of Scan", nodes: ['spa'] },
-                        { label: 'Job queued', text: '📡 Frontend POSTs /api/jobs {kind:"consolidate"} — Job Orchestrator owns the run', nodes: ['fetch', 'api-routes', 'job-orch'] },
-                        { label: 'Collect tasks', text: '⚡ runConsolidateJob collects all active enriched tasks with summaries', nodes: ['express', 'task-store'] },
-                        { label: 'Skill loaded', text: '📜 Loads CONSOLIDATE_SKILL.md for semantic grouping', nodes: ['skills'] },
-                        { label: 'LLM analysis', text: '🧠 Copilot SDK analyzes semantic overlap between all tasks (waitForSDKSlot throttle)', nodes: ['copilot-sdk', 'session-mgr'] },
-                        { label: 'Suggestions', text: '🧠 AI returns merge group suggestions (filtered against vetoed pairs)', nodes: ['copilot-sdk'] },
-                        { label: 'User decides', text: '🖥️ SSE delivers suggestions — user reviews & approves in the UI', nodes: ['sse', 'spa'] },
-                        { label: 'Merge job', text: '🧠💾 Approved merges go through POST /api/jobs {kind:"merge"} — AI builds unified summary', nodes: ['job-orch', 'task-store', 'copilot-sdk'] }
+                        { label: 'Trigger', text: "🖥️ User clicks 'Find Duplicates' (or runs automatically after a Scan)", nodes: ['spa'] },
+                        { label: 'Job queued', text: '📡 Frontend POSTs /api/jobs {kind:"consolidate"} — the Job Orchestrator owns the run so it survives a browser reload', nodes: ['fetch', 'api-routes', 'job-orch'] },
+                        { label: 'Collect tasks', text: '⚡ Express collects every active task whose enrichmentStatus is "enriched" or "needs-review" and that has a summary', nodes: ['express', 'task-store'] },
+                        { label: 'Load skill (system prompt)', text: '📜 CONSOLIDATE_SKILL.md is the STATIC SYSTEM PROMPT: it defines what counts as "same topic", lists anti-patterns (same sender ≠ same topic, same location ≠ same incident), and forces a strict JSON output', nodes: ['skills'] },
+                        { label: 'Build dynamic instruction', text: '⚡ Express assembles the DYNAMIC TASK LIST — id, title, summary, sender, source for every active task — plus a block listing pairs the user previously dismissed. Skill + task list + dismissed-pairs becomes the full prompt.', nodes: ['express'] },
+                        { label: 'Copilot analyses', text: '🧠 waitForSDKSlot → CopilotClient session → Copilot SDK reasons about semantic overlap across ALL tasks in a single call', nodes: ['session-mgr', 'copilot-sdk'] },
+                        { label: 'Suggestions', text: '🧠 Copilot returns a JSON array of merge groups ({taskIds, reason, suggestedTitle}); the server additionally filters out any group that touches a previously dismissed pair', nodes: ['copilot-sdk', 'express'] },
+                        { label: 'User decides', text: '🖥️ SSE delivers the suggestions — the user reviews each group and approves, dismisses, or edits the merge in the UI', nodes: ['sse', 'spa'] },
+                        { label: 'Merge job', text: '🧠💾 An approved merge is posted as POST /api/jobs {kind:"merge"} — Copilot then writes a unified summary and tasks.json is updated atomically', nodes: ['job-orch', 'copilot-sdk', 'task-store'] }
                     ]}
                 };
 
@@ -2398,11 +2503,31 @@
                 if (!panel) return;
                 const btnPlay   = document.getElementById('pfPlay');
                 const btnReset  = document.getElementById('pfReset');
+                const btnPrev   = document.getElementById('pfPrev');
+                const btnNext   = document.getElementById('pfNext');
                 const elSpeed   = document.getElementById('pfSpeed');
                 const elSpeedV  = document.getElementById('pfSpeedVal');
                 const elStep    = document.getElementById('pfStepInfo');
                 const elNarr    = document.getElementById('pfNarration');
                 const elBar     = document.getElementById('pfProgressBar');
+                const elNarrBig = document.getElementById('archNarrText');
+                const elNarrStep = document.getElementById('archNarrStep');
+                const elNarrPhase = document.getElementById('archNarrPhaseName');
+                const PHASE_LABELS = { 1: '① Discovery', 2: '② Enrichment', 3: '③ Update Check', 4: '④ Consolidation' };
+
+                function setBigNarration(text, mode) {
+                    if (!elNarrBig) return;
+                    elNarrBig.textContent = text;
+                    elNarrBig.classList.remove('arch-narr-idle', 'arch-narr-complete');
+                    if (mode === 'idle') elNarrBig.classList.add('arch-narr-idle');
+                    else if (mode === 'complete') elNarrBig.classList.add('arch-narr-complete');
+                }
+                function setBigStep(current, total) {
+                    if (elNarrStep) elNarrStep.textContent = 'Step ' + current + ' / ' + total;
+                }
+                function setBigPhase(p) {
+                    if (elNarrPhase) elNarrPhase.textContent = PHASE_LABELS[p] || '';
+                }
                 const allNodes  = document.querySelectorAll('.architecture-slide .arch-node[data-anim-id]');
                 const tabs      = panel.querySelectorAll('.pf-tab');
                 const allFlowSteps = document.querySelectorAll('.arch-flow .arch-flow-step[data-anim-id]');
@@ -2496,6 +2621,9 @@
                     elStep.textContent = 'Step ' + (stepIdx + 1) + '/' + phase.steps.length;
                     elNarr.textContent = step.text;
                     elBar.style.width = ((stepIdx + 1) / phase.steps.length * 100) + '%';
+                    setBigStep(stepIdx + 1, phase.steps.length);
+                    setBigNarration(step.text, 'active');
+                    updateNavBtns();
                 }
 
                 function startTimer() {
@@ -2510,6 +2638,7 @@
                     if (next >= phase.steps.length) {
                         // Show completion message, then loop back after a brief pause
                         elNarr.textContent = '✅ ' + phase.name + ' phase complete!';
+                        setBigNarration('✅ ' + phase.name + ' phase complete!', 'complete');
                         clearInterval(timer);
                         timer = null;
                         timer = setTimeout(function() {
@@ -2525,6 +2654,37 @@
                 }
 
                 /* ── Controls ── */
+                function stepBy(delta) {
+                    const phase = PHASES[currentPhase];
+                    if (!phase) return;
+                    // Pause any running timer; switch to paused state so Play becomes Resume
+                    if (playing || timer) {
+                        clearInterval(timer);
+                        clearTimeout(timer);
+                        timer = null;
+                    }
+                    var base = (currentStep < 0) ? -1 : currentStep;
+                    var target = base + delta;
+                    if (target < 0) target = 0;
+                    if (target > phase.steps.length - 1) target = phase.steps.length - 1;
+                    if (playing) { playing = false; paused = true; }
+                    else if (currentStep < 0) { paused = true; }
+                    applyStep(target);
+                    updatePlayBtn();
+                    updateNavBtns();
+                }
+
+                function updateNavBtns() {
+                    const phase = PHASES[currentPhase];
+                    if (!phase) return;
+                    var atStart = (currentStep <= 0);
+                    var atEnd = (currentStep >= phase.steps.length - 1);
+                    btnPrev.disabled = atStart;
+                    btnNext.disabled = atEnd;
+                    btnPrev.classList.toggle('pf-btn-disabled', atStart);
+                    btnNext.classList.toggle('pf-btn-disabled', atEnd);
+                }
+
                 function togglePlayPause() {
                     if (playing) {
                         // Pause
@@ -2559,11 +2719,15 @@
                     updatePlayBtn();
                     elStep.textContent = 'Step 0/' + PHASES[currentPhase].steps.length;
                     elBar.style.width = '0%';
+                    setBigStep(0, PHASES[currentPhase].steps.length);
+                    setBigPhase(currentPhase);
+                    updateNavBtns();
                 }
 
                 function reset() {
                     stopInternal();
                     elNarr.textContent = 'Select a phase and press ▶ Start to animate the data flow.';
+                    setBigNarration('Select a phase below and press ▶ Start to watch the data flow light up across the architecture.', 'idle');
                 }
 
                 function selectPhase(p) {
@@ -2573,6 +2737,9 @@
                     elStep.textContent = 'Step 0/' + PHASES[p].steps.length;
                     elNarr.textContent = PHASES[p].emoji + ' ' + PHASES[p].name + ' — press ▶ Start to begin.';
                     elBar.style.width = '0%';
+                    setBigPhase(p);
+                    setBigStep(0, PHASES[p].steps.length);
+                    setBigNarration(PHASES[p].emoji + ' ' + PHASES[p].name + ' — press ▶ Start to walk through every step.', 'idle');
                     try { localStorage.setItem(LS_PHASE, p); } catch (e) {}
                 }
 
@@ -2604,17 +2771,29 @@
 
                 /* ── Init phase tabs from restored value ── */
                 if (currentPhase !== 1) selectPhase(currentPhase);
+                else {
+                    // Ensure the big narration panel reflects initial Phase 1 state
+                    setBigPhase(1);
+                    setBigStep(0, PHASES[1].steps.length);
+                }
 
                 /* ── Event bindings ── */
                 btnPlay.addEventListener('click', togglePlayPause);
                 btnReset.addEventListener('click', reset);
+                btnPrev.addEventListener('click', function() { stepBy(-1); });
+                btnNext.addEventListener('click', function() { stepBy(+1); });
                 tabs.forEach(t => t.addEventListener('click', function() { selectPhase(+this.dataset.pfPhase); }));
 
-                // Keyboard: Space = play/pause, Escape = reset
+                // Keyboard: Space = play/pause, Escape = reset, ←/→ = step
                 panel.addEventListener('keydown', function(e) {
                     if (e.code === 'Space') { e.preventDefault(); togglePlayPause(); }
                     if (e.code === 'Escape') { reset(); }
+                    if (e.code === 'ArrowLeft') { e.preventDefault(); stepBy(-1); }
+                    if (e.code === 'ArrowRight') { e.preventDefault(); stepBy(+1); }
                 });
+
+                // Initial button state
+                updateNavBtns();
 
                 // Clean up when scrolling away from Slide 4
                 const slide = document.querySelector('.architecture-slide');

@@ -76,6 +76,17 @@ const MAX_RESTARTS = 5;     // give up after this many consecutive failures
 let consecutiveStubCount = 0;
 const STUB_RESTART_THRESHOLD = parseInt(process.env.STUB_RESTART_THRESHOLD, 10) || 3;
 
+// v4.1.0 — Option 4: Proactive WorkIQ Recycling
+// Track subprocess age + query count. Before each query, if either exceeds
+// thresholds AND no in-flight requests, proactively recycle the subprocess.
+// This prevents stubs from appearing in the first place (observed: subprocess
+// starts returning 259-char EULA stubs after ~hours of runtime).
+let wiqStartedAt = 0;
+let wiqQueryCount = 0;
+let wiqRecycling = false;
+const WIQ_MAX_AGE_MS = parseInt(process.env.WIQ_MAX_AGE_MS, 10) || 30 * 60 * 1000;   // 30 min
+const WIQ_MAX_QUERIES = parseInt(process.env.WIQ_MAX_QUERIES, 10) || 100;
+
 // K2: EventEmitter for WorkIQ crash events — lets all active SDK sessions abort immediately
 // instead of hanging for their full 600s timeout.
 const wiqEvents = new EventEmitter();
@@ -165,6 +176,8 @@ function startWorkIQMCP() {
             const text = msg2.result?.content?.[0]?.text || '';
             console.log('[WORKIQ] EULA:', text.substring(0, 60));
             wiqReady = true;
+            wiqStartedAt = Date.now();
+            wiqQueryCount = 0;
             // v3.4.1: signal to any session waiting on wiq-down grace period that
             // WorkIQ is back online. Listeners can then keep waiting on their
             // sendAndWait normally instead of aborting.
@@ -192,11 +205,57 @@ function startWorkIQMCP() {
   });
 }
 
-function askWorkIQDirect(question, timeoutMs = 90000, taskId = null) {
+// v4.1.0 — Option 4a: Wait briefly for a fresh WorkIQ subprocess after a recycle/crash.
+// Used by maybeRecycleWiq() and by the stub-retry path in askWorkIQDirect.
+function waitForWiqUp(timeoutMs = 20000) {
+  return new Promise((resolve) => {
+    if (wiqReady && wiqProc) return resolve(true);
+    let done = false;
+    const onUp = () => {
+      if (done) return;
+      done = true;
+      wiqEvents.off('wiq-up', onUp);
+      resolve(true);
+    };
+    wiqEvents.on('wiq-up', onUp);
+    setTimeout(() => {
+      if (done) return;
+      done = true;
+      wiqEvents.off('wiq-up', onUp);
+      resolve(wiqReady && !!wiqProc);
+    }, timeoutMs);
+  });
+}
+
+// v4.1.0 — Option 4a: Proactive recycling. Called at the start of every query.
+// Only recycles when (age > MAX) or (queryCount > MAX) AND no pending requests.
+async function maybeRecycleWiq() {
+  if (wiqRecycling) {
+    await waitForWiqUp(20000);
+    return;
+  }
+  if (!wiqReady || !wiqProc || !wiqStartedAt) return;
+  if (wiqPending.size > 0) return; // don't kill during in-flight queries
+  const age = Date.now() - wiqStartedAt;
+  const ageExceeded = age > WIQ_MAX_AGE_MS;
+  const queryExceeded = wiqQueryCount >= WIQ_MAX_QUERIES;
+  if (!ageExceeded && !queryExceeded) return;
+  wiqRecycling = true;
+  debugLog('WORKIQ', `Proactive recycle — ageMin=${Math.round(age/60000)} queries=${wiqQueryCount} threshold age=${Math.round(WIQ_MAX_AGE_MS/60000)}min queries=${WIQ_MAX_QUERIES}`);
+  try { wiqProc.kill(); } catch {}
+  await waitForWiqUp(20000);
+  wiqRecycling = false;
+}
+
+function askWorkIQDirect(question, timeoutMs = 90000, taskId = null, _isRetry = false) {
   const queryStart = Date.now();
   const shortQ = question.substring(0, 100);
   debugLog('WORKIQ-QUERY', `START "${shortQ}..."`, { timeoutMs, questionLen: question.length, taskId });
   return new Promise(async (resolve, reject) => {
+    // v4.1.0 — Option 4a: Proactive recycle check before doing anything else.
+    if (!_isRetry) {
+      try { await maybeRecycleWiq(); } catch {}
+    }
     // Per-task cooldown check (only when taskId is provided) — isolates tasks from each other.
     if (taskId) {
       const taskCdUntil = wiqTaskCooldowns.get(taskId) || 0;
@@ -238,7 +297,7 @@ function askWorkIQDirect(question, timeoutMs = 90000, taskId = null) {
     }
     const id = ++wiqRequestId;
     wiqPending.set(id, {
-      resolve: (msg) => {
+      resolve: async (msg) => {
         const text = msg.result?.content?.[0]?.text || '';
         const elapsed = ((Date.now() - queryStart) / 1000).toFixed(1);
         // Detect the known WorkIQ subprocess health error (exactly 41 chars)
@@ -271,7 +330,8 @@ function askWorkIQDirect(question, timeoutMs = 90000, taskId = null) {
         // Without this, scan parses stubs as empty data and silently returns 0 items.
         if (text && isStubResponse(text)) {
           consecutiveStubCount++;
-          debugLog('WORKIQ-QUERY', `STUB detected (${text.length} chars, consecutive=${consecutiveStubCount}/${STUB_RESTART_THRESHOLD}) "${shortQ}..."`);
+          const stubPreview = text.replace(/\s+/g, ' ').substring(0, 160);
+          debugLog('WORKIQ-QUERY', `STUB detected (${text.length} chars, consecutive=${consecutiveStubCount}/${STUB_RESTART_THRESHOLD}) "${shortQ}..." | preview="${stubPreview}"`);
           console.warn(`[WORKIQ] STUB response detected (consecutive: ${consecutiveStubCount}/${STUB_RESTART_THRESHOLD})`);
           if (consecutiveStubCount >= STUB_RESTART_THRESHOLD && wiqProc) {
             console.warn(`[WORKIQ] ${consecutiveStubCount} consecutive stubs — force-restarting subprocess`);
@@ -279,12 +339,31 @@ function askWorkIQDirect(question, timeoutMs = 90000, taskId = null) {
             consecutiveStubCount = 0;
             try { wiqProc.kill(); } catch {}
           }
+          // v4.1.0 — Option 4b: Auto-retry ONCE after the subprocess recovers.
+          // Previously the caller (chat/Phase 3) got SERVICE_UNAVAILABLE and had to
+          // give up, even though the subprocess is about to restart cleanly.
+          if (!_isRetry) {
+            debugLog('WORKIQ-QUERY', `Auto-retry pending: waiting up to 20s for wiq-up before retrying "${shortQ}..."`);
+            const recovered = await waitForWiqUp(20000);
+            if (recovered) {
+              debugLog('WORKIQ-QUERY', `wiq-up received — retrying query once`);
+              try {
+                const retryResult = await askWorkIQDirect(question, timeoutMs, taskId, true);
+                return resolve(retryResult);
+              } catch (retryErr) {
+                debugLog('WORKIQ-QUERY', `Retry failed: ${retryErr.message}`);
+                return reject(retryErr);
+              }
+            }
+            debugLog('WORKIQ-QUERY', `Retry aborted — wiq did not come up within 20s`);
+          }
           return reject(new Error('WorkIQ returned EULA/permission stub — service temporarily unavailable'));
         }
         // Healthy response — reset whichever counter applies.
         if (taskId) wiqTaskErrorCounts.set(taskId, 0);
         wiq41ErrorCount = 0;
         consecutiveStubCount = 0;
+        wiqQueryCount++;
         debugLog('WORKIQ-QUERY', `OK in ${elapsed}s (${text.length} chars) "${shortQ}..."`);
         if (text) resolve(text);
         else reject(new Error('Empty response from Work IQ'));
