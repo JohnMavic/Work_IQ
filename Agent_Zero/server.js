@@ -1624,24 +1624,25 @@ app.post('/api/debug-log', (req, res) => {
   res.json({ enabled: DEBUG_LOG });
 });
 
+// Cached at boot. Walks up from __dirname to find .git (the Agent_Zero folder
+// lives inside the Work_IQ repo root, so the local dir has no .git of its own).
+const BUILD_COMMIT = (() => {
+  try {
+    const { execSync } = require('child_process');
+    return execSync('git rev-parse --short HEAD', { cwd: __dirname, encoding: 'utf-8' }).trim();
+  } catch {
+    return 'nogit';
+  }
+})();
+
 // GET /api/version — return app version from package.json + short git SHA
 // so the UI can prove which build is actually running (useful after a patch).
 app.get('/api/version', (req, res) => {
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
-    let commit = 'nogit';
-    try {
-      const head = fs.readFileSync(path.join(__dirname, '.git', 'HEAD'), 'utf-8').trim();
-      if (head.startsWith('ref: ')) {
-        const refPath = path.join(__dirname, '.git', head.slice(5));
-        commit = fs.readFileSync(refPath, 'utf-8').trim().slice(0, 7);
-      } else {
-        commit = head.slice(0, 7);
-      }
-    } catch {}
-    res.json({ version: pkg.version, name: pkg.name, commit });
+    res.json({ version: pkg.version, name: pkg.name, commit: BUILD_COMMIT });
   } catch {
-    res.json({ version: 'unknown' });
+    res.json({ version: 'unknown', commit: BUILD_COMMIT });
   }
 });
 
