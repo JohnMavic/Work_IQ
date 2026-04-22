@@ -4,6 +4,58 @@ All notable changes to this project are documented here.
 
 ---
 
+## v4.0.1 — April 22, 2026
+
+**Merge and Consolidate now survive browser refresh**
+
+### Problem diagnosed
+v4.0.0 moved `scan` to the server-side job orchestrator, but two other long-running AI calls were overlooked:
+
+- **`POST /api/tasks/merge`** — up to 90 s `session.sendAndWait` (AI generates unified summary). Pure request/response: no job registration, no persistence, no SSE.
+- **`POST /api/consolidate`** — up to 300 s AI analysis for the standalone "Find Duplicates" button. Same pattern.
+
+Symptoms reported by the user:
+1. Start a manual merge from the bottom merge-bar.
+2. Press F5 while the AI is composing the merged summary.
+3. UI completely forgets the merge was running — no progress indicator, no success notification when the server finishes ~60 s later.
+4. The merge itself *did* complete server-side (tasks.json reflected the merge), but the user had no feedback and couldn't tell whether to retry.
+
+Additionally, there was no idempotency — a double-click could start two parallel merges.
+
+### Code — server.js
+- **`runMergeJob(job)`** new runner (same shape as `runScanJob`): delegates to the existing `POST /api/tasks/merge` via internal HTTP, emits `job.started` / `job.completed` / `job.failed`, persists snapshot to `jobs.json`, releases singleton on completion. Input: `{ taskIds, suggestedTitle? }`. Result payload: `{ taskId, title }`.
+- **`runConsolidateJob(job)`** new runner: delegates to `POST /api/consolidate`. Result payload: `{ suggestions: [...] }`.
+- **`POST /api/jobs`** generalised via `SUPPORTED_JOB_KINDS = { scan, merge, consolidate }`. Per-kind input validation (merge requires ≥2 taskIds). Singleton guard + idempotency already existed — they now cover all three kinds.
+- **Legacy endpoints `POST /api/tasks/merge` and `POST /api/consolidate` are unchanged**: still synchronous, still used by the runners via internal HTTP, still called by `runScanJob` Phase 4. No business logic duplicated.
+
+### Code — index.html
+- **`triggerFindDuplicates()`** rewritten to `POST /api/jobs` with `kind: 'consolidate'` and a `clientRequestId`. Returns immediately with a 202 + `jobId`; SSE drives the completion UI.
+- **`executeMergeFromBar()`** rewritten the same way: `kind: 'merge'`, `input: { taskIds }`. State stored in `activeMergeJob = { jobId, taskIds, source: 'bar' | 'banner' }` so the completion handler knows whether to exit merge-mode or remove a suggestion card.
+- **`handleMerge(btn)`** (from the Find Duplicates suggestion banner) — same refactor. `source: 'banner'`; on completion, the matching card is removed by `data-merge-job-id` attribute.
+- **`handleConsolidateJobEvent(ev)`** and **`handleMergeJobEvent(ev)`** — new SSE handlers mirrored from `handleScanJobEvent`. Surface `job.completed` → notification + task refresh + UI reset; `job.failed` → error notification + button re-enable.
+- **`handleJobEvent`** routing extended: `ev.kind === 'consolidate'` and `ev.kind === 'merge'` are dispatched before the task-centric branch.
+- **`hydrateGlobalJobs()`** extended: after reload, restores `activeConsolidateJob` / `activeMergeJob` from the server snapshot, re-renders the progress banner, disables the "Find Duplicates" button while a consolidate is in flight, and shows the header progress bar for in-flight merges. When the server finishes, SSE completes the cycle.
+
+### Behavioural impact
+- **F5 during a merge or duplicate-search is safe.** The server keeps working, the client re-paints the progress indicator within ~1 s via `hydrateGlobalJobs()`, and the SSE stream delivers the completion event.
+- **Double-click on Merge or Find Duplicates is no-op.** The `clientRequestId` is enforced by the server's idempotency cache, and the `tryAcquireSingleton(kind)` guard returns 409 on concurrent attempts.
+- **User receives a success notification** when the merge finishes, even after a mid-flight refresh.
+- **No new logs needed** — merge / consolidate already log via `debugLog('MERGE'|'PHASE4', ...)` inside the legacy endpoints, which the new runners invoke.
+
+### Tests
+- `npm test` — 7/7 lifecycle tests pass unchanged (the `Job` class, idempotency, singleton, persistence logic were already generic).
+- `node tests/runs/check-html.cjs` — inline `<script>` block parses cleanly.
+- `node --check server.js` — passes.
+- E2E validation run (`tests/runs/e2e-v4-0-1.mjs`): opens the UI, confirms v4.0.1 label, triggers a full scan, observes phase transitions via `/api/jobs?active=true`, reloads the page mid-flight to exercise hydration.
+
+### Documentation
+- `ARCHITECTURE.md` — "Scan Resilience Architecture" renamed to "Job Orchestrator" and extended with `merge` / `consolidate` kinds.
+- `AGENT_ZERO_SPEC.md` — version + status line updated.
+- `README.md`, `AGENTS.md` — version bumped to 4.0.1.
+- `package.json` — version bumped to 4.0.1.
+
+---
+
 ## v4.0.0 — April 22, 2026
 
 **Server-Side Job Registry — Scan + Log-Jobs survive browser refresh**

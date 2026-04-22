@@ -99,6 +99,7 @@ svg#flow{width:100%;height:100%}
   <div id="header">
     <h1>AGENT ZERO · PHASE 3</h1>
     <span class="sub">Update Check — How Agent Zero spots new replies without wasting searches</span>
+    <span style="margin-left:12px;padding:3px 8px;background:rgba(0,255,200,.12);border:1px solid rgba(0,255,200,.35);border-radius:4px;font-size:10px;color:#00ffc8;letter-spacing:1px;font-weight:700">v4.0.1</span>
     <div id="controls">
       <div id="speed-ctl">
         <span>Speed</span>
@@ -138,9 +139,11 @@ svg#flow{width:100%;height:100%}
 
 /* ══════════════════════════════════════════════════════════════════
    PHASE 3 — UPDATE CHECK
-   Source: server.js  POST /api/tasks/:id/check-update  (lines 1608–1872)
-   Action-Item State builder: lines 717–773
-   ask_work_iq tool with budget + stub detection: lines 320–378
+   Source: server.js  POST /api/tasks/:id/check-update  (lines 2966–3246)
+   Action-Item State builder:        buildActionItemState() — lines 1015–1069
+   ask_work_iq tool with budget + stub detection: lines 371–440
+   Retroactive Summary Reconciliation: reconcileSummaryWithHistory()
+   Orchestrator (v4.0.0+): runScanJob drives Phase 3 sequentially.
    ══════════════════════════════════════════════════════════════════ */
 
 const NODES = [
@@ -220,11 +223,11 @@ A smaller prompt means a faster response, a lower cost and fewer misunderstandin
 
   { node:'session', status:'A GitHub Copilot SDK session opens and decides whether something is new',
     letter:{ icon:'✨', type:'GITHUB COPILOT · SDK', color:'#d0dcf0',
-      body:`A fresh GitHub Copilot SDK session is opened (via @github/copilot-sdk), with the ask_work_iq tool attached.
+      body:`A fresh GitHub Copilot SDK session is opened (via @github/copilot-sdk), with two tools attached: ask_work_iq (single query) and parallel_search (fan-out).
 
 Copilot is free to call Work IQ within its budget of three queries — including your Sent Items, so replies you wrote yourself are not missed.
 
-At the end, Copilot returns one of three verdicts: something new, nothing new, or "I cannot tell for sure".` }},
+At the end, Copilot returns one of three verdicts: something new, nothing new, or "I cannot tell for sure". When it returns "nothing new" but detects that the existing summary already describes a completed state, it can also emit a status/title correction — no new session needed.` }},
 
   { node:'m365', status:'Copilot runs its Work IQ searches within the 3-query budget — stubs are detected',
     letter:{ icon:'☁️', type:'WORK IQ · GUARDED', color:'#ff8800',
@@ -242,11 +245,15 @@ If Work IQ's response looks like a cached EULA placeholder rather than real cont
 
 Each verdict is treated differently, and only conclusive verdicts move the "last checked" timestamp forward.` }},
 
-  { node:'history', status:'Save the verdict. The "last checked" anchor only advances on conclusive results',
+  { node:'history', status:'Save verdict, refresh summary inline, heal stale status — anchor only on conclusive runs',
     letter:{ icon:'📚', type:'WRITEBACK', color:'#ff2d95',
       body:`Every conclusive result is written into the card's history with a timestamp.
 
-The "last successfully checked" anchor is only moved forward when the AI was actually sure — so an inconclusive check does not silently pretend to be recent, and the pre-filter will re-try it soon.` }},
+If Copilot found new content, the summary and (optionally) the title and lifecycle status are updated in place — no separate evaluation session is needed. If the model returned a verdict but forgot the refined summary, the raw update text is prepended so nothing is lost.
+
+Even on a "no update" verdict, the model can still emit a corrected title or status — which quietly heals cards whose summary already says "done" while the lifecycle still said "new".
+
+The "last successfully checked" anchor only moves forward when the AI was actually sure — so an inconclusive check does not silently pretend to be recent, and the pre-filter will re-try it soon.` }},
 
   { node:'ui', status:'If there was news the card shows it; otherwise it stays quietly as it was',
     letter:{ icon:'✅', type:'CARD UPDATED', color:'#00ffc8',
@@ -269,13 +276,13 @@ const DETAILS = {
   prompt:{ t:'📦 Compact Prompt',
     b:`<div class="dd">The full prompt is four sections, separated by horizontal rules:</div><div class="cb">UPDATE_CHECK_SKILL              // skill rules\n\n---\n\nACTION ITEM STATE               // ≤ 2.5 kB\n\n---\n\n## Your task NOW\nDetermine whether the conversation has NEW\nmessages AFTER the temporal anchor. Use the\nsmallest possible number of ask_work_iq calls\n(target: 1, hard cap: 3). Prefer the direct\nlink / Thread ID.</div><div class="dd">Total prompt size: roughly 4 kB — tiny compared to what the agent otherwise "sees."</div>` },
   session:{ t:'🤖 SDK Session — Budget-Aware',
-    b:`<div class="dd">The <code>askWorkIQTool</code> handler reads the session ID on every call and enforces budget + EULA rules.</div><div class="cb">const askWorkIQTool = defineTool('ask_work_iq', {\n  handler: async ({ question }, invocation) => {\n    const sessionId = invocation?.sessionId;\n    const tracking = phase3Get(sessionId);\n\n    if (SELF_EULA_QUERY.test(question))\n      return 'TOOL_GUIDANCE: EULA is server-handled.';\n\n    if (tracking &amp;&amp; tracking.count &gt;= BUDGET) {\n      tracking.budgetHit = true;\n      return 'BUDGET_EXHAUSTED: …';\n    }\n    tracking.count++;\n    return await askWorkIQDirect(question);\n  }\n});</div>` },
+    b:`<div class="dd">The session is created with <strong>two</strong> tools: <code>askWorkIQTool</code> (single query) and <code>parallelSearchTool</code> (up to 5 parallel queries). The tool handler reads the session ID on every call and enforces budget + EULA rules.</div><div class="cb">session = trackSession(await client.createSession({\n  tools: [askWorkIQTool, parallelSearchTool],\n  onPermissionRequest: approveAll\n}));\nphase3Register(sessionId, taskId);\n// tracking = { count: 0, budget: 3,\n//               stubCount: 0, wiqDown: false,\n//               budgetHit: false, calls: [] }\n\n// Inside the tool handler:\nif (tracking.count &gt;= PHASE3_QUERY_BUDGET) {\n  tracking.budgetHit = true;\n  return 'BUDGET_EXHAUSTED: Return inconclusive JSON now.';\n}\n\n// parallel_search also counts — if count + batch &gt; budget,\n// the whole batch is refused.</div><div class="dd">Also: <span class="tag" style="background:rgba(255,45,149,.15);color:#ff2d95">Self-EULA guard</span> blocks the model from trying to "accept" an EULA via the tool. Timeout: 600s (same as Phase 2).</div>` },
   m365:{ t:'☁️ Work IQ — Guarded Calls',
     b:`<div class="dd">Every call to Work IQ (<code>@microsoft/workiq</code>) is inspected by the server. Stub replies (EULA / permission-denied text) are <strong>detected before they corrupt the summary</strong>. Work IQ is the M365 data layer — not the Microsoft 365 Copilot product.</div><div class="cb">const EULA_MARKERS = [\n  /accept\\s+(the\\s+)?eula/i, /accept_eula/i,\n  /before\\s+using\\s+this\\s+tool/i,\n  /permission\\s+denied/i, /not\\s+been\\s+accepted/i,\n  /eula\\s+not\\s+accepted/i, /requires?\\s+(eula|consent)/i\n];\nfunction isStubResponse(text) {\n  let hits = 0;\n  for (const re of EULA_MARKERS)\n    if (re.test(text) &amp;&amp; ++hits &gt;= 2) return true;\n  return false;\n}</div><div class="dd">Two hits = stub. The agent is told <code>SERVICE_UNAVAILABLE</code> — the server retries on the next scan.</div>` },
   outcome:{ t:'🔀 Tristate Classification',
     b:`<div class="dd">Many update-check systems are binary (updated / not). Agent Zero uses <strong>three</strong> outcomes — the difference prevents the system from silencing stuck tasks.</div><div class="cb">const inconclusive =\n     tracking.budgetHit\n  || tracking.stubCount &gt; 0\n  || tracking.wiqDown\n  || (parseFailed &amp;&amp; tracking.count === 0)\n  || (parseFailed &amp;&amp; tracking.stubCount &gt; 0)\n  || (result &amp;&amp; result.inconclusive === true);\n\n// outcome ∈ { 'updated', 'no-update', 'inconclusive' }</div><div class="dd"><span class="tag" style="background:rgba(255,45,149,.15);color:#ff2d95">Key rule</span> Inconclusive runs do NOT advance <code>lastSuccessfulUpdateCheck</code>. The task is retried on the next scan.</div>` },
-  history:{ t:'📚 Writeback — Anchor Moves Only on Success',
-    b:`<div class="dd">This is the one rule that makes Phase 3 self-healing: only a conclusive run moves the temporal anchor forward.</div><div class="cb">if (!inconclusive) {\n  t.lastSuccessfulUpdateCheck = now;  // anchor advances\n  if (hasUpdate) {\n    t.summary = result.newSummary;\n    t.status = 'updated';\n    t.history.push({ type: 'updated', text: '…' });\n  } else {\n    t.history.push({ type: 'checked', text: 'no changes' });\n  }\n} else {\n  // anchor stays put; next scan will retry\n  t.history.push({ type: 'check-inconclusive', text: '…' });\n}</div>` },
+  history:{ t:'📚 Writeback — Single-Session Flow + Reconciliation',
+    b:`<div class="dd">This is the one rule that makes Phase 3 self-healing: only a conclusive run moves the temporal anchor forward. On top of that, Phase 3 also reconciles stale state <strong>without</strong> spawning a second session.</div><div class="cb">// 1️⃣  Retroactive heal at ENTRY (before the check runs):\n//     reconcileSummaryWithHistory(task)\n//     — if a past 'thread-update' history entry never made it\n//     into task.summary, rebuild the summary from history.\n\n// 2️⃣  Main write-back:\nif (!inconclusive) {\n  t.lastSuccessfulUpdateCheck = now;  // anchor advances\n  if (hasUpdate) {\n    t.status = 'updated';\n    if (result.newSummary)   t.summary = result.newSummary;\n    else  // fallback: prepend the raw update\n      t.summary = `🔴 **Update ${ts}:** ${result.updateSummary}\n                   \\n\\n---\\n\\n${t.summary || ''}`;\n    if (result.newTitle &amp;&amp; newTitle !== t.title)\n      t.title = result.newTitle;\n    if (validStatus(result.newStatus))\n      t.status = result.newStatus;\n  } else {\n    // 3️⃣  State reconciliation on the \"no update\" path:\n    //     if the model still returned newTitle / newStatus,\n    //     it spotted that the existing summary already says\n    //     \"approved / done\" — heal title + status in place.\n    if (result.newTitle)  t.title  = result.newTitle;\n    if (result.newStatus) t.status = result.newStatus;\n  }\n} else {\n  // anchor stays put; next scan will retry\n}</div><div class="dd"><span class="tag" style="background:rgba(57,255,20,.15);color:#39ff14">No second session</span> The old 2-session design (check + evaluate) was collapsed into one — the same prompt asks for both verdict AND refined summary/title/status.</div>` },
   ui:{ t:'✅ Card Updated',
     b:`<div class="dd">Three visual outcomes:</div><div class="dd"><span class="tag" style="background:rgba(57,255,20,.15);color:#39ff14">🆕 Updated</span> New content highlighted, summary refreshed.</div><div class="dd"><span class="tag" style="background:rgba(0,255,200,.15);color:#00ffc8">🔍 Checked</span> "No new messages since X" with timestamp.</div><div class="dd"><span class="tag" style="background:rgba(255,136,0,.15);color:#ff8800">⚠️ Inconclusive</span> No timestamp update — will retry next scan.</div><div class="dd" style="margin-top:10px;padding-top:10px;border-top:1px solid #606080"><strong>Dedicated log:</strong> every run also writes to <code>logs/phase3-YYYY-MM-DD.log</code> with task ID, session ID, query count, outcome — perfect for debugging.</div>` }
 };

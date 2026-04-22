@@ -1,6 +1,6 @@
 # Agent Zero — Architecture
 
-> Version 4.0.0 · April 22, 2026 · Author: Martin Hämmerli
+> Version 4.0.1 · April 22, 2026 · Author: Martin Hämmerli
 
 Agent Zero is a personal action-item tracker that scans Microsoft 365 emails and Teams messages for tasks,
 extracts content summaries, and monitors threads for updates — all powered by AI.
@@ -207,17 +207,31 @@ Used for update-intent rewriting and post-update refinement when the agent chang
 
 **Non-fatal:** Phase 4 failures are silently caught — the scan still completes successfully.
 
-### Scan Resilience Architecture (v4.0.0)
+### Job Orchestrator (v4.0.1)
 
-Since v4.0.0 the scan orchestration lives on the **server** (not in the browser). A client clicking "Scan" calls `POST /api/jobs/scan`, which creates a singleton `scan` job in the server-side job registry (`server.js` — `Job` class, `activeJobByTask` map, global `scanSingleton`). All four phases run in a server loop independent of the client; the UI is fed via a persistent SSE connection (`GET /api/events`) and keeps an atomic event cursor in `sessionStorage` for exactly-once delivery across refreshes.
+Since v4.0.0 the long-running work (`scan`, `log`, `check`) lives on the **server** in a generic job registry. v4.0.1 extends that registry to cover the two remaining AI-heavy operations (`merge`, `consolidate`) so that *every* non-trivial LLM call on Agent Zero survives a browser refresh.
 
-- **Browser refresh is harmless:** On reload the client calls `hydrateGlobalJobs()` (for `scan` / `consolidate`) **and** `hydrateActiveJobs()` (for per-task `log` jobs) from both `checkServerHealth()` and `fetchTasks()`. Each active job is re-painted from its persisted snapshot (`task.activeJob = { jobId, kind, status, startedAt, lastJobEventId, pendingClarification }`). SSE then resumes from the last cursor without dropping or duplicating events.
+The client initiates any long job with `POST /api/jobs { kind, input, clientRequestId }` and receives a 202 + `jobId`. From then on, SSE (`GET /api/events`) drives the UI; the client is a pure projection of server state.
+
+**Supported kinds (`SUPPORTED_JOB_KINDS` in `server.js`):**
+
+| kind | Runner | Input | Emits on completion | Singleton? |
+|---|---|---|---|---|
+| `scan` | `runScanJob` | `{ scanDays }` | Phase summaries (added/updated/skipped, processed counts, suggestions) | Yes (global) |
+| `merge` | `runMergeJob` | `{ taskIds, suggestedTitle? }` | `{ taskId, title }` of the merged task | Yes (global) |
+| `consolidate` | `runConsolidateJob` | `{}` | `{ suggestions: [...] }` | Yes (global) |
+
+All kinds share: `Job` class, `activeJobByTask` / `globalActiveJobByKind` maps, `persistJobSnapshot` → `jobs.json`, idempotency cache on `clientRequestId`, SSE fan-out with a monotonic `globalEventSeq`.
+
+**Internal delegation pattern:** the new runners do not duplicate business logic — they perform an internal HTTP POST to the pre-existing legacy endpoints (`/api/tasks/merge`, `/api/consolidate`). This is the same pattern `runScanJob` uses for Phases 1-4, keeps the failure modes identical, and minimises regression risk.
+
+- **Browser refresh is harmless:** On reload the client calls `hydrateGlobalJobs()` (for `scan` / `consolidate` / `merge`) **and** `hydrateActiveJobs()` (for per-task `log` jobs) from both `checkServerHealth()` and `fetchTasks()`. Each active job is re-painted from its persisted snapshot (`task.activeJob = { jobId, kind, status, startedAt, lastJobEventId, pendingClarification }` for per-task jobs, `jobs.json` for global jobs). SSE then resumes from the last cursor without dropping or duplicating events.
+- **Double-click safety:** `clientRequestId` + `tryAcquireSingleton(kind)` together guarantee that a second click on Merge / Find Duplicates returns 409 with the `existingJobId` instead of starting a parallel operation.
 - **Phase 1 is non-fatal:** discovery failures are recorded in the scan report; Phase 2+ continue with already-known tasks.
 - **Phase-independent processing:** Phase 2 processes all `enrichmentStatus: 'pending'` tasks; Phase 3 processes `enriched` / `needs-review` tasks.
 - **Per-task retry:** enrichment and update-check each retry once after a 3-second delay before marking the task failed.
-- **Scan singleton:** the server-side `scanSingleton` blocks concurrent scans cluster-wide (not just per browser tab); `POST /api/jobs/scan` returns 409 with the existing `jobId` for idempotent re-clicks.
 - **Visual freeze preservation:** `frozenTasks` Set + `renderTasks` preservation branch + `updateTaskJobUi` (running → add to Set, finished → remove) keep the "⏳ Agent working…" badge and step-active dot stable across scan events and log-job events on the same task (`window.__scanHoldsFreezeFor` sentinel prevents one job from stealing another's freeze). `refreshSingleTask` skips DOM replace for frozen tasks so active badges are never nuked mid-operation.
-- **Build marker:** `GET /api/version` returns the short git SHA so the UI footer displays `v4.0.0 (abcd123)`; proof the browser is serving the expected build.
+- **Build marker:** `GET /api/version` returns the short git SHA so the UI footer displays `v4.0.1 (abcd123)`; proof the browser is serving the expected build.
 
 ### Visual Step Indicators
 
@@ -650,8 +664,14 @@ Agent_Zero/
 │   ├── SEARCH_SKILL.md         Intelligent search skill (v2.2)
 │   ├── CORRECT_SKILL.md        Correction verification skill (v2.6)
 │   ├── LOG_WORK_SKILL.md       Legacy work logging skill (fallback)
-│   ├── FEATURE_INVENTORY_Claude_Code_Codex_Analyse.md  Code review results
+│   ├── phase-1-discovery.html  Interactive Phase 1 walkthrough (v4.0.1)
+│   ├── phase-2-enrichment.html Interactive Phase 2 walkthrough (v4.0.1)
+│   ├── phase-3-update-check.html Interactive Phase 3 walkthrough (v4.0.1)
+│   ├── phase-4-consolidate.html Interactive Phase 4 walkthrough (v4.0.1)
+│   ├── AGENT_ZERO_PRESENTATION.html  Demo presentation
+│   ├── BUBBLE_EDITOR_GUIDE.md  Presentation bubble editor guide
 │   ├── VIDEO_DESCRIPTION.md    Video script foundation
+│   ├── Final Video/            Final video assets
 │   └── archive/               Previous document versions
 ├── Specifactions/
 │   └── AGENT_ZERO_SPEC.md         Product specification

@@ -1,6 +1,6 @@
 # Agent Zero
 
-> Version 4.0.0 · A personal AI-powered action-item tracker for Microsoft 365
+> Version 4.0.1 · A personal AI-powered action-item tracker for Microsoft 365
 
 **Author:** Martin Hämmerli · [martih@microsoft.com](mailto:martih@microsoft.com)
 
@@ -300,7 +300,7 @@ schtasks /create /xml "WorkIQ-Scan-Task.xml" /tn "WorkIQ-Scan"
 Agent_Zero/
 ├── server.js                    Express backend (API + AI orchestration)
 ├── index.html                   Single-file frontend (HTML + CSS + JS)
-├── package.json                 Dependencies (v4.0.0)
+├── package.json                 Dependencies (v4.0.1)
 ├── mcp.json                     MCP server configuration (Work IQ)
 ├── tasks.json                   Local task storage (gitignored)
 ├── AGENTS.md                    Agent behavior documentation
@@ -316,11 +316,16 @@ Agent_Zero/
 │   ├── SCAN_DISCOVERY_SKILL.md  Phase 1 prompt template
 │   ├── ENRICH_SKILL.md          Phase 2 prompt template
 │   ├── UPDATE_CHECK_SKILL.md    Phase 3 prompt template
+│   ├── CONSOLIDATE_SKILL.md     Phase 4 prompt template
 │   ├── SEARCH_SKILL.md          Intelligent search prompt template (v2.2)
 │   ├── CORRECT_SKILL.md         Correction verification prompt (v2.6)
-│   ├── SCAN_SKILL.md            Legacy scan skill (fallback)
 │   ├── LOG_WORK_SKILL.md        Legacy work logging prompt (fallback)
-│   ├── FEATURE_INVENTORY_Claude_Code_Codex_Analyse.md  Code review results
+│   ├── phase-1-discovery.html   Interactive Phase 1 walkthrough (v4.0.1)
+│   ├── phase-2-enrichment.html  Interactive Phase 2 walkthrough (v4.0.1)
+│   ├── phase-3-update-check.html Interactive Phase 3 walkthrough (v4.0.1)
+│   ├── phase-4-consolidate.html Interactive Phase 4 walkthrough (v4.0.1)
+│   ├── AGENT_ZERO_PRESENTATION.html  Demo presentation
+│   ├── BUBBLE_EDITOR_GUIDE.md   Presentation bubble editor guide
 │   ├── VIDEO_DESCRIPTION.md     Video script foundation
 │   ├── Final Video/             Final video assets
 │   └── archive/                 Archived documentation

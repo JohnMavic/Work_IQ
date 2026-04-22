@@ -99,6 +99,7 @@ svg#flow{width:100%;height:100%}
   <div id="header">
     <h1>AGENT ZERO · PHASE 2</h1>
     <span class="sub">Enrichment — How Agent Zero reads the full conversation and writes a summary</span>
+    <span style="margin-left:12px;padding:3px 8px;background:rgba(0,255,200,.12);border:1px solid rgba(0,255,200,.35);border-radius:4px;font-size:10px;color:#00ffc8;letter-spacing:1px;font-weight:700">v4.0.1</span>
     <div id="controls">
       <div id="speed-ctl">
         <span>Speed</span>
@@ -138,7 +139,9 @@ svg#flow{width:100%;height:100%}
 
 /* ══════════════════════════════════════════════════════════════════
    PHASE 2 — ENRICHMENT
-   Source: server.js  POST /api/tasks/:id/enrich  (lines 1434–1606)
+   Source: server.js  POST /api/tasks/:id/enrich  (lines 2790–2961)
+   Orchestrator (v4.0.0+): runScanJob drives Phase 2 sequentially,
+   one enrich per pending task, via internal HTTP POST.
    ══════════════════════════════════════════════════════════════════ */
 
 const NODES = [
@@ -209,7 +212,7 @@ While this card was waiting, another request might have already enriched it, so 
     letter:{ icon:'✨', type:'GITHUB COPILOT · SDK', color:'#d0dcf0',
       body:`A fresh GitHub Copilot SDK session is opened (via @github/copilot-sdk).
 
-It receives the full instruction, plus one tool called ask_work_iq — the bridge to Microsoft 365. Whenever the AI wants to actually read the email or Teams thread, it calls this tool and Work IQ fetches the real content from M365.
+It receives the full instruction, plus two tools: ask_work_iq (a single M365 search) and parallel_search (up to five M365 searches at once). Whenever the AI wants to actually read the email or Teams thread, it calls one of these tools and Work IQ fetches the real content from M365.
 
 From here on, Copilot is the decision-maker: what the task is about, what is urgent, and what is still unclear.` }},
 
@@ -261,7 +264,7 @@ const DETAILS = {
   slot:{ t:'🚦 SDK Slot — Concurrency Gate',
     b:`<div class="dd">Copilot SDK sessions are expensive to spawn. A semaphore caps how many can run at the same time.</div><div class="cb">await waitForSDKSlot();\n\n// After acquiring — re-check the task\nconst slotCheck = readTasks();\nconst slotTask = slotCheck.tasks.find(t =&gt; t.id === id);\nif (['enriched','needs-review'].includes(slotTask.enrichmentStatus)) {\n  return { alreadyEnriched: true };\n}</div><div class="dd">This double-check handles the race where two requests queue for the same task.</div>` },
   session:{ t:'🤖 Copilot SDK Session',
-    b:`<div class="dd">A fresh session is created for every enrichment — no shared state, no cross-contamination.</div><div class="cb">client = new CopilotClient();\nsession = trackSession(await client.createSession({\n  tools: [askWorkIQTool],\n  onPermissionRequest: approveAll\n}));\n\nconst response = await runWithWiqGuard(\n  session, enrichPrompt, 600000  // 10 min hard cap\n);</div><div class="dd"><span class="tag" style="background:rgba(255,136,0,.15);color:#ff8800">runWithWiqGuard</span> wraps <code>sendAndWait</code> with a watchdog that restarts Work IQ if it crashes mid-call.</div>` },
+    b:`<div class="dd">A fresh session is created for every enrichment — no shared state, no cross-contamination. The session is given <strong>two</strong> tools: a single-query <code>ask_work_iq</code> and a batched <code>parallel_search</code> for up-to-5 concurrent M365 queries.</div><div class="cb">client = new CopilotClient();\nsession = trackSession(await client.createSession({\n  tools: [askWorkIQTool, parallelSearchTool],\n  onPermissionRequest: approveAll\n}));\nlinkClientToSession(session, client);\n\nconst response = await runWithWiqGuard(\n  session, enrichPrompt, 600000  // 10 min hard cap\n);</div><div class="dd"><span class="tag" style="background:rgba(255,136,0,.15);color:#ff8800">runWithWiqGuard</span> wraps <code>sendAndWait</code> with a watchdog that restarts Work IQ if it crashes mid-call.<br><span class="tag" style="background:rgba(180,77,255,.15);color:#b44dff">parallel_search</span> lets Copilot fan out several questions in one turn — useful when the first keyword set might not match.</div>` },
   m365:{ t:'☁️ Work IQ — M365 Data Access',
     b:`<div class="dd">The agent decides when and how to call <code>ask_work_iq</code>. A typical enrichment uses 1–2 calls. Work IQ (<code>@microsoft/workiq</code>) is a Microsoft MCP server that queries M365 Graph for emails and Teams messages.</div><div class="cb">ask_work_iq({\n  question: "Find the Teams conversation\n    about Radon upgrade approval,\n    sender Sarah M., around 2026-04-15.\n    Return ALL messages in the thread."\n});</div><div class="dd">Note: this is <strong>not</strong> the "Microsoft 365 Copilot" product (the Copilot in Word/Outlook). It is Microsoft Work IQ — a programmatic MCP bridge to M365.</div>` },
   response:{ t:'📦 JSON Result — Strict Contract',

@@ -223,8 +223,8 @@ location.reload();
   - Added ~670 lines of JavaScript (lines 1850-2520)
 
 ## Version
-- Built: March 2026
-- Compatible with: Agent Zero v4.0.0
+- Built: March 2026 (v4.0.0 bubble editor) — still compatible through v4.0.1
+- Compatible with: Agent Zero v4.0.1
 - Browser requirements: Modern browsers with ES6+, IntersectionObserver
 
 ---

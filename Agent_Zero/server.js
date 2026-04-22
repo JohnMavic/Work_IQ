@@ -4308,22 +4308,146 @@ async function runScanJob(job) {
   }
 }
 
+// ============================================================================
+// v4.0.1 — Merge Job runner
+// ============================================================================
+// A 'merge' job is the server-side driver for POST /api/tasks/merge. Same
+// rationale as scan: the merge AI call can take up to 90 s, so it must
+// survive a browser refresh. The runner delegates the actual work to the
+// existing /api/tasks/merge endpoint via internal HTTP, exactly like
+// runScanJob does for /api/consolidate.
+//
+// Input:   { taskIds: string[], suggestedTitle?: string }
+// Output:  { task: {...merged task...} }
 // ----------------------------------------------------------------------------
-// POST /api/jobs — generic job creator (currently only kind='scan').
+
+async function runMergeJob(job) {
+  const baseUrl = `http://127.0.0.1:${PORT}`;
+  job.status = 'running';
+  job.startedAt = new Date().toISOString();
+  job.progress = { phase: 'merge', totalItems: (job.input?.taskIds || []).length };
+  job.emit('job.started', { kind: 'merge', taskIds: job.input?.taskIds || [] });
+  await persistJobSnapshot(job);
+
+  try {
+    const r = await fetch(`${baseUrl}/api/tasks/merge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(job.input || {})
+    });
+    const payload = await r.json().catch(() => ({}));
+    if (!r.ok || !payload.success) {
+      throw new Error(payload.error || payload.detail || `HTTP ${r.status}`);
+    }
+    job.status = 'completed';
+    job.completedAt = new Date().toISOString();
+    job.result = { task: payload.task };
+    job.emit('job.completed', {
+      kind: 'merge',
+      taskId: payload.task && payload.task.id,
+      title: payload.task && payload.task.title
+    });
+    unregisterActiveJob(job);
+    await persistJobSnapshot(job);
+  } catch (err) {
+    console.error(`[MERGE-JOB] ${job.id} failed: ${err.message}`);
+    if (!['completed', 'failed', 'cancelled'].includes(job.status)) {
+      job.status = 'failed';
+      job.error = err.message || String(err);
+      job.completedAt = new Date().toISOString();
+      job.emit('job.failed', { kind: 'merge', error: job.error });
+      unregisterActiveJob(job);
+      try { await persistJobSnapshot(job); } catch {}
+    }
+  }
+}
+
+// ============================================================================
+// v4.0.1 — Consolidate Job runner
+// ============================================================================
+// A 'consolidate' job is the standalone server-side driver for the
+// "Find Duplicates" button. (The 4-phase scan job still calls /api/consolidate
+// directly via internal HTTP — that internal call does NOT spawn a separate
+// job.) The consolidate AI call can take up to 300 s, so a refresh-resilient
+// job wrapper is essential.
+//
+// Output:  { suggestions: [...] }
+// ----------------------------------------------------------------------------
+
+async function runConsolidateJob(job) {
+  const baseUrl = `http://127.0.0.1:${PORT}`;
+  job.status = 'running';
+  job.startedAt = new Date().toISOString();
+  job.progress = { phase: 'consolidate' };
+  job.emit('job.started', { kind: 'consolidate' });
+  await persistJobSnapshot(job);
+
+  try {
+    const r = await fetch(`${baseUrl}/api/consolidate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}'
+    });
+    const payload = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      throw new Error(payload.error || payload.reason || `HTTP ${r.status}`);
+    }
+    job.status = 'completed';
+    job.completedAt = new Date().toISOString();
+    job.result = { suggestions: payload.suggestions || [] };
+    job.emit('job.completed', {
+      kind: 'consolidate',
+      suggestions: payload.suggestions || []
+    });
+    unregisterActiveJob(job);
+    await persistJobSnapshot(job);
+  } catch (err) {
+    console.error(`[CONSOLIDATE-JOB] ${job.id} failed: ${err.message}`);
+    if (!['completed', 'failed', 'cancelled'].includes(job.status)) {
+      job.status = 'failed';
+      job.error = err.message || String(err);
+      job.completedAt = new Date().toISOString();
+      job.emit('job.failed', { kind: 'consolidate', error: job.error });
+      unregisterActiveJob(job);
+      try { await persistJobSnapshot(job); } catch {}
+    }
+  }
+}
+
+// ----------------------------------------------------------------------------
+// POST /api/jobs — generic job creator.
 // Body: { kind, input?, clientRequestId? }
+// Supported kinds: 'scan', 'merge', 'consolidate'
 // Responses:
 //   202 { jobId, status:'queued' }              — new job started
 //   202 { jobId, status, idempotent:true }      — same clientRequestId, same body
 //   409 { error, existingJobId }                — singleton already running, or conflict
 //   400 { error }                               — unsupported kind / missing field
 // ----------------------------------------------------------------------------
+const SUPPORTED_JOB_KINDS = {
+  scan: runScanJob,
+  merge: runMergeJob,
+  consolidate: runConsolidateJob
+};
+
 app.post('/api/jobs', async (req, res) => {
   const { kind, input = {}, clientRequestId = null } = req.body || {};
   if (!kind || typeof kind !== 'string') {
     return res.status(400).json({ error: 'kind is required' });
   }
-  if (kind !== 'scan') {
-    return res.status(400).json({ error: `kind='${kind}' not supported yet (only 'scan')` });
+  const runner = SUPPORTED_JOB_KINDS[kind];
+  if (!runner) {
+    return res.status(400).json({
+      error: `kind='${kind}' not supported (supported: ${Object.keys(SUPPORTED_JOB_KINDS).join(', ')})`
+    });
+  }
+
+  // Per-kind input validation
+  if (kind === 'merge') {
+    const ids = input && input.taskIds;
+    if (!Array.isArray(ids) || ids.length < 2) {
+      return res.status(400).json({ error: 'merge requires input.taskIds with >= 2 entries' });
+    }
   }
 
   const bodyHash = hashBody({ kind, input });
@@ -4354,12 +4478,12 @@ app.post('/api/jobs', async (req, res) => {
   await persistJobSnapshot(job);
 
   setImmediate(() => {
-    runScanJob(job).catch(err => {
-      console.error(`[SCAN-JOB] unhandled: ${err.stack || err.message}`);
+    runner(job).catch(err => {
+      console.error(`[${kind.toUpperCase()}-JOB] unhandled: ${err.stack || err.message}`);
       if (!['completed', 'failed', 'cancelled'].includes(job.status)) {
         job.status = 'failed';
         job.error = `Unhandled: ${err.message}`;
-        try { job.emit('job.failed', { error: job.error }); } catch {}
+        try { job.emit('job.failed', { kind, error: job.error }); } catch {}
         unregisterActiveJob(job);
       }
     });

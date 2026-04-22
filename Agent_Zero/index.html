@@ -1230,6 +1230,10 @@
   // v4.0.0-rc.1 — server-driven scan job state. When non-null, a scan job is
   // owned by the server and this page is merely rendering its SSE updates.
   let activeScanJob = null;
+  // v4.0.1 — server-driven consolidate / merge jobs (same resilience as scan).
+  // Set when a job is owned by the server; cleared on job.completed/failed/cancelled.
+  let activeConsolidateJob = null;
+  let activeMergeJob = null;    // { jobId, taskIds, source: 'bar' | 'banner' }
   let scanUiTimerInterval = null;
   let selectedTaskId = localStorage.getItem('selectedTaskId') || null;
   let mergeMode = false;
@@ -1718,33 +1722,92 @@
     if (abortBtn) abortBtn.style.display = '';
   }
 
+  // v4.0.1 — Find Duplicates runs as a server-side job (kind='consolidate').
+  // This button only kicks off the job; job.completed via SSE drives the UI.
   async function triggerFindDuplicates() {
+    if (activeConsolidateJob) {
+      showNotification('Duplicate search already running — please wait.', 'info');
+      return;
+    }
     const btn = document.getElementById('btnFindDuplicates');
-    const origText = btn.textContent;
+    btn.dataset.origText = btn.textContent;
     btn.disabled = true;
     btn.textContent = '🔗 Analyzing...';
     showHeaderProgress('Finding duplicates — analyzing task relationships...');
 
     try {
-      const res = await fetch('/api/consolidate', { method: 'POST' });
-      const data = await res.json();
-      if (data.suggestions && data.suggestions.length > 0) {
-        showConsolidationBanner(data.suggestions);
-        showNotification(`${data.suggestions.length} potential duplicate(s) found`, 'success');
-      } else {
-        showNotification('No duplicates found — all action items are unique', 'success');
+      const clientRequestId = `consol-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const r = await fetch('/api/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'consolidate', input: {}, clientRequestId })
+      });
+      const data = await r.json().catch(() => ({}));
+      if (r.status === 409) {
+        showNotification('A duplicate search is already running on the server.', 'error');
+        if (data.existingJobId) activeConsolidateJob = data.existingJobId;
+        return;
       }
+      if (!r.ok || !data.jobId) {
+        throw new Error(data.error || `HTTP ${r.status}`);
+      }
+      activeConsolidateJob = data.jobId;
+      // From here on, SSE drives the UI (handleConsolidateJobEvent).
     } catch (err) {
       if (err.name === 'TypeError' && err.message.includes('fetch')) {
         setServerStatus(false);
       } else {
         showNotification('Duplicate check failed: ' + err.message, 'error');
       }
-    } finally {
       hideHeaderProgress();
       btn.disabled = false;
-      btn.textContent = origText;
+      btn.textContent = btn.dataset.origText || '🔗 Find Duplicates';
+      delete btn.dataset.origText;
     }
+  }
+
+  function resetFindDuplicatesButton() {
+    const btn = document.getElementById('btnFindDuplicates');
+    if (!btn) return;
+    btn.disabled = false;
+    btn.textContent = btn.dataset.origText || '🔗 Find Duplicates';
+    delete btn.dataset.origText;
+  }
+
+  // v4.0.1 — SSE handler for consolidate jobs.
+  function handleConsolidateJobEvent(ev) {
+    if (ev.kind !== 'consolidate') return false;
+    const { type, payload = {}, jobId } = ev;
+    switch (type) {
+      case 'job.started':
+        activeConsolidateJob = jobId;
+        break;
+      case 'job.completed': {
+        activeConsolidateJob = null;
+        hideHeaderProgress();
+        resetFindDuplicatesButton();
+        const suggestions = (payload && payload.suggestions) || [];
+        if (suggestions.length > 0) {
+          showConsolidationBanner(suggestions);
+          showNotification(`${suggestions.length} potential duplicate(s) found`, 'success');
+        } else {
+          showNotification('No duplicates found — all action items are unique', 'success');
+        }
+        break;
+      }
+      case 'job.failed':
+        activeConsolidateJob = null;
+        hideHeaderProgress();
+        resetFindDuplicatesButton();
+        showNotification('Duplicate check failed: ' + (payload.error || 'unknown'), 'error');
+        break;
+      case 'job.cancelled':
+        activeConsolidateJob = null;
+        hideHeaderProgress();
+        resetFindDuplicatesButton();
+        break;
+    }
+    return true;
   }
 
   // --- Merge Mode ---
@@ -1817,38 +1880,46 @@
     document.body.appendChild(bar);
   }
 
+  // v4.0.1 — Merge from bottom merge-bar runs as a server-side job (kind='merge').
+  // Survives refresh: jobs.json persists, SSE drives completion UI.
   async function executeMergeFromBar() {
     if (selectedForMerge.size < 2) return;
+    if (activeMergeJob) {
+      showNotification('A merge is already running — please wait.', 'info');
+      return;
+    }
     const taskIds = [...selectedForMerge];
     const mergeBtn = document.querySelector('.btn-do-merge');
     if (mergeBtn) { mergeBtn.disabled = true; mergeBtn.textContent = '⏳ Merging...'; }
     showHeaderProgress(`Merging ${taskIds.length} tasks — generating combined summary...`);
 
     try {
-      const res = await fetch('/api/tasks/merge', {
+      const clientRequestId = `merge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const r = await fetch('/api/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskIds })
+        body: JSON.stringify({ kind: 'merge', input: { taskIds }, clientRequestId })
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        toggleMergeMode();
-        showNotification(`✅ ${taskIds.length} tasks merged into: "${data.task.title}"`, 'success');
-        await fetchTasks();
-        selectTask(data.task.id);
-      } else {
-        showNotification('Merge failed: ' + (data.error || 'Unknown error'), 'error');
+      const data = await r.json().catch(() => ({}));
+      if (r.status === 409) {
+        showNotification('A merge is already running on the server.', 'error');
+        if (data.existingJobId) activeMergeJob = { jobId: data.existingJobId, taskIds, source: 'bar' };
         if (mergeBtn) { mergeBtn.disabled = false; mergeBtn.textContent = `🔗 Merge ${taskIds.length} Tasks`; }
+        return;
       }
+      if (!r.ok || !data.jobId) {
+        throw new Error(data.error || `HTTP ${r.status}`);
+      }
+      activeMergeJob = { jobId: data.jobId, taskIds, source: 'bar' };
+      // SSE (handleMergeJobEvent) drives the rest.
     } catch (err) {
+      hideHeaderProgress();
       if (err.name === 'TypeError' && err.message.includes('fetch')) {
         setServerStatus(false);
       } else {
         showNotification('Merge failed: ' + err.message, 'error');
       }
       if (mergeBtn) { mergeBtn.disabled = false; mergeBtn.textContent = `🔗 Merge ${taskIds.length} Tasks`; }
-    } finally {
-      hideHeaderProgress();
     }
   }
 
@@ -1882,35 +1953,95 @@
   }
 
   async function handleMerge(btn) {
+    if (activeMergeJob) {
+      showNotification('A merge is already running — please wait.', 'info');
+      return;
+    }
     const card = btn.closest('.merge-suggestion');
     const taskIds = JSON.parse(card.dataset.taskIds);
     btn.disabled = true;
     btn.textContent = '⏳ Merging...';
 
     try {
-      const res = await fetch('/api/tasks/merge', {
+      const clientRequestId = `merge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const r = await fetch('/api/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskIds })
+        body: JSON.stringify({ kind: 'merge', input: { taskIds }, clientRequestId })
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        card.remove();
-        showNotification(`Tasks merged into: "${data.task.title}"`, 'success');
-        await fetchTasks();
-        // Remove banner if no suggestions left
-        const banner = document.querySelector('.consolidation-banner');
-        if (banner && !banner.querySelector('.merge-suggestion')) banner.remove();
-      } else {
-        showNotification('Merge failed: ' + (data.error || 'Unknown error'), 'error');
+      const data = await r.json().catch(() => ({}));
+      if (r.status === 409) {
+        showNotification('A merge is already running on the server.', 'error');
         btn.disabled = false;
         btn.textContent = '🔗 Merge';
+        return;
       }
+      if (!r.ok || !data.jobId) {
+        throw new Error(data.error || `HTTP ${r.status}`);
+      }
+      activeMergeJob = { jobId: data.jobId, taskIds, source: 'banner' };
+      // SSE (handleMergeJobEvent) finishes the UI. Store card ref for removal.
+      card.dataset.mergeJobId = data.jobId;
     } catch (err) {
       showNotification('Merge failed: ' + err.message, 'error');
       btn.disabled = false;
       btn.textContent = '🔗 Merge';
     }
+  }
+
+  // v4.0.1 — SSE handler for merge jobs.
+  function handleMergeJobEvent(ev) {
+    if (ev.kind !== 'merge') return false;
+    const { type, payload = {}, jobId } = ev;
+    switch (type) {
+      case 'job.started':
+        if (!activeMergeJob) activeMergeJob = { jobId, taskIds: [], source: 'bar' };
+        break;
+      case 'job.completed': {
+        const source = activeMergeJob && activeMergeJob.source;
+        const nTasks = (activeMergeJob && activeMergeJob.taskIds && activeMergeJob.taskIds.length) || 2;
+        activeMergeJob = null;
+        hideHeaderProgress();
+
+        if (source === 'banner') {
+          const card = document.querySelector(`.merge-suggestion[data-merge-job-id="${jobId}"]`);
+          if (card) card.remove();
+          const banner = document.querySelector('.consolidation-banner');
+          if (banner && !banner.querySelector('.merge-suggestion')) banner.remove();
+          showNotification(`Tasks merged into: "${payload.title || 'merged task'}"`, 'success');
+        } else {
+          if (mergeMode) toggleMergeMode();
+          showNotification(`✅ ${nTasks} tasks merged into: "${payload.title || 'merged task'}"`, 'success');
+        }
+        fetchTasks().then(() => {
+          if (payload.taskId) selectTask(payload.taskId);
+        }).catch(() => {});
+        break;
+      }
+      case 'job.failed': {
+        const source = activeMergeJob && activeMergeJob.source;
+        activeMergeJob = null;
+        hideHeaderProgress();
+        showNotification('Merge failed: ' + (payload.error || 'unknown'), 'error');
+        if (source === 'banner') {
+          const card = document.querySelector(`.merge-suggestion[data-merge-job-id="${jobId}"]`);
+          if (card) {
+            const btn = card.querySelector('.btn-merge');
+            if (btn) { btn.disabled = false; btn.textContent = '🔗 Merge'; }
+            delete card.dataset.mergeJobId;
+          }
+        } else {
+          const mergeBtn = document.querySelector('.btn-do-merge');
+          if (mergeBtn) { mergeBtn.disabled = false; mergeBtn.textContent = '🔗 Merge Tasks'; }
+        }
+        break;
+      }
+      case 'job.cancelled':
+        activeMergeJob = null;
+        hideHeaderProgress();
+        break;
+    }
+    return true;
   }
 
   async function handleKeepSeparate(btn) {
@@ -3840,9 +3971,10 @@
   }
 
   function handleJobEvent(ev) {
-    // Route scan jobs separately so their envelope (taskId=null) doesn't
-    // trip the early return in the legacy task-centric handler.
+    // Route global jobs (taskId=null) by kind.
     if (ev.kind === 'scan') return handleScanJobEvent(ev);
+    if (ev.kind === 'consolidate') return handleConsolidateJobEvent(ev);
+    if (ev.kind === 'merge') return handleMergeJobEvent(ev);
     const jobId = ev.jobId;
     const taskId = ev.taskId;
     if (!jobId || !taskId) return;
@@ -4007,6 +4139,25 @@
           };
           if (labels[p.phase]) loadingText.textContent = labels[p.phase];
         }
+      }
+      // v4.0.1 — restore active merge / consolidate jobs on refresh so the UI
+      // doesn't silently lose track of a 90–300 s AI call in progress.
+      const consol = list.find(j => j.kind === 'consolidate' && !['completed', 'failed', 'cancelled'].includes(j.status));
+      if (consol) {
+        activeConsolidateJob = consol.jobId;
+        const btn = document.getElementById('btnFindDuplicates');
+        if (btn) {
+          btn.dataset.origText = btn.textContent;
+          btn.disabled = true;
+          btn.textContent = '🔗 Analyzing...';
+        }
+        showHeaderProgress('Finding duplicates — analyzing task relationships...');
+      }
+      const merge = list.find(j => j.kind === 'merge' && !['completed', 'failed', 'cancelled'].includes(j.status));
+      if (merge) {
+        const taskIds = (merge.input && merge.input.taskIds) || [];
+        activeMergeJob = { jobId: merge.jobId, taskIds, source: 'bar' };
+        showHeaderProgress(`Merging ${taskIds.length || ''} tasks — generating combined summary...`);
       }
       // Seed SSE cursor for boot-race safety (if sessionStorage is empty).
       if (typeof data.snapshotEventId === 'number' && !sessionStorage.getItem('sseLastEventId')) {
