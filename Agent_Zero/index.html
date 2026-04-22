@@ -3938,7 +3938,13 @@
     const tasksWithJobs = (tasks || []).filter(t => t.activeJob);
     if (tasksWithJobs.length === 0) return;
     await Promise.all(tasksWithJobs.map(async (t) => {
-      const jobId = t.activeJob;
+      // v4.0.0-rc.1 — t.activeJob is an object since PR1 (server-side job
+      // registry persists {jobId, kind, status, startedAt, ...}). Fall back
+      // to string for forward-compat with any legacy snapshot.
+      const jobId = (t.activeJob && typeof t.activeJob === 'object')
+        ? t.activeJob.jobId
+        : t.activeJob;
+      if (!jobId) return;
       try {
         const r = await fetch(`/api/jobs/${jobId}`);
         if (!r.ok) return;
@@ -4012,7 +4018,11 @@
 
   fetch('/api/version').then(r => r.json()).then(d => {
     const el = document.getElementById('appVersion');
-    if (el && d.version) el.textContent = `v${d.version}`;
+    if (el && d.version) {
+      el.textContent = d.commit ? `v${d.version} (${d.commit})` : `v${d.version}`;
+      el.title = `Build ${d.commit || 'unknown'} — reload to refresh`;
+    }
+    if (d.commit) console.log(`[Agent Zero] v${d.version} build ${d.commit}`);
   }).catch(() => {});
 
   // Auto-trigger scan when opened with ?autoScan=true (used by scheduled task)
