@@ -1285,7 +1285,12 @@ function storeIdempotency(key, jobId, bodyHash) {
 }
 
 // Persist only the JSON-safe slice of a job to task.activeJob.
+// v4.0.0-rc.1 — when job.taskId is null (global jobs like 'scan'), delegates
+// to persistGlobalJobSnapshot which writes to jobs.json instead.
 async function persistJobSnapshot(job) {
+  if (!job.taskId) {
+    return persistGlobalJobSnapshot(job);
+  }
   await safeWriteTasks((data) => {
     const t = data.tasks.find(x => x.id === job.taskId);
     if (!t) return null;
@@ -1378,6 +1383,9 @@ class Job {
     this.lastJobEventId = 0;
     this.sdkSessionId = null;
     this._session = null;             // transient, not serialised
+    // v4.0.0-rc.1 — progress fields for global (multi-phase) jobs like 'scan'.
+    // Shape: { phase, phaseStartedAt, currentItemIndex, totalItems, currentTaskId }
+    this.progress = null;
   }
 
   emit(type, payload = {}) {
@@ -1452,29 +1460,139 @@ class Job {
       lastJobEventId: this.lastJobEventId,
       serverInstanceId: SERVER_INSTANCE_ID,
       clientRequestId: this.clientRequestId,
-      sdkSessionId: this.sdkSessionId
+      sdkSessionId: this.sdkSessionId,
+      progress: this.progress
     };
   }
 }
 
 // Register a job in the in-memory maps. Call AFTER persistJobSnapshot succeeded.
+// v4.0.0-rc.1 — supports null taskId for global jobs ('scan', 'consolidate'),
+// which are tracked in globalActiveJobByKind (singleton semantics).
 function registerJob(job) {
   jobs.set(job.id, job);
-  let set = jobsByTask.get(job.taskId);
-  if (!set) { set = new Set(); jobsByTask.set(job.taskId, set); }
-  set.add(job.id);
-  activeJobByTask.set(job.taskId, job.id);
+  if (job.taskId) {
+    let set = jobsByTask.get(job.taskId);
+    if (!set) { set = new Set(); jobsByTask.set(job.taskId, set); }
+    set.add(job.id);
+    activeJobByTask.set(job.taskId, job.id);
+  } else {
+    globalActiveJobByKind.set(job.kind, job.id);
+  }
 }
 
 function unregisterActiveJob(job) {
-  if (activeJobByTask.get(job.taskId) === job.id) {
-    activeJobByTask.delete(job.taskId);
+  if (job.taskId) {
+    if (activeJobByTask.get(job.taskId) === job.id) {
+      activeJobByTask.delete(job.taskId);
+    }
+  } else {
+    if (globalActiveJobByKind.get(job.kind) === job.id) {
+      globalActiveJobByKind.delete(job.kind);
+    }
   }
 }
 
 // Expose to future phases (Phase γ.B runner will be wired here).
 // eslint-disable-next-line no-unused-vars
 const __gammaA = { Job, jobs, jobsByTask, activeJobByTask, idempotencyMap, sseBroker, registerJob, unregisterActiveJob, persistJobSnapshot, hashBody, checkIdempotency, storeIdempotency };
+
+// ============================================================================
+// Phase γ.A.2 — Global (non-task-bound) job registry (v4.0.0-rc.1)
+// ============================================================================
+// Jobs whose lifecycle spans multiple tasks (like a 4-phase 'scan') live here.
+// They persist to jobs.json so a browser refresh can hydrate from server state,
+// and a server restart can tombstone them as 'failed:server-restart' without
+// losing the history.
+// ----------------------------------------------------------------------------
+
+const JOBS_FILE = path.join(__dirname, 'jobs.json');
+const GLOBAL_JOBS_HISTORY_CAP = 100;
+const globalActiveJobByKind = new Map();   // 'scan' | 'consolidate' → jobId
+
+function readJobsFile() {
+  try {
+    if (!fs.existsSync(JOBS_FILE)) return { jobs: [] };
+    const raw = fs.readFileSync(JOBS_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.jobs)) return { jobs: [] };
+    return parsed;
+  } catch (err) {
+    console.error(`[GAMMA.A2] readJobsFile failed: ${err.message}`);
+    return { jobs: [] };
+  }
+}
+
+function writeJobsFile(data) {
+  try {
+    fs.writeFileSync(JOBS_FILE, JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.error(`[GAMMA.A2] writeJobsFile failed: ${err.message}`);
+  }
+}
+
+async function persistGlobalJobSnapshot(job) {
+  const data = readJobsFile();
+  const snap = {
+    ...job.snapshot(),
+    lastUpdate: Date.now()
+  };
+  const idx = data.jobs.findIndex(j => j.jobId === job.id);
+  if (idx >= 0) data.jobs[idx] = snap;
+  else data.jobs.push(snap);
+  // Trim history (keep most recent)
+  if (data.jobs.length > GLOBAL_JOBS_HISTORY_CAP) {
+    data.jobs = data.jobs.slice(-GLOBAL_JOBS_HISTORY_CAP);
+  }
+  writeJobsFile(data);
+}
+
+// Check if a global singleton kind is currently active. Returns
+// { acquired: true } if free, or { acquired: false, existingJobId } if busy.
+function tryAcquireSingleton(kind) {
+  const existingId = globalActiveJobByKind.get(kind);
+  if (existingId) {
+    const job = jobs.get(existingId);
+    if (job && !['completed', 'failed', 'cancelled'].includes(job.status)) {
+      return { acquired: false, existingJobId: existingId };
+    }
+    // Stale entry — clean up and allow acquisition.
+    globalActiveJobByKind.delete(kind);
+  }
+  return { acquired: true };
+}
+
+// On server boot, mark any globally-persisted jobs that were running as failed.
+// Called immediately after this block is defined (see startup section).
+function markInterruptedGlobalJobs() {
+  const data = readJobsFile();
+  let count = 0;
+  for (const j of data.jobs) {
+    if (['queued', 'running', 'cancelling', 'awaiting_input'].includes(j.status)) {
+      j.status = 'failed';
+      j.error = (j.error ? j.error + ' | ' : '') + 'server-restart';
+      j.completedAt = new Date().toISOString();
+      count++;
+    }
+  }
+  if (count > 0) {
+    writeJobsFile(data);
+    console.log(`[GAMMA.A2] Tombstoned ${count} interrupted global job(s) at startup`);
+  }
+}
+
+// Lock used by GET /api/jobs?active=true to return {jobs, snapshotEventId}
+// atomically, preventing the SSE boot-race: the snapshotEventId is captured
+// while the jobs list is also captured, so the client can use it as the
+// lastEventId when subscribing to /api/events without losing or duplicating.
+function snapshotActiveJobs() {
+  const list = [];
+  for (const j of jobs.values()) {
+    if (['completed', 'failed', 'cancelled'].includes(j.status)) continue;
+    list.push(j.snapshot());
+  }
+  return { jobs: list, snapshotEventId: globalEventSeq };
+}
 
 // --- API Endpoints ---
 
@@ -3925,6 +4043,308 @@ function parseTeamsMessages(text) {
   return messages;
 }
 
+// ============================================================================
+// Phase γ.A.3 — Scan Job runner (v4.0.0-rc.1)
+// ============================================================================
+// A 'scan' job is the server-side driver of Phases 1-4 (scan / enrich / check /
+// consolidate). It replaces the former client-side for-loop in index.html so
+// that a browser refresh no longer terminates the work.
+//
+// Business logic is NOT duplicated: the job uses internal HTTP requests to the
+// existing endpoints (/api/scan, /api/tasks/:id/enrich, /api/tasks/:id/check-
+// update, /api/consolidate). Overhead is negligible compared to the 60-300 s
+// LLM calls inside each step, and risk of regressions is minimal because the
+// legacy endpoints are unchanged.
+//
+// Cancel semantics: "stop after current item" — the in-flight LLM call is
+// allowed to finish (aborting mid-call has historically been unstable), but
+// no further items are started.
+// ----------------------------------------------------------------------------
+
+async function runScanJob(job) {
+  const baseUrl = `http://127.0.0.1:${PORT}`;
+  const FETCH_HEADERS = { 'Content-Type': 'application/json' };
+
+  job.status = 'running';
+  job.startedAt = new Date().toISOString();
+  job.emit('job.started', {});
+  await persistJobSnapshot(job);
+
+  const setPhase = async (phase, extra = {}) => {
+    job.progress = {
+      phase,
+      phaseStartedAt: Date.now(),
+      currentItemIndex: 0,
+      totalItems: 0,
+      currentTaskId: null,
+      ...extra
+    };
+    job.emit('job.phase_changed', { phase, ...extra });
+    await persistJobSnapshot(job);
+  };
+
+  const isCancelling = () => ['cancelling', 'cancelled'].includes(job.status);
+
+  const markCancelled = async () => {
+    job.status = 'cancelled';
+    job.completedAt = new Date().toISOString();
+    job.emit('job.cancelled', { atPhase: job.progress?.phase || null });
+    unregisterActiveJob(job);
+    await persistJobSnapshot(job);
+  };
+
+  const scanDays = Math.min(14, Math.max(1, parseInt(job.input?.scanDays, 10) || 4));
+
+  try {
+    // ── Phase 1: Scan M365 via legacy endpoint ──
+    await setPhase('scan', { scanDays });
+    let phase1Summary = { added: 0, updated: 0, skipped: 0, total: 0 };
+    try {
+      const r = await fetch(`${baseUrl}/api/scan`, {
+        method: 'POST',
+        headers: FETCH_HEADERS,
+        body: JSON.stringify({ scanDays })
+      });
+      if (!r.ok) {
+        const txt = await r.text().catch(() => '');
+        throw new Error(`Phase 1 HTTP ${r.status}: ${txt.substring(0, 200)}`);
+      }
+      const payload = await r.json();
+      phase1Summary = {
+        added: payload.added || 0,
+        updated: payload.updated || 0,
+        skipped: payload.skipped || 0,
+        total: payload.total || 0
+      };
+    } catch (err) {
+      job.emit('job.phase_error', { phase: 'scan', error: err.message });
+      throw err;
+    }
+    job.emit('job.phase_done', { phase: 'scan', ...phase1Summary });
+    if (isCancelling()) return markCancelled();
+
+    // ── Phase 2: Enrich pending / error-retry tasks ──
+    const afterScan = readTasks();
+    const pendingForEnrich = afterScan.tasks.filter(t =>
+      !['done', 'completed'].includes(t.status) &&
+      (!t.enrichmentStatus || t.enrichmentStatus === 'pending' || t.enrichmentStatus === 'error')
+    );
+    await setPhase('enrich', { totalItems: pendingForEnrich.length });
+
+    for (let i = 0; i < pendingForEnrich.length; i++) {
+      if (isCancelling()) return markCancelled();
+      const t = pendingForEnrich[i];
+      job.progress = {
+        ...job.progress,
+        currentItemIndex: i,
+        totalItems: pendingForEnrich.length,
+        currentTaskId: t.id
+      };
+      job.emit('job.item_started', {
+        phase: 'enrich',
+        taskId: t.id,
+        index: i,
+        total: pendingForEnrich.length,
+        title: (t.title || '').substring(0, 80)
+      });
+      let ok = false;
+      let itemError = null;
+      try {
+        const r = await fetch(`${baseUrl}/api/tasks/${encodeURIComponent(t.id)}/enrich`, {
+          method: 'POST',
+          headers: FETCH_HEADERS,
+          body: '{}'
+        });
+        ok = r.ok;
+        if (!r.ok) itemError = `HTTP ${r.status}`;
+      } catch (err) {
+        itemError = err.message;
+      }
+      job.emit('job.item_done', {
+        phase: 'enrich',
+        taskId: t.id,
+        index: i,
+        total: pendingForEnrich.length,
+        ok,
+        error: itemError
+      });
+      await persistJobSnapshot(job);
+    }
+    job.emit('job.phase_done', { phase: 'enrich', processed: pendingForEnrich.length });
+    if (isCancelling()) return markCancelled();
+
+    // ── Phase 3: Check for updates on enriched tasks ──
+    const afterEnrich = readTasks();
+    const eligibleForCheck = afterEnrich.tasks.filter(t =>
+      !['done', 'completed'].includes(t.status) &&
+      ['enriched', 'needs-review'].includes(t.enrichmentStatus)
+    );
+    await setPhase('check', { totalItems: eligibleForCheck.length });
+
+    for (let i = 0; i < eligibleForCheck.length; i++) {
+      if (isCancelling()) return markCancelled();
+      const t = eligibleForCheck[i];
+      job.progress = {
+        ...job.progress,
+        currentItemIndex: i,
+        totalItems: eligibleForCheck.length,
+        currentTaskId: t.id
+      };
+      job.emit('job.item_started', {
+        phase: 'check',
+        taskId: t.id,
+        index: i,
+        total: eligibleForCheck.length,
+        title: (t.title || '').substring(0, 80)
+      });
+      let ok = false;
+      let itemError = null;
+      try {
+        const r = await fetch(`${baseUrl}/api/tasks/${encodeURIComponent(t.id)}/check-update`, {
+          method: 'POST',
+          headers: FETCH_HEADERS,
+          body: '{}'
+        });
+        ok = r.ok;
+        if (!r.ok) itemError = `HTTP ${r.status}`;
+      } catch (err) {
+        itemError = err.message;
+      }
+      job.emit('job.item_done', {
+        phase: 'check',
+        taskId: t.id,
+        index: i,
+        total: eligibleForCheck.length,
+        ok,
+        error: itemError
+      });
+      await persistJobSnapshot(job);
+    }
+    job.emit('job.phase_done', { phase: 'check', processed: eligibleForCheck.length });
+    if (isCancelling()) return markCancelled();
+
+    // ── Phase 4: Consolidate duplicates ──
+    await setPhase('consolidate', {});
+    let consolidateSummary = { suggestions: 0 };
+    try {
+      const r = await fetch(`${baseUrl}/api/consolidate`, {
+        method: 'POST',
+        headers: FETCH_HEADERS,
+        body: '{}'
+      });
+      if (r.ok) {
+        const payload = await r.json().catch(() => ({}));
+        consolidateSummary = {
+          suggestions: (payload && payload.suggestions && payload.suggestions.length) || 0
+        };
+      } else {
+        consolidateSummary.error = `HTTP ${r.status}`;
+      }
+    } catch (err) {
+      consolidateSummary.error = err.message;
+    }
+    job.emit('job.phase_done', { phase: 'consolidate', ...consolidateSummary });
+
+    // ── Completion ──
+    job.status = 'completed';
+    job.completedAt = new Date().toISOString();
+    job.result = {
+      phase1: phase1Summary,
+      phase2Processed: pendingForEnrich.length,
+      phase3Processed: eligibleForCheck.length,
+      phase4: consolidateSummary
+    };
+    job.emit('job.completed', { result: job.result });
+    unregisterActiveJob(job);
+    await persistJobSnapshot(job);
+  } catch (err) {
+    console.error(`[SCAN-JOB] ${job.id} failed: ${err.stack || err.message}`);
+    if (!['completed', 'failed', 'cancelled'].includes(job.status)) {
+      job.status = 'failed';
+      job.error = err.message || String(err);
+      job.completedAt = new Date().toISOString();
+      job.emit('job.failed', { error: job.error, atPhase: job.progress?.phase || null });
+      unregisterActiveJob(job);
+      try { await persistJobSnapshot(job); } catch {}
+    }
+  }
+}
+
+// ----------------------------------------------------------------------------
+// POST /api/jobs — generic job creator (currently only kind='scan').
+// Body: { kind, input?, clientRequestId? }
+// Responses:
+//   202 { jobId, status:'queued' }              — new job started
+//   202 { jobId, status, idempotent:true }      — same clientRequestId, same body
+//   409 { error, existingJobId }                — singleton already running, or conflict
+//   400 { error }                               — unsupported kind / missing field
+// ----------------------------------------------------------------------------
+app.post('/api/jobs', async (req, res) => {
+  const { kind, input = {}, clientRequestId = null } = req.body || {};
+  if (!kind || typeof kind !== 'string') {
+    return res.status(400).json({ error: 'kind is required' });
+  }
+  if (kind !== 'scan') {
+    return res.status(400).json({ error: `kind='${kind}' not supported yet (only 'scan')` });
+  }
+
+  const bodyHash = hashBody({ kind, input });
+  const idem = checkIdempotency(clientRequestId, bodyHash);
+  if (idem.status === 'conflict') {
+    return res.status(409).json({ error: 'clientRequestId reused with different body' });
+  }
+  if (idem.status === 'hit') {
+    const existing = jobs.get(idem.jobId);
+    return res.status(202).json({
+      jobId: idem.jobId,
+      status: existing ? existing.status : 'unknown',
+      idempotent: true
+    });
+  }
+
+  const guard = tryAcquireSingleton(kind);
+  if (!guard.acquired) {
+    return res.status(409).json({
+      error: `A '${kind}' job is already running`,
+      existingJobId: guard.existingJobId
+    });
+  }
+
+  const job = new Job({ taskId: null, kind, input, clientRequestId });
+  registerJob(job);
+  storeIdempotency(clientRequestId, job.id, bodyHash);
+  await persistJobSnapshot(job);
+
+  setImmediate(() => {
+    runScanJob(job).catch(err => {
+      console.error(`[SCAN-JOB] unhandled: ${err.stack || err.message}`);
+      if (!['completed', 'failed', 'cancelled'].includes(job.status)) {
+        job.status = 'failed';
+        job.error = `Unhandled: ${err.message}`;
+        try { job.emit('job.failed', { error: job.error }); } catch {}
+        unregisterActiveJob(job);
+      }
+    });
+  });
+
+  res.status(202).json({ jobId: job.id, status: 'queued' });
+});
+
+// GET /api/jobs?active=true
+// Returns { jobs, snapshotEventId } atomically for SSE boot-race safety:
+// the client uses snapshotEventId as lastEventId when opening /api/events,
+// guaranteeing no gap and no duplicate events between the snapshot and the
+// live stream.
+app.get('/api/jobs', (req, res) => {
+  const activeOnly = req.query.active === 'true' || req.query.active === '1';
+  if (activeOnly) {
+    return res.json(snapshotActiveJobs());
+  }
+  const list = [];
+  for (const j of jobs.values()) list.push(j.snapshot());
+  res.json({ jobs: list, snapshotEventId: globalEventSeq });
+});
+
 // --- Start Server ---
 
 migrateTasks();
@@ -3932,6 +4352,7 @@ migrateStatuses();
 migrateToV3();
 migrateToV4();
 markInterruptedJobs();
+markInterruptedGlobalJobs();
 
 // Reset stuck transitional statuses from interrupted enrichment/update-check
 (function resetStuckStatuses() {
