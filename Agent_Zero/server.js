@@ -9,6 +9,7 @@ import { CopilotClient, approveAll, defineTool } from '@github/copilot-sdk';
 import { spawn, execSync } from 'child_process';
 import { EventEmitter } from 'events';
 import { cleanupStaleAtomicTempsForFile, migrateTasksFileToV5, writeJsonFileAtomic } from './brain/tasks-v5.js';
+import { getScanEngine, runBrainScanOnce } from './brain/scan-brain.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1294,8 +1295,8 @@ function migrateToV4() {
 }
 
 // Schema Migration v4 -> v5 (Agency Brain model, additive only).
-// Prepared in Batch 1 but intentionally NOT run at startup until Slice 5 wires
-// the agency scan path behind a feature flag.
+// Active from Slice 5 onward; idempotent and still safe while scan engine
+// default remains legacy.
 function migrateToV5() {
   const result = migrateTasksFileToV5(TASKS_FILE);
   if (result.migrated) {
@@ -4201,7 +4202,45 @@ function parseTeamsMessages(text) {
 // no further items are started.
 // ----------------------------------------------------------------------------
 
+async function runAgencyScanJob(job) {
+  job.status = 'running';
+  job.startedAt = new Date().toISOString();
+  job.emit('job.started', { engine: 'agency' });
+  await persistJobSnapshot(job);
+
+  try {
+    const result = await runBrainScanOnce(job, {
+      tasksFile: TASKS_FILE,
+      onPersistJob: persistJobSnapshot
+    });
+    job.status = 'completed';
+    job.completedAt = new Date().toISOString();
+    job.result = result;
+    job.emit('job.completed', { result });
+    unregisterActiveJob(job);
+    await persistJobSnapshot(job);
+  } catch (err) {
+    console.error(`[AGENCY-SCAN-JOB] ${job.id} failed: ${err.stack || err.message}`);
+    if (!['completed', 'failed', 'cancelled'].includes(job.status)) {
+      job.status = 'failed';
+      job.error = err.message || String(err);
+      job.completedAt = new Date().toISOString();
+      job.emit('job.failed', {
+        error: job.error,
+        atPhase: job.progress?.phase || null,
+        historyFree: Boolean(job.result?.historyFree)
+      });
+      unregisterActiveJob(job);
+      try { await persistJobSnapshot(job); } catch {}
+    }
+  }
+}
+
 async function runScanJob(job) {
+  if (getScanEngine() === 'agency') {
+    return runAgencyScanJob(job);
+  }
+
   const baseUrl = `http://127.0.0.1:${PORT}`;
   const FETCH_HEADERS = { 'Content-Type': 'application/json' };
 
@@ -4616,6 +4655,7 @@ migrateTasks();
 migrateStatuses();
 migrateToV3();
 migrateToV4();
+migrateToV5();
 markInterruptedJobs();
 markInterruptedGlobalJobs();
 
