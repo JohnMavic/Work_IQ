@@ -4,7 +4,7 @@
       "command": "node",
       "args": ["node_modules/@microsoft/workiq/bin/workiq.js", "mcp"],
       "tools": ["*"],
-      "description": "Microsoft 365 MCP server — provides access to emails, Teams messages, meetings, documents, and SharePoint via the Microsoft Search API."
+      "description": "Legacy SDK-only Microsoft 365 MCP server for AGENT_ZERO_SCAN_ENGINE=legacy. The Agency runner does not read this file; it inherits WorkIQ from the user's Copilot MCP config."
     }
   }
 }

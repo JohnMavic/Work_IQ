@@ -54,7 +54,7 @@ if ($h -and $h.service -eq 'agent-zero') {
     $uptimeH = [math]::Round($h.uptime / 3600, 1)
     Write-Host "  /api/health on port 3000:"
     Write-Host "    pid=$($h.pid)  wiqPid=$($h.wiqPid)  port=$($h.port)"
-    Write-Host "    version=$($h.version)  uptime=${uptimeH}h"
+    Write-Host "    version=$($h.version)  engine=$($h.scanEngine)  uptime=${uptimeH}h"
     Write-Host "    repoPath=$($h.repoPath)"
     if ($az_server.Count -eq 1 -and $az_wiq.Count -le 1) {
         Write-Host "  STATUS: HEALTHY - exactly 1 Agent Zero instance." -ForegroundColor Green

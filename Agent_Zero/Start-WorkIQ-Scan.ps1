@@ -73,9 +73,16 @@ $STALE_UPTIME_SECONDS = 24 * 60 * 60   # 24h - older than this is suspect
 $needRestart = $true
 if ($health) {
     $uptimeH = [math]::Round($health.uptime / 3600, 1)
-    Write-Log "Server is responding (PID: $($health.pid), uptime: ${uptimeH}h, version: $($health.version), wiqPid: $($health.wiqPid))"
-    if ($health.uptime -lt $STALE_UPTIME_SECONDS -and $health.wiqPid) {
-        Write-Log "Server is fresh and WIQ is alive - REUSING."
+    $scanEngine = if ($health.scanEngine) { [string]$health.scanEngine } else { "legacy" }
+    $wiqRequired = ($scanEngine -ne "agency")
+    $wiqHealthy = (-not $wiqRequired) -or [bool]$health.wiqPid
+    Write-Log "Server is responding (PID: $($health.pid), uptime: ${uptimeH}h, version: $($health.version), engine: $scanEngine, wiqPid: $($health.wiqPid))"
+    if ($health.uptime -lt $STALE_UPTIME_SECONDS -and $wiqHealthy) {
+        if ($wiqRequired) {
+            Write-Log "Server is fresh and WIQ is alive - REUSING."
+        } else {
+            Write-Log "Server is fresh and running Agency engine (wiqPid not required) - REUSING."
+        }
         $needRestart = $false
     } else {
         if ($health.uptime -ge $STALE_UPTIME_SECONDS) {
@@ -98,16 +105,22 @@ if ($needRestart) {
     for ($i = 1; $i -le 15; $i++) {
         Start-Sleep 2
         $health = Test-ServerHealth
-        if ($health -and $health.wiqPid) {
-            Write-Log "Server started successfully (PID: $($health.pid), wiqPid: $($health.wiqPid), attempt $i)"
+        $scanEngine = if ($health -and $health.scanEngine) { [string]$health.scanEngine } else { "legacy" }
+        $wiqRequired = ($scanEngine -ne "agency")
+        if ($health -and ((-not $wiqRequired) -or $health.wiqPid)) {
+            Write-Log "Server started successfully (PID: $($health.pid), engine: $scanEngine, wiqPid: $($health.wiqPid), attempt $i)"
             $serverHealthy = $true
             break
         }
-        Write-Log "  Waiting for healthy server with live WIQ... (attempt $i/15)"
+        if ($wiqRequired) {
+            Write-Log "  Waiting for healthy server with live WIQ... (attempt $i/15)"
+        } else {
+            Write-Log "  Waiting for healthy Agency server... (attempt $i/15)"
+        }
     }
     
     if (-not $serverHealthy) {
-        Write-Log "ERROR: Server failed to start with healthy WIQ within 30 seconds!"
+        Write-Log "ERROR: Server failed to start healthy within 30 seconds!"
         Write-Log "=== Aborted ==="
         exit 1
     }

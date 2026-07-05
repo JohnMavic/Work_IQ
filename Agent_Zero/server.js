@@ -18,6 +18,26 @@ const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const TASKS_FILE = path.join(__dirname, 'tasks.json');
 const NODE_PATH = process.execPath; // Cache once at startup — avoids spawn ENOENT after crash
+const LEGACY_ENGINE_FLAG = 'AGENT_ZERO_SCAN_ENGINE=legacy';
+
+function currentScanEngine() {
+  return getScanEngine();
+}
+
+function isLegacyScanEngine() {
+  return currentScanEngine() === 'legacy';
+}
+
+function guardLegacyRoute(res, routeName, alternative = 'POST /api/jobs with kind:"scan"') {
+  if (isLegacyScanEngine()) return false;
+  res.status(409).json({
+    error: `${routeName} is only available in the legacy scan engine`,
+    engine: currentScanEngine(),
+    legacyFlag: LEGACY_ENGINE_FLAG,
+    alternative
+  });
+  return true;
+}
 
 // --- Debug Logger (v3.1) ---
 // Toggle via /api/debug-log or GUI. Writes to logs/ folder.
@@ -95,6 +115,11 @@ const wiqEvents = new EventEmitter();
 wiqEvents.setMaxListeners(100); // Phase 2+3 can have many concurrent sessions listening
 
 function startWorkIQMCP() {
+  if (!isLegacyScanEngine()) {
+    console.log('[WORKIQ] Skipping persistent MCP subprocess because AGENT_ZERO_SCAN_ENGINE=agency');
+    return Promise.resolve();
+  }
+
   return new Promise((resolve, reject) => {
     // Use locally installed @microsoft/workiq@0.2.8 (pinned in package.json)
     // instead of npx which resolves to the latest cached version (0.4.0+).
@@ -127,6 +152,10 @@ function startWorkIQMCP() {
       // K2: Signal all active SDK sessions so they abort immediately instead of hanging
       // for their full 600s timeout waiting for a WorkIQ that will never respond.
       wiqEvents.emit('wiq-down', new Error(`WorkIQ subprocess exited (code ${code})`));
+      if (!isLegacyScanEngine()) {
+        debugLog('WORKIQ', 'Auto-restart skipped because legacy scan engine is disabled');
+        return;
+      }
       // Auto-restart with exponential backoff (max MAX_RESTARTS attempts)
       if (wiqRestartCount >= MAX_RESTARTS) {
         console.error('[WORKIQ] Max restart attempts reached. Manual restart required.');
@@ -250,6 +279,10 @@ async function maybeRecycleWiq() {
 }
 
 function askWorkIQDirect(question, timeoutMs = 90000, taskId = null, _isRetry = false) {
+  if (!isLegacyScanEngine()) {
+    return Promise.reject(new Error(`Legacy Work IQ subprocess is disabled; set ${LEGACY_ENGINE_FLAG} to use this route`));
+  }
+
   const queryStart = Date.now();
   const shortQ = question.substring(0, 100);
   debugLog('WORKIQ-QUERY', `START "${shortQ}..."`, { timeoutMs, questionLen: question.length, taskId });
@@ -1707,6 +1740,7 @@ app.get('/api/health', (req, res) => {
     pid: process.pid,
     port: PORT,
     version,
+    scanEngine: currentScanEngine(),
     // v4.1.0: expose repo path so external scripts can verify identity unambiguously
     repoPath: __dirname,
     wiqPid: (wiqProc && !wiqProc.killed) ? wiqProc.pid : null
@@ -2269,6 +2303,8 @@ async function runLogJob(job) {
 // Old /log/analyze and /log remain active until Phase γ.F cut-over.
 // Accepts Idempotency-Key header (optional but recommended).
 app.post('/api/tasks/:id/log', async (req, res) => {
+  if (guardLegacyRoute(res, '/api/tasks/:id/log', 'Use the Agency scan job to refresh project tasks, or set AGENT_ZERO_SCAN_ENGINE=legacy for interactive legacy search')) return;
+
   const { id } = req.params;
   const { text } = req.body || {};
   const idempKey = req.headers['idempotency-key'] || null;
@@ -2574,6 +2610,8 @@ app.post('/api/tasks/:id/note', async (req, res) => {
 // WorkIQ (M365 Copilot) already classifies actionable messages.
 // We just ask the right question, parse the response, and create tasks.
 app.post('/api/scan', async (req, res) => {
+  if (guardLegacyRoute(res, '/api/scan')) return;
+
   const scanDays = normalizeScanJobInput(req.body).scanDays;
   try {
     const scanStart = Date.now();
@@ -2891,6 +2929,8 @@ app.post('/api/scan', async (req, res) => {
 
 // POST /api/tasks/:id/enrich — Phase 2: content extraction & summary
 app.post('/api/tasks/:id/enrich', withTaskQueue(async (req, res) => {
+  if (guardLegacyRoute(res, '/api/tasks/:id/enrich', 'POST /api/jobs with kind:"scan"')) return;
+
   const { id } = req.params;
 
   let task;
@@ -3067,6 +3107,8 @@ app.post('/api/tasks/:id/enrich', withTaskQueue(async (req, res) => {
 // v3.3: Action-Item-State injection, hard query budget, stub detection,
 // tristate outcome (updated/no-update/inconclusive), no eval session, pre-filter.
 app.post('/api/tasks/:id/check-update', withTaskQueue(async (req, res) => {
+  if (guardLegacyRoute(res, '/api/tasks/:id/check-update', 'POST /api/jobs with kind:"scan"')) return;
+
   const { id } = req.params;
   const force = req.query.force === '1' || req.body?.force === true;
 
@@ -3350,6 +3392,8 @@ app.post('/api/tasks/:id/check-update', withTaskQueue(async (req, res) => {
 
 // POST /api/consolidate — Phase 4: suggest merging semantically related tasks
 app.post('/api/consolidate', async (req, res) => {
+  if (guardLegacyRoute(res, '/api/consolidate', 'POST /api/jobs with kind:"scan"')) return;
+
   let client, session;
   try {
     const data = readTasks();
@@ -3454,6 +3498,8 @@ app.post('/api/consolidate', async (req, res) => {
 
 // POST /api/tasks/merge — merge two or more tasks into one
 app.post('/api/tasks/merge', async (req, res) => {
+  if (guardLegacyRoute(res, '/api/tasks/merge', 'Use project tasks and lineItems via POST /api/jobs with kind:"scan"')) return;
+
   const { taskIds, suggestedTitle } = req.body;
   if (!taskIds || !Array.isArray(taskIds) || taskIds.length < 2) {
     return res.status(400).json({ error: 'At least 2 task IDs required' });
@@ -3664,6 +3710,8 @@ app.post('/api/tasks/:id/dismiss-merge', async (req, res) => {
 
 // POST /api/tasks/:id/review — User responds to ambiguity review items (v2.1)
 app.post('/api/tasks/:id/review', withTaskQueue(async (req, res) => {
+  if (guardLegacyRoute(res, '/api/tasks/:id/review', 'Set AGENT_ZERO_SCAN_ENGINE=legacy for this legacy review route')) return;
+
   const { id } = req.params;
   const { response } = req.body;
 
@@ -3837,6 +3885,8 @@ Return ONLY the JSON object. No markdown, no explanation.`;
 
 // POST /api/tasks/:id/correct — Evidence-based correction verification (v2.6: Opus 4.6 + Work IQ MCP)
 app.post('/api/tasks/:id/correct', withTaskQueue(async (req, res) => {
+  if (guardLegacyRoute(res, '/api/tasks/:id/correct', 'Set AGENT_ZERO_SCAN_ENGINE=legacy for this legacy correction route')) return;
+
   const { id } = req.params;
   const { plan } = req.body;
 
@@ -4585,6 +4635,14 @@ app.post('/api/jobs', async (req, res) => {
   if (kind === 'scan') {
     input = normalizeScanJobInput(input);
   }
+  if ((kind === 'consolidate' || kind === 'merge') && !isLegacyScanEngine()) {
+    return res.status(409).json({
+      error: `kind='${kind}' is only available in the legacy scan engine`,
+      engine: currentScanEngine(),
+      legacyFlag: LEGACY_ENGINE_FLAG,
+      alternative: 'POST /api/jobs with kind:"scan"'
+    });
+  }
 
   // Per-kind input validation
   if (kind === 'merge') {
@@ -4862,12 +4920,16 @@ async function startServer() {
 
   app.listen(PORT, 'localhost', async () => {
     console.log(`Agent Zero running at http://localhost:${PORT}`);
-    // Start persistent Work IQ MCP subprocess (auth once, EULA once, cached for session)
-    try {
-      await startWorkIQMCP();
-      console.log('[WORKIQ] ✅ Ready — persistent MCP subprocess with cached auth');
-    } catch (e) {
-      console.warn(`[WORKIQ] ⚠️ MCP startup failed: ${e.message} — will retry on first query`);
+    if (isLegacyScanEngine()) {
+      // Start persistent Work IQ MCP subprocess (auth once, EULA once, cached for session)
+      try {
+        await startWorkIQMCP();
+        console.log('[WORKIQ] ✅ Ready — persistent MCP subprocess with cached auth');
+      } catch (e) {
+        console.warn(`[WORKIQ] ⚠️ MCP startup failed: ${e.message} — will retry on first query`);
+      }
+    } else {
+      console.log('[WORKIQ] Skipped legacy persistent MCP subprocess; Agency runner inherits WorkIQ from Copilot MCP config');
     }
   }).on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
