@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { CopilotClient, approveAll, defineTool } from '@github/copilot-sdk';
 import { spawn, execSync } from 'child_process';
 import { EventEmitter } from 'events';
+import { migrateTasksFileToV5, writeJsonFileAtomic } from './brain/tasks-v5.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -957,8 +958,12 @@ function readTasks() {
   return JSON.parse(raw);
 }
 
+function writeTasksAtomic(data) {
+  writeJsonFileAtomic(TASKS_FILE, data);
+}
+
 function writeTasks(data) {
-  fs.writeFileSync(TASKS_FILE, JSON.stringify(data, null, 2) + '\n', 'utf-8');
+  writeTasksAtomic(data);
 }
 
 // --- Write Queue (sequential writes for concurrency safety) ---
@@ -1286,6 +1291,17 @@ function migrateToV4() {
   data.version = 4;
   writeTasks(data);
   console.log(`[GAMMA.A] Migrated tasks.json to v4 (${data.tasks.length} tasks, additive)`);
+}
+
+// Schema Migration v4 -> v5 (Agency Brain model, additive only).
+// Prepared in Batch 1 but intentionally NOT run at startup until Slice 5 wires
+// the agency scan path behind a feature flag.
+function migrateToV5() {
+  const result = migrateTasksFileToV5(TASKS_FILE);
+  if (result.migrated) {
+    console.log(`[AGENCY.BRAIN] Migrated tasks.json to v5 (${result.data.tasks.length} tasks, additive)`);
+  }
+  return result;
 }
 
 // Phase γ.F — After server restart, any task whose activeJob was queued,
