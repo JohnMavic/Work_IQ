@@ -97,8 +97,14 @@ export function buildAgencyArgs({ bootstrap, callerArgs = [], brainWorkDir = BRA
 }
 
 export function buildAgencyEnv(baseEnv = process.env) {
+  const {
+    AGENCY_SESSION_ID: _agencySessionId,
+    COPILOT_AGENT_SESSION_ID: _copilotAgentSessionId,
+    ...env
+  } = baseEnv;
+
   return {
-    ...baseEnv,
+    ...env,
     COPILOT_MODEL
   };
 }
