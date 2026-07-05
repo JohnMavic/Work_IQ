@@ -23,6 +23,10 @@ set SERVER_DIR=%~dp0
 :: Strip trailing backslash for matching
 if "%SERVER_DIR:~-1%"=="\" set SERVER_DIR=%SERVER_DIR:~0,-1%
 
+:: Slice 10 (A5): default scan engine flipped to agency after live verification.
+:: Set AGENT_ZERO_SCAN_ENGINE=legacy before launch to force the legacy engine.
+if not defined AGENT_ZERO_SCAN_ENGINE set AGENT_ZERO_SCAN_ENGINE=agency
+
 :: --- Step 1: Detect a healthy Agent Zero serving THIS install ---
 set "EXISTING_PORT="
 for /f "usebackq delims=" %%P in (`powershell -NoProfile -Command "$dir = '%SERVER_DIR%'.TrimEnd('\','/'); foreach ($p in 3000..3020) { try { $r = Invoke-RestMethod -Uri ('http://127.0.0.1:' + $p + '/api/health') -TimeoutSec 1 -EA Stop; if ($r.service -eq 'agent-zero') { $repo = ''; if ($r.repoPath) { $repo = $r.repoPath.TrimEnd('\','/') }; if (-not $repo -or $repo -ieq $dir) { Write-Output $p; break } } } catch {} }"`) do set "EXISTING_PORT=%%P"
@@ -58,9 +62,9 @@ if !errorlevel!==0 (
 )
 
 :: --- Step 4: Start fresh server ---
-echo [STARTUP] Starting Agent Zero on port !PORT!...
+echo [STARTUP] Starting Agent Zero on port !PORT! (engine: !AGENT_ZERO_SCAN_ENGINE!)...
 cd /d %~dp0
-start "AgentZero" /min cmd /c "set PORT=!PORT!&& node server.js"
+start "AgentZero" /min cmd /c "set PORT=!PORT!&& set AGENT_ZERO_SCAN_ENGINE=!AGENT_ZERO_SCAN_ENGINE!&& node server.js"
 
 :: --- Step 5: Wait for healthy /api/health ---
 echo [STARTUP] Waiting for server to become healthy...

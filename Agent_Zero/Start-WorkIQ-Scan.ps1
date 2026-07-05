@@ -14,6 +14,13 @@ param(
 if (-not $LogFile) { $LogFile = Join-Path $PSScriptRoot "scan-log.txt" }
 if (-not $ServerDir) { $ServerDir = $PSScriptRoot }
 
+# Slice 10 (A5): after the live verification of the Agency brain, the scan engine
+# default is flipped from "legacy" to "agency". The server it starts inherits this
+# environment variable (Start-AgentZeroServer uses UseShellExecute=$true, which
+# inherits the parent environment). To force the legacy engine, set
+# AGENT_ZERO_SCAN_ENGINE=legacy in the environment before launching.
+if (-not $env:AGENT_ZERO_SCAN_ENGINE) { $env:AGENT_ZERO_SCAN_ENGINE = "agency" }
+
 function Write-Log($msg) {
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $line = "$timestamp - $msg"

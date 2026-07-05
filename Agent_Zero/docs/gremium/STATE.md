@@ -2,7 +2,7 @@
 
 Aktualisiert: 2026-07-05 · Branch: `feature/agency-brain`
 
-## Status: PHASE 5 — RATIFIZIERT (GO-WITH-CONDITIONS), A1-Probe läuft, dann Implementierung
+## Status: SLICE 10 ABGESCHLOSSEN — LIVE-VERIFIKATION **FINAL: PASS**, A5-Flip auf agency vollzogen
 
 | Schritt | Status |
 |---|---|
@@ -11,13 +11,34 @@ Aktualisiert: 2026-07-05 · Branch: `feature/agency-brain`
 | 3. Debatte + Adjudikation (Master) | ✅ done — DECISION.md (D1–D10) |
 | 4a. Slice-0-Gate (Default-Flags) | ✅ PASSED — workiq connected, echte Antwort, exit 0 |
 | 4b. Ratifizierung durch agency | ✅ **GO-WITH-CONDITIONS** — RESULT-RATIFICATION.md, Auflagen A1–A6 |
-| 4c. Auflage A1: Probe mit exakten D10-Flags | 🔄 läuft |
+| 4c. Auflage A1: Probe mit exakten D10-Flags | ✅ done |
 | 5. Implementierung Batch 1 (Slices 1–4, Codex) | ✅ done — Commits 7fd0ecd…53c5263, 30/30 Tests |
-| 5b. Verifikation Batch 1 (4-Dim-Review + Refute-Pass, 25 Agenten) | ✅ done — 19 bestätigte Findings (2 critical: Event-Form F1, Patch-Whitelist F2) → FINDINGS-BATCH-1.md |
-| 6. Implementierung Batch 2 (Fix F1–F19 + Slices 5–7) | 🔄 Codex läuft |
-| 7. Bestandskonsolidierung (Slice 8, Dry-Run→Audit→Apply) | ⬜ |
-| 8. Verifikation + Loop bis G1–G7 erfüllt | ⬜ |
-| 9. SDK/WorkIQ-0.2.8-Entfernung (Slice 9) + Live (Slice 10) | ⬜ |
+| 5b. Verifikation Batch 1 (4-Dim-Review + Refute-Pass) | ✅ done — 19 Findings → FINDINGS-BATCH-1.md |
+| 6. Implementierung Batch 2 (Fix F1–F19 + Slices 5–7) | ✅ done — batch-2 verified CLEAN (P2) |
+| 7. Bestandskonsolidierung (Slice 8, Dry-Run→Audit→Apply) | ✅ done — AUDIT: GO, apply b8d4253 |
+| 8. Slice 9 (Legacy-SDK/WorkIQ-0.2.8-Gating) | ✅ done — RESULT-CODEX-IMPL-4, 68/68 Tests |
+| 9. **Slice 10 — Live-Verifikation (Serie C, C-1..C-6)** | ✅ **FINAL: PASS** — FINAL-VERIFICATION.md |
+| 10. A5 — Engine-Default-Flip auf agency (Startskripte) | ✅ done — Start-WorkIQ-Scan.ps1 + START-AGENT-ZERO.bat |
+
+## Schlussstand (2026-07-05, Slice 10)
+- **Alle 6 Serie-C-Kriterien bestanden** unter produktionsäquivalenter Isolation
+  (FINAL-VERIFICATION.md). 3/3 isolierte Live-Scans mit `SCAN_DONE`, 0 Duplikate, bestehende
+  Projekte aktualisiert, genuine neue Singles angelegt; Datenintegrität perfekt (keine Task
+  gelöscht, Σ History 798→800, Σ Links 221→243).
+- **Umgebungsartefakt dokumentiert (kein Agent-Zero-Defekt):** Zwei anfängliche Scan-Timeouts
+  entstanden durch vererbte `AGENCY_SESSION_ID`/`COPILOT_AGENT_SESSION_ID` (Session-Bleed,
+  weil die Verifikation aus einer aktiven agency-CLI-Session lief). Behoben durch Serverstart
+  ohne diese Variablen (= Produktionszustand unter Task Scheduler). Optionale Härtungs-
+  Empfehlung: `buildAgencyEnv()` könnte diese Variablen aus dem Brain-Kind-Env strippen.
+- **A5 vollzogen:** `AGENT_ZERO_SCAN_ENGINE` defaultet jetzt in beiden Startskripten auf
+  `agency` (env-Override auf `legacy` bleibt möglich; C-5 Rückschaltung verifiziert).
+- **Kosten:** 45 geloggte premiumRequests (3 erfolgreiche Scans × 15); zusätzlich verbrauchten
+  die 2 Timeout-Scans + 2 Proben nicht-surfaced Premium.
+- **Offene, bewusste Nicht-Aktionen für P7 (Codex/Master):** README/AGENTS.md-Sync, CHANGELOG,
+  Version 5.0.0; optionale `buildAgencyEnv()`-Härtung; ggf. SDK/WorkIQ-0.2.8-Dependency-
+  Entfernung, sobald der Legacy-Flag-Pfad final zurückgebaut werden soll.
+
+## Status vor Slice 10 (Referenz): PHASE 5 — RATIFIZIERT (GO-WITH-CONDITIONS)
 
 ## Auflagen aus der Ratifizierung (bindend: A1, A2)
 - **A1** (vor Slice 1/5): D10-Flag-Kombination live verifizieren (`--no-default-mcps` darf workiq nicht droppen)
