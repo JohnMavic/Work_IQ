@@ -1,7 +1,7 @@
 # ============================================================
 # Agent Zero — Automated Scan Script
 # Called by Windows Task Scheduler (07:00, 11:00 daily)
-# Self-contained: manages server lifecycle + runs all 4 phases via API
+# Self-contained: manages server lifecycle + starts one scan job via API
 # ============================================================
 
 param(
@@ -113,74 +113,68 @@ if ($needRestart) {
     }
 }
 
-# Step 2: Run Phase 1 — Scan
-Write-Log "--- Phase 1: Discovery (scanning last $ScanDays days) ---"
+# Step 2: Start one server-side scan job and poll until terminal
+Write-Log "--- Scan job: scanning last $ScanDays days ---"
 try {
-    $scanStart = Get-Date
-    $scanResult = Invoke-RestMethod -Uri "$ServerUrl/api/scan" -Method POST `
+    $clientRequestId = "scheduled-scan-$([Guid]::NewGuid().ToString('N'))"
+    $body = @{
+        kind = "scan"
+        input = @{ scanDays = $ScanDays }
+        clientRequestId = $clientRequestId
+    } | ConvertTo-Json -Depth 5
+
+    $jobStart = Get-Date
+    $create = Invoke-RestMethod -Uri "$ServerUrl/api/jobs" -Method POST `
         -ContentType "application/json" `
-        -Body "{`"days`": $ScanDays}" `
-        -TimeoutSec 300
-    $scanDuration = [math]::Round(((Get-Date) - $scanStart).TotalSeconds, 1)
-    Write-Log "Phase 1 complete in ${scanDuration}s: added=$($scanResult.added), updated=$($scanResult.updated), skipped=$($scanResult.skipped), total=$($scanResult.total)"
+        -Body $body `
+        -TimeoutSec 60
+
+    $jobId = $create.jobId
+    if (-not $jobId -and $create.existingJobId) { $jobId = $create.existingJobId }
+    if (-not $jobId) { throw "Server did not return a jobId" }
+    Write-Log "Scan job started: $jobId"
+
+    $lastPhase = ""
+    $terminal = $null
+    for ($i = 1; $i -le 360; $i++) {
+        Start-Sleep 5
+        $snapshot = Invoke-RestMethod -Uri "$ServerUrl/api/jobs/$jobId" -TimeoutSec 30
+        $status = $snapshot.status
+        $phase = if ($snapshot.progress) { $snapshot.progress.phase } else { "" }
+        if ($phase -and $phase -ne $lastPhase) {
+            Write-Log "  Phase: $phase"
+            $lastPhase = $phase
+        }
+        if ($status -in @("completed", "failed", "cancelled")) {
+            $terminal = $snapshot
+            break
+        }
+    }
+
+    if (-not $terminal) {
+        throw "Timed out waiting for scan job $jobId"
+    }
+
+    $duration = [math]::Round(((Get-Date) - $jobStart).TotalSeconds, 1)
+    if ($terminal.status -eq "completed") {
+        $r = $terminal.result
+        if ($r -and $r.phase1) {
+            Write-Log "Scan job complete in ${duration}s: added=$($r.phase1.added), updated=$($r.phase1.updated), skipped=$($r.phase1.skipped), total=$($r.phase1.total), enriched=$($r.phase2Processed), checked=$($r.phase3Processed)"
+        } else {
+            Write-Log "Scan job complete in ${duration}s: outcome=$($r.outcome), newProjects=$($r.newProjects), updatedProjects=$($r.updatedProjects), newSingleTasks=$($r.newSingleTasks), workIqCalls=$($r.workIqCalls), premiumRequests=$($r.premiumRequests)"
+        }
+        Write-Log "=== Scan job complete ==="
+    } elseif ($terminal.status -eq "cancelled") {
+        Write-Log "Scan job was cancelled after ${duration}s."
+        Write-Log "=== Aborted ==="
+        exit 1
+    } else {
+        Write-Log "ERROR scan job failed after ${duration}s: $($terminal.error)"
+        Write-Log "=== Aborted ==="
+        exit 1
+    }
 } catch {
-    Write-Log "ERROR Phase 1 failed: $_"
+    Write-Log "ERROR scan job failed: $_"
     Write-Log "=== Aborted ==="
     exit 1
 }
-
-# Step 3: Run Phase 2 — Enrich new tasks
-if ($scanResult.newTaskIds -and $scanResult.newTaskIds.Count -gt 0) {
-    Write-Log "--- Phase 2: Enriching $($scanResult.newTaskIds.Count) new task(s) ---"
-    foreach ($taskId in $scanResult.newTaskIds) {
-        try {
-            $enrichStart = Get-Date
-            $enrichResult = Invoke-RestMethod -Uri "$ServerUrl/api/tasks/$taskId/enrich" -Method POST `
-                -ContentType "application/json" -TimeoutSec 300
-            $enrichDuration = [math]::Round(((Get-Date) - $enrichStart).TotalSeconds, 1)
-            Write-Log "  Enriched $($taskId.Substring(0,8))... in ${enrichDuration}s: status=$($enrichResult.enrichmentStatus)"
-        } catch {
-            Write-Log "  ERROR enriching $($taskId.Substring(0,8))...: $_"
-        }
-    }
-} else {
-    Write-Log "--- Phase 2: No new tasks to enrich ---"
-}
-
-# Step 4: Run Phase 3 — Update checks on existing enriched tasks
-Write-Log "--- Phase 3: Update checks ---"
-try {
-    $tasks = Invoke-RestMethod -Uri "$ServerUrl/api/tasks" -TimeoutSec 30
-    $checkable = @($tasks | Where-Object { 
-        ($_.enrichmentStatus -eq 'enriched' -or $_.enrichmentStatus -eq 'needs-review') -and 
-        $_.status -ne 'done' 
-    } | Select-Object -First 10)
-    
-    Write-Log "  Checking $($checkable.Count) task(s) for updates..."
-    foreach ($task in $checkable) {
-        try {
-            $checkStart = Get-Date
-            $checkResult = Invoke-RestMethod -Uri "$ServerUrl/api/tasks/$($task.id)/check-update" -Method POST `
-                -ContentType "application/json" -TimeoutSec 300
-            $checkDuration = [math]::Round(((Get-Date) - $checkStart).TotalSeconds, 1)
-            $hasUpdate = if ($checkResult.hasUpdate) { "NEW UPDATE" } else { "no change" }
-            Write-Log "  Checked $($task.id.Substring(0,8))... in ${checkDuration}s: $hasUpdate"
-        } catch {
-            Write-Log "  ERROR checking $($task.id.Substring(0,8))...: $_"
-        }
-    }
-} catch {
-    Write-Log "  ERROR fetching tasks: $_"
-}
-
-# Step 5: Run Phase 4 — Consolidation
-Write-Log "--- Phase 4: Consolidation ---"
-try {
-    $consResult = Invoke-RestMethod -Uri "$ServerUrl/api/consolidate" -Method POST `
-        -ContentType "application/json" -TimeoutSec 60
-    Write-Log "Consolidation complete."
-} catch {
-    Write-Log "  ERROR during consolidation: $_"
-}
-
-Write-Log "=== All phases complete ==="

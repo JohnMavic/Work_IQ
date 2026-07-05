@@ -3273,8 +3273,9 @@
     localStorage.setItem('scanReport', JSON.stringify(scanReport));
   }
 
-  function initScanReport() {
+  function initScanReport(engine = 'legacy') {
     scanReport = {
+      engine,
       startedAt: new Date().toISOString(),
       completedAt: null,
       aborted: false,
@@ -3332,12 +3333,19 @@
     let html = `<h4>📊 Last Scan Report</h4>`;
     html += `<div style="color:#64748b;font-size:0.78rem;margin-bottom:8px">Started: ${startTime} · Duration: ${totalTime}</div>`;
 
-    const phaseNames = {
-      phase1: { name: 'Phase 1: Discovery', icon: '📡' },
-      phase2: { name: 'Phase 2: Enrichment', icon: '📋' },
-      phase3: { name: 'Phase 3: Update Check', icon: '🔍' },
-      phase4: { name: 'Phase 4: Consolidation', icon: '🔗' }
-    };
+    const phaseNames = r.engine === 'agency'
+      ? {
+          phase1: { name: 'Brain Prepare', icon: '📄' },
+          phase2: { name: 'Brain Run', icon: '🧠' },
+          phase3: { name: 'Brain Apply', icon: '✅' },
+          phase4: { name: 'Result', icon: '📊' }
+        }
+      : {
+          phase1: { name: 'Phase 1: Discovery', icon: '📡' },
+          phase2: { name: 'Phase 2: Enrichment', icon: '📋' },
+          phase3: { name: 'Phase 3: Update Check', icon: '🔍' },
+          phase4: { name: 'Phase 4: Consolidation', icon: '🔗' }
+        };
 
     for (const [key, meta] of Object.entries(phaseNames)) {
       const p = r.phases[key];
@@ -3864,12 +3872,24 @@
     if (ev.kind !== 'scan') return false;
     const { type, payload = {}, jobId } = ev;
     const loadingText = document.getElementById('loadingText');
-    const PHASE_TO_KEY = { scan: 'phase1', enrich: 'phase2', check: 'phase3', consolidate: 'phase4' };
+    const PHASE_TO_KEY = {
+      scan: 'phase1',
+      enrich: 'phase2',
+      check: 'phase3',
+      consolidate: 'phase4',
+      brain_prepare: 'phase1',
+      brain_run: 'phase2',
+      brain_apply: 'phase3'
+    };
 
     switch (type) {
       case 'job.started': {
         activeScanJob = jobId;
         if (!scanReport) initScanReport();
+        if (payload.engine === 'agency') {
+          scanReport.engine = 'agency';
+          saveScanReport();
+        }
         break;
       }
       case 'job.phase_changed': {
@@ -3887,6 +3907,21 @@
         } else if (phase === 'consolidate') {
           if (loadingText) loadingText.textContent = 'Phase 4: Finding duplicates...';
           updatePhaseStatus('phase4', { status: 'running', startedAt: now });
+        } else if (phase === 'brain_prepare') {
+          if (!scanReport) initScanReport('agency');
+          scanReport.engine = 'agency';
+          if (loadingText) loadingText.textContent = `Preparing brain scan${scanDays ? ` (last ${scanDays} days)` : ''}...`;
+          updatePhaseStatus('phase1', { status: 'running', startedAt: now });
+        } else if (phase === 'brain_run') {
+          if (!scanReport) initScanReport('agency');
+          scanReport.engine = 'agency';
+          if (loadingText) loadingText.textContent = 'Brain scanning Microsoft 365...';
+          updatePhaseStatus('phase2', { status: 'running', startedAt: now });
+        } else if (phase === 'brain_apply') {
+          if (!scanReport) initScanReport('agency');
+          scanReport.engine = 'agency';
+          if (loadingText) loadingText.textContent = 'Applying brain scan results...';
+          updatePhaseStatus('phase3', { status: 'running', startedAt: now });
         }
         break;
       }
@@ -3903,6 +3938,15 @@
           updatePhaseStatus('phase3', { status: 'success', completedAt: now });
         } else if (phase === 'consolidate') {
           updatePhaseStatus('phase4', { status: 'success', completedAt: now, detail: `${payload.suggestions || 0} merge suggestion(s)` });
+        } else if (phase === 'brain_prepare') {
+          const detail = `${payload.stateBytes || 0} bytes state · ${payload.spillFiles || 0} spill file(s)`;
+          updatePhaseStatus('phase1', { status: 'success', completedAt: now, detail });
+        } else if (phase === 'brain_run') {
+          const detail = `${payload.workIqCalls || 0} WorkIQ call(s)` + (payload.premiumRequests != null ? ` · ${payload.premiumRequests} premium request(s)` : '');
+          updatePhaseStatus('phase2', { status: payload.salvaged ? 'partial' : 'success', completedAt: now, detail });
+        } else if (phase === 'brain_apply') {
+          const detail = `${payload.newProjects || 0} project(s) new · ${payload.updatedProjects || 0} updated · ${payload.newSingleTasks || 0} single task(s)`;
+          updatePhaseStatus('phase3', { status: payload.outcome === 'partial' ? 'partial' : 'success', completedAt: now, detail });
         }
         break;
       }
@@ -3953,12 +3997,24 @@
         }
         break;
       }
+      case 'job.item_progress': {
+        if (payload.phase === 'brain_run' && loadingText) {
+          loadingText.textContent = `Brain scanning Microsoft 365 (${payload.workIqCalls || 0} WorkIQ call(s))...`;
+        }
+        break;
+      }
       case 'job.completed':
       case 'job.failed':
       case 'job.cancelled': {
         if (scanReport) {
           scanReport.completedAt = new Date().toISOString();
           scanReport.aborted = type === 'job.cancelled';
+          if (type === 'job.completed' && payload.result && Object.prototype.hasOwnProperty.call(payload.result, 'newProjects')) {
+            scanReport.engine = 'agency';
+            const r = payload.result;
+            const detail = `${r.newProjects || 0} project(s) new · ${r.updatedProjects || 0} updated · ${r.newSingleTasks || 0} single task(s)`;
+            updatePhaseStatus('phase4', { status: r.outcome === 'partial' ? 'partial' : 'success', completedAt: scanReport.completedAt, detail });
+          }
           saveScanReport();
         }
         endScanUi();
@@ -4143,8 +4199,16 @@
             scan: `Phase 1: Scanning subjects (last ${days} days)...`,
             enrich: `Phase 2: Enriching content (${idx}/${tot})...`,
             check: `Phase 3: Checking updates (${idx}/${tot})...`,
-            consolidate: 'Phase 4: Finding duplicates...'
+            consolidate: 'Phase 4: Finding duplicates...',
+            brain_prepare: `Preparing brain scan (last ${days} days)...`,
+            brain_run: 'Brain scanning Microsoft 365...',
+            brain_apply: 'Applying brain scan results...'
           };
+          if (String(p.phase || '').startsWith('brain_')) {
+            if (!scanReport) initScanReport('agency');
+            scanReport.engine = 'agency';
+            saveScanReport();
+          }
           if (labels[p.phase]) loadingText.textContent = labels[p.phase];
         }
       }

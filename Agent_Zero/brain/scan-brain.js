@@ -23,10 +23,20 @@ function nowIso(now) {
   return now instanceof Date ? now.toISOString() : String(now || new Date().toISOString());
 }
 
-function normalizeScanDays(value) {
+export function normalizeScanDays(value) {
   const parsed = parseInt(value, 10);
   if (!Number.isFinite(parsed)) return 4;
   return Math.min(14, Math.max(1, parsed));
+}
+
+export function normalizeScanJobInput(input = {}) {
+  const source = input?.scanDays ?? input?.days;
+  const normalized = {
+    ...(input && typeof input === 'object' && !Array.isArray(input) ? input : {}),
+    scanDays: normalizeScanDays(source)
+  };
+  delete normalized.days;
+  return normalized;
 }
 
 function extractPremiumRequests(event) {

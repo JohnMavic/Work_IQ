@@ -9,7 +9,7 @@ import { CopilotClient, approveAll, defineTool } from '@github/copilot-sdk';
 import { spawn, execSync } from 'child_process';
 import { EventEmitter } from 'events';
 import { cleanupStaleAtomicTempsForFile, migrateTasksFileToV5, writeJsonFileAtomic } from './brain/tasks-v5.js';
-import { getScanEngine, runBrainScanOnce } from './brain/scan-brain.js';
+import { getScanEngine, normalizeScanJobInput, runBrainScanOnce } from './brain/scan-brain.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2574,7 +2574,7 @@ app.post('/api/tasks/:id/note', async (req, res) => {
 // WorkIQ (M365 Copilot) already classifies actionable messages.
 // We just ask the right question, parse the response, and create tasks.
 app.post('/api/scan', async (req, res) => {
-  const scanDays = Math.min(14, Math.max(1, parseInt(req.body?.scanDays) || 4));
+  const scanDays = normalizeScanJobInput(req.body).scanDays;
   try {
     const scanStart = Date.now();
     const daysText = `last ${scanDays} day${scanDays === 1 ? '' : 's'}`;
@@ -4272,7 +4272,7 @@ async function runScanJob(job) {
     await persistJobSnapshot(job);
   };
 
-  const scanDays = Math.min(14, Math.max(1, parseInt(job.input?.scanDays, 10) || 4));
+  const scanDays = normalizeScanJobInput(job.input).scanDays;
 
   try {
     // ── Phase 1: Scan M365 via legacy endpoint ──
@@ -4572,7 +4572,7 @@ const SUPPORTED_JOB_KINDS = {
 };
 
 app.post('/api/jobs', async (req, res) => {
-  const { kind, input = {}, clientRequestId = null } = req.body || {};
+  let { kind, input = {}, clientRequestId = null } = req.body || {};
   if (!kind || typeof kind !== 'string') {
     return res.status(400).json({ error: 'kind is required' });
   }
@@ -4581,6 +4581,9 @@ app.post('/api/jobs', async (req, res) => {
     return res.status(400).json({
       error: `kind='${kind}' not supported (supported: ${Object.keys(SUPPORTED_JOB_KINDS).join(', ')})`
     });
+  }
+  if (kind === 'scan') {
+    input = normalizeScanJobInput(input);
   }
 
   // Per-kind input validation
