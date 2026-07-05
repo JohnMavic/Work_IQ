@@ -1,0 +1,2158 @@
+{
+  "markers": [
+    {
+      "type": "PROJECT_NEW",
+      "payload": {
+        "projectKey": "ZURICH-CIRCLE-HUBLCR",
+        "title": "Zurich The Circle — FY26 HUB LCR AV & MPR Refresh",
+        "aliases": [
+          "The Circle",
+          "HUB LCR",
+          "Dual MPR",
+          "Radon 9.3E",
+          "EM-SW-ZURICH-THE CIRCLE"
+        ],
+        "summary": "FY26 HUB LCR audio-visual program at Microsoft Zurich – The Circle: Radon room 9.3E rollout, Dual MPR rooms 10.3D/10.3E AV refresh (rescheduled to Dec 2026–Feb 2027), procurement/PO approvals, and the WWT->Zones AV PM handover.",
+        "pmStatus": {
+          "current": "FY26 HUB LCR AV program at Zurich – The Circle is in execution. Radon 9.3E installed and in handover/commissioning; Dual MPR rooms 10.3D/10.3E AV refresh rescheduled to start 1 Dec 2026 with a freeze to ~12 Feb 2027; most procurement POs approved; AV project management transitions from WWT to Zones on 1 Jul 2026.",
+          "planned": [
+            {
+              "text": "Dual MPR 10.3D/10.3E refresh window 1 Dec 2026 – 12 Feb 2027",
+              "evidence": "src-94315dce",
+              "confidence": "medium"
+            },
+            {
+              "text": "Radon 9.3E handover around 24 Jun 2026",
+              "evidence": "src-f7c37896",
+              "confidence": "medium"
+            },
+            {
+              "text": "AV PM handover WWT -> Zones effective 1 Jul 2026",
+              "evidence": "src-6d2675a9",
+              "confidence": "medium"
+            }
+          ],
+          "userActions": [
+            {
+              "text": "Confirm to local team that Dual MPR refresh can start 1 Dec 2026",
+              "evidence": "src-97e61056",
+              "confidence": "medium"
+            },
+            {
+              "text": "Approve/reject pending SAP invoices for PO 101577907",
+              "evidence": "src-98d9ffd3",
+              "confidence": "medium"
+            },
+            {
+              "text": "Approve Anixter PO 101577907 lines",
+              "evidence": "src-c42614d4",
+              "confidence": "medium"
+            },
+            {
+              "text": "Action PO extension 101608497 (keep open until December)",
+              "evidence": "src-7ab6764a",
+              "confidence": "medium"
+            }
+          ],
+          "problems": [
+            {
+              "text": "Radon installation was blocked by screen-mount / wall-reinforcement issues",
+              "evidence": "src-32f0c7ee",
+              "confidence": "medium"
+            }
+          ],
+          "risks": [
+            {
+              "text": "Zones hardware delivery delays could jeopardize the MPR deployment timeline",
+              "evidence": "src-2579f860",
+              "confidence": "medium"
+            },
+            {
+              "text": "Pre-delivered AV hardware storage costs CHF 3'578/month while deployment is deferred",
+              "evidence": "src-61002c20",
+              "confidence": "medium"
+            }
+          ],
+          "waitingOn": [
+            {
+              "text": "Confirmed delivery dates from Zones for MPR hardware",
+              "evidence": "src-2579f860",
+              "confidence": "medium"
+            }
+          ],
+          "confidence": "medium",
+          "lastSynthesizedAt": "2026-07-05T11:12:08.256Z"
+        },
+        "confidence": "medium",
+        "lastSynthesizedAt": "2026-07-05T11:12:08.256Z",
+        "sourceRefs": [
+          {
+            "id": "src-7d1aa77b",
+            "type": "email",
+            "title": "HUB LCR Radon 9.3E — AV-Umbau AKTIV",
+            "from": "Sorina Fota",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "7d1aa77b",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "AV room rebuild of Radon 9.3E at The Circle; GC phase running, disposal question open."
+          },
+          {
+            "id": "src-7d90557f",
+            "type": "email",
+            "title": "PO# 101626915 (74,943.90 USD): Approval complete",
+            "from": "MSApprovals",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "7d90557f",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "PO 101626915 for WWT install of 2 MPR rooms 10.3D/10.3E, FY26 HUB LCR Circle; approved."
+          },
+          {
+            "id": "src-256bfa95",
+            "type": "email",
+            "title": "PO# 101635842 (9,082.06 EUR): Approved",
+            "from": "MSApprovals",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "256bfa95",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "CAPEX PO for GC works (lecterns, control panels, rack strips) Circle rooms 3D & 10.3E via ZONES; approved."
+          },
+          {
+            "id": "src-7ab6764a",
+            "type": "email",
+            "title": "AV LCR Program PO Extension 101608497",
+            "from": "Sodexo",
+            "date": "2026",
+            "link": "https://outlook.office.com/mail/inbox/id/turn1search8",
+            "sourceTaskId": "7ab6764a",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "PO extension USD 69,115.66 for 9.3E dual MPR works/curtains; must stay open until December."
+          },
+          {
+            "id": "src-e0549354",
+            "type": "email",
+            "title": "PO 101660478 approved — pending SAFE step",
+            "from": "Sodexo",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "e0549354",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "PO 101660478 (84,034.25 CHF) GC services Sodexo Circle dual MPR 9.3E/10.3D/10.3E; approved, SAFE step pending."
+          },
+          {
+            "id": "src-dd9ff755",
+            "type": "email",
+            "title": "RE: Urgent: Confirmation Needed on MPR Rebuild Timing",
+            "from": "Jordan Goldstein",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "dd9ff755",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "MPR rebuild timeline, budget and room availability alignment at MSFT Switzerland."
+          },
+          {
+            "id": "src-61002c20",
+            "type": "teams",
+            "title": "Zurich Dual MPR — AV-Refresh shifted to January",
+            "from": "Eors",
+            "date": null,
+            "link": "https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D",
+            "sourceTaskId": "61002c20",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "FY26 HUB LCR AV refresh for Zurich Dual MPR; storage cost CHF 3'578/month; GC PO 101660478."
+          },
+          {
+            "id": "src-f663726c",
+            "type": "teams",
+            "title": "MPR refresh projects (timeline & coordination)",
+            "from": null,
+            "date": null,
+            "link": "https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D",
+            "sourceTaskId": "f663726c",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "MPR refresh 10.3D/10.3E timeline coordination, target end CY2026."
+          },
+          {
+            "id": "src-040b5814",
+            "type": "teams",
+            "title": "MPR timeline change (Circle project)",
+            "from": "Eors",
+            "date": null,
+            "link": "https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D",
+            "sourceTaskId": "040b5814",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "MPR refresh timeline shifted Nov->Dec 2026 start, freeze to mid-Feb 2027 (~2.5 months)."
+          },
+          {
+            "id": "src-e12bad28",
+            "type": "teams",
+            "title": "MPR Dual rooms – start date confirmation",
+            "from": null,
+            "date": null,
+            "link": "https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D",
+            "sourceTaskId": "e12bad28",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Confirm start date for dual MPR 10.3D/10.3E; Nov vs Dec 2026 under discussion."
+          },
+          {
+            "id": "src-94315dce",
+            "type": "teams",
+            "title": "MPR refresh schedule shift (Nov -> Dec)",
+            "from": null,
+            "date": null,
+            "link": "https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D",
+            "sourceTaskId": "94315dce",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "MPR window moved to 1 Dec 2026 – 12 Feb 2027 at stakeholder request to give November back."
+          },
+          {
+            "id": "src-97e61056",
+            "type": "teams",
+            "title": "MPR refresh / project start date",
+            "from": "Sorina Fota",
+            "date": null,
+            "link": "https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D",
+            "sourceTaskId": "97e61056",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Sorina Fota asks Martin to confirm to local team MPR refresh can start 1 Dec 2026."
+          },
+          {
+            "id": "src-82adf7b9",
+            "type": "teams",
+            "title": "MPR refresh schedule change",
+            "from": null,
+            "date": null,
+            "link": "https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D",
+            "sourceTaskId": "82adf7b9",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "MPR 10.3D/10.3E AV refresh schedule shift to return November to the business."
+          },
+          {
+            "id": "src-f7c37896",
+            "type": "teams",
+            "title": "Radon AV project — handover scheduled June 24",
+            "from": "Sorina Fota",
+            "date": "2026-06-24",
+            "link": "https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D",
+            "sourceTaskId": "f7c37896",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Radon AV project; WWT integrator, Sodexo GC; handover to Microsoft scheduled 24 Jun 2026."
+          },
+          {
+            "id": "src-5fe2011e",
+            "type": "teams",
+            "title": "Radon handover / commissioning call today",
+            "from": "Sorina Fota",
+            "date": null,
+            "link": "https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D",
+            "sourceTaskId": "5fe2011e",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Radon room AVi testing/commissioning complete; short-notice handover call convened."
+          },
+          {
+            "id": "src-2579f860",
+            "type": "teams",
+            "title": "MPR deployment (Zones delivery delays)",
+            "from": "Christian Moerken",
+            "date": null,
+            "link": "https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D",
+            "sourceTaskId": "2579f860",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Zones failing to deliver MPR hardware on time or confirm dates; deployment timeline risk."
+          },
+          {
+            "id": "src-ece3556c",
+            "type": "email",
+            "title": "Confirmation required (external supplier delivery)",
+            "from": "Dorota Harrington",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "ece3556c",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Wesco/Anixter confirms delivery of FY26 HUB LCR Zurich equipment PO 101577907; requests receipt confirmation."
+          },
+          {
+            "id": "src-98d9ffd3",
+            "type": "email",
+            "title": "Modern Invoice – SAP Invoice 5735759312 | PO 0101577907",
+            "from": "Modern Invoice",
+            "date": "2026",
+            "link": "https://outlook.office.com/mail/inbox/id/turn1search112",
+            "sourceTaskId": "98d9ffd3",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Three SAP invoices for PO 101577907 pending approval via Modern Invoice/MSApprovals."
+          },
+          {
+            "id": "src-c42614d4",
+            "type": "email",
+            "title": "[EXTERNAL] REQUEST TO APPROVE ANIXTER PO 101577907",
+            "from": "Anixter",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "c42614d4",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Request to approve Anixter PO 101577907 / lines 270187051 & 270187071."
+          },
+          {
+            "id": "src-6d2675a9",
+            "type": "email",
+            "title": "Zones Project Contact Update — Circle HUB Phase 2 (MPR)",
+            "from": "Zones",
+            "date": "2026-07-01",
+            "link": "https://outlook.office.com/mail/inbox/id/turn1search11",
+            "sourceTaskId": "6d2675a9",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "AV PM for Circle HUB Phase 2 MPR transitions WWT->Zones effective 1 Jul 2026; new PM Alla Pavuka."
+          },
+          {
+            "id": "src-32f0c7ee",
+            "type": "email",
+            "title": "Radon room installation blocked — screen mount & wall reinforcement",
+            "from": "Martin",
+            "date": "2026-05-19",
+            "link": "https://outlook.office365.com/owa/",
+            "sourceTaskId": "32f0c7ee",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Surface Pro delivered 19 May for Radon; install blocked by screen mount / wall reinforcement issues."
+          }
+        ],
+        "lineItems": [
+          {
+            "id": "li-circle-radon",
+            "title": "Radon room 9.3E — AV rollout, handover & commissioning",
+            "category": "workstream",
+            "status": "in-progress",
+            "owner": null,
+            "userActionRequired": false,
+            "userAction": null,
+            "currentState": "Radon 9.3E AV installed; handover/commissioning call held ~24 Jun 2026; earlier screen-mount/wall-reinforcement blocker resolved.",
+            "plannedNext": "Close out commissioning snags and confirm production readiness.",
+            "dueAt": null,
+            "waitingOn": null,
+            "problem": null,
+            "risk": null,
+            "confidence": "medium",
+            "evidenceRefIds": [
+              "src-7d1aa77b",
+              "src-f7c37896",
+              "src-5fe2011e",
+              "src-32f0c7ee"
+            ],
+            "sourceTaskIds": [
+              "7d1aa77b-5c49-4bca-8039-f3e559c4b2c0",
+              "f7c37896-b6a7-44ef-927b-49ea19018e8a",
+              "5fe2011e-7938-496d-b7af-c189f750ca36",
+              "32f0c7ee-a8be-4cc8-9fe4-14097ed0e186"
+            ]
+          },
+          {
+            "id": "li-circle-dualmpr",
+            "title": "Dual MPR rooms 10.3D/10.3E — AV refresh",
+            "category": "workstream",
+            "status": "in-progress",
+            "owner": null,
+            "userActionRequired": false,
+            "userAction": null,
+            "currentState": "AV design (Extron/HIVE) and GC scoping in progress; deployment deferred; hardware in storage.",
+            "plannedNext": "Execute the refresh in the confirmed Dec 2026 – Feb 2027 window.",
+            "dueAt": null,
+            "waitingOn": null,
+            "problem": null,
+            "risk": null,
+            "confidence": "medium",
+            "evidenceRefIds": [
+              "src-61002c20",
+              "src-f663726c",
+              "src-82adf7b9"
+            ],
+            "sourceTaskIds": [
+              "61002c20-7db8-420e-8399-5087f464ee8f",
+              "f663726c-8ff9-43f5-b913-1b92247ee8c5",
+              "82adf7b9-ca42-42f2-9222-775d824d4e6c"
+            ]
+          },
+          {
+            "id": "li-circle-timeline",
+            "title": "MPR refresh schedule shift (Nov -> Dec 2026, freeze to ~12 Feb 2027)",
+            "category": "decision",
+            "status": "in-progress",
+            "owner": null,
+            "userActionRequired": true,
+            "userAction": "Confirm the 1 Dec 2026 start date to the local team.",
+            "currentState": "Implementation window moved to 1 Dec 2026 – 12 Feb 2027 to give November back to the business; start-date confirmation requested from Martin.",
+            "plannedNext": "Confirm the 1 Dec 2026 start to local team and stakeholders.",
+            "dueAt": null,
+            "waitingOn": null,
+            "problem": null,
+            "risk": null,
+            "confidence": "medium",
+            "evidenceRefIds": [
+              "src-040b5814",
+              "src-94315dce",
+              "src-e12bad28",
+              "src-97e61056",
+              "src-dd9ff755"
+            ],
+            "sourceTaskIds": [
+              "040b5814-9729-4ccb-abb7-209fb58cf93f",
+              "94315dce-82d2-48af-b800-f85d301ff461",
+              "e12bad28-2a28-46e4-8300-d474f0abe1b9",
+              "97e61056-2459-4d02-82b6-719f3df8d305",
+              "dd9ff755-4d6a-4faa-8b9e-f4fe278a242e"
+            ]
+          },
+          {
+            "id": "li-circle-procurement",
+            "title": "Procurement — POs & invoices for HUB LCR Circle",
+            "category": "workstream",
+            "status": "in-progress",
+            "owner": null,
+            "userActionRequired": true,
+            "userAction": "Approve pending SAP invoices and Anixter PO 101577907 lines; action PO extension 101608497.",
+            "currentState": "POs 101626915, 101635842 and 101660478 approved; PO extension 101608497 pending; PO 101577907 equipment delivered with SAP invoices and Anixter lines pending approval.",
+            "plannedNext": "Approve outstanding invoices/PO lines and keep PO 101608497 open until December.",
+            "dueAt": null,
+            "waitingOn": null,
+            "problem": null,
+            "risk": null,
+            "confidence": "medium",
+            "evidenceRefIds": [
+              "src-7d90557f",
+              "src-256bfa95",
+              "src-e0549354",
+              "src-7ab6764a",
+              "src-98d9ffd3",
+              "src-c42614d4",
+              "src-ece3556c"
+            ],
+            "sourceTaskIds": [
+              "7d90557f-7e8f-4443-80bc-ac9b061a58b5",
+              "256bfa95-06cf-48e2-aa63-174a9a3055f3",
+              "e0549354-f17d-4307-934f-e95d4f16e9ea",
+              "7ab6764a-1af7-446e-9994-a1512cd2d044",
+              "98d9ffd3-b12f-4cdd-860a-ff7f934d3656",
+              "c42614d4-a2b7-484f-89d5-a564103bb3c7",
+              "ece3556c-d691-4a09-9574-f7423b58acc1"
+            ]
+          },
+          {
+            "id": "li-circle-zones-handover",
+            "title": "AV vendor delivery risk & WWT->Zones PM handover",
+            "category": "dependency",
+            "status": "in-progress",
+            "owner": null,
+            "userActionRequired": false,
+            "userAction": null,
+            "currentState": "AV project management transitions from WWT to Zones (Alla Pavuka) effective 1 Jul 2026; Zones delivery timing flagged as a risk to MPR deployment.",
+            "plannedNext": "Track Zones delivery dates and onboard the new PM contact.",
+            "dueAt": null,
+            "waitingOn": null,
+            "problem": null,
+            "risk": "Zones delivery delays and PM transition may disrupt MPR timeline.",
+            "confidence": "medium",
+            "evidenceRefIds": [
+              "src-6d2675a9",
+              "src-2579f860"
+            ],
+            "sourceTaskIds": [
+              "6d2675a9-8e6d-4b6a-b247-3e42741dd2e3",
+              "2579f860-bd87-4858-9ad9-71a880307841"
+            ]
+          }
+        ],
+        "supersedesTaskIds": [
+          "7d1aa77b-5c49-4bca-8039-f3e559c4b2c0",
+          "7d90557f-7e8f-4443-80bc-ac9b061a58b5",
+          "256bfa95-06cf-48e2-aa63-174a9a3055f3",
+          "7ab6764a-1af7-446e-9994-a1512cd2d044",
+          "e0549354-f17d-4307-934f-e95d4f16e9ea",
+          "dd9ff755-4d6a-4faa-8b9e-f4fe278a242e",
+          "61002c20-7db8-420e-8399-5087f464ee8f",
+          "f663726c-8ff9-43f5-b913-1b92247ee8c5",
+          "040b5814-9729-4ccb-abb7-209fb58cf93f",
+          "e12bad28-2a28-46e4-8300-d474f0abe1b9",
+          "94315dce-82d2-48af-b800-f85d301ff461",
+          "97e61056-2459-4d02-82b6-719f3df8d305",
+          "82adf7b9-ca42-42f2-9222-775d824d4e6c",
+          "f7c37896-b6a7-44ef-927b-49ea19018e8a",
+          "5fe2011e-7938-496d-b7af-c189f750ca36",
+          "2579f860-bd87-4858-9ad9-71a880307841",
+          "ece3556c-d691-4a09-9574-f7423b58acc1",
+          "98d9ffd3-b12f-4cdd-860a-ff7f934d3656",
+          "c42614d4-a2b7-484f-89d5-a564103bb3c7",
+          "6d2675a9-8e6d-4b6a-b247-3e42741dd2e3",
+          "32f0c7ee-a8be-4cc8-9fe4-14097ed0e186"
+        ],
+        "taskId": "proj-zurich-circle-hublcr"
+      },
+      "line": 17,
+      "raw": "[PROJECT_NEW] {\"projectKey\": \"ZURICH-CIRCLE-HUBLCR\", \"title\": \"Zurich The Circle — FY26 HUB LCR AV & MPR Refresh\", \"aliases\": [\"The Circle\", \"HUB LCR\", \"Dual MPR\", \"Radon 9.3E\", \"EM-SW-ZURICH-THE CIRCLE\"], \"summary\": \"FY26 HUB LCR audio-visual program at Microsoft Zurich – The Circle: Radon room 9.3E rollout, Dual MPR rooms 10.3D/10.3E AV refresh (rescheduled to Dec 2026–Feb 2027), procurement/PO approvals, and the WWT->Zones AV PM handover.\", \"pmStatus\": {\"current\": \"FY26 HUB LCR AV program at Zurich – The Circle is in execution. Radon 9.3E installed and in handover/commissioning; Dual MPR rooms 10.3D/10.3E AV refresh rescheduled to start 1 Dec 2026 with a freeze to ~12 Feb 2027; most procurement POs approved; AV project management transitions from WWT to Zones on 1 Jul 2026.\", \"planned\": [{\"text\": \"Dual MPR 10.3D/10.3E refresh window 1 Dec 2026 – 12 Feb 2027\", \"evidence\": \"src-94315dce\", \"confidence\": \"medium\"}, {\"text\": \"Radon 9.3E handover around 24 Jun 2026\", \"evidence\": \"src-f7c37896\", \"confidence\": \"medium\"}, {\"text\": \"AV PM handover WWT -> Zones effective 1 Jul 2026\", \"evidence\": \"src-6d2675a9\", \"confidence\": \"medium\"}], \"userActions\": [{\"text\": \"Confirm to local team that Dual MPR refresh can start 1 Dec 2026\", \"evidence\": \"src-97e61056\", \"confidence\": \"medium\"}, {\"text\": \"Approve/reject pending SAP invoices for PO 101577907\", \"evidence\": \"src-98d9ffd3\", \"confidence\": \"medium\"}, {\"text\": \"Approve Anixter PO 101577907 lines\", \"evidence\": \"src-c42614d4\", \"confidence\": \"medium\"}, {\"text\": \"Action PO extension 101608497 (keep open until December)\", \"evidence\": \"src-7ab6764a\", \"confidence\": \"medium\"}], \"problems\": [{\"text\": \"Radon installation was blocked by screen-mount / wall-reinforcement issues\", \"evidence\": \"src-32f0c7ee\", \"confidence\": \"medium\"}], \"risks\": [{\"text\": \"Zones hardware delivery delays could jeopardize the MPR deployment timeline\", \"evidence\": \"src-2579f860\", \"confidence\": \"medium\"}, {\"text\": \"Pre-delivered AV hardware storage costs CHF 3'578/month while deployment is deferred\", \"evidence\": \"src-61002c20\", \"confidence\": \"medium\"}], \"waitingOn\": [{\"text\": \"Confirmed delivery dates from Zones for MPR hardware\", \"evidence\": \"src-2579f860\", \"confidence\": \"medium\"}], \"confidence\": \"medium\", \"lastSynthesizedAt\": \"2026-07-05T11:12:08.256Z\"}, \"confidence\": \"medium\", \"lastSynthesizedAt\": \"2026-07-05T11:12:08.256Z\", \"sourceRefs\": [{\"id\": \"src-7d1aa77b\", \"type\": \"email\", \"title\": \"HUB LCR Radon 9.3E — AV-Umbau AKTIV\", \"from\": \"Sorina Fota\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"7d1aa77b\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"AV room rebuild of Radon 9.3E at The Circle; GC phase running, disposal question open.\"}, {\"id\": \"src-7d90557f\", \"type\": \"email\", \"title\": \"PO# 101626915 (74,943.90 USD): Approval complete\", \"from\": \"MSApprovals\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"7d90557f\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"PO 101626915 for WWT install of 2 MPR rooms 10.3D/10.3E, FY26 HUB LCR Circle; approved.\"}, {\"id\": \"src-256bfa95\", \"type\": \"email\", \"title\": \"PO# 101635842 (9,082.06 EUR): Approved\", \"from\": \"MSApprovals\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"256bfa95\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"CAPEX PO for GC works (lecterns, control panels, rack strips) Circle rooms 3D & 10.3E via ZONES; approved.\"}, {\"id\": \"src-7ab6764a\", \"type\": \"email\", \"title\": \"AV LCR Program PO Extension 101608497\", \"from\": \"Sodexo\", \"date\": \"2026\", \"link\": \"https://outlook.office.com/mail/inbox/id/turn1search8\", \"sourceTaskId\": \"7ab6764a\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"PO extension USD 69,115.66 for 9.3E dual MPR works/curtains; must stay open until December.\"}, {\"id\": \"src-e0549354\", \"type\": \"email\", \"title\": \"PO 101660478 approved — pending SAFE step\", \"from\": \"Sodexo\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"e0549354\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"PO 101660478 (84,034.25 CHF) GC services Sodexo Circle dual MPR 9.3E/10.3D/10.3E; approved, SAFE step pending.\"}, {\"id\": \"src-dd9ff755\", \"type\": \"email\", \"title\": \"RE: Urgent: Confirmation Needed on MPR Rebuild Timing\", \"from\": \"Jordan Goldstein\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"dd9ff755\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"MPR rebuild timeline, budget and room availability alignment at MSFT Switzerland.\"}, {\"id\": \"src-61002c20\", \"type\": \"teams\", \"title\": \"Zurich Dual MPR — AV-Refresh shifted to January\", \"from\": \"Eors\", \"date\": null, \"link\": \"https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D\", \"sourceTaskId\": \"61002c20\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"FY26 HUB LCR AV refresh for Zurich Dual MPR; storage cost CHF 3'578/month; GC PO 101660478.\"}, {\"id\": \"src-f663726c\", \"type\": \"teams\", \"title\": \"MPR refresh projects (timeline & coordination)\", \"from\": null, \"date\": null, \"link\": \"https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D\", \"sourceTaskId\": \"f663726c\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"MPR refresh 10.3D/10.3E timeline coordination, target end CY2026.\"}, {\"id\": \"src-040b5814\", \"type\": \"teams\", \"title\": \"MPR timeline change (Circle project)\", \"from\": \"Eors\", \"date\": null, \"link\": \"https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D\", \"sourceTaskId\": \"040b5814\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"MPR refresh timeline shifted Nov->Dec 2026 start, freeze to mid-Feb 2027 (~2.5 months).\"}, {\"id\": \"src-e12bad28\", \"type\": \"teams\", \"title\": \"MPR Dual rooms – start date confirmation\", \"from\": null, \"date\": null, \"link\": \"https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D\", \"sourceTaskId\": \"e12bad28\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Confirm start date for dual MPR 10.3D/10.3E; Nov vs Dec 2026 under discussion.\"}, {\"id\": \"src-94315dce\", \"type\": \"teams\", \"title\": \"MPR refresh schedule shift (Nov -> Dec)\", \"from\": null, \"date\": null, \"link\": \"https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D\", \"sourceTaskId\": \"94315dce\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"MPR window moved to 1 Dec 2026 – 12 Feb 2027 at stakeholder request to give November back.\"}, {\"id\": \"src-97e61056\", \"type\": \"teams\", \"title\": \"MPR refresh / project start date\", \"from\": \"Sorina Fota\", \"date\": null, \"link\": \"https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D\", \"sourceTaskId\": \"97e61056\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Sorina Fota asks Martin to confirm to local team MPR refresh can start 1 Dec 2026.\"}, {\"id\": \"src-82adf7b9\", \"type\": \"teams\", \"title\": \"MPR refresh schedule change\", \"from\": null, \"date\": null, \"link\": \"https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D\", \"sourceTaskId\": \"82adf7b9\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"MPR 10.3D/10.3E AV refresh schedule shift to return November to the business.\"}, {\"id\": \"src-f7c37896\", \"type\": \"teams\", \"title\": \"Radon AV project — handover scheduled June 24\", \"from\": \"Sorina Fota\", \"date\": \"2026-06-24\", \"link\": \"https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D\", \"sourceTaskId\": \"f7c37896\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Radon AV project; WWT integrator, Sodexo GC; handover to Microsoft scheduled 24 Jun 2026.\"}, {\"id\": \"src-5fe2011e\", \"type\": \"teams\", \"title\": \"Radon handover / commissioning call today\", \"from\": \"Sorina Fota\", \"date\": null, \"link\": \"https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D\", \"sourceTaskId\": \"5fe2011e\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Radon room AVi testing/commissioning complete; short-notice handover call convened.\"}, {\"id\": \"src-2579f860\", \"type\": \"teams\", \"title\": \"MPR deployment (Zones delivery delays)\", \"from\": \"Christian Moerken\", \"date\": null, \"link\": \"https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D\", \"sourceTaskId\": \"2579f860\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Zones failing to deliver MPR hardware on time or confirm dates; deployment timeline risk.\"}, {\"id\": \"src-ece3556c\", \"type\": \"email\", \"title\": \"Confirmation required (external supplier delivery)\", \"from\": \"Dorota Harrington\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"ece3556c\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Wesco/Anixter confirms delivery of FY26 HUB LCR Zurich equipment PO 101577907; requests receipt confirmation.\"}, {\"id\": \"src-98d9ffd3\", \"type\": \"email\", \"title\": \"Modern Invoice – SAP Invoice 5735759312 | PO 0101577907\", \"from\": \"Modern Invoice\", \"date\": \"2026\", \"link\": \"https://outlook.office.com/mail/inbox/id/turn1search112\", \"sourceTaskId\": \"98d9ffd3\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Three SAP invoices for PO 101577907 pending approval via Modern Invoice/MSApprovals.\"}, {\"id\": \"src-c42614d4\", \"type\": \"email\", \"title\": \"[EXTERNAL] REQUEST TO APPROVE ANIXTER PO 101577907\", \"from\": \"Anixter\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"c42614d4\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Request to approve Anixter PO 101577907 / lines 270187051 & 270187071.\"}, {\"id\": \"src-6d2675a9\", \"type\": \"email\", \"title\": \"Zones Project Contact Update — Circle HUB Phase 2 (MPR)\", \"from\": \"Zones\", \"date\": \"2026-07-01\", \"link\": \"https://outlook.office.com/mail/inbox/id/turn1search11\", \"sourceTaskId\": \"6d2675a9\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"AV PM for Circle HUB Phase 2 MPR transitions WWT->Zones effective 1 Jul 2026; new PM Alla Pavuka.\"}, {\"id\": \"src-32f0c7ee\", \"type\": \"email\", \"title\": \"Radon room installation blocked — screen mount & wall reinforcement\", \"from\": \"Martin\", \"date\": \"2026-05-19\", \"link\": \"https://outlook.office365.com/owa/\", \"sourceTaskId\": \"32f0c7ee\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Surface Pro delivered 19 May for Radon; install blocked by screen mount / wall reinforcement issues.\"}], \"lineItems\": [{\"id\": \"li-circle-radon\", \"title\": \"Radon room 9.3E — AV rollout, handover & commissioning\", \"category\": \"workstream\", \"status\": \"in-progress\", \"owner\": null, \"userActionRequired\": false, \"userAction\": null, \"currentState\": \"Radon 9.3E AV installed; handover/commissioning call held ~24 Jun 2026; earlier screen-mount/wall-reinforcement blocker resolved.\", \"plannedNext\": \"Close out commissioning snags and confirm production readiness.\", \"dueAt\": null, \"waitingOn\": null, \"problem\": null, \"risk\": null, \"confidence\": \"medium\", \"evidenceRefIds\": [\"src-7d1aa77b\", \"src-f7c37896\", \"src-5fe2011e\", \"src-32f0c7ee\"], \"sourceTaskIds\": [\"7d1aa77b-5c49-4bca-8039-f3e559c4b2c0\", \"f7c37896-b6a7-44ef-927b-49ea19018e8a\", \"5fe2011e-7938-496d-b7af-c189f750ca36\", \"32f0c7ee-a8be-4cc8-9fe4-14097ed0e186\"]}, {\"id\": \"li-circle-dualmpr\", \"title\": \"Dual MPR rooms 10.3D/10.3E — AV refresh\", \"category\": \"workstream\", \"status\": \"in-progress\", \"owner\": null, \"userActionRequired\": false, \"userAction\": null, \"currentState\": \"AV design (Extron/HIVE) and GC scoping in progress; deployment deferred; hardware in storage.\", \"plannedNext\": \"Execute the refresh in the confirmed Dec 2026 – Feb 2027 window.\", \"dueAt\": null, \"waitingOn\": null, \"problem\": null, \"risk\": null, \"confidence\": \"medium\", \"evidenceRefIds\": [\"src-61002c20\", \"src-f663726c\", \"src-82adf7b9\"], \"sourceTaskIds\": [\"61002c20-7db8-420e-8399-5087f464ee8f\", \"f663726c-8ff9-43f5-b913-1b92247ee8c5\", \"82adf7b9-ca42-42f2-9222-775d824d4e6c\"]}, {\"id\": \"li-circle-timeline\", \"title\": \"MPR refresh schedule shift (Nov -> Dec 2026, freeze to ~12 Feb 2027)\", \"category\": \"decision\", \"status\": \"in-progress\", \"owner\": null, \"userActionRequired\": true, \"userAction\": \"Confirm the 1 Dec 2026 start date to the local team.\", \"currentState\": \"Implementation window moved to 1 Dec 2026 – 12 Feb 2027 to give November back to the business; start-date confirmation requested from Martin.\", \"plannedNext\": \"Confirm the 1 Dec 2026 start to local team and stakeholders.\", \"dueAt\": null, \"waitingOn\": null, \"problem\": null, \"risk\": null, \"confidence\": \"medium\", \"evidenceRefIds\": [\"src-040b5814\", \"src-94315dce\", \"src-e12bad28\", \"src-97e61056\", \"src-dd9ff755\"], \"sourceTaskIds\": [\"040b5814-9729-4ccb-abb7-209fb58cf93f\", \"94315dce-82d2-48af-b800-f85d301ff461\", \"e12bad28-2a28-46e4-8300-d474f0abe1b9\", \"97e61056-2459-4d02-82b6-719f3df8d305\", \"dd9ff755-4d6a-4faa-8b9e-f4fe278a242e\"]}, {\"id\": \"li-circle-procurement\", \"title\": \"Procurement — POs & invoices for HUB LCR Circle\", \"category\": \"workstream\", \"status\": \"in-progress\", \"owner\": null, \"userActionRequired\": true, \"userAction\": \"Approve pending SAP invoices and Anixter PO 101577907 lines; action PO extension 101608497.\", \"currentState\": \"POs 101626915, 101635842 and 101660478 approved; PO extension 101608497 pending; PO 101577907 equipment delivered with SAP invoices and Anixter lines pending approval.\", \"plannedNext\": \"Approve outstanding invoices/PO lines and keep PO 101608497 open until December.\", \"dueAt\": null, \"waitingOn\": null, \"problem\": null, \"risk\": null, \"confidence\": \"medium\", \"evidenceRefIds\": [\"src-7d90557f\", \"src-256bfa95\", \"src-e0549354\", \"src-7ab6764a\", \"src-98d9ffd3\", \"src-c42614d4\", \"src-ece3556c\"], \"sourceTaskIds\": [\"7d90557f-7e8f-4443-80bc-ac9b061a58b5\", \"256bfa95-06cf-48e2-aa63-174a9a3055f3\", \"e0549354-f17d-4307-934f-e95d4f16e9ea\", \"7ab6764a-1af7-446e-9994-a1512cd2d044\", \"98d9ffd3-b12f-4cdd-860a-ff7f934d3656\", \"c42614d4-a2b7-484f-89d5-a564103bb3c7\", \"ece3556c-d691-4a09-9574-f7423b58acc1\"]}, {\"id\": \"li-circle-zones-handover\", \"title\": \"AV vendor delivery risk & WWT->Zones PM handover\", \"category\": \"dependency\", \"status\": \"in-progress\", \"owner\": null, \"userActionRequired\": false, \"userAction\": null, \"currentState\": \"AV project management transitions from WWT to Zones (Alla Pavuka) effective 1 Jul 2026; Zones delivery timing flagged as a risk to MPR deployment.\", \"plannedNext\": \"Track Zones delivery dates and onboard the new PM contact.\", \"dueAt\": null, \"waitingOn\": null, \"problem\": null, \"risk\": \"Zones delivery delays and PM transition may disrupt MPR timeline.\", \"confidence\": \"medium\", \"evidenceRefIds\": [\"src-6d2675a9\", \"src-2579f860\"], \"sourceTaskIds\": [\"6d2675a9-8e6d-4b6a-b247-3e42741dd2e3\", \"2579f860-bd87-4858-9ad9-71a880307841\"]}], \"supersedesTaskIds\": [\"7d1aa77b-5c49-4bca-8039-f3e559c4b2c0\", \"7d90557f-7e8f-4443-80bc-ac9b061a58b5\", \"256bfa95-06cf-48e2-aa63-174a9a3055f3\", \"7ab6764a-1af7-446e-9994-a1512cd2d044\", \"e0549354-f17d-4307-934f-e95d4f16e9ea\", \"dd9ff755-4d6a-4faa-8b9e-f4fe278a242e\", \"61002c20-7db8-420e-8399-5087f464ee8f\", \"f663726c-8ff9-43f5-b913-1b92247ee8c5\", \"040b5814-9729-4ccb-abb7-209fb58cf93f\", \"e12bad28-2a28-46e4-8300-d474f0abe1b9\", \"94315dce-82d2-48af-b800-f85d301ff461\", \"97e61056-2459-4d02-82b6-719f3df8d305\", \"82adf7b9-ca42-42f2-9222-775d824d4e6c\", \"f7c37896-b6a7-44ef-927b-49ea19018e8a\", \"5fe2011e-7938-496d-b7af-c189f750ca36\", \"2579f860-bd87-4858-9ad9-71a880307841\", \"ece3556c-d691-4a09-9574-f7423b58acc1\", \"98d9ffd3-b12f-4cdd-860a-ff7f934d3656\", \"c42614d4-a2b7-484f-89d5-a564103bb3c7\", \"6d2675a9-8e6d-4b6a-b247-3e42741dd2e3\", \"32f0c7ee-a8be-4cc8-9fe4-14097ed0e186\"], \"taskId\": \"proj-zurich-circle-hublcr\"}"
+    },
+    {
+      "type": "PROJECT_NEW",
+      "payload": {
+        "taskId": "proj-seestrasse-356",
+        "projectKey": "ZURICH-SEESTRASSE-356",
+        "title": "Microsoft Seestrasse 356 Zurich — Office Refurbishment (IT/AV/Cabling)",
+        "aliases": [
+          "Seestrasse",
+          "Seestrasse 356",
+          "Zurich-See",
+          "SEP 3235"
+        ],
+        "summary": "Coordination of all IT and infrastructure works for the Microsoft Seestrasse 356 Zurich office refurbishment (SEP #3235): data recabling and patch panel sourcing, AV decommission/install/commissioning, CorpNet patching, focus-room cabling decisions, PC relocation, and supplier onboarding across the June and August 2026 closure windows.",
+        "pmStatus": {
+          "current": "Microsoft Seestrasse 356 Zurich office refurbishment (SEP #3235) is in active execution. AV rooms are largely installed with commissioning/MTR testing underway; CorpNet patching for several rooms is outstanding after non-compliant switches were removed; data recabling/patch panels are being sourced with 6–11 week lead times threatening the 17–28 Aug 2026 window; PC relocation and supplier access are being coordinated.",
+          "planned": [
+            {
+              "text": "August cabling works scheduled 17–28 Aug 2026",
+              "evidence": "src-22907581",
+              "confidence": "medium"
+            },
+            {
+              "text": "AV Go-Live target 1 Jul 2026 for commissioned rooms",
+              "evidence": "src-650e8334",
+              "confidence": "medium"
+            }
+          ],
+          "userActions": [
+            {
+              "text": "Respond to Laith Skeik's unanswered meeting request to walk through the cabling plan",
+              "evidence": "src-45e5694c",
+              "confidence": "medium"
+            },
+            {
+              "text": "Review the color-coded AV decommission asset list (keep vs disposal)",
+              "evidence": "src-50f3b2a3",
+              "confidence": "medium"
+            },
+            {
+              "text": "Decide/approve PO change for longer network cables in Focus Rooms",
+              "evidence": "src-8012104d",
+              "confidence": "medium"
+            },
+            {
+              "text": "Confirm touchpanel mounting position in Focus Rooms",
+              "evidence": "src-f9fd6025",
+              "confidence": "medium"
+            },
+            {
+              "text": "Sign off commissioned AV rooms for production as requested by Patrick",
+              "evidence": "src-650e8334",
+              "confidence": "medium"
+            }
+          ],
+          "problems": [
+            {
+              "text": "Several rooms lack CorpNet connectivity after non-compliant unmanaged switches were removed, blocking MTR/CHD commissioning",
+              "evidence": "src-1f264332",
+              "confidence": "medium"
+            },
+            {
+              "text": "Supplied 2m network cables are too short (5–15m needed), forcing an unplanned PO change",
+              "evidence": "src-8012104d",
+              "confidence": "medium"
+            },
+            {
+              "text": "Zimmerberg/Nicolas Eindiguer cannot log into SupplierWeb, blocking invoice 101616080 upload",
+              "evidence": "src-db6dbf57",
+              "confidence": "medium"
+            }
+          ],
+          "risks": [
+            {
+              "text": "Patch panel lead time of 6–11 weeks threatens the August cabling schedule",
+              "evidence": "src-bd39f6be",
+              "confidence": "medium"
+            }
+          ],
+          "waitingOn": [
+            {
+              "text": "Patch panel material availability / delivery",
+              "evidence": "src-bd39f6be",
+              "confidence": "medium"
+            },
+            {
+              "text": "CorpNet patching completion to finish room commissioning",
+              "evidence": "src-cabb3656",
+              "confidence": "medium"
+            },
+            {
+              "text": "SupplierWeb portal access for Zimmerberg Elektro to upload invoice",
+              "evidence": "src-87970f52",
+              "confidence": "medium"
+            }
+          ],
+          "confidence": "medium",
+          "lastSynthesizedAt": "2026-07-05T11:12:08.256Z"
+        },
+        "confidence": "medium",
+        "lastSynthesizedAt": "2026-07-05T11:12:08.256Z",
+        "sourceRefs": [
+          {
+            "id": "src-0db365e5",
+            "type": "email",
+            "title": "Seestrasse Cabling Works — Patch Panel Sourcing",
+            "from": "Laith Skeik",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "0db365e5",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Coordination of Seestrasse refurbishment AV/IT cabling/security; patch panel sourcing active."
+          },
+          {
+            "id": "src-3e249f13",
+            "type": "teams",
+            "title": "Seestrasse 356 — IT-cabling, AV, HA upgrade, PC relocation",
+            "from": "Laith Skeik",
+            "date": null,
+            "link": "https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D",
+            "sourceTaskId": "3e249f13",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Overall coordination of IT/infrastructure works for Seestrasse 356: recabling 114->112 outlets, AV, PC relocation, Jun/Aug scheduling."
+          },
+          {
+            "id": "src-26248f16",
+            "type": "email",
+            "title": "Seestrasse AV: Decom done, commissioning & MTR testing",
+            "from": "Laith Skeik",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "26248f16",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "AV decommissioning done; commissioning and MTR testing in progress with Zones/Sodexo."
+          },
+          {
+            "id": "src-b4537097",
+            "type": "email",
+            "title": "Seestrasse AV commissioning blocked on cabling — CHDs pending",
+            "from": "Laith Skeik",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "b4537097",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "AV commissioning blocked on cabling; scope clarified; CHD panels pending."
+          },
+          {
+            "id": "src-08d94189",
+            "type": "email",
+            "title": "AV Installation Seestrasse — CHD doorway concern",
+            "from": "Patrick Harris",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "08d94189",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "AV install Seestrasse June 2026; CHD doorway concern and decommissioning in progress."
+          },
+          {
+            "id": "src-39a9fe87",
+            "type": "teams",
+            "title": "Seestrasse renovation — CHDs delayed, cabling rework pending",
+            "from": "Laith Skeik",
+            "date": null,
+            "link": "https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D",
+            "sourceTaskId": "39a9fe87",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Office closure Jun 12–26; non-compliant cabling removed causing CHD loss; phased rollout."
+          },
+          {
+            "id": "src-3ad99325",
+            "type": "teams",
+            "title": "Seestrasse planning discussion",
+            "from": null,
+            "date": null,
+            "link": "https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D",
+            "sourceTaskId": "3ad99325",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Seestrasse renovation major works phase; full office closure June 12–26 2026."
+          },
+          {
+            "id": "src-867b811d",
+            "type": "email",
+            "title": "Seestrasse cabling coordination — active planning for August",
+            "from": "Laith Skeik",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "867b811d",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "9 new messages since 09.06; Laith Skeik and Nicolas/Ottomüller on materials/scheduling for August."
+          },
+          {
+            "id": "src-45e5694c",
+            "type": "email",
+            "title": "Cabling project – meeting request UNANSWERED since 12.06",
+            "from": "Laith Skeik",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "45e5694c",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Laith Skeik requests a meeting to walk through the Seestrasse cabling plan with Mix and stakeholders."
+          },
+          {
+            "id": "src-10a71ac5",
+            "type": "email",
+            "title": "AV Installation Seestrasse — Rooms complete, CHDs pending cabling",
+            "from": "Patrick Harris",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "10a71ac5",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Rooms tested/configured 23.06; CHD mounting waiting on cable install and CorpNet patching."
+          },
+          {
+            "id": "src-bd39f6be",
+            "type": "email",
+            "title": "Seestrasse cabling — patch panel lead time 6–11 weeks threatens August",
+            "from": "Nicolas Eindiguer",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "bd39f6be",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Nicolas Eindiguer works with Laith and Ben Ashdown on material specs; patch panel lead time 6–11 weeks."
+          },
+          {
+            "id": "src-50f3b2a3",
+            "type": "email",
+            "title": "AV equipment / decom list validation (requires review)",
+            "from": "Sorina Fota",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "50f3b2a3",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Martin must review the color-coded AV decommission list (keep as spares vs sensitive disposal)."
+          },
+          {
+            "id": "src-22907581",
+            "type": "email",
+            "title": "Coordination / Follow-up (external cabling works)",
+            "from": "Laith Skeik",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "22907581",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "External cabling works Seestrasse scheduled 17–28 Aug 2026; Laith lead, Belinda Sodexo."
+          },
+          {
+            "id": "src-b74e3b5c",
+            "type": "teams",
+            "title": "Network / room connectivity",
+            "from": "Martin",
+            "date": null,
+            "link": "https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D",
+            "sourceTaskId": "b74e3b5c",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Seestrasse 2nd floor rooms connected via non-compliant unmanaged switch instead of corpnet patching."
+          },
+          {
+            "id": "src-1f264332",
+            "type": "teams",
+            "title": "Rooms without corpnet (patching issue)",
+            "from": "Martin",
+            "date": null,
+            "link": "https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D",
+            "sourceTaskId": "1f264332",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Rooms lack CorpNet, blocking MTR/CHD commissioning after non-compliant switches removed."
+          },
+          {
+            "id": "src-650e8334",
+            "type": "email",
+            "title": "AV sign-off requested — approve rooms for production",
+            "from": "Patrick Harris",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "650e8334",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Commissioning window Jun 15–19 (extended); Go-Live target Jul 1 2026; Patrick asks for room sign-off."
+          },
+          {
+            "id": "src-906d7a77",
+            "type": "email",
+            "title": "AV Commissioning Seestrasse — active coordination with Zones",
+            "from": "Patrick Harris",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "906d7a77",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Martin and Patrick Harris (Zones) exchanging on MSFT Seestrasse AV commissioning."
+          },
+          {
+            "id": "src-70874c30",
+            "type": "email",
+            "title": "Seestrasse AV/cabling — commissioning active, patching flagged",
+            "from": "Patrick Harris",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "70874c30",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Cable pull list gap; patching issues flagged between Zones, Dario, Laith and Martin."
+          },
+          {
+            "id": "src-51bd7936",
+            "type": "email",
+            "title": "Seestrasse AV Commissioning – On-Site Testing (Scribe Cam 2037/2009)",
+            "from": "Laith Skeik",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "51bd7936",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "On-site testing; non-compliant switch removed; MTRs prioritized; Scribe cam issues 2037/2009."
+          },
+          {
+            "id": "src-8c84b54c",
+            "type": "email",
+            "title": "Seestrasse AV Commissioning – On-site tests this week",
+            "from": "Laith Skeik",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "8c84b54c",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Commissioning of new AV room booking panels; Laith coordinates on-site tests; Patrick reachable."
+          },
+          {
+            "id": "src-cabb3656",
+            "type": "email",
+            "title": "CorpNet Zurich See – Rooms completed, approval to go live pending",
+            "from": "Patrick Harris",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "cabb3656",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "CorpNet patching block resolved; MTR setup done on 2nd floor; approval to go live pending."
+          },
+          {
+            "id": "src-a9233176",
+            "type": "email",
+            "title": "Network cable Table-Display – Review / Decision",
+            "from": "Dario Piediscalzi",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "a9233176",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Dario requests decision on table-to-display network cables; 2m too short, longer needed."
+          },
+          {
+            "id": "src-8012104d",
+            "type": "email",
+            "title": "PO change request (network cables Focus Rooms)",
+            "from": "Dario Piediscalzi",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "8012104d",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "PO change for additional network cables/trunking; 2m cables too short (5–15m needed)."
+          },
+          {
+            "id": "src-f9fd6025",
+            "type": "email",
+            "title": "Confirm / Decision required (touchpanel position)",
+            "from": "Dario Piediscalzi",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "f9fd6025",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Dario asks Martin to confirm touchpanel mounting position in Focus Rooms; Patrick suggested left."
+          },
+          {
+            "id": "src-05787a56",
+            "type": "teams",
+            "title": "Seestrasse PCs placement during August rebuild",
+            "from": null,
+            "date": null,
+            "link": "https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D",
+            "sourceTaskId": "05787a56",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "~20 developer PCs to be relocated to storage during Aug 17–28 rebuild."
+          },
+          {
+            "id": "src-51266f0f",
+            "type": "teams",
+            "title": "Seestrasse PCs during August refurbishment",
+            "from": "Belinda Schott",
+            "date": null,
+            "link": "https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D",
+            "sourceTaskId": "51266f0f",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Temporary PC location during LAN recabling Aug 17–28 2026; Belinda/Sodexo/Nicolas involved."
+          },
+          {
+            "id": "src-87970f52",
+            "type": "email",
+            "title": "Re: Upload Invoice | 101616080",
+            "from": "Nicolas Eindiguer",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "87970f52",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Invoice 101616080 (PO 476031514) from Zimmerberg Elektro cannot be uploaded; supplier lacks SupplierWeb access."
+          },
+          {
+            "id": "src-57d7ed8b",
+            "type": "email",
+            "title": "[EXTERNAL] Re: Seestrasse - Cabling works August",
+            "from": null,
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "57d7ed8b",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "External thread on Seestrasse cabling works in August."
+          },
+          {
+            "id": "src-07f358af",
+            "type": "email",
+            "title": "[EXTERNAL] Re: SEP 3235 - ZURICH-SEESTRASSE | Critical Works Upgrades",
+            "from": null,
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "07f358af",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "SEP #3235 Seestrasse critical works upgrades (IT/AV/cabling); budget approved since Jul 2024."
+          },
+          {
+            "id": "src-db6dbf57",
+            "type": "email",
+            "title": "AW: RE:TKT-9613391 Anmeldung funktioniert nicht",
+            "from": "Nicolas Eindiguer",
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "db6dbf57",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Nicolas Eindiguer cannot log into SupplierWeb portal (old/new email); blocks invoice upload."
+          },
+          {
+            "id": "src-6de92986",
+            "type": "email",
+            "title": "[EXTERNAL] Re: Zurich-See - Cable Room Ventilation Holes",
+            "from": null,
+            "date": null,
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "6de92986",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "External thread on cable room ventilation holes at Zurich-See."
+          }
+        ],
+        "lineItems": [
+          {
+            "id": "li-see-cabling",
+            "title": "Data recabling & patch panel sourcing",
+            "category": "workstream",
+            "status": "in-progress",
+            "owner": null,
+            "userActionRequired": false,
+            "userAction": null,
+            "currentState": "Recabling 114->112 outlets; patch panel material specs being finalized with Nicolas Eindiguer/Ben Ashdown; long lead times under negotiation.",
+            "plannedNext": "Finalize patch panel order and lock the August installation plan.",
+            "dueAt": null,
+            "waitingOn": null,
+            "problem": null,
+            "risk": "Patch panel lead time 6–11 weeks threatens the August window.",
+            "confidence": "medium",
+            "evidenceRefIds": [
+              "src-0db365e5",
+              "src-3e249f13",
+              "src-bd39f6be",
+              "src-45e5694c",
+              "src-57d7ed8b",
+              "src-6de92986",
+              "src-07f358af"
+            ],
+            "sourceTaskIds": [
+              "0db365e5-cba0-4030-8a06-55726557fcdc",
+              "3e249f13-eca1-4d62-bdb1-dac2d5aad4de",
+              "bd39f6be-5013-4673-b65d-d91cfec0f3ed",
+              "45e5694c-dd3a-49ba-8d17-52e2f80f3c29",
+              "57d7ed8b-740b-4ab6-b494-ccdf28b308e2",
+              "6de92986-290a-490b-b15a-ca9c6e1aa371",
+              "07f358af-5d43-459e-8bee-60037514cf6d"
+            ]
+          },
+          {
+            "id": "li-see-av-commissioning",
+            "title": "AV decommission, install & commissioning (MTR testing)",
+            "category": "workstream",
+            "status": "in-progress",
+            "owner": null,
+            "userActionRequired": true,
+            "userAction": "Sign off commissioned AV rooms for production.",
+            "currentState": "AV decom complete; rooms installed and tested (23.06); commissioning and MTR testing in progress; CHD mounting pending cabling; sign-off requested toward a 1 Jul 2026 go-live.",
+            "plannedNext": "Complete CHD mounting after cabling, finish MTR testing and obtain production sign-off.",
+            "dueAt": null,
+            "waitingOn": null,
+            "problem": null,
+            "risk": null,
+            "confidence": "medium",
+            "evidenceRefIds": [
+              "src-26248f16",
+              "src-b4537097",
+              "src-08d94189",
+              "src-10a71ac5",
+              "src-650e8334",
+              "src-906d7a77",
+              "src-70874c30",
+              "src-51bd7936",
+              "src-8c84b54c"
+            ],
+            "sourceTaskIds": [
+              "26248f16-8d21-4c5f-bb88-679df5c2d8bf",
+              "b4537097-486e-4ab3-8b66-9c151ab756b4",
+              "08d94189-1f6d-4004-813b-c962505a536c",
+              "10a71ac5-7e98-4b53-8793-47a588cd8aac",
+              "650e8334-2806-4cb2-8f76-d9eb8a5ac7f1",
+              "906d7a77-2608-404c-98d4-e533b368f84a",
+              "70874c30-2fc6-4c8e-b0b5-2c3391f47449",
+              "51bd7936-ec44-471b-beee-6c9ded774bd6",
+              "8c84b54c-112e-4555-8380-11ff470e3921"
+            ]
+          },
+          {
+            "id": "li-see-corpnet",
+            "title": "CorpNet patching & room connectivity",
+            "category": "action",
+            "status": "blocked",
+            "owner": null,
+            "userActionRequired": false,
+            "userAction": null,
+            "currentState": "Non-compliant unmanaged switches were removed, leaving several rooms without CorpNet and blocking full MTR/CHD commissioning; awaiting patching to go live.",
+            "plannedNext": "Complete CorpNet patching for affected rooms and approve go-live.",
+            "dueAt": null,
+            "waitingOn": null,
+            "problem": "Rooms without CorpNet after non-compliant switch removal block commissioning.",
+            "risk": null,
+            "confidence": "medium",
+            "evidenceRefIds": [
+              "src-b74e3b5c",
+              "src-1f264332",
+              "src-cabb3656",
+              "src-39a9fe87"
+            ],
+            "sourceTaskIds": [
+              "b74e3b5c-c677-4eac-a722-dd72df8f987a",
+              "1f264332-7703-4f1a-bf87-b9c746087028",
+              "cabb3656-4cd7-4d90-85ae-5da3e62c22c8",
+              "39a9fe87-f4a0-4cdf-8bcb-c554f86ec38e"
+            ]
+          },
+          {
+            "id": "li-see-focusrooms",
+            "title": "Focus rooms — network cables & touchpanel decisions",
+            "category": "action",
+            "status": "open",
+            "owner": null,
+            "userActionRequired": true,
+            "userAction": "Approve PO change for longer cables and confirm touchpanel position.",
+            "currentState": "Table-to-display 2m cables too short; PO change requested for longer cables/trunking; touchpanel mounting position needs confirmation.",
+            "plannedNext": "Approve the PO change and confirm touchpanel positions.",
+            "dueAt": null,
+            "waitingOn": null,
+            "problem": null,
+            "risk": null,
+            "confidence": "medium",
+            "evidenceRefIds": [
+              "src-a9233176",
+              "src-8012104d",
+              "src-f9fd6025"
+            ],
+            "sourceTaskIds": [
+              "a9233176-afb3-4b32-8d3c-2221e63a1f69",
+              "8012104d-6459-4fad-ae8b-0020a3ed6894",
+              "f9fd6025-c03e-4d9f-9b3d-0bddebde2eee"
+            ]
+          },
+          {
+            "id": "li-see-pc-relocation",
+            "title": "PC relocation during August rebuild",
+            "category": "workstream",
+            "status": "open",
+            "owner": null,
+            "userActionRequired": false,
+            "userAction": null,
+            "currentState": "~20 developer PCs must be relocated to storage during the 17–28 Aug 2026 rebuild, with provisional placement being coordinated with Sodexo/FM.",
+            "plannedNext": "Confirm storage/placement plan for the PCs before the August closure.",
+            "dueAt": null,
+            "waitingOn": null,
+            "problem": null,
+            "risk": null,
+            "confidence": "medium",
+            "evidenceRefIds": [
+              "src-05787a56",
+              "src-51266f0f"
+            ],
+            "sourceTaskIds": [
+              "05787a56-48bb-43be-87d1-374558d19b2a",
+              "51266f0f-9816-4531-8130-5088bb74929b"
+            ]
+          },
+          {
+            "id": "li-see-aug-works",
+            "title": "August cabling works coordination (17–28 Aug 2026)",
+            "category": "dependency",
+            "status": "in-progress",
+            "owner": null,
+            "userActionRequired": false,
+            "userAction": null,
+            "currentState": "External cabling works scheduled 17–28 Aug 2026; Laith Skeik lead, Belinda Schott (Sodexo) on facility side; dependent on patch panel delivery.",
+            "plannedNext": "Confirm crew, access and material readiness for the August window.",
+            "dueAt": null,
+            "waitingOn": null,
+            "problem": null,
+            "risk": null,
+            "confidence": "medium",
+            "evidenceRefIds": [
+              "src-22907581",
+              "src-867b811d"
+            ],
+            "sourceTaskIds": [
+              "22907581-337f-4e12-8a39-c4628b2c1d9c",
+              "867b811d-b056-43ad-881c-bad5023f9ce3"
+            ]
+          },
+          {
+            "id": "li-see-supplier-access",
+            "title": "Supplier onboarding & invoice upload (Zimmerberg Elektro)",
+            "category": "dependency",
+            "status": "blocked",
+            "owner": null,
+            "userActionRequired": false,
+            "userAction": null,
+            "currentState": "Nicolas Eindiguer (Zimmerberg Elektro, ex Elektro Hediger) cannot access SupplierWeb, blocking upload of invoice 101616080 (PO 476031514).",
+            "plannedNext": "Restore SupplierWeb access so the supplier can upload the invoice.",
+            "dueAt": null,
+            "waitingOn": null,
+            "problem": "SupplierWeb login failure blocks invoice 101616080 upload.",
+            "risk": null,
+            "confidence": "medium",
+            "evidenceRefIds": [
+              "src-87970f52",
+              "src-db6dbf57"
+            ],
+            "sourceTaskIds": [
+              "87970f52-c440-4348-ad7b-2ef43d7a93d4",
+              "db6dbf57-9ec1-45d0-9a87-ccca841db844"
+            ]
+          },
+          {
+            "id": "li-see-decom-validation",
+            "title": "AV equipment decommission list validation",
+            "category": "action",
+            "status": "open",
+            "owner": null,
+            "userActionRequired": true,
+            "userAction": "Review the color-coded AV decommission asset list.",
+            "currentState": "Martin must review the color-coded AV decommission asset list (BLUE=keep as spares, RED=sensitive disposal).",
+            "plannedNext": "Review and confirm the decommission/disposal classification.",
+            "dueAt": null,
+            "waitingOn": null,
+            "problem": null,
+            "risk": null,
+            "confidence": "medium",
+            "evidenceRefIds": [
+              "src-50f3b2a3"
+            ],
+            "sourceTaskIds": [
+              "50f3b2a3-e2ff-447d-a42f-de0546660d54"
+            ]
+          },
+          {
+            "id": "li-see-planning",
+            "title": "Renovation planning & office closure",
+            "category": "info",
+            "status": "in-progress",
+            "owner": null,
+            "userActionRequired": false,
+            "userAction": null,
+            "currentState": "SEP #3235 refurbishment requires full office closure 12–26 Jun 2026 for construction/AV works, with a further August cabling closure.",
+            "plannedNext": "Keep stakeholders aligned on closure windows and phased rollout.",
+            "dueAt": null,
+            "waitingOn": null,
+            "problem": null,
+            "risk": null,
+            "confidence": "medium",
+            "evidenceRefIds": [
+              "src-3ad99325",
+              "src-3e249f13",
+              "src-39a9fe87"
+            ],
+            "sourceTaskIds": [
+              "3ad99325-14a2-4674-a7ea-cb0f4fc7ce98",
+              "3e249f13-eca1-4d62-bdb1-dac2d5aad4de",
+              "39a9fe87-f4a0-4cdf-8bcb-c554f86ec38e"
+            ]
+          }
+        ],
+        "supersedesTaskIds": [
+          "0db365e5-cba0-4030-8a06-55726557fcdc",
+          "3e249f13-eca1-4d62-bdb1-dac2d5aad4de",
+          "26248f16-8d21-4c5f-bb88-679df5c2d8bf",
+          "b4537097-486e-4ab3-8b66-9c151ab756b4",
+          "08d94189-1f6d-4004-813b-c962505a536c",
+          "39a9fe87-f4a0-4cdf-8bcb-c554f86ec38e",
+          "3ad99325-14a2-4674-a7ea-cb0f4fc7ce98",
+          "867b811d-b056-43ad-881c-bad5023f9ce3",
+          "45e5694c-dd3a-49ba-8d17-52e2f80f3c29",
+          "10a71ac5-7e98-4b53-8793-47a588cd8aac",
+          "bd39f6be-5013-4673-b65d-d91cfec0f3ed",
+          "50f3b2a3-e2ff-447d-a42f-de0546660d54",
+          "22907581-337f-4e12-8a39-c4628b2c1d9c",
+          "b74e3b5c-c677-4eac-a722-dd72df8f987a",
+          "1f264332-7703-4f1a-bf87-b9c746087028",
+          "650e8334-2806-4cb2-8f76-d9eb8a5ac7f1",
+          "906d7a77-2608-404c-98d4-e533b368f84a",
+          "70874c30-2fc6-4c8e-b0b5-2c3391f47449",
+          "51bd7936-ec44-471b-beee-6c9ded774bd6",
+          "8c84b54c-112e-4555-8380-11ff470e3921",
+          "cabb3656-4cd7-4d90-85ae-5da3e62c22c8",
+          "a9233176-afb3-4b32-8d3c-2221e63a1f69",
+          "8012104d-6459-4fad-ae8b-0020a3ed6894",
+          "f9fd6025-c03e-4d9f-9b3d-0bddebde2eee",
+          "05787a56-48bb-43be-87d1-374558d19b2a",
+          "51266f0f-9816-4531-8130-5088bb74929b",
+          "87970f52-c440-4348-ad7b-2ef43d7a93d4",
+          "57d7ed8b-740b-4ab6-b494-ccdf28b308e2",
+          "07f358af-5d43-459e-8bee-60037514cf6d",
+          "db6dbf57-9ec1-45d0-9a87-ccca841db844",
+          "6de92986-290a-490b-b15a-ca9c6e1aa371"
+        ]
+      },
+      "line": 18,
+      "raw": "[PROJECT_NEW] {\"taskId\": \"proj-seestrasse-356\", \"projectKey\": \"ZURICH-SEESTRASSE-356\", \"title\": \"Microsoft Seestrasse 356 Zurich — Office Refurbishment (IT/AV/Cabling)\", \"aliases\": [\"Seestrasse\", \"Seestrasse 356\", \"Zurich-See\", \"SEP 3235\"], \"summary\": \"Coordination of all IT and infrastructure works for the Microsoft Seestrasse 356 Zurich office refurbishment (SEP #3235): data recabling and patch panel sourcing, AV decommission/install/commissioning, CorpNet patching, focus-room cabling decisions, PC relocation, and supplier onboarding across the June and August 2026 closure windows.\", \"pmStatus\": {\"current\": \"Microsoft Seestrasse 356 Zurich office refurbishment (SEP #3235) is in active execution. AV rooms are largely installed with commissioning/MTR testing underway; CorpNet patching for several rooms is outstanding after non-compliant switches were removed; data recabling/patch panels are being sourced with 6–11 week lead times threatening the 17–28 Aug 2026 window; PC relocation and supplier access are being coordinated.\", \"planned\": [{\"text\": \"August cabling works scheduled 17–28 Aug 2026\", \"evidence\": \"src-22907581\", \"confidence\": \"medium\"}, {\"text\": \"AV Go-Live target 1 Jul 2026 for commissioned rooms\", \"evidence\": \"src-650e8334\", \"confidence\": \"medium\"}], \"userActions\": [{\"text\": \"Respond to Laith Skeik's unanswered meeting request to walk through the cabling plan\", \"evidence\": \"src-45e5694c\", \"confidence\": \"medium\"}, {\"text\": \"Review the color-coded AV decommission asset list (keep vs disposal)\", \"evidence\": \"src-50f3b2a3\", \"confidence\": \"medium\"}, {\"text\": \"Decide/approve PO change for longer network cables in Focus Rooms\", \"evidence\": \"src-8012104d\", \"confidence\": \"medium\"}, {\"text\": \"Confirm touchpanel mounting position in Focus Rooms\", \"evidence\": \"src-f9fd6025\", \"confidence\": \"medium\"}, {\"text\": \"Sign off commissioned AV rooms for production as requested by Patrick\", \"evidence\": \"src-650e8334\", \"confidence\": \"medium\"}], \"problems\": [{\"text\": \"Several rooms lack CorpNet connectivity after non-compliant unmanaged switches were removed, blocking MTR/CHD commissioning\", \"evidence\": \"src-1f264332\", \"confidence\": \"medium\"}, {\"text\": \"Supplied 2m network cables are too short (5–15m needed), forcing an unplanned PO change\", \"evidence\": \"src-8012104d\", \"confidence\": \"medium\"}, {\"text\": \"Zimmerberg/Nicolas Eindiguer cannot log into SupplierWeb, blocking invoice 101616080 upload\", \"evidence\": \"src-db6dbf57\", \"confidence\": \"medium\"}], \"risks\": [{\"text\": \"Patch panel lead time of 6–11 weeks threatens the August cabling schedule\", \"evidence\": \"src-bd39f6be\", \"confidence\": \"medium\"}], \"waitingOn\": [{\"text\": \"Patch panel material availability / delivery\", \"evidence\": \"src-bd39f6be\", \"confidence\": \"medium\"}, {\"text\": \"CorpNet patching completion to finish room commissioning\", \"evidence\": \"src-cabb3656\", \"confidence\": \"medium\"}, {\"text\": \"SupplierWeb portal access for Zimmerberg Elektro to upload invoice\", \"evidence\": \"src-87970f52\", \"confidence\": \"medium\"}], \"confidence\": \"medium\", \"lastSynthesizedAt\": \"2026-07-05T11:12:08.256Z\"}, \"confidence\": \"medium\", \"lastSynthesizedAt\": \"2026-07-05T11:12:08.256Z\", \"sourceRefs\": [{\"id\": \"src-0db365e5\", \"type\": \"email\", \"title\": \"Seestrasse Cabling Works — Patch Panel Sourcing\", \"from\": \"Laith Skeik\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"0db365e5\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Coordination of Seestrasse refurbishment AV/IT cabling/security; patch panel sourcing active.\"}, {\"id\": \"src-3e249f13\", \"type\": \"teams\", \"title\": \"Seestrasse 356 — IT-cabling, AV, HA upgrade, PC relocation\", \"from\": \"Laith Skeik\", \"date\": null, \"link\": \"https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D\", \"sourceTaskId\": \"3e249f13\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Overall coordination of IT/infrastructure works for Seestrasse 356: recabling 114->112 outlets, AV, PC relocation, Jun/Aug scheduling.\"}, {\"id\": \"src-26248f16\", \"type\": \"email\", \"title\": \"Seestrasse AV: Decom done, commissioning & MTR testing\", \"from\": \"Laith Skeik\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"26248f16\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"AV decommissioning done; commissioning and MTR testing in progress with Zones/Sodexo.\"}, {\"id\": \"src-b4537097\", \"type\": \"email\", \"title\": \"Seestrasse AV commissioning blocked on cabling — CHDs pending\", \"from\": \"Laith Skeik\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"b4537097\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"AV commissioning blocked on cabling; scope clarified; CHD panels pending.\"}, {\"id\": \"src-08d94189\", \"type\": \"email\", \"title\": \"AV Installation Seestrasse — CHD doorway concern\", \"from\": \"Patrick Harris\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"08d94189\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"AV install Seestrasse June 2026; CHD doorway concern and decommissioning in progress.\"}, {\"id\": \"src-39a9fe87\", \"type\": \"teams\", \"title\": \"Seestrasse renovation — CHDs delayed, cabling rework pending\", \"from\": \"Laith Skeik\", \"date\": null, \"link\": \"https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D\", \"sourceTaskId\": \"39a9fe87\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Office closure Jun 12–26; non-compliant cabling removed causing CHD loss; phased rollout.\"}, {\"id\": \"src-3ad99325\", \"type\": \"teams\", \"title\": \"Seestrasse planning discussion\", \"from\": null, \"date\": null, \"link\": \"https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D\", \"sourceTaskId\": \"3ad99325\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Seestrasse renovation major works phase; full office closure June 12–26 2026.\"}, {\"id\": \"src-867b811d\", \"type\": \"email\", \"title\": \"Seestrasse cabling coordination — active planning for August\", \"from\": \"Laith Skeik\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"867b811d\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"9 new messages since 09.06; Laith Skeik and Nicolas/Ottomüller on materials/scheduling for August.\"}, {\"id\": \"src-45e5694c\", \"type\": \"email\", \"title\": \"Cabling project – meeting request UNANSWERED since 12.06\", \"from\": \"Laith Skeik\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"45e5694c\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Laith Skeik requests a meeting to walk through the Seestrasse cabling plan with Mix and stakeholders.\"}, {\"id\": \"src-10a71ac5\", \"type\": \"email\", \"title\": \"AV Installation Seestrasse — Rooms complete, CHDs pending cabling\", \"from\": \"Patrick Harris\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"10a71ac5\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Rooms tested/configured 23.06; CHD mounting waiting on cable install and CorpNet patching.\"}, {\"id\": \"src-bd39f6be\", \"type\": \"email\", \"title\": \"Seestrasse cabling — patch panel lead time 6–11 weeks threatens August\", \"from\": \"Nicolas Eindiguer\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"bd39f6be\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Nicolas Eindiguer works with Laith and Ben Ashdown on material specs; patch panel lead time 6–11 weeks.\"}, {\"id\": \"src-50f3b2a3\", \"type\": \"email\", \"title\": \"AV equipment / decom list validation (requires review)\", \"from\": \"Sorina Fota\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"50f3b2a3\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Martin must review the color-coded AV decommission list (keep as spares vs sensitive disposal).\"}, {\"id\": \"src-22907581\", \"type\": \"email\", \"title\": \"Coordination / Follow-up (external cabling works)\", \"from\": \"Laith Skeik\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"22907581\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"External cabling works Seestrasse scheduled 17–28 Aug 2026; Laith lead, Belinda Sodexo.\"}, {\"id\": \"src-b74e3b5c\", \"type\": \"teams\", \"title\": \"Network / room connectivity\", \"from\": \"Martin\", \"date\": null, \"link\": \"https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D\", \"sourceTaskId\": \"b74e3b5c\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Seestrasse 2nd floor rooms connected via non-compliant unmanaged switch instead of corpnet patching.\"}, {\"id\": \"src-1f264332\", \"type\": \"teams\", \"title\": \"Rooms without corpnet (patching issue)\", \"from\": \"Martin\", \"date\": null, \"link\": \"https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D\", \"sourceTaskId\": \"1f264332\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Rooms lack CorpNet, blocking MTR/CHD commissioning after non-compliant switches removed.\"}, {\"id\": \"src-650e8334\", \"type\": \"email\", \"title\": \"AV sign-off requested — approve rooms for production\", \"from\": \"Patrick Harris\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"650e8334\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Commissioning window Jun 15–19 (extended); Go-Live target Jul 1 2026; Patrick asks for room sign-off.\"}, {\"id\": \"src-906d7a77\", \"type\": \"email\", \"title\": \"AV Commissioning Seestrasse — active coordination with Zones\", \"from\": \"Patrick Harris\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"906d7a77\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Martin and Patrick Harris (Zones) exchanging on MSFT Seestrasse AV commissioning.\"}, {\"id\": \"src-70874c30\", \"type\": \"email\", \"title\": \"Seestrasse AV/cabling — commissioning active, patching flagged\", \"from\": \"Patrick Harris\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"70874c30\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Cable pull list gap; patching issues flagged between Zones, Dario, Laith and Martin.\"}, {\"id\": \"src-51bd7936\", \"type\": \"email\", \"title\": \"Seestrasse AV Commissioning – On-Site Testing (Scribe Cam 2037/2009)\", \"from\": \"Laith Skeik\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"51bd7936\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"On-site testing; non-compliant switch removed; MTRs prioritized; Scribe cam issues 2037/2009.\"}, {\"id\": \"src-8c84b54c\", \"type\": \"email\", \"title\": \"Seestrasse AV Commissioning – On-site tests this week\", \"from\": \"Laith Skeik\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"8c84b54c\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Commissioning of new AV room booking panels; Laith coordinates on-site tests; Patrick reachable.\"}, {\"id\": \"src-cabb3656\", \"type\": \"email\", \"title\": \"CorpNet Zurich See – Rooms completed, approval to go live pending\", \"from\": \"Patrick Harris\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"cabb3656\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"CorpNet patching block resolved; MTR setup done on 2nd floor; approval to go live pending.\"}, {\"id\": \"src-a9233176\", \"type\": \"email\", \"title\": \"Network cable Table-Display – Review / Decision\", \"from\": \"Dario Piediscalzi\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"a9233176\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Dario requests decision on table-to-display network cables; 2m too short, longer needed.\"}, {\"id\": \"src-8012104d\", \"type\": \"email\", \"title\": \"PO change request (network cables Focus Rooms)\", \"from\": \"Dario Piediscalzi\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"8012104d\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"PO change for additional network cables/trunking; 2m cables too short (5–15m needed).\"}, {\"id\": \"src-f9fd6025\", \"type\": \"email\", \"title\": \"Confirm / Decision required (touchpanel position)\", \"from\": \"Dario Piediscalzi\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"f9fd6025\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Dario asks Martin to confirm touchpanel mounting position in Focus Rooms; Patrick suggested left.\"}, {\"id\": \"src-05787a56\", \"type\": \"teams\", \"title\": \"Seestrasse PCs placement during August rebuild\", \"from\": null, \"date\": null, \"link\": \"https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D\", \"sourceTaskId\": \"05787a56\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"~20 developer PCs to be relocated to storage during Aug 17–28 rebuild.\"}, {\"id\": \"src-51266f0f\", \"type\": \"teams\", \"title\": \"Seestrasse PCs during August refurbishment\", \"from\": \"Belinda Schott\", \"date\": null, \"link\": \"https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D\", \"sourceTaskId\": \"51266f0f\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Temporary PC location during LAN recabling Aug 17–28 2026; Belinda/Sodexo/Nicolas involved.\"}, {\"id\": \"src-87970f52\", \"type\": \"email\", \"title\": \"Re: Upload Invoice | 101616080\", \"from\": \"Nicolas Eindiguer\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"87970f52\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Invoice 101616080 (PO 476031514) from Zimmerberg Elektro cannot be uploaded; supplier lacks SupplierWeb access.\"}, {\"id\": \"src-57d7ed8b\", \"type\": \"email\", \"title\": \"[EXTERNAL] Re: Seestrasse - Cabling works August\", \"from\": null, \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"57d7ed8b\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"External thread on Seestrasse cabling works in August.\"}, {\"id\": \"src-07f358af\", \"type\": \"email\", \"title\": \"[EXTERNAL] Re: SEP 3235 - ZURICH-SEESTRASSE | Critical Works Upgrades\", \"from\": null, \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"07f358af\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"SEP #3235 Seestrasse critical works upgrades (IT/AV/cabling); budget approved since Jul 2024.\"}, {\"id\": \"src-db6dbf57\", \"type\": \"email\", \"title\": \"AW: RE:TKT-9613391 Anmeldung funktioniert nicht\", \"from\": \"Nicolas Eindiguer\", \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"db6dbf57\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Nicolas Eindiguer cannot log into SupplierWeb portal (old/new email); blocks invoice upload.\"}, {\"id\": \"src-6de92986\", \"type\": \"email\", \"title\": \"[EXTERNAL] Re: Zurich-See - Cable Room Ventilation Holes\", \"from\": null, \"date\": null, \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"6de92986\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"External thread on cable room ventilation holes at Zurich-See.\"}], \"lineItems\": [{\"id\": \"li-see-cabling\", \"title\": \"Data recabling & patch panel sourcing\", \"category\": \"workstream\", \"status\": \"in-progress\", \"owner\": null, \"userActionRequired\": false, \"userAction\": null, \"currentState\": \"Recabling 114->112 outlets; patch panel material specs being finalized with Nicolas Eindiguer/Ben Ashdown; long lead times under negotiation.\", \"plannedNext\": \"Finalize patch panel order and lock the August installation plan.\", \"dueAt\": null, \"waitingOn\": null, \"problem\": null, \"risk\": \"Patch panel lead time 6–11 weeks threatens the August window.\", \"confidence\": \"medium\", \"evidenceRefIds\": [\"src-0db365e5\", \"src-3e249f13\", \"src-bd39f6be\", \"src-45e5694c\", \"src-57d7ed8b\", \"src-6de92986\", \"src-07f358af\"], \"sourceTaskIds\": [\"0db365e5-cba0-4030-8a06-55726557fcdc\", \"3e249f13-eca1-4d62-bdb1-dac2d5aad4de\", \"bd39f6be-5013-4673-b65d-d91cfec0f3ed\", \"45e5694c-dd3a-49ba-8d17-52e2f80f3c29\", \"57d7ed8b-740b-4ab6-b494-ccdf28b308e2\", \"6de92986-290a-490b-b15a-ca9c6e1aa371\", \"07f358af-5d43-459e-8bee-60037514cf6d\"]}, {\"id\": \"li-see-av-commissioning\", \"title\": \"AV decommission, install & commissioning (MTR testing)\", \"category\": \"workstream\", \"status\": \"in-progress\", \"owner\": null, \"userActionRequired\": true, \"userAction\": \"Sign off commissioned AV rooms for production.\", \"currentState\": \"AV decom complete; rooms installed and tested (23.06); commissioning and MTR testing in progress; CHD mounting pending cabling; sign-off requested toward a 1 Jul 2026 go-live.\", \"plannedNext\": \"Complete CHD mounting after cabling, finish MTR testing and obtain production sign-off.\", \"dueAt\": null, \"waitingOn\": null, \"problem\": null, \"risk\": null, \"confidence\": \"medium\", \"evidenceRefIds\": [\"src-26248f16\", \"src-b4537097\", \"src-08d94189\", \"src-10a71ac5\", \"src-650e8334\", \"src-906d7a77\", \"src-70874c30\", \"src-51bd7936\", \"src-8c84b54c\"], \"sourceTaskIds\": [\"26248f16-8d21-4c5f-bb88-679df5c2d8bf\", \"b4537097-486e-4ab3-8b66-9c151ab756b4\", \"08d94189-1f6d-4004-813b-c962505a536c\", \"10a71ac5-7e98-4b53-8793-47a588cd8aac\", \"650e8334-2806-4cb2-8f76-d9eb8a5ac7f1\", \"906d7a77-2608-404c-98d4-e533b368f84a\", \"70874c30-2fc6-4c8e-b0b5-2c3391f47449\", \"51bd7936-ec44-471b-beee-6c9ded774bd6\", \"8c84b54c-112e-4555-8380-11ff470e3921\"]}, {\"id\": \"li-see-corpnet\", \"title\": \"CorpNet patching & room connectivity\", \"category\": \"action\", \"status\": \"blocked\", \"owner\": null, \"userActionRequired\": false, \"userAction\": null, \"currentState\": \"Non-compliant unmanaged switches were removed, leaving several rooms without CorpNet and blocking full MTR/CHD commissioning; awaiting patching to go live.\", \"plannedNext\": \"Complete CorpNet patching for affected rooms and approve go-live.\", \"dueAt\": null, \"waitingOn\": null, \"problem\": \"Rooms without CorpNet after non-compliant switch removal block commissioning.\", \"risk\": null, \"confidence\": \"medium\", \"evidenceRefIds\": [\"src-b74e3b5c\", \"src-1f264332\", \"src-cabb3656\", \"src-39a9fe87\"], \"sourceTaskIds\": [\"b74e3b5c-c677-4eac-a722-dd72df8f987a\", \"1f264332-7703-4f1a-bf87-b9c746087028\", \"cabb3656-4cd7-4d90-85ae-5da3e62c22c8\", \"39a9fe87-f4a0-4cdf-8bcb-c554f86ec38e\"]}, {\"id\": \"li-see-focusrooms\", \"title\": \"Focus rooms — network cables & touchpanel decisions\", \"category\": \"action\", \"status\": \"open\", \"owner\": null, \"userActionRequired\": true, \"userAction\": \"Approve PO change for longer cables and confirm touchpanel position.\", \"currentState\": \"Table-to-display 2m cables too short; PO change requested for longer cables/trunking; touchpanel mounting position needs confirmation.\", \"plannedNext\": \"Approve the PO change and confirm touchpanel positions.\", \"dueAt\": null, \"waitingOn\": null, \"problem\": null, \"risk\": null, \"confidence\": \"medium\", \"evidenceRefIds\": [\"src-a9233176\", \"src-8012104d\", \"src-f9fd6025\"], \"sourceTaskIds\": [\"a9233176-afb3-4b32-8d3c-2221e63a1f69\", \"8012104d-6459-4fad-ae8b-0020a3ed6894\", \"f9fd6025-c03e-4d9f-9b3d-0bddebde2eee\"]}, {\"id\": \"li-see-pc-relocation\", \"title\": \"PC relocation during August rebuild\", \"category\": \"workstream\", \"status\": \"open\", \"owner\": null, \"userActionRequired\": false, \"userAction\": null, \"currentState\": \"~20 developer PCs must be relocated to storage during the 17–28 Aug 2026 rebuild, with provisional placement being coordinated with Sodexo/FM.\", \"plannedNext\": \"Confirm storage/placement plan for the PCs before the August closure.\", \"dueAt\": null, \"waitingOn\": null, \"problem\": null, \"risk\": null, \"confidence\": \"medium\", \"evidenceRefIds\": [\"src-05787a56\", \"src-51266f0f\"], \"sourceTaskIds\": [\"05787a56-48bb-43be-87d1-374558d19b2a\", \"51266f0f-9816-4531-8130-5088bb74929b\"]}, {\"id\": \"li-see-aug-works\", \"title\": \"August cabling works coordination (17–28 Aug 2026)\", \"category\": \"dependency\", \"status\": \"in-progress\", \"owner\": null, \"userActionRequired\": false, \"userAction\": null, \"currentState\": \"External cabling works scheduled 17–28 Aug 2026; Laith Skeik lead, Belinda Schott (Sodexo) on facility side; dependent on patch panel delivery.\", \"plannedNext\": \"Confirm crew, access and material readiness for the August window.\", \"dueAt\": null, \"waitingOn\": null, \"problem\": null, \"risk\": null, \"confidence\": \"medium\", \"evidenceRefIds\": [\"src-22907581\", \"src-867b811d\"], \"sourceTaskIds\": [\"22907581-337f-4e12-8a39-c4628b2c1d9c\", \"867b811d-b056-43ad-881c-bad5023f9ce3\"]}, {\"id\": \"li-see-supplier-access\", \"title\": \"Supplier onboarding & invoice upload (Zimmerberg Elektro)\", \"category\": \"dependency\", \"status\": \"blocked\", \"owner\": null, \"userActionRequired\": false, \"userAction\": null, \"currentState\": \"Nicolas Eindiguer (Zimmerberg Elektro, ex Elektro Hediger) cannot access SupplierWeb, blocking upload of invoice 101616080 (PO 476031514).\", \"plannedNext\": \"Restore SupplierWeb access so the supplier can upload the invoice.\", \"dueAt\": null, \"waitingOn\": null, \"problem\": \"SupplierWeb login failure blocks invoice 101616080 upload.\", \"risk\": null, \"confidence\": \"medium\", \"evidenceRefIds\": [\"src-87970f52\", \"src-db6dbf57\"], \"sourceTaskIds\": [\"87970f52-c440-4348-ad7b-2ef43d7a93d4\", \"db6dbf57-9ec1-45d0-9a87-ccca841db844\"]}, {\"id\": \"li-see-decom-validation\", \"title\": \"AV equipment decommission list validation\", \"category\": \"action\", \"status\": \"open\", \"owner\": null, \"userActionRequired\": true, \"userAction\": \"Review the color-coded AV decommission asset list.\", \"currentState\": \"Martin must review the color-coded AV decommission asset list (BLUE=keep as spares, RED=sensitive disposal).\", \"plannedNext\": \"Review and confirm the decommission/disposal classification.\", \"dueAt\": null, \"waitingOn\": null, \"problem\": null, \"risk\": null, \"confidence\": \"medium\", \"evidenceRefIds\": [\"src-50f3b2a3\"], \"sourceTaskIds\": [\"50f3b2a3-e2ff-447d-a42f-de0546660d54\"]}, {\"id\": \"li-see-planning\", \"title\": \"Renovation planning & office closure\", \"category\": \"info\", \"status\": \"in-progress\", \"owner\": null, \"userActionRequired\": false, \"userAction\": null, \"currentState\": \"SEP #3235 refurbishment requires full office closure 12–26 Jun 2026 for construction/AV works, with a further August cabling closure.\", \"plannedNext\": \"Keep stakeholders aligned on closure windows and phased rollout.\", \"dueAt\": null, \"waitingOn\": null, \"problem\": null, \"risk\": null, \"confidence\": \"medium\", \"evidenceRefIds\": [\"src-3ad99325\", \"src-3e249f13\", \"src-39a9fe87\"], \"sourceTaskIds\": [\"3ad99325-14a2-4674-a7ea-cb0f4fc7ce98\", \"3e249f13-eca1-4d62-bdb1-dac2d5aad4de\", \"39a9fe87-f4a0-4cdf-8bcb-c554f86ec38e\"]}], \"supersedesTaskIds\": [\"0db365e5-cba0-4030-8a06-55726557fcdc\", \"3e249f13-eca1-4d62-bdb1-dac2d5aad4de\", \"26248f16-8d21-4c5f-bb88-679df5c2d8bf\", \"b4537097-486e-4ab3-8b66-9c151ab756b4\", \"08d94189-1f6d-4004-813b-c962505a536c\", \"39a9fe87-f4a0-4cdf-8bcb-c554f86ec38e\", \"3ad99325-14a2-4674-a7ea-cb0f4fc7ce98\", \"867b811d-b056-43ad-881c-bad5023f9ce3\", \"45e5694c-dd3a-49ba-8d17-52e2f80f3c29\", \"10a71ac5-7e98-4b53-8793-47a588cd8aac\", \"bd39f6be-5013-4673-b65d-d91cfec0f3ed\", \"50f3b2a3-e2ff-447d-a42f-de0546660d54\", \"22907581-337f-4e12-8a39-c4628b2c1d9c\", \"b74e3b5c-c677-4eac-a722-dd72df8f987a\", \"1f264332-7703-4f1a-bf87-b9c746087028\", \"650e8334-2806-4cb2-8f76-d9eb8a5ac7f1\", \"906d7a77-2608-404c-98d4-e533b368f84a\", \"70874c30-2fc6-4c8e-b0b5-2c3391f47449\", \"51bd7936-ec44-471b-beee-6c9ded774bd6\", \"8c84b54c-112e-4555-8380-11ff470e3921\", \"cabb3656-4cd7-4d90-85ae-5da3e62c22c8\", \"a9233176-afb3-4b32-8d3c-2221e63a1f69\", \"8012104d-6459-4fad-ae8b-0020a3ed6894\", \"f9fd6025-c03e-4d9f-9b3d-0bddebde2eee\", \"05787a56-48bb-43be-87d1-374558d19b2a\", \"51266f0f-9816-4531-8130-5088bb74929b\", \"87970f52-c440-4348-ad7b-2ef43d7a93d4\", \"57d7ed8b-740b-4ab6-b494-ccdf28b308e2\", \"07f358af-5d43-459e-8bee-60037514cf6d\", \"db6dbf57-9ec1-45d0-9a87-ccca841db844\", \"6de92986-290a-490b-b15a-ca9c6e1aa371\"]}"
+    },
+    {
+      "type": "PROJECT_NEW",
+      "payload": {
+        "taskId": "proj-msde-cab",
+        "projectKey": "MSDE-CAB",
+        "title": "MS Digital Enterprise CAB Reviews",
+        "aliases": [
+          "CAB",
+          "Change Advisory Board",
+          "MS Digital Enterprise CAB"
+        ],
+        "summary": "Recurring MS Digital Enterprise Change Advisory Board review stream: periodic meeting agendas and change approvals (April, May and June 2026 sessions, incl. CHG0858097 NIS power maintenance).",
+        "pmStatus": {
+          "current": "Recurring MS Digital Enterprise Change Advisory Board reviews. The 23-Apr and 14-May 2026 sessions completed with all changes approved; CHG0858097 NIS power maintenance completed 16–17 May; the 30-Jun-2026 agenda requires review of 3 Enterprise network changes.",
+          "planned": [
+            {
+              "text": "Review the 30-Jun-2026 CAB agenda (3 Enterprise network changes)",
+              "evidence": "src-1317cde0",
+              "confidence": "medium"
+            }
+          ],
+          "userActions": [
+            {
+              "text": "Review and provide input on the 30-Jun-2026 CAB agenda items",
+              "evidence": "src-1317cde0",
+              "confidence": "medium"
+            }
+          ],
+          "problems": [],
+          "risks": [],
+          "waitingOn": [],
+          "confidence": "medium",
+          "lastSynthesizedAt": "2026-07-05T11:12:08.256Z"
+        },
+        "confidence": "medium",
+        "lastSynthesizedAt": "2026-07-05T11:12:08.256Z",
+        "sourceRefs": [
+          {
+            "id": "src-2670047c",
+            "type": "email",
+            "title": "MS Digital Enterprise CAB Meeting 23-Apr-2026 — Completed",
+            "from": "CAB",
+            "date": "2026-04-23",
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "2670047c",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "Recurring MS Digital Enterprise CAB meeting 23-Apr-2026 08:00–09:30 PT reviewing high-risk/high-impact changes; completed."
+          },
+          {
+            "id": "src-aeaf244c",
+            "type": "email",
+            "title": "MS Digital Enterprise CAB Meeting (May 14) — All Changes Approved",
+            "from": "CAB",
+            "date": "2026-05-14",
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "aeaf244c",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "CAB 14-May-2026 reviewed 4 Enterprise CAB (network L3/WAN) + 5 Client CAB items; all approved."
+          },
+          {
+            "id": "src-4b706544",
+            "type": "teams",
+            "title": "CAB change CHG0858097 — NIS Power Maintenance completed (16–17 May)",
+            "from": "Alex Hurley",
+            "date": "2026-05-16",
+            "link": "https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D",
+            "sourceTaskId": "4b706544",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "CHG0858097 (RITM2760615) NIS planned power maintenance; MINT Service Line approvals in place; completed 16–17 May."
+          },
+          {
+            "id": "src-1317cde0",
+            "type": "email",
+            "title": "Review required (CAB agenda 30-June-2026)",
+            "from": "CAB",
+            "date": "2026-06-30",
+            "link": "https://outlook.office365.com/owa/...=ReadMessageItem",
+            "sourceTaskId": "1317cde0",
+            "firstSeenAt": "2026-07-05T11:12:08.256Z",
+            "lastSeenAt": "2026-07-05T11:12:08.256Z",
+            "evidenceText": "CAB agenda for 30-Jun-2026 requires review of 3 Enterprise changes (network code upgrades BOYDTON-BN1, SANANTONIO)."
+          }
+        ],
+        "lineItems": [
+          {
+            "id": "li-cab-20260423",
+            "title": "CAB review — 23-Apr-2026 session",
+            "category": "info",
+            "status": "done",
+            "owner": null,
+            "userActionRequired": false,
+            "userAction": null,
+            "currentState": "23-Apr-2026 CAB meeting completed; high-risk/high-impact changes reviewed.",
+            "plannedNext": null,
+            "dueAt": null,
+            "waitingOn": null,
+            "problem": null,
+            "risk": null,
+            "confidence": "medium",
+            "evidenceRefIds": [
+              "src-2670047c"
+            ],
+            "sourceTaskIds": [
+              "2670047c-2b20-42a2-82c4-562dbac4827a"
+            ]
+          },
+          {
+            "id": "li-cab-20260514",
+            "title": "CAB review — 14-May-2026 session",
+            "category": "info",
+            "status": "done",
+            "owner": null,
+            "userActionRequired": false,
+            "userAction": null,
+            "currentState": "14-May-2026 CAB reviewed 4 Enterprise + 5 Client items; all changes approved.",
+            "plannedNext": null,
+            "dueAt": null,
+            "waitingOn": null,
+            "problem": null,
+            "risk": null,
+            "confidence": "medium",
+            "evidenceRefIds": [
+              "src-aeaf244c"
+            ],
+            "sourceTaskIds": [
+              "aeaf244c-c569-49b7-b566-d24ec3090e17"
+            ]
+          },
+          {
+            "id": "li-cab-chg0858097",
+            "title": "CHG0858097 — NIS Power Maintenance",
+            "category": "decision",
+            "status": "done",
+            "owner": null,
+            "userActionRequired": false,
+            "userAction": null,
+            "currentState": "CHG0858097 (RITM2760615) NIS planned power maintenance approved and completed 16–17 May 2026.",
+            "plannedNext": null,
+            "dueAt": null,
+            "waitingOn": null,
+            "problem": null,
+            "risk": null,
+            "confidence": "medium",
+            "evidenceRefIds": [
+              "src-4b706544"
+            ],
+            "sourceTaskIds": [
+              "4b706544-1a3a-41bc-893b-8e2073234790"
+            ]
+          },
+          {
+            "id": "li-cab-20260630",
+            "title": "CAB agenda review — 30-Jun-2026",
+            "category": "action",
+            "status": "open",
+            "owner": null,
+            "userActionRequired": true,
+            "userAction": "Review the 30-Jun-2026 CAB agenda (3 Enterprise changes).",
+            "currentState": "30-Jun-2026 CAB agenda requires review of 3 Enterprise network code-upgrade changes.",
+            "plannedNext": "Review and respond on the 30-Jun-2026 agenda items.",
+            "dueAt": null,
+            "waitingOn": null,
+            "problem": null,
+            "risk": null,
+            "confidence": "medium",
+            "evidenceRefIds": [
+              "src-1317cde0"
+            ],
+            "sourceTaskIds": [
+              "1317cde0-5815-4e18-aead-c032b835cc0c"
+            ]
+          }
+        ],
+        "supersedesTaskIds": [
+          "2670047c-2b20-42a2-82c4-562dbac4827a",
+          "aeaf244c-c569-49b7-b566-d24ec3090e17",
+          "4b706544-1a3a-41bc-893b-8e2073234790",
+          "1317cde0-5815-4e18-aead-c032b835cc0c"
+        ]
+      },
+      "line": 19,
+      "raw": "[PROJECT_NEW] {\"taskId\": \"proj-msde-cab\", \"projectKey\": \"MSDE-CAB\", \"title\": \"MS Digital Enterprise CAB Reviews\", \"aliases\": [\"CAB\", \"Change Advisory Board\", \"MS Digital Enterprise CAB\"], \"summary\": \"Recurring MS Digital Enterprise Change Advisory Board review stream: periodic meeting agendas and change approvals (April, May and June 2026 sessions, incl. CHG0858097 NIS power maintenance).\", \"pmStatus\": {\"current\": \"Recurring MS Digital Enterprise Change Advisory Board reviews. The 23-Apr and 14-May 2026 sessions completed with all changes approved; CHG0858097 NIS power maintenance completed 16–17 May; the 30-Jun-2026 agenda requires review of 3 Enterprise network changes.\", \"planned\": [{\"text\": \"Review the 30-Jun-2026 CAB agenda (3 Enterprise network changes)\", \"evidence\": \"src-1317cde0\", \"confidence\": \"medium\"}], \"userActions\": [{\"text\": \"Review and provide input on the 30-Jun-2026 CAB agenda items\", \"evidence\": \"src-1317cde0\", \"confidence\": \"medium\"}], \"problems\": [], \"risks\": [], \"waitingOn\": [], \"confidence\": \"medium\", \"lastSynthesizedAt\": \"2026-07-05T11:12:08.256Z\"}, \"confidence\": \"medium\", \"lastSynthesizedAt\": \"2026-07-05T11:12:08.256Z\", \"sourceRefs\": [{\"id\": \"src-2670047c\", \"type\": \"email\", \"title\": \"MS Digital Enterprise CAB Meeting 23-Apr-2026 — Completed\", \"from\": \"CAB\", \"date\": \"2026-04-23\", \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"2670047c\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"Recurring MS Digital Enterprise CAB meeting 23-Apr-2026 08:00–09:30 PT reviewing high-risk/high-impact changes; completed.\"}, {\"id\": \"src-aeaf244c\", \"type\": \"email\", \"title\": \"MS Digital Enterprise CAB Meeting (May 14) — All Changes Approved\", \"from\": \"CAB\", \"date\": \"2026-05-14\", \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"aeaf244c\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"CAB 14-May-2026 reviewed 4 Enterprise CAB (network L3/WAN) + 5 Client CAB items; all approved.\"}, {\"id\": \"src-4b706544\", \"type\": \"teams\", \"title\": \"CAB change CHG0858097 — NIS Power Maintenance completed (16–17 May)\", \"from\": \"Alex Hurley\", \"date\": \"2026-05-16\", \"link\": \"https://teams.microsoft.com/l/message/19:...22:%22chat%22%7D\", \"sourceTaskId\": \"4b706544\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"CHG0858097 (RITM2760615) NIS planned power maintenance; MINT Service Line approvals in place; completed 16–17 May.\"}, {\"id\": \"src-1317cde0\", \"type\": \"email\", \"title\": \"Review required (CAB agenda 30-June-2026)\", \"from\": \"CAB\", \"date\": \"2026-06-30\", \"link\": \"https://outlook.office365.com/owa/...=ReadMessageItem\", \"sourceTaskId\": \"1317cde0\", \"firstSeenAt\": \"2026-07-05T11:12:08.256Z\", \"lastSeenAt\": \"2026-07-05T11:12:08.256Z\", \"evidenceText\": \"CAB agenda for 30-Jun-2026 requires review of 3 Enterprise changes (network code upgrades BOYDTON-BN1, SANANTONIO).\"}], \"lineItems\": [{\"id\": \"li-cab-20260423\", \"title\": \"CAB review — 23-Apr-2026 session\", \"category\": \"info\", \"status\": \"done\", \"owner\": null, \"userActionRequired\": false, \"userAction\": null, \"currentState\": \"23-Apr-2026 CAB meeting completed; high-risk/high-impact changes reviewed.\", \"plannedNext\": null, \"dueAt\": null, \"waitingOn\": null, \"problem\": null, \"risk\": null, \"confidence\": \"medium\", \"evidenceRefIds\": [\"src-2670047c\"], \"sourceTaskIds\": [\"2670047c-2b20-42a2-82c4-562dbac4827a\"]}, {\"id\": \"li-cab-20260514\", \"title\": \"CAB review — 14-May-2026 session\", \"category\": \"info\", \"status\": \"done\", \"owner\": null, \"userActionRequired\": false, \"userAction\": null, \"currentState\": \"14-May-2026 CAB reviewed 4 Enterprise + 5 Client items; all changes approved.\", \"plannedNext\": null, \"dueAt\": null, \"waitingOn\": null, \"problem\": null, \"risk\": null, \"confidence\": \"medium\", \"evidenceRefIds\": [\"src-aeaf244c\"], \"sourceTaskIds\": [\"aeaf244c-c569-49b7-b566-d24ec3090e17\"]}, {\"id\": \"li-cab-chg0858097\", \"title\": \"CHG0858097 — NIS Power Maintenance\", \"category\": \"decision\", \"status\": \"done\", \"owner\": null, \"userActionRequired\": false, \"userAction\": null, \"currentState\": \"CHG0858097 (RITM2760615) NIS planned power maintenance approved and completed 16–17 May 2026.\", \"plannedNext\": null, \"dueAt\": null, \"waitingOn\": null, \"problem\": null, \"risk\": null, \"confidence\": \"medium\", \"evidenceRefIds\": [\"src-4b706544\"], \"sourceTaskIds\": [\"4b706544-1a3a-41bc-893b-8e2073234790\"]}, {\"id\": \"li-cab-20260630\", \"title\": \"CAB agenda review — 30-Jun-2026\", \"category\": \"action\", \"status\": \"open\", \"owner\": null, \"userActionRequired\": true, \"userAction\": \"Review the 30-Jun-2026 CAB agenda (3 Enterprise changes).\", \"currentState\": \"30-Jun-2026 CAB agenda requires review of 3 Enterprise network code-upgrade changes.\", \"plannedNext\": \"Review and respond on the 30-Jun-2026 agenda items.\", \"dueAt\": null, \"waitingOn\": null, \"problem\": null, \"risk\": null, \"confidence\": \"medium\", \"evidenceRefIds\": [\"src-1317cde0\"], \"sourceTaskIds\": [\"1317cde0-5815-4e18-aead-c032b835cc0c\"]}], \"supersedesTaskIds\": [\"2670047c-2b20-42a2-82c4-562dbac4827a\", \"aeaf244c-c569-49b7-b566-d24ec3090e17\", \"4b706544-1a3a-41bc-893b-8e2073234790\", \"1317cde0-5815-4e18-aead-c032b835cc0c\"]}"
+    },
+    {
+      "type": "NEEDS_REVIEW",
+      "payload": {
+        "kind": "assignment",
+        "ref": "47f48321-3815-43f7-bb43-c0a953055445",
+        "question": "'Installation planning – open questions blocking execution' spans both The Circle and Seestrasse installation blockers. Which project should own it, or should it be split into line items across both?",
+        "confidence": "low"
+      },
+      "line": 20,
+      "raw": "[NEEDS_REVIEW] {\"kind\": \"assignment\", \"ref\": \"47f48321-3815-43f7-bb43-c0a953055445\", \"question\": \"'Installation planning – open questions blocking execution' spans both The Circle and Seestrasse installation blockers. Which project should own it, or should it be split into line items across both?\", \"confidence\": \"low\"}"
+    },
+    {
+      "type": "NEEDS_REVIEW",
+      "payload": {
+        "kind": "assignment",
+        "ref": "fad27a74-7e2f-4af0-b113-38f766723a42",
+        "question": "Temporary cable-room access badges cover both Circle and Seestrasse. Assign to one project or treat as a shared cross-site workstream?",
+        "confidence": "low"
+      },
+      "line": 21,
+      "raw": "[NEEDS_REVIEW] {\"kind\": \"assignment\", \"ref\": \"fad27a74-7e2f-4af0-b113-38f766723a42\", \"question\": \"Temporary cable-room access badges cover both Circle and Seestrasse. Assign to one project or treat as a shared cross-site workstream?\", \"confidence\": \"low\"}"
+    },
+    {
+      "type": "NEEDS_REVIEW",
+      "payload": {
+        "kind": "assignment",
+        "ref": "1cd5e7b4-776d-4869-9081-002bff5c5114",
+        "question": "Hardware/SFP storage location spans Zurich-See and The Circle. Which project should own this, or keep it standalone?",
+        "confidence": "low"
+      },
+      "line": 22,
+      "raw": "[NEEDS_REVIEW] {\"kind\": \"assignment\", \"ref\": \"1cd5e7b4-776d-4869-9081-002bff5c5114\", \"question\": \"Hardware/SFP storage location spans Zurich-See and The Circle. Which project should own this, or keep it standalone?\", \"confidence\": \"low\"}"
+    },
+    {
+      "type": "NEEDS_REVIEW",
+      "payload": {
+        "kind": "assignment",
+        "ref": "3311ced4-1cb6-49fa-8b02-21955d824d58",
+        "question": "PO# 101689105 (290,402.79 CHF) pending approval has no site/scope in the summary. Does it belong to The Circle HUB LCR, Seestrasse, or another undertaking?",
+        "confidence": "low"
+      },
+      "line": 23,
+      "raw": "[NEEDS_REVIEW] {\"kind\": \"assignment\", \"ref\": \"3311ced4-1cb6-49fa-8b02-21955d824d58\", \"question\": \"PO# 101689105 (290,402.79 CHF) pending approval has no site/scope in the summary. Does it belong to The Circle HUB LCR, Seestrasse, or another undertaking?\", \"confidence\": \"low\"}"
+    },
+    {
+      "type": "NEEDS_REVIEW",
+      "payload": {
+        "kind": "assignment",
+        "ref": "54e6acf3-3fca-48ca-b88b-d94e646b0621",
+        "question": "'Approval required (PO)' has no details. Which project/PO does this approval belong to?",
+        "confidence": "low"
+      },
+      "line": 24,
+      "raw": "[NEEDS_REVIEW] {\"kind\": \"assignment\", \"ref\": \"54e6acf3-3fca-48ca-b88b-d94e646b0621\", \"question\": \"'Approval required (PO)' has no details. Which project/PO does this approval belong to?\", \"confidence\": \"low\"}"
+    },
+    {
+      "type": "NEEDS_REVIEW",
+      "payload": {
+        "kind": "other",
+        "ref": "a9b19832-c630-4f4b-a902-d7dc7a81c5e1",
+        "question": "'External outreach – requires reply / decision' has no summary. Is this actionable and does it belong to any existing undertaking?",
+        "confidence": "low"
+      },
+      "line": 25,
+      "raw": "[NEEDS_REVIEW] {\"kind\": \"other\", \"ref\": \"a9b19832-c630-4f4b-a902-d7dc7a81c5e1\", \"question\": \"'External outreach – requires reply / decision' has no summary. Is this actionable and does it belong to any existing undertaking?\", \"confidence\": \"low\"}"
+    },
+    {
+      "type": "NEEDS_REVIEW",
+      "payload": {
+        "kind": "other",
+        "ref": "d94f7989-b2c6-460e-9ecf-5ed2d2a8c4c7",
+        "question": "'Review / passive follow-up (low priority)' has no summary. Should it be kept, archived, or attached to a project?",
+        "confidence": "low"
+      },
+      "line": 26,
+      "raw": "[NEEDS_REVIEW] {\"kind\": \"other\", \"ref\": \"d94f7989-b2c6-460e-9ecf-5ed2d2a8c4c7\", \"question\": \"'Review / passive follow-up (low priority)' has no summary. Should it be kept, archived, or attached to a project?\", \"confidence\": \"low\"}"
+    },
+    {
+      "type": "SCAN_DONE",
+      "payload": {
+        "runId": "migration-1783249928256",
+        "outcome": "success",
+        "newProjects": 3,
+        "updatedProjects": 0,
+        "newSingleTasks": 0,
+        "archivedTasks": 0,
+        "workIqCalls": 0,
+        "premiumRequests": 0,
+        "notes": "Dry-run migration. Consolidated 56 active tasks into 3 projects (Zurich The Circle HUB LCR: 21; Seestrasse 356: 31; MSDE CAB: 4). 7 tasks emitted as NEEDS_REVIEW (cross-site/ambiguous). 13 genuine standalone/unrelated tasks left unassigned (no mutating marker). Grouping determined from existing titles/summaries/links; no WorkIQ calls needed."
+      },
+      "line": 27,
+      "raw": "[SCAN_DONE] {\"runId\": \"migration-1783249928256\", \"outcome\": \"success\", \"newProjects\": 3, \"updatedProjects\": 0, \"newSingleTasks\": 0, \"archivedTasks\": 0, \"workIqCalls\": 0, \"premiumRequests\": 0, \"notes\": \"Dry-run migration. Consolidated 56 active tasks into 3 projects (Zurich The Circle HUB LCR: 21; Seestrasse 356: 31; MSDE CAB: 4). 7 tasks emitted as NEEDS_REVIEW (cross-site/ambiguous). 13 genuine standalone/unrelated tasks left unassigned (no mutating marker). Grouping determined from existing titles/summaries/links; no WorkIQ calls needed.\"}"
+    }
+  ],
+  "droppedMarkers": [],
+  "simulatedResult": {
+    "projectTasks": [
+      {
+        "id": "proj-zurich-circle-hublcr",
+        "title": "Zurich The Circle — FY26 HUB LCR AV & MPR Refresh",
+        "status": "new",
+        "sourceTaskIds": [
+          "7d1aa77b-5c49-4bca-8039-f3e559c4b2c0",
+          "7d90557f-7e8f-4443-80bc-ac9b061a58b5",
+          "256bfa95-06cf-48e2-aa63-174a9a3055f3",
+          "7ab6764a-1af7-446e-9994-a1512cd2d044",
+          "e0549354-f17d-4307-934f-e95d4f16e9ea",
+          "dd9ff755-4d6a-4faa-8b9e-f4fe278a242e",
+          "61002c20-7db8-420e-8399-5087f464ee8f",
+          "f663726c-8ff9-43f5-b913-1b92247ee8c5",
+          "040b5814-9729-4ccb-abb7-209fb58cf93f",
+          "e12bad28-2a28-46e4-8300-d474f0abe1b9",
+          "94315dce-82d2-48af-b800-f85d301ff461",
+          "97e61056-2459-4d02-82b6-719f3df8d305",
+          "82adf7b9-ca42-42f2-9222-775d824d4e6c",
+          "f7c37896-b6a7-44ef-927b-49ea19018e8a",
+          "5fe2011e-7938-496d-b7af-c189f750ca36",
+          "2579f860-bd87-4858-9ad9-71a880307841",
+          "ece3556c-d691-4a09-9574-f7423b58acc1",
+          "98d9ffd3-b12f-4cdd-860a-ff7f934d3656",
+          "c42614d4-a2b7-484f-89d5-a564103bb3c7",
+          "6d2675a9-8e6d-4b6a-b247-3e42741dd2e3",
+          "32f0c7ee-a8be-4cc8-9fe4-14097ed0e186",
+          "7d1aa77b",
+          "7d90557f",
+          "256bfa95",
+          "7ab6764a",
+          "e0549354",
+          "dd9ff755",
+          "61002c20",
+          "f663726c",
+          "040b5814",
+          "e12bad28",
+          "94315dce",
+          "97e61056",
+          "82adf7b9",
+          "f7c37896",
+          "5fe2011e",
+          "2579f860",
+          "ece3556c",
+          "98d9ffd3",
+          "c42614d4",
+          "6d2675a9",
+          "32f0c7ee"
+        ],
+        "userActions": [
+          "Confirm to local team that Dual MPR refresh can start 1 Dec 2026",
+          "Approve/reject pending SAP invoices for PO 101577907",
+          "Approve Anixter PO 101577907 lines",
+          "Action PO extension 101608497 (keep open until December)"
+        ],
+        "lineItems": [
+          {
+            "id": "li-circle-radon",
+            "title": "Radon room 9.3E — AV rollout, handover & commissioning",
+            "status": "in-progress",
+            "sourceTaskIds": [
+              "7d1aa77b-5c49-4bca-8039-f3e559c4b2c0",
+              "f7c37896-b6a7-44ef-927b-49ea19018e8a",
+              "5fe2011e-7938-496d-b7af-c189f750ca36",
+              "32f0c7ee-a8be-4cc8-9fe4-14097ed0e186"
+            ]
+          },
+          {
+            "id": "li-circle-dualmpr",
+            "title": "Dual MPR rooms 10.3D/10.3E — AV refresh",
+            "status": "in-progress",
+            "sourceTaskIds": [
+              "61002c20-7db8-420e-8399-5087f464ee8f",
+              "f663726c-8ff9-43f5-b913-1b92247ee8c5",
+              "82adf7b9-ca42-42f2-9222-775d824d4e6c"
+            ]
+          },
+          {
+            "id": "li-circle-timeline",
+            "title": "MPR refresh schedule shift (Nov -> Dec 2026, freeze to ~12 Feb 2027)",
+            "status": "in-progress",
+            "sourceTaskIds": [
+              "040b5814-9729-4ccb-abb7-209fb58cf93f",
+              "94315dce-82d2-48af-b800-f85d301ff461",
+              "e12bad28-2a28-46e4-8300-d474f0abe1b9",
+              "97e61056-2459-4d02-82b6-719f3df8d305",
+              "dd9ff755-4d6a-4faa-8b9e-f4fe278a242e"
+            ]
+          },
+          {
+            "id": "li-circle-procurement",
+            "title": "Procurement — POs & invoices for HUB LCR Circle",
+            "status": "in-progress",
+            "sourceTaskIds": [
+              "7d90557f-7e8f-4443-80bc-ac9b061a58b5",
+              "256bfa95-06cf-48e2-aa63-174a9a3055f3",
+              "e0549354-f17d-4307-934f-e95d4f16e9ea",
+              "7ab6764a-1af7-446e-9994-a1512cd2d044",
+              "98d9ffd3-b12f-4cdd-860a-ff7f934d3656",
+              "c42614d4-a2b7-484f-89d5-a564103bb3c7",
+              "ece3556c-d691-4a09-9574-f7423b58acc1"
+            ]
+          },
+          {
+            "id": "li-circle-zones-handover",
+            "title": "AV vendor delivery risk & WWT->Zones PM handover",
+            "status": "in-progress",
+            "sourceTaskIds": [
+              "6d2675a9-8e6d-4b6a-b247-3e42741dd2e3",
+              "2579f860-bd87-4858-9ad9-71a880307841"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "proj-seestrasse-356",
+        "title": "Microsoft Seestrasse 356 Zurich — Office Refurbishment (IT/AV/Cabling)",
+        "status": "new",
+        "sourceTaskIds": [
+          "0db365e5-cba0-4030-8a06-55726557fcdc",
+          "3e249f13-eca1-4d62-bdb1-dac2d5aad4de",
+          "26248f16-8d21-4c5f-bb88-679df5c2d8bf",
+          "b4537097-486e-4ab3-8b66-9c151ab756b4",
+          "08d94189-1f6d-4004-813b-c962505a536c",
+          "39a9fe87-f4a0-4cdf-8bcb-c554f86ec38e",
+          "3ad99325-14a2-4674-a7ea-cb0f4fc7ce98",
+          "867b811d-b056-43ad-881c-bad5023f9ce3",
+          "45e5694c-dd3a-49ba-8d17-52e2f80f3c29",
+          "10a71ac5-7e98-4b53-8793-47a588cd8aac",
+          "bd39f6be-5013-4673-b65d-d91cfec0f3ed",
+          "50f3b2a3-e2ff-447d-a42f-de0546660d54",
+          "22907581-337f-4e12-8a39-c4628b2c1d9c",
+          "b74e3b5c-c677-4eac-a722-dd72df8f987a",
+          "1f264332-7703-4f1a-bf87-b9c746087028",
+          "650e8334-2806-4cb2-8f76-d9eb8a5ac7f1",
+          "906d7a77-2608-404c-98d4-e533b368f84a",
+          "70874c30-2fc6-4c8e-b0b5-2c3391f47449",
+          "51bd7936-ec44-471b-beee-6c9ded774bd6",
+          "8c84b54c-112e-4555-8380-11ff470e3921",
+          "cabb3656-4cd7-4d90-85ae-5da3e62c22c8",
+          "a9233176-afb3-4b32-8d3c-2221e63a1f69",
+          "8012104d-6459-4fad-ae8b-0020a3ed6894",
+          "f9fd6025-c03e-4d9f-9b3d-0bddebde2eee",
+          "05787a56-48bb-43be-87d1-374558d19b2a",
+          "51266f0f-9816-4531-8130-5088bb74929b",
+          "87970f52-c440-4348-ad7b-2ef43d7a93d4",
+          "57d7ed8b-740b-4ab6-b494-ccdf28b308e2",
+          "07f358af-5d43-459e-8bee-60037514cf6d",
+          "db6dbf57-9ec1-45d0-9a87-ccca841db844",
+          "6de92986-290a-490b-b15a-ca9c6e1aa371",
+          "0db365e5",
+          "3e249f13",
+          "26248f16",
+          "b4537097",
+          "08d94189",
+          "39a9fe87",
+          "3ad99325",
+          "867b811d",
+          "45e5694c",
+          "10a71ac5",
+          "bd39f6be",
+          "50f3b2a3",
+          "22907581",
+          "b74e3b5c",
+          "1f264332",
+          "650e8334",
+          "906d7a77",
+          "70874c30",
+          "51bd7936",
+          "8c84b54c",
+          "cabb3656",
+          "a9233176",
+          "8012104d",
+          "f9fd6025",
+          "05787a56",
+          "51266f0f",
+          "87970f52",
+          "57d7ed8b",
+          "07f358af",
+          "db6dbf57",
+          "6de92986"
+        ],
+        "userActions": [
+          "Respond to Laith Skeik's unanswered meeting request to walk through the cabling plan",
+          "Review the color-coded AV decommission asset list (keep vs disposal)",
+          "Decide/approve PO change for longer network cables in Focus Rooms",
+          "Confirm touchpanel mounting position in Focus Rooms",
+          "Sign off commissioned AV rooms for production as requested by Patrick"
+        ],
+        "lineItems": [
+          {
+            "id": "li-see-cabling",
+            "title": "Data recabling & patch panel sourcing",
+            "status": "in-progress",
+            "sourceTaskIds": [
+              "0db365e5-cba0-4030-8a06-55726557fcdc",
+              "3e249f13-eca1-4d62-bdb1-dac2d5aad4de",
+              "bd39f6be-5013-4673-b65d-d91cfec0f3ed",
+              "45e5694c-dd3a-49ba-8d17-52e2f80f3c29",
+              "57d7ed8b-740b-4ab6-b494-ccdf28b308e2",
+              "6de92986-290a-490b-b15a-ca9c6e1aa371",
+              "07f358af-5d43-459e-8bee-60037514cf6d"
+            ]
+          },
+          {
+            "id": "li-see-av-commissioning",
+            "title": "AV decommission, install & commissioning (MTR testing)",
+            "status": "in-progress",
+            "sourceTaskIds": [
+              "26248f16-8d21-4c5f-bb88-679df5c2d8bf",
+              "b4537097-486e-4ab3-8b66-9c151ab756b4",
+              "08d94189-1f6d-4004-813b-c962505a536c",
+              "10a71ac5-7e98-4b53-8793-47a588cd8aac",
+              "650e8334-2806-4cb2-8f76-d9eb8a5ac7f1",
+              "906d7a77-2608-404c-98d4-e533b368f84a",
+              "70874c30-2fc6-4c8e-b0b5-2c3391f47449",
+              "51bd7936-ec44-471b-beee-6c9ded774bd6",
+              "8c84b54c-112e-4555-8380-11ff470e3921"
+            ]
+          },
+          {
+            "id": "li-see-corpnet",
+            "title": "CorpNet patching & room connectivity",
+            "status": "blocked",
+            "sourceTaskIds": [
+              "b74e3b5c-c677-4eac-a722-dd72df8f987a",
+              "1f264332-7703-4f1a-bf87-b9c746087028",
+              "cabb3656-4cd7-4d90-85ae-5da3e62c22c8",
+              "39a9fe87-f4a0-4cdf-8bcb-c554f86ec38e"
+            ]
+          },
+          {
+            "id": "li-see-focusrooms",
+            "title": "Focus rooms — network cables & touchpanel decisions",
+            "status": "open",
+            "sourceTaskIds": [
+              "a9233176-afb3-4b32-8d3c-2221e63a1f69",
+              "8012104d-6459-4fad-ae8b-0020a3ed6894",
+              "f9fd6025-c03e-4d9f-9b3d-0bddebde2eee"
+            ]
+          },
+          {
+            "id": "li-see-pc-relocation",
+            "title": "PC relocation during August rebuild",
+            "status": "open",
+            "sourceTaskIds": [
+              "05787a56-48bb-43be-87d1-374558d19b2a",
+              "51266f0f-9816-4531-8130-5088bb74929b"
+            ]
+          },
+          {
+            "id": "li-see-aug-works",
+            "title": "August cabling works coordination (17–28 Aug 2026)",
+            "status": "in-progress",
+            "sourceTaskIds": [
+              "22907581-337f-4e12-8a39-c4628b2c1d9c",
+              "867b811d-b056-43ad-881c-bad5023f9ce3"
+            ]
+          },
+          {
+            "id": "li-see-supplier-access",
+            "title": "Supplier onboarding & invoice upload (Zimmerberg Elektro)",
+            "status": "blocked",
+            "sourceTaskIds": [
+              "87970f52-c440-4348-ad7b-2ef43d7a93d4",
+              "db6dbf57-9ec1-45d0-9a87-ccca841db844"
+            ]
+          },
+          {
+            "id": "li-see-decom-validation",
+            "title": "AV equipment decommission list validation",
+            "status": "open",
+            "sourceTaskIds": [
+              "50f3b2a3-e2ff-447d-a42f-de0546660d54"
+            ]
+          },
+          {
+            "id": "li-see-planning",
+            "title": "Renovation planning & office closure",
+            "status": "in-progress",
+            "sourceTaskIds": [
+              "3ad99325-14a2-4674-a7ea-cb0f4fc7ce98",
+              "3e249f13-eca1-4d62-bdb1-dac2d5aad4de",
+              "39a9fe87-f4a0-4cdf-8bcb-c554f86ec38e"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "proj-msde-cab",
+        "title": "MS Digital Enterprise CAB Reviews",
+        "status": "new",
+        "sourceTaskIds": [
+          "2670047c-2b20-42a2-82c4-562dbac4827a",
+          "aeaf244c-c569-49b7-b566-d24ec3090e17",
+          "4b706544-1a3a-41bc-893b-8e2073234790",
+          "1317cde0-5815-4e18-aead-c032b835cc0c",
+          "2670047c",
+          "aeaf244c",
+          "4b706544",
+          "1317cde0"
+        ],
+        "userActions": [
+          "Review and provide input on the 30-Jun-2026 CAB agenda items"
+        ],
+        "lineItems": [
+          {
+            "id": "li-cab-20260423",
+            "title": "CAB review — 23-Apr-2026 session",
+            "status": "done",
+            "sourceTaskIds": [
+              "2670047c-2b20-42a2-82c4-562dbac4827a"
+            ]
+          },
+          {
+            "id": "li-cab-20260514",
+            "title": "CAB review — 14-May-2026 session",
+            "status": "done",
+            "sourceTaskIds": [
+              "aeaf244c-c569-49b7-b566-d24ec3090e17"
+            ]
+          },
+          {
+            "id": "li-cab-chg0858097",
+            "title": "CHG0858097 — NIS Power Maintenance",
+            "status": "done",
+            "sourceTaskIds": [
+              "4b706544-1a3a-41bc-893b-8e2073234790"
+            ]
+          },
+          {
+            "id": "li-cab-20260630",
+            "title": "CAB agenda review — 30-Jun-2026",
+            "status": "open",
+            "sourceTaskIds": [
+              "1317cde0-5815-4e18-aead-c032b835cc0c"
+            ]
+          }
+        ]
+      }
+    ],
+    "archivedTaskIds": [
+      "7d1aa77b-5c49-4bca-8039-f3e559c4b2c0",
+      "7d90557f-7e8f-4443-80bc-ac9b061a58b5",
+      "2670047c-2b20-42a2-82c4-562dbac4827a",
+      "256bfa95-06cf-48e2-aa63-174a9a3055f3",
+      "4b706544-1a3a-41bc-893b-8e2073234790",
+      "aeaf244c-c569-49b7-b566-d24ec3090e17",
+      "32f0c7ee-a8be-4cc8-9fe4-14097ed0e186",
+      "0db365e5-cba0-4030-8a06-55726557fcdc",
+      "3e249f13-eca1-4d62-bdb1-dac2d5aad4de",
+      "7ab6764a-1af7-446e-9994-a1512cd2d044",
+      "e0549354-f17d-4307-934f-e95d4f16e9ea",
+      "26248f16-8d21-4c5f-bb88-679df5c2d8bf",
+      "b4537097-486e-4ab3-8b66-9c151ab756b4",
+      "dd9ff755-4d6a-4faa-8b9e-f4fe278a242e",
+      "61002c20-7db8-420e-8399-5087f464ee8f",
+      "08d94189-1f6d-4004-813b-c962505a536c",
+      "39a9fe87-f4a0-4cdf-8bcb-c554f86ec38e",
+      "3ad99325-14a2-4674-a7ea-cb0f4fc7ce98",
+      "867b811d-b056-43ad-881c-bad5023f9ce3",
+      "87970f52-c440-4348-ad7b-2ef43d7a93d4",
+      "f663726c-8ff9-43f5-b913-1b92247ee8c5",
+      "040b5814-9729-4ccb-abb7-209fb58cf93f",
+      "50f3b2a3-e2ff-447d-a42f-de0546660d54",
+      "bd39f6be-5013-4673-b65d-d91cfec0f3ed",
+      "e12bad28-2a28-46e4-8300-d474f0abe1b9",
+      "94315dce-82d2-48af-b800-f85d301ff461",
+      "45e5694c-dd3a-49ba-8d17-52e2f80f3c29",
+      "10a71ac5-7e98-4b53-8793-47a588cd8aac",
+      "97e61056-2459-4d02-82b6-719f3df8d305",
+      "82adf7b9-ca42-42f2-9222-775d824d4e6c",
+      "f7c37896-b6a7-44ef-927b-49ea19018e8a",
+      "b74e3b5c-c677-4eac-a722-dd72df8f987a",
+      "f9fd6025-c03e-4d9f-9b3d-0bddebde2eee",
+      "22907581-337f-4e12-8a39-c4628b2c1d9c",
+      "ece3556c-d691-4a09-9574-f7423b58acc1",
+      "1f264332-7703-4f1a-bf87-b9c746087028",
+      "8012104d-6459-4fad-ae8b-0020a3ed6894",
+      "650e8334-2806-4cb2-8f76-d9eb8a5ac7f1",
+      "906d7a77-2608-404c-98d4-e533b368f84a",
+      "70874c30-2fc6-4c8e-b0b5-2c3391f47449",
+      "51bd7936-ec44-471b-beee-6c9ded774bd6",
+      "8c84b54c-112e-4555-8380-11ff470e3921",
+      "cabb3656-4cd7-4d90-85ae-5da3e62c22c8",
+      "a9233176-afb3-4b32-8d3c-2221e63a1f69",
+      "98d9ffd3-b12f-4cdd-860a-ff7f934d3656",
+      "6d2675a9-8e6d-4b6a-b247-3e42741dd2e3",
+      "5fe2011e-7938-496d-b7af-c189f750ca36",
+      "c42614d4-a2b7-484f-89d5-a564103bb3c7",
+      "57d7ed8b-740b-4ab6-b494-ccdf28b308e2",
+      "07f358af-5d43-459e-8bee-60037514cf6d",
+      "db6dbf57-9ec1-45d0-9a87-ccca841db844",
+      "6de92986-290a-490b-b15a-ca9c6e1aa371",
+      "05787a56-48bb-43be-87d1-374558d19b2a",
+      "1317cde0-5815-4e18-aead-c032b835cc0c",
+      "2579f860-bd87-4858-9ad9-71a880307841",
+      "51266f0f-9816-4531-8130-5088bb74929b"
+    ],
+    "unassignedTaskIds": [
+      "f4e42d9d-617c-44e4-92af-7ddc1049e4e9",
+      "80932052-1600-4077-8985-0e0a1ab85b01",
+      "c7d5a6f9-e82c-481c-a337-8e0945302fdc",
+      "0be21107-601e-40ea-91da-cbead17b6f82",
+      "dfd46c05-6037-4dbc-8076-414b873342d1",
+      "54d092bd-4089-4ad5-a32c-ce99d5d1102f",
+      "08584c1d-45ea-49a9-a5f3-cf82b6bcfef3",
+      "47f48321-3815-43f7-bb43-c0a953055445",
+      "d94f7989-b2c6-460e-9ecf-5ed2d2a8c4c7",
+      "3721d1c6-bbcb-4d28-b915-f2ecaa420788",
+      "c6ca3063-680e-4330-ac7b-4c7689c4b2e4",
+      "98d6e1af-a273-4853-9c7d-dc0f5bb5f1cf",
+      "1cd5e7b4-776d-4869-9081-002bff5c5114",
+      "fad27a74-7e2f-4af0-b113-38f766723a42",
+      "54fc0c3f-ab34-436a-9c3f-6f44e1c4ebd7",
+      "a9b19832-c630-4f4b-a902-d7dc7a81c5e1",
+      "3311ced4-1cb6-49fa-8b02-21955d824d58",
+      "5cc84d83-20a3-49d7-8dad-ab3104696786",
+      "84ef8529-fd68-4c73-b501-6ed01232cb1e",
+      "54e6acf3-3fca-48ca-b88b-d94e646b0621"
+    ]
+  },
+  "invariants": {
+    "historySumBefore": 739,
+    "historySumAfter": 798,
+    "linkSumBefore": 106,
+    "linkSumAfter": 221,
+    "taskCountBefore": 76,
+    "taskCountAfter": 79,
+    "deletedTaskIds": []
+  },
+  "runId": "migration-1783249928256",
+  "mode": "dry-run",
+  "generatedAt": "2026-07-05T11:25:13.342Z",
+  "startedAt": "2026-07-05T11:12:08.256Z",
+  "durationMs": 784948,
+  "tasksFile": "E:\\Work_IQ\\Agent_Zero\\tasks.json",
+  "tasksHashBefore": "2b961ba46bc0d0173866fa7b1b7bbaccb80c64a3fedcc005f9a313dec62be855",
+  "tasksHashAfter": "2b961ba46bc0d0173866fa7b1b7bbaccb80c64a3fedcc005f9a313dec62be855",
+  "dryRunMutatedTasks": false,
+  "state": {
+    "stateFile": "E:\\Work_IQ\\Agent_Zero\\tests\\runs\\migration-dry-run\\brain-work\\migration-state-migration-1783249928256.md",
+    "scanStateFile": "E:\\Work_IQ\\Agent_Zero\\tests\\runs\\migration-dry-run\\brain-work\\scan-state-migration-1783249928256.md",
+    "bytes": 38468,
+    "maxBytes": 131072,
+    "truncated": false,
+    "spillFiles": [
+      "history-7d1aa77b-5c49-4bca-8039-f3e559c4b2c0-migration-1783249928256.md",
+      "history-2670047c-2b20-42a2-82c4-562dbac4827a-migration-1783249928256.md",
+      "history-256bfa95-06cf-48e2-aa63-174a9a3055f3-migration-1783249928256.md",
+      "history-80932052-1600-4077-8985-0e0a1ab85b01-migration-1783249928256.md",
+      "history-c7d5a6f9-e82c-481c-a337-8e0945302fdc-migration-1783249928256.md",
+      "history-0be21107-601e-40ea-91da-cbead17b6f82-migration-1783249928256.md",
+      "history-dfd46c05-6037-4dbc-8076-414b873342d1-migration-1783249928256.md",
+      "history-4b706544-1a3a-41bc-893b-8e2073234790-migration-1783249928256.md",
+      "history-aeaf244c-c569-49b7-b566-d24ec3090e17-migration-1783249928256.md",
+      "history-32f0c7ee-a8be-4cc8-9fe4-14097ed0e186-migration-1783249928256.md",
+      "history-0db365e5-cba0-4030-8a06-55726557fcdc-migration-1783249928256.md",
+      "history-3e249f13-eca1-4d62-bdb1-dac2d5aad4de-migration-1783249928256.md",
+      "history-47f48321-3815-43f7-bb43-c0a953055445-migration-1783249928256.md",
+      "history-e0549354-f17d-4307-934f-e95d4f16e9ea-migration-1783249928256.md",
+      "history-26248f16-8d21-4c5f-bb88-679df5c2d8bf-migration-1783249928256.md",
+      "history-b4537097-486e-4ab3-8b66-9c151ab756b4-migration-1783249928256.md",
+      "history-d94f7989-b2c6-460e-9ecf-5ed2d2a8c4c7-migration-1783249928256.md",
+      "history-dd9ff755-4d6a-4faa-8b9e-f4fe278a242e-migration-1783249928256.md",
+      "history-61002c20-7db8-420e-8399-5087f464ee8f-migration-1783249928256.md",
+      "history-08d94189-1f6d-4004-813b-c962505a536c-migration-1783249928256.md",
+      "history-39a9fe87-f4a0-4cdf-8bcb-c554f86ec38e-migration-1783249928256.md",
+      "history-867b811d-b056-43ad-881c-bad5023f9ce3-migration-1783249928256.md",
+      "history-87970f52-c440-4348-ad7b-2ef43d7a93d4-migration-1783249928256.md",
+      "history-f663726c-8ff9-43f5-b913-1b92247ee8c5-migration-1783249928256.md",
+      "history-040b5814-9729-4ccb-abb7-209fb58cf93f-migration-1783249928256.md",
+      "history-c6ca3063-680e-4330-ac7b-4c7689c4b2e4-migration-1783249928256.md",
+      "history-50f3b2a3-e2ff-447d-a42f-de0546660d54-migration-1783249928256.md",
+      "history-bd39f6be-5013-4673-b65d-d91cfec0f3ed-migration-1783249928256.md",
+      "history-e12bad28-2a28-46e4-8300-d474f0abe1b9-migration-1783249928256.md",
+      "history-45e5694c-dd3a-49ba-8d17-52e2f80f3c29-migration-1783249928256.md",
+      "history-10a71ac5-7e98-4b53-8793-47a588cd8aac-migration-1783249928256.md",
+      "history-98d6e1af-a273-4853-9c7d-dc0f5bb5f1cf-migration-1783249928256.md",
+      "history-82adf7b9-ca42-42f2-9222-775d824d4e6c-migration-1783249928256.md",
+      "history-f7c37896-b6a7-44ef-927b-49ea19018e8a-migration-1783249928256.md",
+      "history-b74e3b5c-c677-4eac-a722-dd72df8f987a-migration-1783249928256.md",
+      "history-22907581-337f-4e12-8a39-c4628b2c1d9c-migration-1783249928256.md",
+      "history-fad27a74-7e2f-4af0-b113-38f766723a42-migration-1783249928256.md",
+      "history-1f264332-7703-4f1a-bf87-b9c746087028-migration-1783249928256.md",
+      "history-8012104d-6459-4fad-ae8b-0020a3ed6894-migration-1783249928256.md",
+      "history-650e8334-2806-4cb2-8f76-d9eb8a5ac7f1-migration-1783249928256.md",
+      "history-906d7a77-2608-404c-98d4-e533b368f84a-migration-1783249928256.md",
+      "history-70874c30-2fc6-4c8e-b0b5-2c3391f47449-migration-1783249928256.md",
+      "history-51bd7936-ec44-471b-beee-6c9ded774bd6-migration-1783249928256.md",
+      "history-8c84b54c-112e-4555-8380-11ff470e3921-migration-1783249928256.md",
+      "history-cabb3656-4cd7-4d90-85ae-5da3e62c22c8-migration-1783249928256.md",
+      "history-a9233176-afb3-4b32-8d3c-2221e63a1f69-migration-1783249928256.md",
+      "history-5fe2011e-7938-496d-b7af-c189f750ca36-migration-1783249928256.md",
+      "history-07f358af-5d43-459e-8bee-60037514cf6d-migration-1783249928256.md",
+      "history-db6dbf57-9ec1-45d0-9a87-ccca841db844-migration-1783249928256.md",
+      "history-05787a56-48bb-43be-87d1-374558d19b2a-migration-1783249928256.md",
+      "history-1317cde0-5815-4e18-aead-c032b835cc0c-migration-1783249928256.md",
+      "history-51266f0f-9816-4531-8130-5088bb74929b-migration-1783249928256.md"
+    ],
+    "openTaskIds": [
+      "7d1aa77b-5c49-4bca-8039-f3e559c4b2c0",
+      "7d90557f-7e8f-4443-80bc-ac9b061a58b5",
+      "f4e42d9d-617c-44e4-92af-7ddc1049e4e9",
+      "2670047c-2b20-42a2-82c4-562dbac4827a",
+      "256bfa95-06cf-48e2-aa63-174a9a3055f3",
+      "80932052-1600-4077-8985-0e0a1ab85b01",
+      "c7d5a6f9-e82c-481c-a337-8e0945302fdc",
+      "0be21107-601e-40ea-91da-cbead17b6f82",
+      "dfd46c05-6037-4dbc-8076-414b873342d1",
+      "4b706544-1a3a-41bc-893b-8e2073234790",
+      "aeaf244c-c569-49b7-b566-d24ec3090e17",
+      "54d092bd-4089-4ad5-a32c-ce99d5d1102f",
+      "08584c1d-45ea-49a9-a5f3-cf82b6bcfef3",
+      "32f0c7ee-a8be-4cc8-9fe4-14097ed0e186",
+      "0db365e5-cba0-4030-8a06-55726557fcdc",
+      "3e249f13-eca1-4d62-bdb1-dac2d5aad4de",
+      "7ab6764a-1af7-446e-9994-a1512cd2d044",
+      "47f48321-3815-43f7-bb43-c0a953055445",
+      "e0549354-f17d-4307-934f-e95d4f16e9ea",
+      "26248f16-8d21-4c5f-bb88-679df5c2d8bf",
+      "b4537097-486e-4ab3-8b66-9c151ab756b4",
+      "d94f7989-b2c6-460e-9ecf-5ed2d2a8c4c7",
+      "dd9ff755-4d6a-4faa-8b9e-f4fe278a242e",
+      "61002c20-7db8-420e-8399-5087f464ee8f",
+      "08d94189-1f6d-4004-813b-c962505a536c",
+      "39a9fe87-f4a0-4cdf-8bcb-c554f86ec38e",
+      "3ad99325-14a2-4674-a7ea-cb0f4fc7ce98",
+      "3721d1c6-bbcb-4d28-b915-f2ecaa420788",
+      "867b811d-b056-43ad-881c-bad5023f9ce3",
+      "87970f52-c440-4348-ad7b-2ef43d7a93d4",
+      "f663726c-8ff9-43f5-b913-1b92247ee8c5",
+      "040b5814-9729-4ccb-abb7-209fb58cf93f",
+      "c6ca3063-680e-4330-ac7b-4c7689c4b2e4",
+      "50f3b2a3-e2ff-447d-a42f-de0546660d54",
+      "bd39f6be-5013-4673-b65d-d91cfec0f3ed",
+      "e12bad28-2a28-46e4-8300-d474f0abe1b9",
+      "94315dce-82d2-48af-b800-f85d301ff461",
+      "45e5694c-dd3a-49ba-8d17-52e2f80f3c29",
+      "10a71ac5-7e98-4b53-8793-47a588cd8aac",
+      "98d6e1af-a273-4853-9c7d-dc0f5bb5f1cf",
+      "97e61056-2459-4d02-82b6-719f3df8d305",
+      "1cd5e7b4-776d-4869-9081-002bff5c5114",
+      "82adf7b9-ca42-42f2-9222-775d824d4e6c",
+      "f7c37896-b6a7-44ef-927b-49ea19018e8a",
+      "b74e3b5c-c677-4eac-a722-dd72df8f987a",
+      "f9fd6025-c03e-4d9f-9b3d-0bddebde2eee",
+      "22907581-337f-4e12-8a39-c4628b2c1d9c",
+      "fad27a74-7e2f-4af0-b113-38f766723a42",
+      "ece3556c-d691-4a09-9574-f7423b58acc1",
+      "1f264332-7703-4f1a-bf87-b9c746087028",
+      "8012104d-6459-4fad-ae8b-0020a3ed6894",
+      "650e8334-2806-4cb2-8f76-d9eb8a5ac7f1",
+      "906d7a77-2608-404c-98d4-e533b368f84a",
+      "70874c30-2fc6-4c8e-b0b5-2c3391f47449",
+      "51bd7936-ec44-471b-beee-6c9ded774bd6",
+      "8c84b54c-112e-4555-8380-11ff470e3921",
+      "cabb3656-4cd7-4d90-85ae-5da3e62c22c8",
+      "a9233176-afb3-4b32-8d3c-2221e63a1f69",
+      "98d9ffd3-b12f-4cdd-860a-ff7f934d3656",
+      "54fc0c3f-ab34-436a-9c3f-6f44e1c4ebd7",
+      "6d2675a9-8e6d-4b6a-b247-3e42741dd2e3",
+      "5fe2011e-7938-496d-b7af-c189f750ca36",
+      "a9b19832-c630-4f4b-a902-d7dc7a81c5e1",
+      "3311ced4-1cb6-49fa-8b02-21955d824d58",
+      "c42614d4-a2b7-484f-89d5-a564103bb3c7",
+      "5cc84d83-20a3-49d7-8dad-ab3104696786",
+      "57d7ed8b-740b-4ab6-b494-ccdf28b308e2",
+      "07f358af-5d43-459e-8bee-60037514cf6d",
+      "db6dbf57-9ec1-45d0-9a87-ccca841db844",
+      "6de92986-290a-490b-b15a-ca9c6e1aa371",
+      "05787a56-48bb-43be-87d1-374558d19b2a",
+      "84ef8529-fd68-4c73-b501-6ed01232cb1e",
+      "54e6acf3-3fca-48ca-b88b-d94e646b0621",
+      "1317cde0-5815-4e18-aead-c032b835cc0c",
+      "2579f860-bd87-4858-9ad9-71a880307841",
+      "51266f0f-9816-4531-8130-5088bb74929b"
+    ],
+    "archivedTaskIds": []
+  },
+  "brain": {
+    "ok": true,
+    "exitCode": 0,
+    "timedOut": false,
+    "salvaged": false,
+    "killedForToolBudget": false,
+    "workIqCalls": 0,
+    "premiumRequests": 0,
+    "stdoutBytes": 975036,
+    "stderrBytes": 0
+  },
+  "parseErrors": [],
+  "scanDone": {
+    "runId": "migration-1783249928256",
+    "outcome": "success",
+    "newProjects": 3,
+    "updatedProjects": 0,
+    "newSingleTasks": 0,
+    "archivedTasks": 0,
+    "workIqCalls": 0,
+    "premiumRequests": 0,
+    "notes": "Dry-run migration. Consolidated 56 active tasks into 3 projects (Zurich The Circle HUB LCR: 21; Seestrasse 356: 31; MSDE CAB: 4). 7 tasks emitted as NEEDS_REVIEW (cross-site/ambiguous). 13 genuine standalone/unrelated tasks left unassigned (no mutating marker). Grouping determined from existing titles/summaries/links; no WorkIQ calls needed."
+  }
+}
