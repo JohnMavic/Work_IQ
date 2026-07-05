@@ -304,6 +304,21 @@
       display: flex; align-items: center; justify-content: space-between;
       margin-top: 6px; gap: 6px;
     }
+    .project-card-row {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      margin-top: 2px; font-size: 0.72rem;
+    }
+    .project-badge, .lineitem-count, .review-badge, .superseded-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      border-radius: 4px; padding: 2px 6px; line-height: 1.25;
+      border: 1px solid transparent;
+    }
+    .project-badge { color: #bfdbfe; background: rgba(59,130,246,0.13); border-color: rgba(59,130,246,0.25); }
+    .lineitem-count { color: #cbd5e1; background: rgba(148,163,184,0.12); border-color: rgba(148,163,184,0.2); }
+    .review-badge { color: #fde68a; background: rgba(245,158,11,0.14); border-color: rgba(245,158,11,0.3); }
+    .user-action-indicator { color: #fecaca; background: rgba(239,68,68,0.16); border: 1px solid rgba(239,68,68,0.35); border-radius: 4px; padding: 2px 6px; }
+    .superseded-badge { color: #d1d5db; background: rgba(107,114,128,0.16); border-color: rgba(107,114,128,0.28); }
+    .archive-toggle.active { border-color: rgba(96,165,250,0.55); color: #bfdbfe; }
 
     /* --- Task Detail View (right panel) --- */
     .task-detail-view {
@@ -332,6 +347,70 @@
     }
     .detail-empty-state p { font-size: 0.95rem; }
     .detail-empty-state .hint { font-size: 0.8rem; color: #374151; }
+    .superseded-hint {
+      padding: 8px 10px; border: 1px solid rgba(148,163,184,0.24);
+      border-radius: 6px; color: #cbd5e1; background: rgba(30,41,59,0.42);
+      font-size: 0.82rem;
+    }
+    .superseded-hint button { margin-left: 8px; }
+    .pm-panel, .lineitems-panel {
+      border-top: 1px solid #1e2233;
+      padding-top: 12px;
+    }
+    .pm-heading, .lineitems-heading {
+      font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0;
+      color: #94a3b8; margin-bottom: 8px; font-weight: 700;
+    }
+    .pm-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px;
+    }
+    .pm-section {
+      border: 1px solid #22283a; border-radius: 6px; padding: 8px;
+      background: rgba(15, 23, 42, 0.38);
+      min-width: 0;
+    }
+    .pm-section h4 {
+      margin: 0 0 6px; font-size: 0.8rem; color: #e2e8f0; font-weight: 650;
+    }
+    .pm-empty { color: #64748b; font-size: 0.78rem; }
+    .pm-entry {
+      display: flex; flex-direction: column; gap: 4px;
+      padding: 6px 0; border-top: 1px solid rgba(148,163,184,0.12);
+      font-size: 0.82rem; color: #dbe4f0; line-height: 1.4;
+      overflow-wrap: anywhere;
+    }
+    .pm-entry:first-of-type { border-top: none; padding-top: 0; }
+    .pm-entry-meta {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      color: #94a3b8; font-size: 0.72rem;
+    }
+    .pm-entry-meta a, .lineitem-meta a { color: #60a5fa; text-decoration: none; }
+    .pm-entry-meta a:hover, .lineitem-meta a:hover { text-decoration: underline; }
+    .confidence-badge {
+      border-radius: 4px; padding: 1px 5px; font-size: 0.68rem; text-transform: uppercase;
+      border: 1px solid rgba(148,163,184,0.2); color: #cbd5e1;
+    }
+    .confidence-high { color: #bbf7d0; border-color: rgba(34,197,94,0.32); background: rgba(34,197,94,0.12); }
+    .confidence-medium { color: #fde68a; border-color: rgba(245,158,11,0.32); background: rgba(245,158,11,0.12); }
+    .confidence-low { color: #fecaca; border-color: rgba(239,68,68,0.32); background: rgba(239,68,68,0.12); }
+    .lineitems-panel details { border: 1px solid #22283a; border-radius: 6px; background: rgba(15,23,42,0.35); }
+    .lineitems-panel summary { cursor: pointer; padding: 8px 10px; color: #e2e8f0; font-size: 0.84rem; }
+    .lineitem-table { display: flex; flex-direction: column; border-top: 1px solid #22283a; }
+    .lineitem-row {
+      display: grid; grid-template-columns: minmax(150px, 1fr) auto; gap: 8px;
+      padding: 9px 10px; border-top: 1px solid rgba(148,163,184,0.12);
+    }
+    .lineitem-row:first-child { border-top: none; }
+    .lineitem-title { color: #e5e7eb; font-size: 0.84rem; overflow-wrap: anywhere; }
+    .lineitem-state { color: #94a3b8; font-size: 0.76rem; margin-top: 3px; overflow-wrap: anywhere; }
+    .lineitem-meta { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-content: start; }
+    .status-chip {
+      border-radius: 4px; padding: 2px 6px; font-size: 0.7rem;
+      background: rgba(148,163,184,0.13); color: #cbd5e1; border: 1px solid rgba(148,163,184,0.2);
+      white-space: nowrap;
+    }
+    .status-chip.blocked { color: #fecaca; background: rgba(239,68,68,0.13); border-color: rgba(239,68,68,0.28); }
+    .status-chip.done { color: #bbf7d0; background: rgba(34,197,94,0.12); border-color: rgba(34,197,94,0.25); }
 
     .task-summary {
       font-size: 0.85em;
@@ -1142,6 +1221,7 @@
       <button class="btn btn-ghost btn-sm" data-filter="on-radar" title="On Radar" onclick="setFilter('on-radar', this)">📡</button>
       <button class="btn btn-ghost btn-sm" data-filter="paused" title="Paused" onclick="setFilter('paused', this)">⏸️</button>
       <button class="btn btn-ghost btn-sm" data-filter="done" title="Done" onclick="setFilter('done', this)">✅</button>
+      <button class="btn btn-ghost btn-sm archive-toggle" id="btnToggleArchived" onclick="toggleArchivedTasks()" title="Archivierte und superseded Tasks anzeigen">Archivierte</button>
       <span class="task-count" id="taskCount"></span>
       <div class="link-mode-group">
         <span class="link-mode-label">Open links in:</span>
@@ -1228,7 +1308,9 @@
 <script>
   // --- State ---
   let tasks = [];
+  let rootReviewQueue = [];
   let currentFilter = 'all';
+  let showArchivedTasks = localStorage.getItem('showArchivedTasks') === 'true';
   let pinnedTaskId = null;
   let serverOnline = false;
   let reconnectTimer = null;
@@ -1258,6 +1340,7 @@
         setServerStatus(true);
         const data = await res.json();
         tasks = data.tasks || [];
+        rootReviewQueue = data.reviewQueue || [];
         updateLastScan(data.lastScan);
         renderTasks();
         // v4.0.0-rc.1 — on boot / reconnect we also need to repaint any
@@ -1366,6 +1449,7 @@
       const res = await fetch('/api/tasks');
       const data = await res.json();
       tasks = data.tasks || [];
+      rootReviewQueue = data.reviewQueue || [];
       updateLastScan(data.lastScan);
       setServerStatus(true);
       renderTasks();
@@ -2167,6 +2251,16 @@
     });
   }
 
+  function isArchivedTask(task) {
+    return Boolean(task && (task.archived || task.supersededBy));
+  }
+
+  function toggleArchivedTasks() {
+    showArchivedTasks = !showArchivedTasks;
+    localStorage.setItem('showArchivedTasks', showArchivedTasks ? 'true' : 'false');
+    renderTasks();
+  }
+
   function renderTasks() {
     const list = document.getElementById('taskList');
     const detailPanel = document.getElementById('taskDetailPanel');
@@ -2176,13 +2270,21 @@
     const retentionDays = parseInt(document.getElementById('cleanupDays')?.value) || 3;
     const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
     const visibleTasks = tasks.filter(t =>
-      !(t.status === 'done' && t.doneAt && t.doneAt < cutoff)
+      !(t.status === 'done' && t.doneAt && t.doneAt < cutoff) &&
+      (showArchivedTasks || !isArchivedTask(t))
     );
+
+    const archiveBtn = document.getElementById('btnToggleArchived');
+    if (archiveBtn) {
+      const archivedCount = tasks.filter(isArchivedTask).length;
+      archiveBtn.classList.toggle('active', showArchivedTasks);
+      archiveBtn.textContent = showArchivedTasks ? `Archivierte ${archivedCount}` : 'Archivierte';
+    }
 
     // Update filter badge counts (only visible tasks)
     const counts = { all: visibleTasks.length, 'needs-attention': 0, 'new': 0, updated: 0, escalated: 0, 'in-progress': 0, 'on-radar': 0, done: 0, paused: 0 };
     visibleTasks.forEach(t => { if (counts[t.status] !== undefined) counts[t.status]++; });
-    document.querySelectorAll('.filter-bar .btn-ghost').forEach(btn => {
+    document.querySelectorAll('.filter-bar .btn-ghost[data-filter]').forEach(btn => {
       const f = btn.dataset.filter;
       const labels = { all: 'All', 'needs-attention': '🔴', 'new': '🆕', updated: '🔄', escalated: '🚨', 'in-progress': '🟡', 'on-radar': '📡', done: '✅', paused: '⏸️' };
       btn.textContent = counts[f] ? `${labels[f]} ${counts[f]}` : labels[f];
@@ -2308,6 +2410,185 @@
     return { sourceBadge, fromText, dateText, separator, linkHtml };
   }
 
+  function isProjectTask(task) {
+    return task && task.taskType === 'project';
+  }
+
+  function asArray(value) {
+    return Array.isArray(value) ? value : [];
+  }
+
+  function projectStats(task) {
+    const items = asArray(task.lineItems);
+    const open = items.filter(item => !['done', 'completed'].includes(item.status)).length;
+    const blocked = items.filter(item => item.status === 'blocked' || item.problem).length;
+    const userActions = asArray(task.pmStatus?.userActions).filter(entry => {
+      if (typeof entry === 'string') return entry.trim();
+      return entry && entry.text;
+    }).length;
+    return { total: items.length, open, blocked, userActions };
+  }
+
+  function taskNeedsReview(task) {
+    if (task?.brainState?.needsReview) return true;
+    const refs = new Set([task?.id, ...asArray(task?.lineItems).map(item => item.id)]);
+    return asArray(rootReviewQueue).some(item => refs.has(item.ref));
+  }
+
+  function findSourceRef(task, evidence) {
+    if (!evidence) return null;
+    if (typeof evidence === 'object') {
+      if (evidence.link || evidence.url || evidence.date) return evidence;
+      evidence = evidence.id || evidence.ref || evidence.evidence;
+    }
+    return asArray(task.sourceRefs).find(ref => ref.id === evidence) || null;
+  }
+
+  function renderEvidenceLink(task, evidence) {
+    const ref = findSourceRef(task, evidence);
+    if (ref?.link || ref?.url) {
+      const href = ref.link || ref.url;
+      return `<a href="${escHtml(href)}" onclick="return openLink(event)" rel="noopener">Evidence ↗</a>`;
+    }
+    if (ref?.date) return `<span>${escHtml(String(ref.date).substring(0, 10))}</span>`;
+    if (typeof evidence === 'string' && /^https?:\/\//i.test(evidence)) {
+      return `<a href="${escHtml(evidence)}" onclick="return openLink(event)" rel="noopener">Evidence ↗</a>`;
+    }
+    return '';
+  }
+
+  function confidenceBadge(confidence) {
+    const value = ['high', 'medium', 'low'].includes(confidence) ? confidence : 'low';
+    return `<span class="confidence-badge confidence-${value}">${escHtml(value)}</span>`;
+  }
+
+  function pmEntryFromValue(value, fallbackConfidence) {
+    if (!value) return null;
+    if (typeof value === 'string') return value.trim() ? { text: value, confidence: fallbackConfidence || 'low' } : null;
+    if (typeof value !== 'object') return null;
+    const text = value.text || value.current || value.summary || '';
+    if (!String(text).trim()) return null;
+    return {
+      text,
+      date: value.date || value.dueAt || value.at || null,
+      evidence: value.evidence || value.evidenceRefId || value.sourceRefId || null,
+      confidence: value.confidence || fallbackConfidence || 'low'
+    };
+  }
+
+  function pmEntries(task, field) {
+    const pm = task.pmStatus || {};
+    if (field === 'current') {
+      const current = pmEntryFromValue(pm.current, pm.confidence);
+      return current ? [current] : [];
+    }
+    return asArray(pm[field]).map(entry => pmEntryFromValue(entry, pm.confidence)).filter(Boolean);
+  }
+
+  function renderPmSection(task, field, label) {
+    const entries = pmEntries(task, field);
+    const body = entries.length
+      ? entries.map(entry => {
+          const evidence = renderEvidenceLink(task, entry.evidence);
+          const date = entry.date ? `<span>${escHtml(String(entry.date).substring(0, 10))}</span>` : '';
+          return `<div class="pm-entry">
+            <div>${escHtml(entry.text)}</div>
+            <div class="pm-entry-meta">${date}${evidence}${confidenceBadge(entry.confidence)}</div>
+          </div>`;
+        }).join('')
+      : '<div class="pm-empty">-</div>';
+    return `<section class="pm-section"><h4>${label}</h4>${body}</section>`;
+  }
+
+  function renderProjectPm(task) {
+    if (!isProjectTask(task)) return '';
+    const review = taskNeedsReview(task)
+      ? `<span class="review-badge" title="${escHtml(task.brainState?.reviewReason || 'Needs review')}">Needs review</span>`
+      : '';
+    return `<div class="pm-panel">
+      <div class="pm-heading">PM View ${review}</div>
+      <div class="pm-grid">
+        ${renderPmSection(task, 'current', 'Stand heute')}
+        ${renderPmSection(task, 'planned', 'Geplant')}
+        ${renderPmSection(task, 'userActions', 'Nutzer-Aktion nötig')}
+        ${renderPmSection(task, 'problems', 'Probleme')}
+        ${renderPmSection(task, 'risks', 'Risiken')}
+        ${renderPmSection(task, 'waitingOn', 'Warten auf')}
+      </div>
+    </div>`;
+  }
+
+  function latestLineItemEvidence(task, item) {
+    const ids = asArray(item.evidenceRefIds);
+    const refId = ids.length ? ids[ids.length - 1] : null;
+    return renderEvidenceLink(task, refId) || '';
+  }
+
+  function renderProjectLineItems(task) {
+    if (!isProjectTask(task)) return '';
+    const items = asArray(task.lineItems);
+    const rows = items.length
+      ? items.map(item => {
+          const status = item.status || 'open';
+          const chipClass = status === 'blocked' ? ' blocked' : (status === 'done' ? ' done' : '');
+          const owner = item.owner ? `<span class="status-chip">${escHtml(item.owner)}</span>` : '';
+          const due = item.dueAt ? `<span class="status-chip">${escHtml(String(item.dueAt).substring(0, 10))}</span>` : '';
+          const evidence = latestLineItemEvidence(task, item);
+          const review = item.needsReview ? '<span class="review-badge">Needs review</span>' : '';
+          return `<div class="lineitem-row">
+            <div>
+              <div class="lineitem-title">${escHtml(item.title || 'Untitled line item')}</div>
+              ${item.currentState ? `<div class="lineitem-state">${escHtml(item.currentState)}</div>` : ''}
+            </div>
+            <div class="lineitem-meta">
+              <span class="status-chip${chipClass}">${escHtml(status)}</span>
+              ${owner}${due}${evidence}${review}
+            </div>
+          </div>`;
+        }).join('')
+      : '<div class="lineitem-row"><div class="lineitem-state">No line items</div></div>';
+    return `<div class="lineitems-panel">
+      <details open>
+        <summary>Line Items (${items.length})</summary>
+        <div class="lineitem-table">${rows}</div>
+      </details>
+    </div>`;
+  }
+
+  function renderSupersededHint(task) {
+    if (!task?.supersededBy) return '';
+    const target = tasks.find(t => t.id === task.supersededBy);
+    const label = target ? target.title : task.supersededBy;
+    return `<div class="superseded-hint">
+      Superseded by ${escHtml(label)}
+      <button class="btn btn-ghost btn-sm" onclick="selectTask('${escHtml(task.supersededBy)}')">Open</button>
+    </div>`;
+  }
+
+  function projectCardBadges(task) {
+    if (!isProjectTask(task) && !isArchivedTask(task) && !taskNeedsReview(task)) return '';
+    const badges = [];
+    if (isProjectTask(task)) {
+      const stats = projectStats(task);
+      badges.push('<span class="project-badge">Project</span>');
+      badges.push(`<span class="lineitem-count">${stats.open} open${stats.blocked ? ` · ${stats.blocked} blocked` : ''}</span>`);
+      if (stats.userActions) badges.push('<span class="user-action-indicator">Du musst aktiv werden</span>');
+    }
+    if (taskNeedsReview(task)) badges.push('<span class="review-badge">Needs review</span>');
+    if (isArchivedTask(task)) badges.push('<span class="superseded-badge">Archived</span>');
+    return `<div class="project-card-row">${badges.join('')}</div>`;
+  }
+
+  function pmSearchText(task) {
+    const pm = task.pmStatus || {};
+    const pmText = ['current', 'planned', 'userActions', 'problems', 'risks', 'waitingOn']
+      .flatMap(field => field === 'current' ? [pm.current] : asArray(pm[field]))
+      .map(entry => typeof entry === 'string' ? entry : entry?.text)
+      .filter(Boolean);
+    const lineText = asArray(task.lineItems).flatMap(item => [item.title, item.currentState]).filter(Boolean);
+    return [...pmText, ...lineText].join(' ');
+  }
+
   // Compact task card for middle panel (list item)
   function renderTaskCard(task) {
       const { sourceBadge, fromText, dateText, separator, linkHtml } = buildTaskMeta(task);
@@ -2347,6 +2628,7 @@
               <span>${fromText}${separator}${dateText}</span>
               ${linkHtml}
             </div>
+            ${projectCardBadges(task)}
             ${timestampHtml}
           </div>
           <div class="task-card-footer" onclick="event.stopPropagation()">
@@ -2446,6 +2728,9 @@
         <div data-slot="summary">${summaryHtml}</div>
         <div data-slot="ambiguity">${ambiguityHtml}</div>
         <div data-slot="notes">${notesHtml}</div>
+        <div data-slot="superseded">${renderSupersededHint(task)}</div>
+        <div data-slot="project-pm">${renderProjectPm(task)}</div>
+        <div data-slot="project-lineitems">${renderProjectLineItems(task)}</div>
         <div class="panel-log-form" data-slot="form-log">
           <input type="text" placeholder="Message or update..." onkeydown="if(event.key==='Enter')analyzeLog('${task.id}',this)">
           <button class="btn btn-primary btn-sm" onclick="analyzeLog('${task.id}',this.previousElementSibling)" title="Send to agent">📤 Send</button>
@@ -3172,7 +3457,7 @@
 
   function setFilter(filter, btn) {
     currentFilter = filter;
-    document.querySelectorAll('.filter-bar .btn-ghost').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.filter-bar .btn-ghost[data-filter]').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     renderTasks();
   }
@@ -3210,7 +3495,8 @@
     }
     const keywords = trimmed.split(/\s+/);
     const matches = tasks.filter(t => {
-      const searchable = [t.title, t.summary, t.from, t.notes].filter(Boolean).join(' ').toLowerCase();
+      if (!showArchivedTasks && isArchivedTask(t)) return false;
+      const searchable = [t.title, t.summary, t.from, t.notes, pmSearchText(t)].filter(Boolean).join(' ').toLowerCase();
       return keywords.every(kw => searchable.includes(kw));
     }).slice(0, 8);
 
