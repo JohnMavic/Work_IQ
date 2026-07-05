@@ -18,18 +18,6 @@ function truncate(text, maxChars) {
   return `${value.slice(0, Math.max(0, maxChars - 1)).trimEnd()}...`;
 }
 
-function shortenLink(link, maxChars = 72) {
-  const value = String(link || '').trim();
-  if (!value || value.length <= maxChars) return value;
-  try {
-    const url = new URL(value);
-    const tail = value.slice(-16);
-    return `${url.origin}${truncate(url.pathname, 24)}...${tail}`;
-  } catch {
-    return `${value.slice(0, maxChars - 19)}...${value.slice(-16)}`;
-  }
-}
-
 function normalizeArray(value) {
   return Array.isArray(value) ? value : [];
 }
@@ -61,7 +49,8 @@ function latestEvidenceForLineItem(task, lineItem) {
   if (!ref) return 'none';
   const parts = [ref.id];
   if (ref.date) parts.push(ref.date.slice(0, 10));
-  if (ref.link) parts.push(shortenLink(ref.link));
+  if (ref.from) parts.push(`from=${truncate(ref.from, 48)}`);
+  if (ref.title) parts.push(`title=${truncate(ref.title, 64)}`);
   return parts.join(' | ');
 }
 
@@ -70,14 +59,14 @@ function renderSourceRefs(task, lines) {
   const refLines = refs.slice(0, 6).map(ref => {
     const parts = [ref.id || 'src?'];
     if (ref.date) parts.push(`date=${String(ref.date).slice(0, 10)}`);
-    if (ref.link) parts.push(`link=${shortenLink(ref.link)}`);
+    if (ref.from) parts.push(`from=${truncate(ref.from, 48)}`);
     if (ref.title) parts.push(`title=${truncate(ref.title, 80)}`);
     return parts.join(' ');
   });
   if (refLines.length) lines.push(`  sourceRefs: ${refLines.join(' | ')}`);
   const hidden = refs.length - refLines.length;
   if (hidden > 0) lines.push(`  sourceRefs omitted: ${hidden}`);
-  if (!refs.length && task.link) lines.push(`  legacyLink: ${shortenLink(task.link)}`);
+  if (!refs.length && task.link) lines.push('  legacyLink: present; link omitted, reference this existing task by task id');
 }
 
 function writeJsonSpill({ brainWorkDir, filename, title, value, spillFiles }) {
@@ -190,8 +179,8 @@ function buildMarkdown(data, options) {
   if (!openSingles.length) lines.push('- none');
   for (const task of openSingles) {
     const summary = summaryChars > 0 ? truncate(task.summary, summaryChars) : '';
-    const link = shortenLink(task.link || normalizeArray(task.sourceRefs).find(ref => ref.link)?.link || 'no-link');
-    lines.push(`- [${task.id}] ${truncate(task.title, 160)} | status=${task.status || 'new'} | link=${link}`);
+    const hasSourceLink = Boolean(task.link || normalizeArray(task.sourceRefs).find(ref => ref.link));
+    lines.push(`- [${task.id}] ${truncate(task.title, 160)} | status=${task.status || 'new'} | sourceLink=${hasSourceLink ? 'present-omitted' : 'none'}`);
     renderSourceRefs(task, lines);
     if (summary) lines.push(`  summary: ${summary}`);
     const spill = renderHistorySpill(task, { brainWorkDir, runId, historySpillBytes, spillFiles, writeFiles });

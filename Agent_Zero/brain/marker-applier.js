@@ -102,6 +102,38 @@ function allPayloadSourceRefs(payload) {
   return refs;
 }
 
+function isValidSourceLink(link) {
+  return typeof link === 'string' && /^https?:\/\//i.test(link) && !link.includes('...');
+}
+
+function invalidSourceLinkReason(link) {
+  if (link === null || link === undefined || link === '') return null;
+  if (typeof link !== 'string') return 'sourceRef.link must be a string';
+  if (!/^https?:\/\//i.test(link)) return 'sourceRef.link must start with http(s)://';
+  if (link.includes('...')) return 'sourceRef.link must not contain ...';
+  return null;
+}
+
+function discardInvalidSourceRefLinks(payload, { auditLogFile, appliedAt, marker }) {
+  for (const ref of allPayloadSourceRefs(payload)) {
+    if (!ref || typeof ref !== 'object' || Array.isArray(ref)) continue;
+    const reason = invalidSourceLinkReason(ref.link);
+    if (!reason) continue;
+    const discardedLink = ref.link;
+    ref.link = null;
+    appendAudit(auditLogFile, {
+      timestamp: appliedAt,
+      action: 'discard-source-link',
+      type: marker.type,
+      sourceRefId: ref.id || null,
+      reason,
+      discardedLink: String(discardedLink),
+      line: marker.line ?? null,
+      raw: marker.raw ?? null
+    });
+  }
+}
+
 function addPayloadSourceRefs(index, payload) {
   for (const ref of collectPayloadSourceRefs(payload)) {
     if (!index.has(ref.id)) index.set(ref.id, ref);
@@ -118,7 +150,8 @@ function validateIntroducedSourceRefs(payload) {
   for (const ref of allPayloadSourceRefs(payload)) {
     if (!ref || typeof ref !== 'object' || Array.isArray(ref)) return 'sourceRef entries must be objects';
     if (typeof ref.id !== 'string' || !ref.id.trim()) return 'sourceRef requires id';
-    if (!ref.link && !ref.date) return `sourceRef has no link or date: ${ref.id}`;
+    const linkReason = invalidSourceLinkReason(ref.link);
+    if (linkReason) return linkReason;
   }
   return null;
 }
@@ -166,13 +199,12 @@ function evaluateEvidence(evidenceRefIds, sourceRefIndex) {
   for (const id of ids) {
     const ref = sourceRefIndex.get(id);
     if (!ref) return { ok: false, reason: `unknown evidenceRefId: ${id}` };
-    if (!ref.link && !ref.date) return { ok: false, reason: `evidenceRefId has no link or date: ${id}` };
     refs.push(ref);
   }
 
   return {
     ok: true,
-    capConfidence: refs.length > 0 && refs.every(ref => !ref.link && ref.date)
+    capConfidence: refs.length > 0 && refs.every(ref => !isValidSourceLink(ref.link))
   };
 }
 
@@ -639,6 +671,7 @@ export function applyMarkerBatch(inputData, markers, {
 
   for (const marker of markers) {
     const candidate = clone(marker);
+    discardInvalidSourceRefLinks(candidate.payload, { auditLogFile, appliedAt, marker });
     const introducedSourceRefsError = validateIntroducedSourceRefs(candidate.payload);
     if (introducedSourceRefsError) {
       const drop = {

@@ -386,6 +386,30 @@
     }
     .pm-entry-meta a, .lineitem-meta a { color: #60a5fa; text-decoration: none; }
     .pm-entry-meta a:hover, .lineitem-meta a:hover { text-decoration: underline; }
+    .source-missing {
+      color: #94a3b8; border: 1px solid rgba(148,163,184,0.2);
+      background: rgba(148,163,184,0.08); border-radius: 4px; padding: 1px 5px;
+      font-size: 0.68rem; white-space: nowrap;
+    }
+    .source-list {
+      margin: 8px 0 10px;
+      border: 1px solid #22283a; border-radius: 6px;
+      background: rgba(15,23,42,0.32);
+    }
+    .source-list details { margin: 0; }
+    .source-list summary {
+      cursor: pointer; padding: 8px 10px; color: #e2e8f0; font-size: 0.84rem;
+    }
+    .source-list-items {
+      display: flex; flex-direction: column; gap: 6px;
+      padding: 0 10px 10px; border-top: 1px solid rgba(148,163,184,0.12);
+    }
+    .source-ref-item {
+      padding-top: 6px; font-size: 0.78rem; color: #cbd5e1; overflow-wrap: anywhere;
+    }
+    .source-ref-item a { color: #60a5fa; text-decoration: none; }
+    .source-ref-item a:hover { text-decoration: underline; }
+    .source-ref-unlinked { color: #94a3b8; }
     .confidence-badge {
       border-radius: 4px; padding: 1px 5px; font-size: 0.68rem; text-transform: uppercase;
       border: 1px solid rgba(148,163,184,0.2); color: #cbd5e1;
@@ -2398,15 +2422,12 @@
     const fromText = task.from ? `from ${escHtml(task.from)}` : '';
     const dateText = task.date ? formatDate(task.date) : '';
     const separator = fromText && dateText ? ' · ' : '';
-    let linkHtml = task.link
-      ? `<a href="${escHtml(task.link)}" onclick="return openLink(event)" rel="noopener">Open source ↗</a>`
+    const primaryRef = asArray(task.sourceRefs).find(ref => sourceRefHref(ref));
+    const primaryHref = validSourceHref(task.link) || sourceRefHref(primaryRef);
+    const primaryTitle = primaryRef ? sourceRefTooltip(primaryRef) : 'Open source';
+    const linkHtml = primaryHref
+      ? `<a href="${escHtml(primaryHref)}" onclick="return openLink(event)" rel="noopener" title="${escHtml(primaryTitle)}">Open source ↗</a>`
       : '';
-    if (task.additionalLinks && task.additionalLinks.length > 0) {
-      for (const al of task.additionalLinks) {
-        const label = al.from ? `${al.source === 'email' ? 'Email' : 'Teams'} · ${escHtml(al.from)}` : `Source`;
-        linkHtml += ` <a href="${escHtml(al.url)}" onclick="return openLink(event)" rel="noopener" title="${label}">${label} ↗</a>`;
-      }
-    }
     return { sourceBadge, fromText, dateText, separator, linkHtml };
   }
 
@@ -2416,6 +2437,53 @@
 
   function asArray(value) {
     return Array.isArray(value) ? value : [];
+  }
+
+  function validSourceHref(link) {
+    const value = typeof link === 'string' ? link.trim() : '';
+    if (!/^https?:\/\//i.test(value)) return null;
+    if (value.includes('...')) return null;
+    return value;
+  }
+
+  function sourceRefHref(ref) {
+    if (!ref || typeof ref !== 'object') return null;
+    return validSourceHref(ref.link || ref.url);
+  }
+
+  function sourceRefDate(ref) {
+    return ref?.date || ref?.lastSeenAt || ref?.firstSeenAt || null;
+  }
+
+  function shortSourceDate(ref) {
+    const value = sourceRefDate(ref);
+    return value ? String(value).substring(0, 10) : '';
+  }
+
+  function sourceRefTooltip(ref) {
+    const parts = [];
+    if (ref?.title) parts.push(ref.title);
+    const date = shortSourceDate(ref);
+    if (date) parts.push(date);
+    if (ref?.from) parts.push(ref.from);
+    return parts.join(' · ') || ref?.id || 'Source';
+  }
+
+  function sourceRefLabel(ref) {
+    const parts = [];
+    parts.push(ref?.title || ref?.id || 'Source');
+    const date = shortSourceDate(ref);
+    if (date) parts.push(date);
+    if (ref?.from) parts.push(ref.from);
+    return parts.join(' · ');
+  }
+
+  function sortedSourceRefs(task) {
+    return asArray(task?.sourceRefs).slice().sort((a, b) => {
+      const bTime = Date.parse(sourceRefDate(b) || '') || 0;
+      const aTime = Date.parse(sourceRefDate(a) || '') || 0;
+      return bTime - aTime;
+    });
   }
 
   function projectStats(task) {
@@ -2438,23 +2506,49 @@
   function findSourceRef(task, evidence) {
     if (!evidence) return null;
     if (typeof evidence === 'object') {
-      if (evidence.link || evidence.url || evidence.date) return evidence;
-      evidence = evidence.id || evidence.ref || evidence.evidence;
+      const id = evidence.id || evidence.ref || evidence.evidence || evidence.sourceRefId || evidence.evidenceRefId;
+      if (id) evidence = id;
+      else if (evidence.link || evidence.url) evidence = evidence.link || evidence.url;
+      else return null;
     }
-    return asArray(task.sourceRefs).find(ref => ref.id === evidence) || null;
+    const refs = asArray(task.sourceRefs);
+    if (typeof evidence === 'string' && /^https?:\/\//i.test(evidence)) {
+      return refs.find(ref => sourceRefHref(ref) === evidence.trim()) || null;
+    }
+    return refs.find(ref => ref.id === evidence) || null;
   }
 
   function renderEvidenceLink(task, evidence) {
+    if (!evidence) return '';
     const ref = findSourceRef(task, evidence);
-    if (ref?.link || ref?.url) {
-      const href = ref.link || ref.url;
-      return `<a href="${escHtml(href)}" onclick="return openLink(event)" rel="noopener">Evidence ↗</a>`;
+    const href = sourceRefHref(ref);
+    if (href) {
+      const title = sourceRefTooltip(ref);
+      return `<a href="${escHtml(href)}" onclick="return openLink(event)" rel="noopener" title="${escHtml(title)}">Evidence ↗</a>`;
     }
-    if (ref?.date) return `<span>${escHtml(String(ref.date).substring(0, 10))}</span>`;
-    if (typeof evidence === 'string' && /^https?:\/\//i.test(evidence)) {
-      return `<a href="${escHtml(evidence)}" onclick="return openLink(event)" rel="noopener">Evidence ↗</a>`;
-    }
-    return '';
+    const title = ref ? sourceRefTooltip(ref) : 'No matching sourceRef link';
+    return `<span class="source-missing" title="${escHtml(title)}">Quelle fehlt</span>`;
+  }
+
+  function renderSourceRefsList(task) {
+    const refs = sortedSourceRefs(task);
+    if (!refs.length) return '';
+    const rows = refs.map(ref => {
+      const label = sourceRefLabel(ref);
+      const title = sourceRefTooltip(ref);
+      const href = sourceRefHref(ref);
+      const body = href
+        ? `<a href="${escHtml(href)}" onclick="return openLink(event)" rel="noopener" title="${escHtml(title)}">${escHtml(label)} ↗</a>`
+        : `<span class="source-ref-unlinked" title="${escHtml(title)}">${escHtml(label)}</span>`;
+      return `<div class="source-ref-item">${body}</div>`;
+    }).join('');
+    const open = refs.length > 8 ? '' : ' open';
+    return `<div class="source-list">
+      <details${open}>
+        <summary>Quellen (${refs.length})</summary>
+        <div class="source-list-items">${rows}</div>
+      </details>
+    </div>`;
   }
 
   function confidenceBadge(confidence) {
@@ -2725,6 +2819,7 @@
     return `
       <div class="task-detail-view${isFrozen ? ' frozen' : ''}" data-task-id="${task.id}">
         <div class="detail-header" data-slot="header">${headerInner}</div>
+        <div data-slot="sourceRefs">${renderSourceRefsList(task)}</div>
         <div data-slot="summary">${summaryHtml}</div>
         <div data-slot="ambiguity">${ambiguityHtml}</div>
         <div data-slot="notes">${notesHtml}</div>

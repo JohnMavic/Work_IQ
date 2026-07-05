@@ -321,6 +321,33 @@ test('TASK_UPDATE can introduce and persist sourceRefs for its evidence gate', (
   assert.equal(task.brainState.lastEvidenceAt, '2026-07-05T09:00:00.000Z');
 });
 
+test('introduced sourceRef links containing ellipses are discarded and audited without dropping marker', () => {
+  const dir = resetTmp('discard-ellipsis-source-link');
+  const { markers } = parseMarkers(marker('TASK_NEW', {
+    taskId: 'new-linkless',
+    title: 'New task with bad source link',
+    sourceRef: {
+      id: 'src-bad-link',
+      type: 'email',
+      title: 'Bad shortened link',
+      link: 'https://outlook.office365.com/owa/...=ReadMessageItem'
+    }
+  }));
+
+  const result = applyMarkerBatch(baseData(), markers, {
+    auditLogFile: path.join(dir, 'audit.jsonl'),
+    now: new Date('2026-07-05T10:00:00.000Z')
+  });
+  const task = result.data.tasks.find(item => item.id === 'new-linkless');
+  const audit = fs.readFileSync(path.join(dir, 'audit.jsonl'), 'utf8');
+
+  assert.equal(result.applied, 1);
+  assert.equal(result.dropped.length, 0);
+  assert.equal(task.sourceRefs[0].link, null);
+  assert.match(audit, /discard-source-link/);
+  assert.match(audit, /must not contain/);
+});
+
 test('superseded source tasks are archived but not deleted', () => {
   const dir = resetTmp('superseded');
   const { markers } = parseMarkers(marker('PROJECT_NEW', {

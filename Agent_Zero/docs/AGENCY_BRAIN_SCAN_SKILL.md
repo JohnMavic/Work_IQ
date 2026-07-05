@@ -41,8 +41,13 @@ Rules:
   an evidence reference.
 - Evidence references must point to `sourceRefs` already in state or introduced in
   the same marker batch.
+- Existing sourceRefs from the state document are referenced by their `src-...` id.
+  Do not copy, abbreviate, reconstruct, or re-emit links for existing sourceRefs.
 - `TASK_UPDATE` may introduce new evidence through `sourceRef` or `sourceRefs` and
   then reference those ids in `evidenceRefIds`.
+- New sourceRefs discovered through WorkIQ in the current run must include the full
+  WorkIQ-provided `http(s)://` link when a link is available. Never shorten links
+  with `...`, and never rebuild a link from a shortened or partial value.
 - Prefer sourceRefs with links. If only a date is available, confidence must be
   `medium` or `low`, never `high`.
 - Do not quote long message bodies. Store only short factual evidence summaries.

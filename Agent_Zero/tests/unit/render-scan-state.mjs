@@ -75,6 +75,38 @@ test('renderScanState shows sourceRef ids for single tasks', () => {
   const result = renderScanState(data, { writeFiles: false, runId: 'single-ref-run' });
 
   assert.match(result.markdown, /sourceRefs: src-single-1/);
+  assert.doesNotMatch(result.markdown, /https:\/\/example\.test\/messages\/single-with-ref/);
+});
+
+test('renderScanState omits existing sourceRef links while preserving ids and metadata', () => {
+  const data = migrateToV5({
+    version: 5,
+    tasks: [{
+      ...singleTask('project-sources', {
+        taskType: 'project',
+        projectKey: 'project-sources',
+        sourceRefs: [{
+          id: 'src-existing-1',
+          title: 'Existing mail source',
+          from: 'alex@example.test',
+          date: '2026-07-05T08:00:00.000Z',
+          link: 'https://example.test/full/existing/source'
+        }],
+        lineItems: [{
+          id: 'li-existing',
+          title: 'Existing line',
+          evidenceRefIds: ['src-existing-1']
+        }]
+      })
+    }]
+  });
+
+  const result = renderScanState(data, { writeFiles: false, runId: 'no-link-run' });
+
+  assert.match(result.markdown, /src-existing-1/);
+  assert.match(result.markdown, /Existing mail source/);
+  assert.match(result.markdown, /alex@example\.test/);
+  assert.doesNotMatch(result.markdown, /https:\/\/example\.test\/full\/existing\/source/);
 });
 
 test('renderScanState stays under budget for a 76-task fixture while keeping every open task id', () => {
@@ -98,7 +130,7 @@ test('renderScanState stays under budget for a 76-task fixture while keeping eve
   }
 });
 
-test('renderScanState shortens long links so a 76-task long-link fixture stays in budget', () => {
+test('renderScanState omits long existing links so a 76-task long-link fixture stays in budget', () => {
   const longTail = 'x'.repeat(260);
   const tasks = [];
   for (let i = 1; i <= 76; i++) {
@@ -115,6 +147,7 @@ test('renderScanState shortens long links so a 76-task long-link fixture stays i
   });
 
   assert.ok(result.bytes <= result.maxBytes, `expected ${result.bytes} <= ${result.maxBytes}`);
+  assert.doesNotMatch(result.markdown, /https:\/\/outlook\.office\.com/);
   assert.doesNotMatch(result.markdown, new RegExp(longTail));
 });
 
