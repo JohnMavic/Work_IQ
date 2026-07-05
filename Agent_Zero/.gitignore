@@ -8,6 +8,7 @@ node_modules/
 # Local data
 tasks.json
 scan-log.txt
+brain-work/
 
 # Non-publishable assets
 docs/archive/
