@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  cleanupStaleAtomicTempsForFile,
   migrateTasksFileToV5,
   migrateToV5,
   writeJsonFileAtomic
@@ -132,4 +133,60 @@ test('writeJsonFileAtomic rotates at most three .bak files', () => {
   assert.equal(parsed.version, 4);
   assert.deepEqual(backups, ['tasks.json.1.bak', 'tasks.json.2.bak', 'tasks.json.3.bak']);
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'tasks.json.1.bak'), 'utf8')).version, 3);
+});
+
+test('writeJsonFileAtomic retries transient Windows rename failures', () => {
+  const dir = resetTmp('atomic-rename-retry');
+  const file = path.join(dir, 'tasks.json');
+  let renameAttempts = 0;
+
+  writeJsonFileAtomic(file, { version: 1, tasks: [] }, {
+    renameRetryDelayMs: 0,
+    _sleep: () => {},
+    _renameSync: (from, to) => {
+      renameAttempts++;
+      if (renameAttempts === 1) {
+        const err = new Error('transient EPERM rename');
+        err.code = 'EPERM';
+        throw err;
+      }
+      fs.renameSync(from, to);
+    }
+  });
+
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).version, 1);
+  assert.equal(renameAttempts, 2);
+});
+
+test('writeJsonFileAtomic continues when backup copy is locked', () => {
+  const dir = resetTmp('atomic-backup-copy-locked');
+  const file = path.join(dir, 'tasks.json');
+  fs.writeFileSync(file, `${JSON.stringify({ version: 1, tasks: [] }, null, 2)}\n`, 'utf8');
+
+  writeJsonFileAtomic(file, { version: 2, tasks: [] }, {
+    _copyFileSync: () => {
+      const err = new Error('EBUSY copyfile');
+      err.code = 'EBUSY';
+      throw err;
+    }
+  });
+
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).version, 2);
+});
+
+test('cleanupStaleAtomicTempsForFile removes ignored atomic temp files', () => {
+  const dir = resetTmp('atomic-temp-cleanup');
+  const file = path.join(dir, 'tasks.json');
+  const stale = path.join(dir, '.tasks.json.12345.67890.abc123.tmp');
+  const unrelated = path.join(dir, '.other.json.12345.67890.abc123.tmp');
+  fs.writeFileSync(stale, 'sensitive task data', 'utf8');
+  fs.writeFileSync(unrelated, 'keep', 'utf8');
+
+  const result = cleanupStaleAtomicTempsForFile(file, { olderThanMs: 0 });
+  const gitignore = fs.readFileSync(path.join(repoRoot, '.gitignore'), 'utf8');
+
+  assert.equal(result.removed, 1);
+  assert.equal(fs.existsSync(stale), false);
+  assert.equal(fs.existsSync(unrelated), true);
+  assert.match(gitignore, /^\.tasks\.json\.\*\.tmp$/m);
 });

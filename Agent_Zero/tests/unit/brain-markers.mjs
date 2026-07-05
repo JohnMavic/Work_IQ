@@ -146,6 +146,23 @@ test('parser ignores markers inside fenced code blocks', () => {
   assert.equal(markers[0].type, 'SCAN_DONE');
 });
 
+test('parser ignores markers inside tilde fenced code blocks', () => {
+  const text = [
+    '~~~',
+    marker('TASK_NEW', {
+      title: 'Injected example',
+      sourceRef: { id: 'src-fenced', date: '2026-07-05' }
+    }),
+    '~~~',
+    marker('SCAN_DONE', { runId: 'run-tilde', outcome: 'partial' })
+  ].join('\n');
+
+  const { markers, errors } = parseMarkers(text);
+  assert.equal(errors.length, 0);
+  assert.equal(markers.length, 1);
+  assert.equal(markers[0].type, 'SCAN_DONE');
+});
+
 test('status-changing TASK_UPDATE without evidence is dropped', () => {
   const dir = resetTmp('missing-evidence');
   const data = baseData();
@@ -161,6 +178,147 @@ test('status-changing TASK_UPDATE without evidence is dropped', () => {
   assert.equal(result.applied, 0);
   assert.equal(result.data.tasks.find(task => task.id === 'old-1').status, 'new');
   assert.match(fs.readFileSync(path.join(dir, 'audit.jsonl'), 'utf8'), /missing evidenceRefIds/);
+});
+
+test('TASK_UPDATE patch whitelist blocks destructive task fields', () => {
+  const dir = resetTmp('task-update-whitelist');
+  const data = migrateToV5({
+    version: 5,
+    tasks: [{
+      id: 'old-1',
+      title: 'Keep task',
+      status: 'new',
+      history: [{ timestamp: '2026-07-01T00:00:00.000Z', type: 'note', text: 'keep' }],
+      sourceRefs: [{ id: 'src-keep', date: '2026-07-01T00:00:00.000Z', link: 'https://example.test/keep' }],
+      lineItems: [{ id: 'li-keep', title: 'Keep line', evidenceRefIds: ['src-keep'], sourceTaskIds: ['old-1'] }],
+      archived: false,
+      supersededBy: null,
+      taskType: 'single'
+    }]
+  });
+  const { markers } = parseMarkers(marker('TASK_UPDATE', {
+    taskId: 'old-1',
+    patch: {
+      history: [],
+      sourceRefs: [],
+      lineItems: [],
+      archived: true,
+      supersededBy: 'ghost',
+      id: 'renamed',
+      taskType: 'project'
+    }
+  }));
+
+  const result = applyMarkerBatch(data, markers, {
+    auditLogFile: path.join(dir, 'audit.jsonl')
+  });
+  const task = result.data.tasks.find(item => item.id === 'old-1');
+
+  assert.equal(result.applied, 0);
+  assert.equal(result.dropped.length, 1);
+  assert.match(result.dropped[0].reason, /disallowed field/);
+  assert.ok(task);
+  assert.equal(task.history.length, 1);
+  assert.equal(task.sourceRefs.length, 1);
+  assert.equal(task.lineItems.length, 1);
+  assert.equal(task.archived, false);
+  assert.equal(task.supersededBy, null);
+  assert.equal(task.taskType, 'single');
+});
+
+test('LINEITEM_UPDATE patch whitelist protects line item identity and evidence links', () => {
+  const dir = resetTmp('lineitem-update-whitelist');
+  const data = migrateToV5({
+    version: 5,
+    tasks: [{
+      id: 'proj-1',
+      title: 'Project',
+      taskType: 'project',
+      sourceRefs: [{ id: 'src-keep', date: '2026-07-01T00:00:00.000Z', link: 'https://example.test/keep' }],
+      lineItems: [{
+        id: 'li-keep',
+        title: 'Keep line',
+        status: 'open',
+        evidenceRefIds: ['src-keep'],
+        sourceTaskIds: ['source-task']
+      }]
+    }]
+  });
+  const { markers } = parseMarkers(marker('LINEITEM_UPDATE', {
+    taskId: 'proj-1',
+    lineItemId: 'li-keep',
+    patch: {
+      id: 'li-hijacked',
+      evidenceRefIds: [],
+      sourceTaskIds: []
+    }
+  }));
+
+  const result = applyMarkerBatch(data, markers, {
+    auditLogFile: path.join(dir, 'audit.jsonl')
+  });
+  const lineItem = result.data.tasks[0].lineItems[0];
+
+  assert.equal(result.applied, 0);
+  assert.match(result.dropped[0].reason, /disallowed field/);
+  assert.equal(lineItem.id, 'li-keep');
+  assert.deepEqual(lineItem.evidenceRefIds, ['src-keep']);
+  assert.deepEqual(lineItem.sourceTaskIds, ['source-task']);
+});
+
+test('invalid markers cannot seed evidence for later status updates', () => {
+  const dir = resetTmp('validated-evidence-index');
+  const text = [
+    marker('PROJECT_NEW', {
+      sourceRefs: [{ id: 'src-ghost', link: 'https://example.test/ghost', date: '2026-07-05' }],
+      lineItems: []
+    }),
+    marker('TASK_UPDATE', {
+      taskId: 'old-1',
+      patch: { status: 'done' },
+      evidenceRefIds: ['src-ghost']
+    })
+  ].join('\n');
+  const { markers } = parseMarkers(text);
+
+  const result = applyMarkerBatch(baseData(), markers, {
+    auditLogFile: path.join(dir, 'audit.jsonl')
+  });
+
+  assert.equal(result.applied, 0);
+  assert.equal(result.dropped.length, 2);
+  assert.match(result.dropped[0].reason, /PROJECT_NEW requires title/);
+  assert.match(result.dropped[1].reason, /unknown evidenceRefId/);
+  assert.equal(result.data.tasks.find(task => task.id === 'old-1').status, 'new');
+});
+
+test('TASK_UPDATE can introduce and persist sourceRefs for its evidence gate', () => {
+  const dir = resetTmp('task-update-source-ref-channel');
+  const { markers } = parseMarkers(marker('TASK_UPDATE', {
+    taskId: 'old-1',
+    patch: { status: 'done' },
+    sourceRefs: [{
+      id: 'src-new-mail',
+      type: 'email',
+      title: 'Completion update',
+      date: '2026-07-05T09:00:00.000Z',
+      link: 'https://example.test/new-mail',
+      evidenceText: 'The task is done.'
+    }],
+    evidenceRefIds: ['src-new-mail']
+  }));
+
+  const result = applyMarkerBatch(baseData(), markers, {
+    auditLogFile: path.join(dir, 'audit.jsonl'),
+    now: new Date('2026-07-05T10:00:00.000Z')
+  });
+  const task = result.data.tasks.find(item => item.id === 'old-1');
+
+  assert.equal(result.applied, 1);
+  assert.equal(task.status, 'done');
+  assert.equal(task.sourceRefs[0].id, 'src-new-mail');
+  assert.equal(task.additionalLinks[0], 'https://example.test/new-mail');
+  assert.equal(task.brainState.lastEvidenceAt, '2026-07-05T09:00:00.000Z');
 });
 
 test('superseded source tasks are archived but not deleted', () => {

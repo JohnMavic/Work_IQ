@@ -32,7 +32,51 @@ function fsyncDirectoryBestEffort(dir) {
   }
 }
 
-function rotateBackups(filePath, maxBackups) {
+function warnBestEffort(message) {
+  try { console.warn(message); } catch {}
+}
+
+function sleepSync(ms) {
+  if (ms <= 0) return;
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function escapeRegex(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function cleanupStaleAtomicTempsForFile(filePath, {
+  olderThanMs = 0,
+  now = Date.now()
+} = {}) {
+  const dir = path.dirname(filePath);
+  const base = path.basename(filePath);
+  const pattern = new RegExp(`^\\.${escapeRegex(base)}\\.\\d+\\.\\d+\\.[a-z0-9]+\\.tmp$`, 'i');
+  let removed = 0;
+  let skipped = 0;
+
+  if (!fs.existsSync(dir)) return { removed, skipped };
+
+  for (const name of fs.readdirSync(dir)) {
+    if (!pattern.test(name)) continue;
+    const full = path.join(dir, name);
+    try {
+      const stat = fs.statSync(full);
+      if (olderThanMs > 0 && now - stat.mtimeMs < olderThanMs) {
+        skipped++;
+        continue;
+      }
+      fs.rmSync(full, { force: true });
+      removed++;
+    } catch {
+      skipped++;
+    }
+  }
+
+  return { removed, skipped };
+}
+
+function rotateBackups(filePath, maxBackups, { renameSync = fs.renameSync, copyFileSync = fs.copyFileSync } = {}) {
   if (maxBackups <= 0 || !fs.existsSync(filePath)) return;
 
   const oldest = `${filePath}.${maxBackups}.bak`;
@@ -42,17 +86,50 @@ function rotateBackups(filePath, maxBackups) {
     const from = `${filePath}.${i}.bak`;
     const to = `${filePath}.${i + 1}.bak`;
     if (fs.existsSync(from)) {
-      try { fs.renameSync(from, to); } catch {}
+      try { renameSync(from, to); } catch {}
     }
   }
 
-  fs.copyFileSync(filePath, `${filePath}.1.bak`);
+  try {
+    copyFileSync(filePath, `${filePath}.1.bak`);
+  } catch (err) {
+    warnBestEffort(`[AGENCY.BRAIN] Backup rotation skipped for ${path.basename(filePath)}: ${err.message}`);
+  }
 }
 
-export function writeJsonFileAtomic(filePath, data, { maxBackups = 3 } = {}) {
+function renameWithRetry(tmp, target, {
+  renameSync = fs.renameSync,
+  retries = 3,
+  delayMs = 50,
+  sleep = sleepSync
+} = {}) {
+  let lastErr = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      renameSync(tmp, target);
+      return;
+    } catch (err) {
+      lastErr = err;
+      const retryable = process.platform === 'win32' && ['EPERM', 'EBUSY', 'EACCES'].includes(err.code);
+      if (!retryable || attempt === retries) break;
+      sleep(delayMs * (attempt + 1));
+    }
+  }
+  throw lastErr;
+}
+
+export function writeJsonFileAtomic(filePath, data, {
+  maxBackups = 3,
+  renameRetries = 3,
+  renameRetryDelayMs = 50,
+  _renameSync = fs.renameSync,
+  _copyFileSync = fs.copyFileSync,
+  _sleep = sleepSync
+} = {}) {
   const dir = path.dirname(filePath);
   fs.mkdirSync(dir, { recursive: true });
-  rotateBackups(filePath, maxBackups);
+  cleanupStaleAtomicTempsForFile(filePath, { olderThanMs: 0 });
+  rotateBackups(filePath, maxBackups, { renameSync: _renameSync, copyFileSync: _copyFileSync });
 
   const tmp = path.join(
     dir,
@@ -67,7 +144,12 @@ export function writeJsonFileAtomic(filePath, data, { maxBackups = 3 } = {}) {
     fs.fsyncSync(fd);
     fs.closeSync(fd);
     fd = null;
-    fs.renameSync(tmp, filePath);
+    renameWithRetry(tmp, filePath, {
+      renameSync: _renameSync,
+      retries: renameRetries,
+      delayMs: renameRetryDelayMs,
+      sleep: _sleep
+    });
     fsyncDirectoryBestEffort(dir);
   } catch (err) {
     if (fd !== null) {

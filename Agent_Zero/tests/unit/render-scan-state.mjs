@@ -59,6 +59,24 @@ test('renderScanState includes all open project and single tasks', () => {
   assert.deepEqual(result.archivedTaskIds, ['archived-1']);
 });
 
+test('renderScanState shows sourceRef ids for single tasks', () => {
+  const data = migrateToV5({
+    version: 5,
+    tasks: [singleTask('single-with-ref', {
+      sourceRefs: [{
+        id: 'src-single-1',
+        title: 'Single task update',
+        date: '2026-07-05T08:00:00.000Z',
+        link: 'https://example.test/messages/single-with-ref'
+      }]
+    })]
+  });
+
+  const result = renderScanState(data, { writeFiles: false, runId: 'single-ref-run' });
+
+  assert.match(result.markdown, /sourceRefs: src-single-1/);
+});
+
 test('renderScanState stays under budget for a 76-task fixture while keeping every open task id', () => {
   const tasks = [];
   for (let i = 1; i <= 76; i++) {
@@ -78,6 +96,26 @@ test('renderScanState stays under budget for a 76-task fixture while keeping eve
   for (const task of tasks) {
     assert.match(result.markdown, new RegExp(`\\[${task.id}\\]`));
   }
+});
+
+test('renderScanState shortens long links so a 76-task long-link fixture stays in budget', () => {
+  const longTail = 'x'.repeat(260);
+  const tasks = [];
+  for (let i = 1; i <= 76; i++) {
+    tasks.push(singleTask(`task-link-${String(i).padStart(2, '0')}`, {
+      title: `Open long-link task ${i}`,
+      summary: `Summary ${i}`,
+      link: `https://outlook.office.com/mail/inbox/id/${longTail}${i}`
+    }));
+  }
+
+  const result = renderScanState(migrateToV5({ version: 5, tasks }), {
+    writeFiles: false,
+    runId: 'long-link-budget-run'
+  });
+
+  assert.ok(result.bytes <= result.maxBytes, `expected ${result.bytes} <= ${result.maxBytes}`);
+  assert.doesNotMatch(result.markdown, new RegExp(longTail));
 });
 
 test('renderScanState writes state and spill files into a clean brain-work directory', () => {
@@ -108,6 +146,101 @@ test('renderScanState writes state and spill files into a clean brain-work direc
   assert.equal(result.spillFiles.length, 1);
   assert.ok(fs.existsSync(path.join(brainWorkDir, result.spillFiles[0])));
   assert.match(result.markdown, new RegExp(result.spillFiles[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+});
+
+test('renderScanState writeFiles:false does not write history spill files', () => {
+  const brainWorkDir = makeBrainWorkDir('dry-run-spills');
+  fs.rmSync(brainWorkDir, { recursive: true, force: true });
+  const data = migrateToV5({
+    version: 5,
+    tasks: [singleTask('task-history-dry-run', {
+      history: Array.from({ length: 20 }, (_, i) => ({
+        timestamp: `2026-07-05T08:${String(i).padStart(2, '0')}:00.000Z`,
+        type: 'note',
+        text: `Detailed historical entry ${i} `.repeat(20)
+      }))
+    })]
+  });
+
+  const result = renderScanState(data, {
+    brainWorkDir,
+    writeFiles: false,
+    runId: 'dry-run',
+    historySpillBytes: 500
+  });
+
+  assert.equal(result.stateFile, null);
+  assert.equal(fs.existsSync(brainWorkDir), false);
+});
+
+test('renderScanState spills full pmStatus instead of truncating replacement data', () => {
+  const brainWorkDir = makeBrainWorkDir('pmstatus-spill');
+  const problems = Array.from({ length: 5 }, (_, i) => ({
+    text: `Problem entry ${i + 1} must be preserved in full text ${'detail '.repeat(20)}`,
+    date: `2026-07-0${i + 1}`,
+    evidence: `src-${i + 1}`,
+    confidence: 'medium'
+  }));
+  const data = migrateToV5({
+    version: 5,
+    tasks: [{
+      ...singleTask('project-pm', {
+        taskType: 'project',
+        projectKey: 'project-pm',
+        pmStatus: {
+          current: 'Current state',
+          planned: [],
+          userActions: [],
+          problems,
+          risks: [],
+          waitingOn: [],
+          confidence: 'medium',
+          lastSynthesizedAt: '2026-07-05T10:00:00.000Z'
+        }
+      })
+    }]
+  });
+
+  const result = renderScanState(data, {
+    brainWorkDir,
+    runId: 'pm-run',
+    maxBytes: 500
+  });
+  const pmSpill = result.spillFiles.find(name => name.startsWith('pmstatus-'));
+  const spillText = fs.readFileSync(path.join(brainWorkDir, pmSpill), 'utf8');
+
+  assert.match(result.markdown, /pmStatus spill:/);
+  assert.match(spillText, /Problem entry 5 must be preserved in full text/);
+});
+
+test('renderScanState spills omitted line item ids so hidden items can be updated', () => {
+  const brainWorkDir = makeBrainWorkDir('lineitems-spill');
+  const lineItems = Array.from({ length: 15 }, (_, i) => ({
+    id: `li-${i + 1}`,
+    title: `Line item ${i + 1}`,
+    status: 'open',
+    currentState: `State ${i + 1}`
+  }));
+  const data = migrateToV5({
+    version: 5,
+    tasks: [{
+      ...singleTask('project-lines', {
+        taskType: 'project',
+        projectKey: 'project-lines',
+        lineItems
+      })
+    }]
+  });
+
+  const result = renderScanState(data, {
+    brainWorkDir,
+    runId: 'line-run'
+  });
+  const lineSpill = result.spillFiles.find(name => name.startsWith('lineitems-'));
+  const spillText = fs.readFileSync(path.join(brainWorkDir, lineSpill), 'utf8');
+
+  assert.match(result.markdown, /lineItems spill:/);
+  assert.match(spillText, /li-15/);
 });
 
 test('brain prompt and renderer do not encode project-specific verification facts', () => {

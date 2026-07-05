@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
+import { StringDecoder } from 'node:string_decoder';
 import {
   BRAIN_WORK_DIR,
   buildAgencyArgs,
@@ -58,6 +59,11 @@ function assistantTextFromEvent(event) {
   if (!event || event.type !== 'assistant.message') return '';
 
   const candidates = [
+    event.data?.content,
+    event.data?.text,
+    event.data?.message,
+    event.data?.message?.content,
+    event.data?.message?.text,
     event.text,
     event.content,
     event.delta?.content,
@@ -83,14 +89,59 @@ function assistantTextFromEvent(event) {
   return '';
 }
 
+function assistantDeltaTextFromEvent(event) {
+  if (!event || event.type !== 'assistant.message_delta') return '';
+
+  const candidates = [
+    event.data?.content,
+    event.data?.text,
+    event.data?.delta?.content,
+    event.data?.message?.content,
+    event.delta?.content,
+    event.content,
+    event.text
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string') return candidate;
+    if (Array.isArray(candidate)) {
+      return candidate
+        .map(part => {
+          if (typeof part === 'string') return part;
+          if (typeof part?.text === 'string') return part.text;
+          if (typeof part?.content === 'string') return part.content;
+          return '';
+        })
+        .join('');
+    }
+  }
+
+  return '';
+}
+
+function isTurnEndEvent(event) {
+  return ['turn_end', 'turn.end', 'assistant.turn_end'].includes(event?.type);
+}
+
 function isToolExecutionEvent(event) {
   return typeof event?.type === 'string' && event.type.startsWith('tool.execution_');
 }
 
 function isWorkIqStartEvent(event) {
   if (event?.type !== 'tool.execution_start') return false;
-  const haystack = JSON.stringify(event).toLowerCase();
-  return haystack.includes('workiq') || haystack.includes('work_iq');
+  const candidates = [
+    event.data?.toolName,
+    event.data?.serverName,
+    event.data?.server,
+    event.data?.name,
+    event.toolName,
+    event.tool,
+    event.server,
+    event.name
+  ];
+  return candidates
+    .filter(value => typeof value === 'string')
+    .some(value => /work[_-]?iq/i.test(value));
 }
 
 function killTree(child) {
@@ -122,6 +173,12 @@ function makeLargePromptBootstrap(prompt, runId, brainWorkDir) {
   };
 }
 
+function ensureBrainWorkDir(dir = BRAIN_WORK_DIR) {
+  const resolved = assertBrainWorkDirSafe(dir);
+  fs.mkdirSync(resolved, { recursive: true });
+  return resolved;
+}
+
 function buildResult({
   assistantText,
   counters,
@@ -139,7 +196,7 @@ function buildResult({
   const hasAssistantText = assistantText.trim().length > 0;
   const salvaged = timedOut && assistantBytes >= salvageBytes;
   const ok = (exitCode === 0 && hasAssistantText) || salvaged;
-  const silentFailure = exitCode !== 0 && stdoutBytes === 0 && stderrBytes === 0;
+  const silentFailure = !timedOut && typeof exitCode === 'number' && exitCode !== 0 && stdoutBytes === 0 && stderrBytes === 0;
 
   const result = {
     ok,
@@ -184,34 +241,24 @@ export async function runBrain({
   onJsonEvent,
   _spawnFn = spawn,
   _killTreeFn = killTree,
-  _resolveAgencyCli = resolveAgencyCli
+  _resolveAgencyCli = resolveAgencyCli,
+  cleanBrainWorkDir = false
 } = {}) {
   if (!prompt || typeof prompt !== 'string') {
     throw new Error('runBrain requires a prompt string');
   }
 
-  const resolvedBrainWorkDir = prepareBrainWorkDir(brainWorkDir);
+  const resolvedBrainWorkDir = cleanBrainWorkDir
+    ? prepareBrainWorkDir(brainWorkDir)
+    : ensureBrainWorkDir(brainWorkDir);
   const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const promptBytes = byteLength(prompt);
   const largePrompt = promptBytes > BOOTSTRAP_FILE_THRESHOLD_BYTES;
-  const fileContext = largePrompt
-    ? makeLargePromptBootstrap(prompt, runId, resolvedBrainWorkDir)
-    : { bootstrap: prompt, contextFile: null };
-
-  const exe = _resolveAgencyCli();
-  const args = buildAgencyArgs({
-    bootstrap: fileContext.bootstrap,
-    callerArgs,
-    brainWorkDir: resolvedBrainWorkDir
-  });
-  const child = _spawnFn(exe, args, {
-    cwd: resolvedBrainWorkDir,
-    env: buildAgencyEnv(),
-    windowsHide: true,
-    stdio: ['ignore', 'pipe', 'pipe']
-  });
-
   const startedAt = Date.now();
+  let fileContext = { bootstrap: prompt, contextFile: null };
+  let exe = null;
+  let args = null;
+  let child = null;
   const counters = {
     jsonEvents: 0,
     toolExecutionEvents: 0,
@@ -219,6 +266,7 @@ export async function runBrain({
     workIqCalls: 0
   };
   let assistantText = '';
+  let pendingDeltaText = '';
   let stdoutBuffer = '';
   let stdoutBytes = 0;
   let rawStderr = '';
@@ -226,6 +274,51 @@ export async function runBrain({
   let killedForToolBudget = false;
   let settled = false;
   let timer = null;
+  const stdoutDecoder = new StringDecoder('utf8');
+  const stderrDecoder = new StringDecoder('utf8');
+
+  function cleanupContextFile() {
+    if (!fileContext.contextFile) return;
+    try { fs.unlinkSync(fileContext.contextFile); } catch {}
+  }
+
+  function appendAssistantText(chunk) {
+    if (!chunk) return;
+    assistantText += chunk;
+    if (!assistantText.endsWith('\n')) assistantText += '\n';
+  }
+
+  try {
+    exe = _resolveAgencyCli();
+    fileContext = largePrompt
+      ? makeLargePromptBootstrap(prompt, runId, resolvedBrainWorkDir)
+      : { bootstrap: prompt, contextFile: null };
+    args = buildAgencyArgs({
+      bootstrap: fileContext.bootstrap,
+      callerArgs,
+      brainWorkDir: resolvedBrainWorkDir
+    });
+    child = _spawnFn(exe, args, {
+      cwd: resolvedBrainWorkDir,
+      env: buildAgencyEnv(),
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+  } catch (err) {
+    cleanupContextFile();
+    return buildResult({
+      assistantText,
+      counters,
+      durationMs: Date.now() - startedAt,
+      exitCode: null,
+      rawStderr,
+      stdoutBytes,
+      timedOut,
+      killedForToolBudget,
+      spawnError: err,
+      salvageBytes
+    });
+  }
 
   function processLine(line) {
     if (!line.trim()) return;
@@ -240,7 +333,17 @@ export async function runBrain({
     if (onJsonEvent) onJsonEvent(event, { ...counters });
 
     const chunk = assistantTextFromEvent(event);
-    if (chunk) assistantText += chunk;
+    if (chunk) {
+      pendingDeltaText = '';
+      appendAssistantText(chunk);
+    } else {
+      const delta = assistantDeltaTextFromEvent(event);
+      if (delta) pendingDeltaText += delta;
+      if (isTurnEndEvent(event) && pendingDeltaText) {
+        appendAssistantText(pendingDeltaText);
+        pendingDeltaText = '';
+      }
+    }
 
     if (isToolExecutionEvent(event)) {
       counters.toolExecutionEvents++;
@@ -257,8 +360,8 @@ export async function runBrain({
   }
 
   function processStdoutChunk(chunk) {
-    const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
-    stdoutBytes += byteLength(text);
+    const text = Buffer.isBuffer(chunk) ? stdoutDecoder.write(chunk) : String(chunk);
+    stdoutBytes += Buffer.isBuffer(chunk) ? chunk.length : byteLength(text);
     stdoutBuffer += text;
     const lines = stdoutBuffer.split(/\r?\n/);
     stdoutBuffer = lines.pop() || '';
@@ -266,23 +369,25 @@ export async function runBrain({
   }
 
   function finishStdoutBuffer() {
+    const decoderTail = stdoutDecoder.end();
+    if (decoderTail) stdoutBuffer += decoderTail;
     if (stdoutBuffer) {
       processLine(stdoutBuffer);
       stdoutBuffer = '';
     }
+    if (pendingDeltaText) {
+      appendAssistantText(pendingDeltaText);
+      pendingDeltaText = '';
+    }
   }
 
   return new Promise((resolve) => {
-    function cleanupContextFile() {
-      if (!fileContext.contextFile) return;
-      try { fs.unlinkSync(fileContext.contextFile); } catch {}
-    }
-
     function settle({ exitCode = null, spawnError = null } = {}) {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
       finishStdoutBuffer();
+      rawStderr += stderrDecoder.end();
       cleanupContextFile();
       resolve(buildResult({
         assistantText,
@@ -300,7 +405,7 @@ export async function runBrain({
 
     child.stdout?.on('data', processStdoutChunk);
     child.stderr?.on('data', chunk => {
-      rawStderr += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+      rawStderr += Buffer.isBuffer(chunk) ? stderrDecoder.write(chunk) : String(chunk);
     });
     child.once?.('error', err => settle({ exitCode: null, spawnError: err }));
     child.once?.('exit', code => settle({ exitCode: typeof code === 'number' ? code : null }));

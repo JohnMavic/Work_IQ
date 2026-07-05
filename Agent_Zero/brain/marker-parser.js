@@ -15,16 +15,18 @@ export const MARKER_REGEX = new RegExp(`^\\[(${MARKER_TAG_PATTERN})\\]\\s+(\\{.*
 export function parseMarkers(text) {
   const markers = [];
   const errors = [];
-  let inFence = false;
+  let fence = null;
   const lines = String(text || '').split(/\r?\n/);
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (/^\s*```/.test(line)) {
-      inFence = !inFence;
+    const fenceMatch = line.match(/^\s*(```|~~~)/);
+    if (fenceMatch) {
+      if (!fence) fence = fenceMatch[1];
+      else if (fence === fenceMatch[1]) fence = null;
       continue;
     }
-    if (inFence) continue;
+    if (fence) continue;
 
     const match = line.match(MARKER_REGEX);
     if (!match) continue;

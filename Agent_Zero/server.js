@@ -8,7 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { CopilotClient, approveAll, defineTool } from '@github/copilot-sdk';
 import { spawn, execSync } from 'child_process';
 import { EventEmitter } from 'events';
-import { migrateTasksFileToV5, writeJsonFileAtomic } from './brain/tasks-v5.js';
+import { cleanupStaleAtomicTempsForFile, migrateTasksFileToV5, writeJsonFileAtomic } from './brain/tasks-v5.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -4611,6 +4611,7 @@ app.get('/api/jobs', (req, res) => {
 
 // --- Start Server ---
 
+cleanupStaleAtomicTempsForFile(TASKS_FILE, { olderThanMs: 0 });
 migrateTasks();
 migrateStatuses();
 migrateToV3();

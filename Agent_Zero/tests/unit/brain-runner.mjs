@@ -9,6 +9,8 @@ import {
   runBrain,
   residualStderrBytes
 } from '../../brain/brain-runner.js';
+import { renderScanState } from '../../brain/render-scan-state.js';
+import { parseMarkers } from '../../brain/marker-parser.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -63,7 +65,7 @@ test('brain runner resolves success from exit 0 plus assistant.message text', as
     });
 
     assert.equal(result.ok, true);
-    assert.equal(result.assistantText, 'hello world');
+    assert.equal(result.assistantText, 'hello \nworld\n');
     assert.equal(result.exitCode, 0);
     assert.equal(capture.exe, 'C:\\Tools\\agency.exe');
     assert.equal(capture.options.cwd, brainWorkDir);
@@ -76,6 +78,71 @@ test('brain runner resolves success from exit 0 plus assistant.message text', as
     assert.ok(capture.args.includes('--allow-all-tools'));
     assert.equal(capture.args[capture.args.indexOf('--add-dir') + 1], brainWorkDir);
     assert.ok(capture.args.includes('github-mcp-server'));
+  } finally {
+    cleanupBrainWorkDir(brainWorkDir);
+  }
+});
+
+test('brain runner reads real assistant.message data.content events', async () => {
+  const brainWorkDir = makeBrainWorkDir('data-content');
+  try {
+    const result = await runBrain({
+      prompt: 'scan state',
+      brainWorkDir,
+      _resolveAgencyCli: resolveAgencyCli,
+      _spawnFn: makeFakeSpawn((child) => {
+        emitJson(child, { type: 'assistant.message', data: { content: '[SCAN_DONE] {"ok":true}' } });
+        child.emit('exit', 0);
+      })
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.assistantText, '[SCAN_DONE] {"ok":true}\n');
+  } finally {
+    cleanupBrainWorkDir(brainWorkDir);
+  }
+});
+
+test('brain runner promotes delta-only assistant turn at turn_end', async () => {
+  const brainWorkDir = makeBrainWorkDir('delta-promotion');
+  try {
+    const result = await runBrain({
+      prompt: 'scan state',
+      brainWorkDir,
+      _resolveAgencyCli: resolveAgencyCli,
+      _spawnFn: makeFakeSpawn((child) => {
+        emitJson(child, { type: 'assistant.message_delta', data: { content: '[SCAN' } });
+        emitJson(child, { type: 'assistant.message_delta', data: { content: '_DONE] {"ok":true}' } });
+        emitJson(child, { type: 'turn_end' });
+        child.emit('exit', 0);
+      })
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.assistantText, '[SCAN_DONE] {"ok":true}\n');
+  } finally {
+    cleanupBrainWorkDir(brainWorkDir);
+  }
+});
+
+test('brain runner separates assistant messages with newlines so markers remain parseable', async () => {
+  const brainWorkDir = makeBrainWorkDir('message-newlines');
+  try {
+    const result = await runBrain({
+      prompt: 'scan state',
+      brainWorkDir,
+      _resolveAgencyCli: resolveAgencyCli,
+      _spawnFn: makeFakeSpawn((child) => {
+        emitJson(child, { type: 'assistant.message', data: { content: 'Consolidation complete.' } });
+        emitJson(child, { type: 'assistant.message', data: { content: '[SCAN_DONE] {"ok":true}' } });
+        child.emit('exit', 0);
+      })
+    });
+    const { markers } = parseMarkers(result.assistantText);
+
+    assert.equal(result.assistantText, 'Consolidation complete.\n[SCAN_DONE] {"ok":true}\n');
+    assert.equal(markers.length, 1);
+    assert.equal(markers[0].type, 'SCAN_DONE');
   } finally {
     cleanupBrainWorkDir(brainWorkDir);
   }
@@ -184,6 +251,32 @@ test('brain runner spills bootstrap over 16 KB to per-run file and cleans it up'
   }
 });
 
+test('brain runner does not clear state files rendered before the run', async () => {
+  const brainWorkDir = makeBrainWorkDir('preserve-rendered-state');
+  try {
+    const state = renderScanState({
+      version: 5,
+      tasks: [{ id: 'task-1', title: 'Task one', status: 'new' }]
+    }, { brainWorkDir, runId: 'preserve-run' });
+
+    assert.ok(fs.existsSync(state.stateFile));
+    const result = await runBrain({
+      prompt: `Read ${path.basename(state.stateFile)}`,
+      brainWorkDir,
+      _resolveAgencyCli: resolveAgencyCli,
+      _spawnFn: makeFakeSpawn((child) => {
+        emitJson(child, { type: 'assistant.message', content: 'done' });
+        child.emit('exit', 0);
+      })
+    });
+
+    assert.equal(result.ok, true);
+    assert.ok(fs.existsSync(state.stateFile));
+  } finally {
+    cleanupBrainWorkDir(brainWorkDir);
+  }
+});
+
 test('brain runner reports tool.execution callbacks and WorkIQ counters', async () => {
   const brainWorkDir = makeBrainWorkDir('tool-counters');
   const callbacks = [];
@@ -208,6 +301,99 @@ test('brain runner reports tool.execution callbacks and WorkIQ counters', async 
     assert.equal(result.counters.workIqCalls, 1);
     assert.equal(callbacks.length, 2);
     assert.equal(callbacks[0].counters.workIqCalls, 1);
+  } finally {
+    cleanupBrainWorkDir(brainWorkDir);
+  }
+});
+
+test('brain runner counts WorkIQ only from explicit tool identity fields', async () => {
+  const brainWorkDir = makeBrainWorkDir('tool-counter-identity');
+  try {
+    const result = await runBrain({
+      prompt: 'scan state',
+      brainWorkDir,
+      workIqHardLimit: 2,
+      _resolveAgencyCli: resolveAgencyCli,
+      _killTreeFn: () => { throw new Error('should not kill'); },
+      _spawnFn: makeFakeSpawn((child) => {
+        emitJson(child, { type: 'tool.execution_start', data: { toolName: 'write' }, arguments: { content: 'workiq://source/ref' } });
+        emitJson(child, { type: 'tool.execution_start', data: { toolName: 'workiq.ask' } });
+        emitJson(child, { type: 'assistant.message', content: 'done' });
+        child.emit('exit', 0);
+      })
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.counters.toolExecutionStarts, 2);
+    assert.equal(result.counters.workIqCalls, 1);
+    assert.equal(result.killedForToolBudget, false);
+  } finally {
+    cleanupBrainWorkDir(brainWorkDir);
+  }
+});
+
+test('brain runner does not classify empty timeout as silent failure', async () => {
+  const brainWorkDir = makeBrainWorkDir('timeout-not-silent');
+  try {
+    const result = await runBrain({
+      prompt: 'scan state',
+      brainWorkDir,
+      timeoutMs: 5,
+      _resolveAgencyCli: resolveAgencyCli,
+      _killTreeFn: () => {},
+      _spawnFn: makeFakeSpawn(() => {})
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.timedOut, true);
+    assert.equal(result.silentFailure, false);
+  } finally {
+    cleanupBrainWorkDir(brainWorkDir);
+  }
+});
+
+test('brain runner cleans no bootstrap residue when cli resolution fails before spawn', async () => {
+  const brainWorkDir = makeBrainWorkDir('resolve-failure-cleanup');
+  try {
+    const result = await runBrain({
+      prompt: 'A'.repeat(BOOTSTRAP_FILE_THRESHOLD_BYTES + 1),
+      brainWorkDir,
+      _resolveAgencyCli: () => { throw new Error('agency.exe not found'); },
+      _spawnFn: makeFakeSpawn(() => {
+        throw new Error('spawn must not run');
+      })
+    });
+
+    assert.equal(result.ok, false);
+    assert.match(result.error.message, /agency\.exe not found/);
+    assert.deepEqual(fs.readdirSync(brainWorkDir), []);
+  } finally {
+    cleanupBrainWorkDir(brainWorkDir);
+  }
+});
+
+test('brain runner decodes utf8 split across stdout chunks without mojibake', async () => {
+  const brainWorkDir = makeBrainWorkDir('utf8-split');
+  try {
+    const result = await runBrain({
+      prompt: 'scan state',
+      brainWorkDir,
+      _resolveAgencyCli: resolveAgencyCli,
+      _spawnFn: makeFakeSpawn((child) => {
+        const line = Buffer.from(`${JSON.stringify({
+          type: 'assistant.message',
+          data: { content: '[TASK_NEW] {"title":"Büro Seestraße","sourceRef":{"id":"src-1","date":"2026-07-05"}}' }
+        })}\n`, 'utf8');
+        const splitAt = line.indexOf(Buffer.from('ü', 'utf8')) + 1;
+        child.stdout.emit('data', line.subarray(0, splitAt));
+        child.stdout.emit('data', line.subarray(splitAt));
+        child.emit('exit', 0);
+      })
+    });
+
+    assert.equal(result.ok, true);
+    assert.match(result.assistantText, /Büro Seestraße/);
+    assert.doesNotMatch(result.assistantText, /\uFFFD/);
   } finally {
     cleanupBrainWorkDir(brainWorkDir);
   }

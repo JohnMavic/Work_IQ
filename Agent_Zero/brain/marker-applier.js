@@ -20,6 +20,29 @@ const STATUS_PATCH_FIELDS = new Set([
   'waitingOn',
   'doneAt'
 ]);
+const TASK_UPDATE_PATCH_FIELDS = new Set([
+  'title',
+  'summary',
+  'status',
+  'notes',
+  'doneAt',
+  'confidence'
+]);
+const LINEITEM_UPDATE_PATCH_FIELDS = new Set([
+  'title',
+  'category',
+  'status',
+  'owner',
+  'userActionRequired',
+  'userAction',
+  'currentState',
+  'plannedNext',
+  'dueAt',
+  'waitingOn',
+  'problem',
+  'risk',
+  'confidence'
+]);
 
 function clone(value) {
   return structuredClone(value);
@@ -72,12 +95,32 @@ function collectPayloadSourceRefs(payload) {
   return refs.filter(ref => ref && typeof ref === 'object' && ref.id);
 }
 
-function addBatchSourceRefs(index, markers) {
-  for (const marker of markers) {
-    for (const ref of collectPayloadSourceRefs(marker.payload)) {
-      if (!index.has(ref.id)) index.set(ref.id, ref);
-    }
+function allPayloadSourceRefs(payload) {
+  const refs = [];
+  if (Array.isArray(payload?.sourceRefs)) refs.push(...payload.sourceRefs);
+  if (payload?.sourceRef !== undefined) refs.push(payload.sourceRef);
+  return refs;
+}
+
+function addPayloadSourceRefs(index, payload) {
+  for (const ref of collectPayloadSourceRefs(payload)) {
+    if (!index.has(ref.id)) index.set(ref.id, ref);
   }
+}
+
+function validateIntroducedSourceRefs(payload) {
+  if (payload?.sourceRefs !== undefined && !Array.isArray(payload.sourceRefs)) {
+    return 'sourceRefs must be an array';
+  }
+  if (payload?.sourceRef !== undefined && (!payload.sourceRef || typeof payload.sourceRef !== 'object' || Array.isArray(payload.sourceRef))) {
+    return 'sourceRef must be an object';
+  }
+  for (const ref of allPayloadSourceRefs(payload)) {
+    if (!ref || typeof ref !== 'object' || Array.isArray(ref)) return 'sourceRef entries must be objects';
+    if (typeof ref.id !== 'string' || !ref.id.trim()) return 'sourceRef requires id';
+    if (!ref.link && !ref.date) return `sourceRef has no link or date: ${ref.id}`;
+  }
+  return null;
 }
 
 function validatePmStatus(pmStatus) {
@@ -105,6 +148,14 @@ function validateSupersedes(data, ids) {
 function patchNeedsEvidence(patch) {
   if (!patch || typeof patch !== 'object') return false;
   return Object.keys(patch).some(key => STATUS_PATCH_FIELDS.has(key));
+}
+
+function validatePatchWhitelist(patch, allowedFields, markerType) {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return `${markerType} requires patch`;
+  const disallowed = Object.keys(patch).filter(key => !allowedFields.has(key));
+  if (disallowed.length) return `${markerType} patch contains disallowed field(s): ${disallowed.join(', ')}`;
+  if (Object.keys(patch).length === 0) return `${markerType} patch must not be empty`;
+  return null;
 }
 
 function evaluateEvidence(evidenceRefIds, sourceRefIndex) {
@@ -208,7 +259,8 @@ function validateMarker(marker, data, sourceRefIndex) {
       if (!normalizeArray(task.lineItems).some(item => item.id === payload.lineItemId)) {
         return { ok: false, reason: `unknown lineItemId: ${payload.lineItemId}` };
       }
-      if (!payload.patch || typeof payload.patch !== 'object') return { ok: false, reason: 'LINEITEM_UPDATE requires patch' };
+      const patchError = validatePatchWhitelist(payload.patch, LINEITEM_UPDATE_PATCH_FIELDS, 'LINEITEM_UPDATE');
+      if (patchError) return { ok: false, reason: patchError };
       if (patchNeedsEvidence(payload.patch)) {
         const evidence = evaluateEvidence(payload.evidenceRefIds, sourceRefIndex);
         if (!evidence.ok) return { ok: false, reason: evidence.reason };
@@ -225,7 +277,8 @@ function validateMarker(marker, data, sourceRefIndex) {
 
     case 'TASK_UPDATE': {
       if (!payload.taskId || !taskById(data, payload.taskId)) return { ok: false, reason: `unknown taskId: ${payload.taskId}` };
-      if (!payload.patch || typeof payload.patch !== 'object') return { ok: false, reason: 'TASK_UPDATE requires patch' };
+      const patchError = validatePatchWhitelist(payload.patch, TASK_UPDATE_PATCH_FIELDS, 'TASK_UPDATE');
+      if (patchError) return { ok: false, reason: patchError };
       if (patchNeedsEvidence(payload.patch)) {
         const evidence = evaluateEvidence(payload.evidenceRefIds, sourceRefIndex);
         if (!evidence.ok) return { ok: false, reason: evidence.reason };
@@ -446,7 +499,10 @@ function applyLineItemNew(data, payload, context) {
 function applyLineItemUpdate(data, payload, context) {
   const task = taskById(data, payload.taskId);
   const lineItem = normalizeArray(task.lineItems).find(item => item.id === payload.lineItemId);
-  Object.assign(lineItem, payload.patch, { updatedAt: nowIso(context.now) });
+  for (const field of LINEITEM_UPDATE_PATCH_FIELDS) {
+    if (Object.hasOwn(payload.patch, field)) lineItem[field] = payload.patch[field];
+  }
+  lineItem.updatedAt = nowIso(context.now);
   if (Array.isArray(payload.evidenceRefIds)) {
     lineItem.evidenceRefIds = [...new Set([...normalizeArray(lineItem.evidenceRefIds), ...payload.evidenceRefIds])];
   }
@@ -492,9 +548,19 @@ function applyTaskNew(data, payload, context) {
 
 function applyTaskUpdate(data, payload, context) {
   const task = taskById(data, payload.taskId);
-  Object.assign(task, payload.patch, { updatedAt: nowIso(context.now) });
+  for (const field of TASK_UPDATE_PATCH_FIELDS) {
+    if (Object.hasOwn(payload.patch, field)) task[field] = payload.patch[field];
+  }
+  const additions = collectPayloadSourceRefs(payload).map(ref => normalizeSourceRef(ref, context));
+  if (additions.length) {
+    task.sourceRefs = mergeSourceRefs(task.sourceRefs, additions);
+    task.additionalLinks = normalizeArray(task.sourceRefs).map(ref => ref.link).filter(Boolean);
+    task.link = task.link || firstLink(additions);
+  }
+  task.updatedAt = nowIso(context.now);
   task.brainState = { ...V5_BRAIN_STATE_DEFAULTS, ...(task.brainState || {}) };
   task.brainState.lastScanRunId = context.runId;
+  task.brainState.lastEvidenceAt = latestEvidenceAt(task.sourceRefs) || task.brainState.lastEvidenceAt;
 }
 
 function applyNeedsReview(data, payload, context) {
@@ -566,7 +632,6 @@ export function applyMarkerBatch(inputData, markers, {
 } = {}) {
   const original = migrateToV5(inputData);
   const sourceRefIndex = buildSourceRefIndex(original);
-  addBatchSourceRefs(sourceRefIndex, markers);
 
   const valid = [];
   const dropped = [];
@@ -574,7 +639,23 @@ export function applyMarkerBatch(inputData, markers, {
 
   for (const marker of markers) {
     const candidate = clone(marker);
-    const validation = validateMarker(candidate, original, sourceRefIndex);
+    const introducedSourceRefsError = validateIntroducedSourceRefs(candidate.payload);
+    if (introducedSourceRefsError) {
+      const drop = {
+        timestamp: appliedAt,
+        action: 'drop',
+        type: marker.type,
+        reason: introducedSourceRefsError,
+        line: marker.line ?? null,
+        raw: marker.raw ?? null
+      };
+      dropped.push(drop);
+      appendAudit(auditLogFile, drop);
+      continue;
+    }
+    const scopedSourceRefIndex = new Map(sourceRefIndex);
+    addPayloadSourceRefs(scopedSourceRefIndex, candidate.payload);
+    const validation = validateMarker(candidate, original, scopedSourceRefIndex);
     if (!validation.ok) {
       const drop = {
         timestamp: appliedAt,
@@ -590,6 +671,7 @@ export function applyMarkerBatch(inputData, markers, {
     }
     if (validation.capConfidence) capPayloadConfidence(candidate);
     valid.push(candidate);
+    addPayloadSourceRefs(sourceRefIndex, candidate.payload);
   }
 
   const data = clone(original);

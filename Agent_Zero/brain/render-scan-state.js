@@ -18,6 +18,18 @@ function truncate(text, maxChars) {
   return `${value.slice(0, Math.max(0, maxChars - 1)).trimEnd()}...`;
 }
 
+function shortenLink(link, maxChars = 72) {
+  const value = String(link || '').trim();
+  if (!value || value.length <= maxChars) return value;
+  try {
+    const url = new URL(value);
+    const tail = value.slice(-16);
+    return `${url.origin}${truncate(url.pathname, 24)}...${tail}`;
+  } catch {
+    return `${value.slice(0, maxChars - 19)}...${value.slice(-16)}`;
+  }
+}
+
 function normalizeArray(value) {
   return Array.isArray(value) ? value : [];
 }
@@ -49,32 +61,57 @@ function latestEvidenceForLineItem(task, lineItem) {
   if (!ref) return 'none';
   const parts = [ref.id];
   if (ref.date) parts.push(ref.date.slice(0, 10));
-  if (ref.link) parts.push(ref.link);
+  if (ref.link) parts.push(shortenLink(ref.link));
   return parts.join(' | ');
 }
 
-function renderPmStatus(task, lines) {
-  if (!task.pmStatus) return;
-  lines.push(`  PM current: ${truncate(task.pmStatus.current, 180) || 'n/a'}`);
-  for (const field of ['planned', 'userActions', 'problems', 'risks', 'waitingOn']) {
-    const entries = normalizeArray(task.pmStatus[field]);
-    if (!entries.length) continue;
-    const text = entries
-      .slice(0, 3)
-      .map(entry => truncate(entry.text, 120))
-      .filter(Boolean)
-      .join(' | ');
-    if (text) lines.push(`  ${field}: ${text}`);
-  }
+function renderSourceRefs(task, lines) {
+  const refs = normalizeArray(task.sourceRefs);
+  const refLines = refs.slice(0, 6).map(ref => {
+    const parts = [ref.id || 'src?'];
+    if (ref.date) parts.push(`date=${String(ref.date).slice(0, 10)}`);
+    if (ref.link) parts.push(`link=${shortenLink(ref.link)}`);
+    if (ref.title) parts.push(`title=${truncate(ref.title, 80)}`);
+    return parts.join(' ');
+  });
+  if (refLines.length) lines.push(`  sourceRefs: ${refLines.join(' | ')}`);
+  const hidden = refs.length - refLines.length;
+  if (hidden > 0) lines.push(`  sourceRefs omitted: ${hidden}`);
+  if (!refs.length && task.link) lines.push(`  legacyLink: ${shortenLink(task.link)}`);
 }
 
-function renderHistorySpill(task, { brainWorkDir, runId, historySpillBytes, spillFiles }) {
+function writeJsonSpill({ brainWorkDir, filename, title, value, spillFiles }) {
+  fs.writeFileSync(path.join(brainWorkDir, filename), `${title}\n\n${JSON.stringify(value, null, 2)}\n`, 'utf8');
+  spillFiles.push(filename);
+  return filename;
+}
+
+function renderPmStatus(task, lines, { brainWorkDir, runId, spillFiles, writeFiles, pmStatusMode }) {
+  if (!task.pmStatus) return;
+  if (writeFiles && pmStatusMode === 'spill') {
+    const filename = `pmstatus-${safeFilePart(task.id)}-${safeFilePart(runId)}.md`;
+    const spill = writeJsonSpill({
+      brainWorkDir,
+      filename,
+      title: `# Full pmStatus for ${task.id}`,
+      value: task.pmStatus,
+      spillFiles
+    });
+    lines.push(`  pmStatus spill: ${spill}`);
+    if (task.pmStatus.current) lines.push(`  PM current: ${truncate(task.pmStatus.current, 180)}`);
+    return;
+  }
+  lines.push(`  pmStatus: ${JSON.stringify(task.pmStatus)}`);
+}
+
+function renderHistorySpill(task, { brainWorkDir, runId, historySpillBytes, spillFiles, writeFiles }) {
   const history = normalizeArray(task.history);
   if (!history.length) return null;
   const rendered = history
     .map(entry => `- [${entry.timestamp || '?'}] ${entry.type || 'note'}: ${entry.text || ''}`)
     .join('\n');
   if (bytes(rendered) <= historySpillBytes) return null;
+  if (!writeFiles) return null;
 
   const filename = `history-${safeFilePart(task.id)}-${safeFilePart(runId)}.md`;
   fs.writeFileSync(path.join(brainWorkDir, filename), `# History for ${task.id}\n\n${rendered}\n`, 'utf8');
@@ -82,15 +119,34 @@ function renderHistorySpill(task, { brainWorkDir, runId, historySpillBytes, spil
   return filename;
 }
 
+function renderHiddenLineItems(task, hiddenItems, lines, { brainWorkDir, runId, spillFiles, writeFiles }) {
+  if (!hiddenItems.length) return;
+  if (writeFiles) {
+    const filename = `lineitems-${safeFilePart(task.id)}-${safeFilePart(runId)}.md`;
+    const spill = writeJsonSpill({
+      brainWorkDir,
+      filename,
+      title: `# Full omitted lineItems for ${task.id}`,
+      value: hiddenItems,
+      spillFiles
+    });
+    lines.push(`  lineItems spill: ${spill} (${hiddenItems.length} omitted)`);
+    return;
+  }
+  lines.push(`  omitted lineItem IDs: ${hiddenItems.map(item => item.id).filter(Boolean).join(', ')}`);
+}
+
 function buildMarkdown(data, options) {
   const {
     summaryChars,
     lineItemLimit,
     includePmStatus,
+    pmStatusMode,
     brainWorkDir,
     runId,
     historySpillBytes,
     spillFiles,
+    writeFiles,
     now
   } = options;
 
@@ -115,17 +171,18 @@ function buildMarkdown(data, options) {
   if (!openProjects.length) lines.push('- none');
   for (const task of openProjects) {
     lines.push(`- [${task.id}] ${truncate(task.title, 160)} | status=${task.status || 'new'} | key=${task.projectKey || 'n/a'}`);
+    renderSourceRefs(task, lines);
     if (task.summary && summaryChars > 0) lines.push(`  summary: ${truncate(task.summary, summaryChars)}`);
-    if (includePmStatus) renderPmStatus(task, lines);
-    const spill = renderHistorySpill(task, { brainWorkDir, runId, historySpillBytes, spillFiles });
+    if (includePmStatus) renderPmStatus(task, lines, { brainWorkDir, runId, spillFiles, writeFiles, pmStatusMode });
+    const spill = renderHistorySpill(task, { brainWorkDir, runId, historySpillBytes, spillFiles, writeFiles });
     if (spill) lines.push(`  history spill: ${spill}`);
-    const lineItems = normalizeArray(task.lineItems).slice(0, lineItemLimit);
+    const allLineItems = normalizeArray(task.lineItems);
+    const lineItems = allLineItems.slice(0, lineItemLimit);
     if (!lineItems.length) lines.push('  lineItems: none');
     for (const item of lineItems) {
-      lines.push(`  - (${item.id}) ${truncate(item.title, 120)} | status=${item.status || 'open'} | evidence=${latestEvidenceForLineItem(task, item)}`);
+      lines.push(`  - (${item.id}) ${truncate(item.title, 120)} | status=${item.status || 'open'} | state=${truncate(item.currentState || '', 100)} | evidence=${latestEvidenceForLineItem(task, item)}`);
     }
-    const hidden = normalizeArray(task.lineItems).length - lineItems.length;
-    if (hidden > 0) lines.push(`  - ${hidden} more line item(s) omitted by budget`);
+    renderHiddenLineItems(task, allLineItems.slice(lineItems.length), lines, { brainWorkDir, runId, spillFiles, writeFiles });
   }
   lines.push('');
 
@@ -133,10 +190,11 @@ function buildMarkdown(data, options) {
   if (!openSingles.length) lines.push('- none');
   for (const task of openSingles) {
     const summary = summaryChars > 0 ? truncate(task.summary, summaryChars) : '';
-    const link = task.link || normalizeArray(task.sourceRefs).find(ref => ref.link)?.link || 'no-link';
+    const link = shortenLink(task.link || normalizeArray(task.sourceRefs).find(ref => ref.link)?.link || 'no-link');
     lines.push(`- [${task.id}] ${truncate(task.title, 160)} | status=${task.status || 'new'} | link=${link}`);
+    renderSourceRefs(task, lines);
     if (summary) lines.push(`  summary: ${summary}`);
-    const spill = renderHistorySpill(task, { brainWorkDir, runId, historySpillBytes, spillFiles });
+    const spill = renderHistorySpill(task, { brainWorkDir, runId, historySpillBytes, spillFiles, writeFiles });
     if (spill) lines.push(`  history spill: ${spill}`);
   }
   lines.push('');
@@ -164,10 +222,10 @@ export function renderScanState(inputData, {
   if (writeFiles) fs.mkdirSync(resolvedBrainWorkDir, { recursive: true });
 
   const attempts = [
-    { summaryChars: 180, lineItemLimit: 12, includePmStatus: true },
-    { summaryChars: 100, lineItemLimit: 8, includePmStatus: true },
-    { summaryChars: 60, lineItemLimit: 5, includePmStatus: false },
-    { summaryChars: 0, lineItemLimit: 3, includePmStatus: false }
+    { summaryChars: 180, lineItemLimit: 12, includePmStatus: true, pmStatusMode: 'inline' },
+    { summaryChars: 100, lineItemLimit: 8, includePmStatus: true, pmStatusMode: 'spill' },
+    { summaryChars: 60, lineItemLimit: 5, includePmStatus: true, pmStatusMode: 'spill' },
+    { summaryChars: 0, lineItemLimit: 3, includePmStatus: true, pmStatusMode: 'spill' }
   ];
 
   let markdown = '';
@@ -181,6 +239,7 @@ export function renderScanState(inputData, {
       runId,
       historySpillBytes,
       spillFiles,
+      writeFiles,
       now
     });
     selectedAttempt = attempt;

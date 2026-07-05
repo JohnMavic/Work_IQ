@@ -41,6 +41,8 @@ Rules:
   an evidence reference.
 - Evidence references must point to `sourceRefs` already in state or introduced in
   the same marker batch.
+- `TASK_UPDATE` may introduce new evidence through `sourceRef` or `sourceRefs` and
+  then reference those ids in `evidenceRefIds`.
 - Prefer sourceRefs with links. If only a date is available, confidence must be
   `medium` or `low`, never `high`.
 - Do not quote long message bodies. Store only short factual evidence summaries.
@@ -70,7 +72,7 @@ markers in code fences.
 [LINEITEM_NEW] {"taskId":"task-...","lineItem":{"id":"li-...","title":"...","category":"action","status":"open","owner":null,"userActionRequired":false,"userAction":null,"currentState":"...","plannedNext":null,"dueAt":null,"waitingOn":null,"problem":null,"risk":null,"confidence":"medium","evidenceRefIds":["src-..."],"sourceTaskIds":[]}}
 [LINEITEM_UPDATE] {"taskId":"task-...","lineItemId":"li-...","patch":{"status":"waiting","currentState":"...","confidence":"medium"},"evidenceRefIds":["src-..."]}
 [TASK_NEW] {"title":"...","summary":"...","sourceRef":{"id":"src-...","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","evidenceText":"short factual summary"},"status":"new|on-radar|needs-attention"}
-[TASK_UPDATE] {"taskId":"task-...","patch":{"status":"in-progress","summary":"...","confidence":"medium"},"evidenceRefIds":["src-..."]}
+[TASK_UPDATE] {"taskId":"task-...","patch":{"status":"in-progress","summary":"...","confidence":"medium"},"sourceRefs":[{"id":"src-...","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","evidenceText":"short factual summary"}],"evidenceRefIds":["src-..."]}
 [NEEDS_REVIEW] {"kind":"assignment|status|other","ref":"taskId|lineItemId|null","question":"...","confidence":"low"}
 [SCAN_DONE] {"runId":"...","outcome":"success|partial","newProjects":0,"updatedProjects":0,"newSingleTasks":0,"archivedTasks":0,"workIqCalls":0,"notes":"..."}
 ```
@@ -80,6 +82,8 @@ markers in code fences.
 - Emit only markers and short non-marker notes needed to explain partial failure.
 - Never emit `ASK_USER`.
 - Never invent sourceRef ids.
+- When emitting `PROJECT_UPDATE.pmStatus`, re-emit every pmStatus entry that should
+  remain. The server replaces the whole `pmStatus` object; missing entries are removed.
 - Never apply low-confidence assignments directly; emit `NEEDS_REVIEW`.
 - If no useful updates are found, still emit `SCAN_DONE` with outcome `success`.
 
