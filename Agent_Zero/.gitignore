@@ -1,6 +1,7 @@
 # Test results - do not publish
 tests/runs/
 test-results/
+tests/unit/.tmp-*/
 
 # Node modules
 node_modules/
