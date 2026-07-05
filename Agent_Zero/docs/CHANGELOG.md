@@ -4,6 +4,20 @@ All notable changes to this project are documented here.
 
 ---
 
+## v5.0.0 — July 5, 2026
+
+**Agency Brain default scan engine**
+
+- Added the Agency Brain scan path as the default runtime: `POST /api/jobs` with `kind:"scan"` renders schema-v5 task state into `brain-work/`, runs `agency.exe copilot`, and applies validated marker output.
+- Introduced project-task state with `lineItems`, `pmStatus`, source references, review queue handling, brain telemetry, and archive/supersession fields.
+- Added the marker protocol (`PROJECT_NEW`, `PROJECT_UPDATE`, `LINEITEM_NEW`, `LINEITEM_UPDATE`, `TASK_NEW`, `TASK_UPDATE`, `NEEDS_REVIEW`, `SCAN_DONE`) with parser/applier validation and partial-result handling.
+- Switched Agency-mode WorkIQ access to inherited Copilot MCP configuration (`~/.copilot/mcp-config.json`); the repo `mcp.json` and local `@microsoft/workiq` subprocess are legacy-only.
+- Documented the launch model where `START-AGENT-ZERO.bat` and `Start-WorkIQ-Scan.ps1` default `AGENT_ZERO_SCAN_ENGINE` to Agency, with `AGENT_ZERO_SCAN_ENGINE=legacy` as the explicit override for old SDK routes.
+- Hardened Agency child process startup by stripping `AGENCY_SESSION_ID` and `COPILOT_AGENT_SESSION_ID` from the spawned environment.
+- Updated README and AGENTS documentation to match the current architecture and operational model.
+
+---
+
 ## v4.1.0 — April 22, 2026
 
 **Chat reliability: WorkIQ stub recycling + retrieval-by-reference prompt fix**

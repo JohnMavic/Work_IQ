@@ -1,341 +1,229 @@
 # Agent Zero
 
-> Version 4.1.0 · A personal AI-powered action-item tracker for Microsoft 365
+> Version 5.0.0 · A personal AI-powered project-task tracker for Microsoft 365
 >
 > _Built with AI, powered by curiosity._
 
 **Author:** Martin Hämmerli · [martih@microsoft.com](mailto:martih@microsoft.com)
 
-Scans your emails and Teams messages, extracts content summaries, and monitors threads for updates — all locally, all AI-driven.
+Agent Zero scans Microsoft 365 mail and Teams activity, groups related signals into
+project tasks, and tracks concrete workstreams as line items. The current default
+engine is the Agency Brain: an `agency.exe copilot` child process that reads a
+rendered task-state sandbox, calls WorkIQ through inherited Copilot MCPs, and returns
+validated marker lines for the server to apply.
 
 ## Prerequisites
 
-- **Node.js** v18+ — [nodejs.org](https://nodejs.org/)
-- **Git** — [git-scm.com](https://git-scm.com/) (or `winget install Git.Git`)
-- **Active GitHub Copilot subscription** — [Copilot plans](https://github.com/features/copilot/plans)
-- **M365 account** — Work IQ needs access to your Microsoft 365
+- **Node.js** v18+
+- **Git**
+- **Active GitHub Copilot subscription**
+- **Agency CLI** available as `agency.exe` on `PATH`
+- **M365 account** with WorkIQ authentication
+- **WorkIQ MCP configured for Copilot**, typically in `~/.copilot/mcp-config.json`
+
+The local `@microsoft/workiq` dependency is retained for legacy SDK mode. Agency mode
+does not use `mcp.json` or a server-owned WorkIQ subprocess.
 
 ## Installation
 
-**Step 1 — Clone the repository** (run from any directory):
 ```powershell
 git clone https://github.com/JohnMavic/Work_IQ.git
-```
-
-**Step 2 — Install project dependencies** (run from the Agent Zero directory):
-```powershell
 cd Work_IQ\Agent_Zero
 npm install
 ```
-This single command installs everything Agent Zero needs — including components you never see directly:
-- `@github/copilot-sdk` — the TypeScript library imported in `server.js`
-- `@github/copilot` — the Copilot CLI, automatically pulled in as a sub-dependency of the SDK
-- `copilot.exe` — the native AI engine binary (~110 MB), automatically pulled in as a platform-specific sub-dependency of the CLI (`@github/copilot-win32-x64` on Windows, `copilot-darwin-arm64` on Mac, etc.)
-- `@microsoft/workiq` — the Work IQ library + CLI (available locally via `node_modules/.bin/workiq`)
-- `express`, `uuid` — web server and ID generation
 
-There is no separate installation step for the Copilot CLI or the native binary — `npm install` handles the entire chain.
+Authenticate once for WorkIQ:
 
-**Step 3 — (Optional) Install Work IQ globally** (run from any directory):
-```powershell
-npm install -g @microsoft/workiq
-```
-This makes the `workiq` command available system-wide, which can be useful for running `workiq accept-eula` from any directory.
-
-**Step 4 — Authenticate** (first-time only):
 ```powershell
 workiq accept-eula
 ```
-This opens a browser window to log in with your Microsoft 365 account. Run from the Agent Zero directory (uses local install) or from anywhere if installed globally.
 
-GitHub Copilot authentication happens automatically on first server start — you'll see a one-time device code prompt in the terminal.
+Make sure WorkIQ is also available to Copilot through your user MCP config. Agency
+runs inherit that config; they do not read this repo's `mcp.json`.
 
 ## Quick Start
 
-**Double-click** `START-AGENT-ZERO.bat` — starts the server and opens the browser.
+Double-click `START-AGENT-ZERO.bat`, or start manually:
 
-**Or manually:**
 ```powershell
-cd Agent_Zero
+cd E:\Work_IQ\Agent_Zero
 node server.js
 ```
-Then open [http://localhost:3000](http://localhost:3000).
 
-### First Run
+Then open [http://localhost:3000](http://localhost:3000) and click **Scan**.
 
-When you start the server for the first time, two things happen:
+The launcher and scheduler set `AGENT_ZERO_SCAN_ENGINE=agency` when the variable is
+unset. A direct `node server.js` run inherits the environment as-is, so set the engine
+explicitly when starting manually:
 
-1. **GitHub Copilot device code prompt** — the terminal displays a URL and a one-time code. Open the URL in your browser, enter the code, and authorize with your GitHub account. This only happens once; subsequent starts reuse the cached token.
-2. **M365 authentication** — if you haven't run `workiq accept-eula` yet (Step 4 above), the first scan will fail. Complete the M365 login before scanning.
+```powershell
+$env:AGENT_ZERO_SCAN_ENGINE = 'agency'
+node server.js
+```
 
-After both authentications are complete, click **Scan** in the browser to start discovering action items from your emails and Teams messages.
+To use the old SDK routes for troubleshooting, start with:
+
+```powershell
+$env:AGENT_ZERO_SCAN_ENGINE = 'legacy'
+node server.js
+```
 
 ## Architecture Overview
 
-Agent Zero uses two independent stacks — one for AI (left) and one for M365 data access (right). Each stack has three layers: the library you import in code, the engine that runs in the background, and the cloud API it connects to.
-
 ```
-┌───────────────────────────────────────────────────────────────────┐
-│  Agent Zero (server.js — Express on localhost:3000)                │
-│                                                                   │
-│  YOUR CODE IMPORTS (npm dependencies in package.json)             │
-│  ┌──────────────────────┐    ┌──────────────────────────────────┐ │
-│  │ @github/copilot-sdk  │    │ @microsoft/workiq               │ │
-│  │ (TypeScript library) │    │ (Node.js library + CLI)         │ │
-│  └────────┬─────────────┘    └────────┬─────────────────────────┘ │
-│           │ starts internally         │ spawned by SDK as          │
-│           │ via JSON-RPC              │ stdio subprocess           │
-│  BACKGROUND ENGINES (installed automatically as sub-dependencies) │
-│  ┌────────▼─────────────┐    ┌────────▼─────────────────────────┐ │
-│  │ @github/copilot      │    │ workiq mcp                      │ │
-│  │ = copilot.exe         │    │ (MCP protocol over stdio)       │ │
-│  │ (native binary)      │    │                                  │ │
-│  └────────┬─────────────┘    └────────┬─────────────────────────┘ │
-└───────────┼──────────────────────────┼──────────────────────────-─┘
-            │ HTTPS                    │ Microsoft Graph API
-            │                          │
-   GitHub Copilot API          Microsoft 365 (your tenant)
-   (AI model in the cloud)    (your emails, Teams, calendar)
+┌─────────────────────────────────────────┐
+│ Agent Zero (server.js, Express)          │
+│                                         │
+│ POST /api/jobs kind:"scan"              │
+│        │                                │
+│        ▼                                │
+│ runBrainScanOnce()                      │
+│        │                                │
+│        ▼                                │
+│ brain-work/ sandbox                     │
+│ scan-state-*.md + spill files           │
+│        │                                │
+│        ▼                                │
+│ agency.exe copilot                      │
+│ docs/AGENCY_BRAIN_SCAN_SKILL.md         │
+└────────┬────────────────────────────────┘
+         │ inherited Copilot MCP config
+         ▼
+       WorkIQ MCP ── Microsoft 365
 ```
 
-### Dependency Chain — Why So Many Packages?
+### Runtime Components
 
-When you run `npm install`, this is what actually gets installed:
+| Component | Current role |
+|---|---|
+| `server.js` | Express API, job registry, task persistence, legacy route guards |
+| `brain/scan-brain.js` | Agency scan orchestration, state rendering, marker parse/apply, telemetry |
+| `brain/brain-runner.js` | Spawns `agency.exe`, streams JSON events, counts WorkIQ tool calls, enforces timeouts |
+| `brain/agency-cli.js` | Pins Agency arguments/model and builds the child environment |
+| `brain-work/` | Restricted sandbox for rendered state and spill files |
+| `docs/AGENCY_BRAIN_SCAN_SKILL.md` | Primary scan skill and marker contract |
+| `mcp.json` | Legacy SDK-only WorkIQ config for `AGENT_ZERO_SCAN_ENGINE=legacy` |
 
-```
-package.json says:
-  "@github/copilot-sdk"  ──depends on──▶  "@github/copilot"  ──depends on──▶  copilot.exe
-  "@microsoft/workiq"                                                          (native binary
-  "express"                                                                     for your OS)
-  "uuid"
-```
+## How Scans Work
 
-The SDK is a thin TypeScript wrapper. The actual AI engine is `copilot.exe` — a compiled native binary (platform-specific: `copilot-win32-x64`, `copilot-darwin-arm64`, etc.) that the SDK starts as a background process and controls via JSON-RPC. You never call `copilot.exe` directly — the SDK handles everything.
+1. The UI creates `POST /api/jobs` with `kind:"scan"` and an optional `scanDays` value.
+2. The server normalizes scan input and starts one singleton scan job.
+3. `render-scan-state.js` writes current task state into `brain-work/`.
+4. Agency receives the scan skill plus a bootstrap prompt that points to the state file.
+5. Agency calls WorkIQ via inherited Copilot MCP configuration.
+6. Agency emits marker lines only.
+7. The server parses and validates markers, then writes `tasks.json` atomically.
+8. Job events stream back to the browser.
 
-| Component | Layer | Technical | In Plain English | Auth |
-|---|---|---|---|---|
-| **Copilot SDK** (`@github/copilot-sdk`) | Library | Imported in `server.js` via `import { CopilotClient } from '@github/copilot-sdk'`. Provides the `CopilotClient` class. This is the only Copilot package referenced in Agent Zero's code. Installed as a direct dependency via `npm install`. | The remote control for the AI. This npm package is imported in `server.js` and provides the commands that let Agent Zero start AI sessions, ask questions, and receive answers. You only work with this package — everything else happens invisibly in the background. | — |
-| **Copilot CLI** (`@github/copilot` → `copilot.exe`) | Engine | Automatically installed as a sub-dependency of the SDK. Contains a native binary (`copilot.exe` on Windows, platform-specific via `@github/copilot-win32-x64` etc.). The SDK starts this binary internally and communicates with it via JSON-RPC. It handles GitHub OAuth, token management, and the actual HTTPS connection to GitHub's Copilot API. Never called directly in Agent Zero's code. | The engine under the hood. When the SDK starts an AI session, it launches this .exe file in the background. It handles the GitHub login, manages access tokens, and talks to the AI model in the cloud. You never see it directly — it is automatically installed alongside the SDK and controlled by it. | GitHub OAuth — triggered by the SDK on first use. A one-time device code prompt appears in the terminal. |
-| **GitHub Copilot API** | Cloud | The remote AI service hosted by GitHub. Receives prompts from `copilot.exe`, runs them through the AI model, and returns structured responses. Requires an active GitHub Copilot subscription. | The AI brain in the cloud. This is where the actual language model runs — it analyzes your emails, writes summaries, and answers questions. You need a GitHub Copilot subscription for Agent Zero to access it. | Active GitHub Copilot subscription required. |
-| **Work IQ** (`@microsoft/workiq`) | Library | Installed as a local npm dependency (`package.json`) and optionally as a global CLI. Provides the `workiq` command used to start MCP servers and to run the initial EULA/auth setup. | The bridge to your Microsoft 365. This npm package is installed and provides the `workiq` command. It enables Agent Zero to access your emails and Teams messages. Without this package, Agent Zero is blind to your M365 data. | Microsoft Entra ID — `workiq accept-eula` (one-time browser login to your M365 account). |
-| **workiq mcp** | Engine | Started **once at server startup** as a persistent MCP subprocess (`node_modules/.bin/workiq mcp`, pinned at 0.2.8). Runs for the entire server lifetime with automatic crash recovery. Phase 1 queries it directly via JSON-RPC. Phases 2 and 3 connect to it via SDK `createSession()`. Pure reasoning sessions (Phase 4, intent analysis) do not use Work IQ at all. | The active data channel. The Work IQ process is always running in the background once the server starts. It acts as a translator: the AI says "find emails about project X" and it converts that into an M365 query and returns the results. It restarts automatically if it crashes. | Uses the token from `workiq accept-eula`. |
-| **Microsoft 365** | Cloud | Your M365 tenant (Exchange Online, Teams). Work IQ accesses it via the Microsoft Graph API using the token obtained during `workiq accept-eula`. | Your mailbox and Teams chats. Work IQ reads your emails and messages here — read-only, it never modifies or sends anything. | M365 account with Exchange Online. |
+Agency mode replaces the former four-phase scan loop as the default. The old discovery,
+enrichment, update-check, consolidation, search, review, and correction routes remain in
+the codebase but are guarded unless `AGENT_ZERO_SCAN_ENGINE=legacy` is set.
 
-## How It Works
+## Task Model
 
-### Session Architecture
+`tasks.json` is schema version 5.
 
-Every AI operation follows the same pattern in `server.js`:
+Project tasks contain:
 
-1. A `CopilotClient` instance is created
-2. `client.createSession()` opens a session — optionally with Work IQ as an MCP server (`{ mcpServers: { workiq: { type: 'stdio', command: 'workiq', args: ['mcp'], tools: '*' } } }`)
-3. A prompt (built from skill `.md` files + task context) is sent via `session.sendAndWait()`
-4. The JSON response is parsed and stored in `tasks.json`
-5. The session and client are destroyed
+- `taskType: "project"`
+- `sourceRefs[]` for evidence from email, Teams, or manual sources
+- `lineItems[]` for workstreams, actions, dependencies, risks, decisions, and info
+- `pmStatus` for synthesized current/planned/user-action/problem/risk/waiting state
+- `brainState` telemetry and review flags
+- archive/supersession fields for migrated or merged tasks
 
-**Exception — Phase 1 (Discovery):** Phase 1 uses `askWorkIQDirect()` which bypasses the Copilot SDK entirely. It sends JSON-RPC requests directly to the persistent Work IQ subprocess and calls Work IQ tools (`ask_work_iq`) without creating a Copilot SDK session. This makes Phase 1 significantly faster than Phases 2/3.
+Standalone actions remain `taskType: "single"` and keep the normal task fields.
 
-Sessions that need M365 data via SDK (enrich, update-check, search, correction verification) include the Work IQ MCP server. Sessions that only need AI reasoning (intent analysis, Phase 4 consolidation) create sessions without MCP servers. Intent analysis and correction verification use the default Copilot model selection.
+## Marker Protocol
 
-### Four-Phase Scan Pipeline
+The Agency Brain may only mutate state through physical marker lines:
 
-Clicking **Scan** triggers a four-phase pipeline:
+- `PROJECT_NEW`
+- `PROJECT_UPDATE`
+- `LINEITEM_NEW`
+- `LINEITEM_UPDATE`
+- `TASK_NEW`
+- `TASK_UPDATE`
+- `NEEDS_REVIEW`
+- `SCAN_DONE`
 
-1. **Discovery** (`POST /api/scan`) — scans email/Teams subjects from the last N days (configurable 1–14, default 4), creates task cards. Uses `SCAN_DISCOVERY_SKILL.md` as prompt template. Includes existing tasks (active + recent done) for AI-powered deduplication, plus a Jaccard word-similarity safety net.
-2. **Enrichment** (`POST /api/tasks/:id/enrich`) — for each task, searches the original thread via Work IQ using keyword extraction from the title, retrieves full content, and generates a structured summary. Uses `ENRICH_SKILL.md`. Can flag ambiguities for user review.
-3. **Update Check** (`POST /api/tasks/:id/check-update`) — detects new replies since the last enrichment by comparing against `lastUpdateCheck` or `enrichedAt` timestamps. Uses `UPDATE_CHECK_SKILL.md`. Appends updates to the existing summary.
-4. **Task Consolidation** (`POST /api/consolidate`) — AI analyzes all active tasks semantically and suggests merging those covering the same topic. Uses `CONSOLIDATE_SKILL.md`. No Work IQ needed (pure reasoning). User decides per suggestion: Merge or Keep Separate.
+`marker-parser.js` ignores markers inside fenced code blocks. `marker-applier.js`
+validates evidence references, allowed patch fields, confidence rules, and marker order
+before any write. If the output has valid markers but no `SCAN_DONE`, the server applies
+the safe subset as a partial result and adds a review hint.
 
-Phase 4 can also be triggered independently via the **🔗 Find Duplicates** button.
+## Agency Runner Safeguards
 
-Each task shows three step dots (● ● ●) indicating pipeline progress. Tasks glow neon cyan while an agent is working on them.
-
-### Interactive Agent (Log/Ask)
-
-Beyond scanning, each task has an interactive agent panel where users can ask questions or give instructions. This uses a two-phase flow:
-
-1. **Analyze** (`POST /api/tasks/:id/log/analyze`) — AI (default model, reasoning-only, 60s timeout) determines intent (update, summarize, rename, answer, correct, or search) without MCP. For update/summarize/answer/rename, the result is returned immediately. For correct, a verification plan is returned. For search, a search plan is returned.
-2. **Execute Search** (`POST /api/tasks/:id/log`) — if intent was search, the confirmed plan is executed with Work IQ MCP using `SEARCH_SKILL.md` (3-attempt intelligent search with self-assessment and confidence levels).
-3. **Verify Correction** (`POST /api/tasks/:id/correct`) — if intent was correct, AI (default model) searches M365 for evidence using `CORRECT_SKILL.md`. Returns verdict with evidence. User can accept or veto the result.
-
-## Features
-
-- **Four-phase scan** with visual progress indicators
-- **Naive hybrid Phase 1 scan** — asks "Which messages need my action?" for a lightweight first pass instead of relying on a technical subject-scan prompt
-- **Phase 4: Task consolidation** — AI finds duplicate/related tasks and suggests merging. Also available as standalone "🔗 Find Duplicates" button.
-- **Manual Merge Mode** — "🔗 Merge Tasks" button activates multi-select merge with checkboxes, floating merge bar, and full link preservation
-- **AI content extraction** via keyword-based Work IQ search
-- **Intelligent search** — goal-oriented 3-attempt search with self-assessment and confidence levels (SEARCH_SKILL.md)
-- **Intent classification improvements** — reasoning-based 6-intent analysis with 60s timeout and stronger correction-vs-update detection
-- **Verify-and-improve update loop** — update intent runs Execute → Verify → Improve so the agent checks its own work before finalizing changes
-- **Post-search evaluation** — after search, AI evaluates whether task title and summary need updating based on new findings; applies changes automatically with full history traceability
-- **"Updated" status** — tasks automatically marked 🔄 Updated when Phase 3 detects new information; pulsing glow for visibility
-- **Evidence-based corrections** — when users say information is wrong, AI verifies against M365 evidence using the default model + Work IQ. Truth hierarchy: newest messages > older > history. User retains absolute veto right.
-- **Content removal on request** — users can ask the agent to remove false information from a task title or summary
-- **Rename via conversation** — agent can change task titles through natural discussion
-- **Add Task modal** — title, assignment, and optional context; agent auto-starts on assignment
-- **Server stability hardening** — global error handlers and a safe periodic reaper reduce stuck sessions and improve recovery
-- **Session lifecycle management** — active Copilot/Work IQ subprocess sessions are tracked and guaranteed to be cleaned up on errors, shutdown, and startup recovery
-- **Configurable scan range** — slider to choose 1–14 days of email/Teams history to scan (default: 4 days)
-- **Scan abort** — stop scan safely between tasks with "⏹ Stop" button
-- **Scan process resilience** — Phase 1 is non-fatal, later phases are phase-independent, and Phase 2/3 retry each task once after transient failures
-- **Expandable scan report panel** — click "Last scan" to inspect per-phase duration, retry counts, failures, and errors
-- **Live agent status on task cards** — badges show context-specific activity such as analyzing content, retrying enrichment, or checking updates
-- **Auto-cleanup** — done tasks permanently deleted after configurable retention (1–30 days slider, default: 3 days)
-- **Auto-refresh** — cards update in real-time after agent work
-- **Reverse-chronological details panel** — newest conversation and execution details appear first, like an email thread
-- **Status management** — New, In Progress, Needs Attention, Escalated, On Radar, Paused, Done
-- **Filter bar** with live badge counts
-- **Deep links** to original emails and Teams messages (window or tab mode)
-- **Ambiguity review** — AI asks clarifying questions when uncertain; user resolves inline
-- **Task history** — every change, agent action, and error is logged with timestamps
-- **Intelligent duplicate detection** — AI compares against existing tasks during scan, normalizes subject prefixes, and reactivates matching done tasks instead of creating duplicates
-- **Server health check** — auto-reconnect with offline banner
-- **Duplicate instance prevention** — server detects port conflicts (`EADDRINUSE`) and exits with a clear error message instead of crashing silently
+- `buildAgencyArgs()` pins model, effort, context, no-default-MCP behavior, and the
+  `brain-work/` add-dir.
+- `buildAgencyEnv()` removes `AGENCY_SESSION_ID` and `COPILOT_AGENT_SESSION_ID` from
+  the child environment to prevent parent-session bleed.
+- `brain-runner.js` counts explicit WorkIQ tool starts and can kill the child when the
+  hard WorkIQ budget is reached.
+- `prepareBrainWorkDir()` refuses to clean anything whose basename is not `brain-work`.
+- `writeJsonFileAtomic()` writes `tasks.json` through temp files, fsync, rename retry,
+  and backup rotation.
 
 ## API Endpoints
 
 | Endpoint | Method | Purpose |
 |---|---|---|
+| `/api/jobs` | POST | Create `scan`, `merge`, or `consolidate` jobs. In Agency mode, only `scan` is active. |
+| `/api/jobs` | GET | Read active/recent job state |
 | `/api/tasks` | GET | Return all tasks |
-| `/api/tasks` | POST | Create a manual task (title + notes) |
-| `/api/tasks/:id` | PATCH | Update task fields (status, notes, title, summary, enrichmentStatus, updateCheckStatus) |
+| `/api/tasks` | POST | Create a manual task |
+| `/api/tasks/:id` | PATCH | Update task fields |
 | `/api/tasks/:id` | DELETE | Delete a task |
-| `/api/tasks/:id/history/:index` | DELETE | Delete a single history entry (only user-generated types) |
-| `/api/tasks/:id/note` | POST | Save a quick note (no agent interaction) |
-| `/api/scan` | POST | Phase 1: Discovery scan (accepts `scanDays` parameter) |
-| `/api/tasks/:id/enrich` | POST | Phase 2: Content enrichment |
-| `/api/tasks/:id/check-update` | POST | Phase 3: Update check |
-| `/api/consolidate` | POST | Phase 4: Find duplicate/related tasks |
-| `/api/tasks/merge` | POST | Merge two or more tasks into one |
-| `/api/tasks/:id/dismiss-merge` | POST | Dismiss a merge suggestion (bidirectional) |
-| `/api/tasks/:id/log/analyze` | POST | Intent analysis (default model, 6 intents) — no MCP |
-| `/api/tasks/:id/log` | POST | Execute search with Work IQ MCP |
-| `/api/tasks/:id/correct` | POST | Correction verification (default model + Work IQ MCP) |
-| `/api/tasks/:id/correct/resolve` | POST | Resolve correction (accept or veto) |
-| `/api/tasks/:id/review` | POST | Ambiguity review resolution — with MCP research |
+| `/api/tasks/:id/note` | POST | Save a quick note |
+| `/api/health` | GET | Health, PID, version, repo path, scan engine, and WorkIQ PID compatibility field |
 | `/api/cleanup` | POST | Permanently delete done tasks older than `retentionDays` |
 
-## Data Storage
+Legacy SDK endpoints such as `/api/scan`, `/api/tasks/:id/enrich`,
+`/api/tasks/:id/check-update`, `/api/consolidate`, `/api/tasks/merge`,
+`/api/tasks/:id/log`, `/api/tasks/:id/review`, and `/api/tasks/:id/correct` return 409
+in Agency mode with the `AGENT_ZERO_SCAN_ENGINE=legacy` override hint.
 
-All tasks are stored locally in `tasks.json` (schema version 3). The server runs three migrations on startup: v1→v2 (adds history, doneAt), status migration (active→new), and v2→v3 (adds enrichmentStatus, updateCheckStatus, enrichedAt, lastUpdateCheck). Tasks may also contain a `noMergeWith[]` array for dismissed merge suggestions and an `additionalLinks[]` array for links preserved from merged tasks. Stuck transitional statuses (enriching, checking) are reset to pending on startup.
+## Scheduled Scan
 
-No data is sent to external services beyond the Copilot SDK (GitHub Copilot API) and Work IQ (which queries your own M365 tenant).
-
-## Scheduled Scan (Optional)
-
-> **Note:** This is a prototype feature. The scheduling files contain hardcoded values that must be adapted to your environment before use.
-
-Agent Zero can automatically scan your emails and Teams messages twice a day (default: 07:00 and 11:00) using Windows Task Scheduler. The scan runs all four phases (Discovery, Enrichment, Update Check, Consolidation) with full UI visibility in the browser.
-
-### How it works
-
-1. The Task Scheduler runs `Start-WorkIQ-Scan.ps1` at the configured times
-2. The script checks if the server is running — if not, it starts it automatically via `START-AGENT-ZERO.bat`
-3. The browser opens with `?autoScan=true`, which triggers the full three-phase scan in the UI
-4. All progress is visible in the browser (loading overlay, timer, phase indicators)
-
-### Setup
-
-**Step 1 — Adapt the files to your environment:**
-
-Open `Start-WorkIQ-Scan.ps1` and update the paths to match your installation:
-```powershell
-$BatFile = "C:\your\path\to\Agent_Zero\START-AGENT-ZERO.bat"   # ← your path
-$LogFile = "C:\your\path\to\Agent_Zero\scan-log.txt"            # ← your path
-```
-
-Open `WorkIQ-Scan-Task.xml` and replace the username with your Windows user:
-```xml
-<Author>YOUR_DOMAIN\YOUR_USERNAME</Author>         <!-- ← your domain\username -->
-<UserId>YOUR_DOMAIN\YOUR_USERNAME</UserId>         <!-- ← your domain\username -->
-```
-
-You can find your username by running `whoami` in PowerShell.
-
-**Step 2 — Adjust the schedule (optional):**
-
-In `WorkIQ-Scan-Task.xml`, change the trigger times if needed:
-```xml
-<StartBoundary>2026-03-08T07:00:00</StartBoundary>   <!-- Morning scan -->
-<StartBoundary>2026-03-08T11:00:00</StartBoundary>   <!-- Midday scan -->
-```
-
-**Step 3 — Register the task:**
-
-Run in PowerShell:
-```powershell
-schtasks /create /xml "WorkIQ-Scan-Task.xml" /tn "WorkIQ-Scan"
-```
-
-> Replace the path with the full path to the XML file if you are not in the Agent Zero directory.
-
-### Managing the task
-
-| Action | Command |
-|---|---|
-| Run now (test) | `schtasks /run /tn "WorkIQ-Scan"` |
-| Check status | `schtasks /query /tn "WorkIQ-Scan"` |
-| Remove task | `schtasks /delete /tn "WorkIQ-Scan" /f` |
-| View in UI | Open **Task Scheduler** → click **Task Scheduler Library** → find **WorkIQ-Scan** |
-
-### Good to know
-
-- **PC locked (screen off):** The scan runs normally — you see results when you unlock
-- **PC was off:** Missed scans are not queued — only one catch-up scan runs when the PC is back online
-- **Server not running:** The script starts it automatically before scanning
-- **Scan log:** All runs are logged to `scan-log.txt` in the Agent Zero directory
+`Start-WorkIQ-Scan.ps1` and `WorkIQ-Scan-Task.xml` remain the Windows Task Scheduler
+entry points. The scheduler accepts Agency-mode health responses where `wiqPid` is
+`null`, because Agency mode does not require a persistent server-owned WorkIQ process.
+The script still restarts stale servers older than 24 hours.
 
 ## Troubleshooting
 
-| Problem | Solution |
+| Problem | Check |
 |---|---|
-| Scan returns 500 error | Check terminal for timeout — enrichment can take 60–300s per task |
-| Authentication expired | Run `workiq accept-eula` and retry |
-| Work IQ not found | Run `npm install` in the Agent Zero directory (installs locally), or `npm install -g @microsoft/workiq` (installs globally) |
-| No AI response | Copilot auth may have expired — restart the server to trigger re-authentication, or set `GITHUB_TOKEN` env var with a [PAT](https://github.com/settings/personal-access-tokens/new) that has the "Copilot Requests" permission |
-| Port 3000 in use | Stop other process or change `PORT` in server.js |
+| Agency executable not found | Ensure `agency.exe` is on `PATH`, or set `AGENT_ZERO_AGENCY_EXE` |
+| Scan cannot access M365 | Check WorkIQ auth and Copilot MCP config in `~/.copilot/mcp-config.json` |
+| Legacy route returns 409 | Use `/api/jobs kind:"scan"` or start with `AGENT_ZERO_SCAN_ENGINE=legacy` |
+| Port 3000 in use | Use the launcher or stop the existing Agent Zero instance intentionally |
+| Need process diagnosis | Run `WHO-IS-AGENT-ZERO.bat` before touching processes |
 
 ## File Structure
 
 ```
 Agent_Zero/
-├── server.js                    Express backend (API + AI orchestration)
-├── index.html                   Single-file frontend (HTML + CSS + JS)
-├── package.json                 Dependencies (v4.1.0)
-├── mcp.json                     MCP server configuration (Work IQ)
-├── tasks.json                   Local task storage (gitignored)
+├── server.js                    Express backend, job API, legacy route guards
+├── index.html                   Single-file frontend
+├── package.json                 Dependencies and version 5.0.0
+├── mcp.json                     Legacy SDK-only WorkIQ MCP config
+├── tasks.json                   Local task storage (schema v5, gitignored)
 ├── AGENTS.md                    Agent behavior documentation
-├── START-AGENT-ZERO.bat         Auto-launcher
-├── Start-WorkIQ-Scan.ps1        Scheduled scan script (see "Scheduled Scan")
-├── WorkIQ-Scan-Task.xml         Windows Task Scheduler config (07:00 + 11:00)
-├── scan-log.txt                 Scan log (created on first scheduled run)
-├── README.md                    This file
+├── brain/
+│   ├── agency-cli.js            Agency executable, args, environment
+│   ├── brain-runner.js          Agency child process runner
+│   ├── scan-brain.js            Agency scan orchestration
+│   ├── render-scan-state.js     Sandbox state renderer
+│   ├── marker-parser.js         Marker parser
+│   ├── marker-applier.js        Marker validator/applier
+│   └── tasks-v5.js              v5 migration and atomic writes
+├── brain-work/                  Agency sandbox
 ├── docs/
-│   ├── README.md                Challenge documentation (problem, solution, RAI)
-│   ├── ARCHITECTURE.md          System architecture (current state)
-│   ├── CHANGELOG.md             Version history (v1.0 → v3.0)
-│   ├── SCAN_DISCOVERY_SKILL.md  Phase 1 prompt template
-│   ├── ENRICH_SKILL.md          Phase 2 prompt template
-│   ├── UPDATE_CHECK_SKILL.md    Phase 3 prompt template
-│   ├── CONSOLIDATE_SKILL.md     Phase 4 prompt template
-│   ├── SEARCH_SKILL.md          Intelligent search prompt template (v2.2)
-│   ├── CORRECT_SKILL.md         Correction verification prompt (v2.6)
-│   ├── LOG_WORK_SKILL.md        Legacy work logging prompt (fallback)
-│   ├── phase-1-discovery.html   Interactive Phase 1 walkthrough (v4.0.1)
-│   ├── phase-2-enrichment.html  Interactive Phase 2 walkthrough (v4.0.1)
-│   ├── phase-3-update-check.html Interactive Phase 3 walkthrough (v4.0.1)
-│   ├── phase-4-consolidate.html Interactive Phase 4 walkthrough (v4.0.1)
-│   ├── AGENT_ZERO_PRESENTATION.html  Demo presentation
-│   ├── BUBBLE_EDITOR_GUIDE.md   Presentation bubble editor guide
-│   ├── VIDEO_DESCRIPTION.md     Video script foundation
-│   ├── Final Video/             Final video assets
-│   └── archive/                 Archived documentation
-├── Specifactions/
-│   └── AGENT_ZERO_SPEC.md       Product specification
-├── presentations/               Presentation files (.pptx)
-├── Images/                      Screenshots and diagrams
-└── Security report/             Security analysis
+│   ├── AGENCY_BRAIN_SCAN_SKILL.md
+│   ├── CHANGELOG.md
+│   └── gremium/
+└── tests/unit/                  Node test suite
 ```
 
-For detailed architecture, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+For detailed operational constraints, also read [`../.github/copilot-instructions.md`](../.github/copilot-instructions.md).

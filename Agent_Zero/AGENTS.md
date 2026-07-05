@@ -1,40 +1,29 @@
 # Agent Zero — Custom Agent Instructions
 
-> Version 4.1.0 · Agent architecture for the GitHub Copilot SDK Enterprise Challenge
+> Version 5.0.0 · Agency Brain architecture for Microsoft 365 project-task scanning
 
-Agent Zero uses the GitHub Copilot SDK to orchestrate multiple AI agent roles, each defined by a dedicated skill file. All agents communicate with Microsoft 365 via the Work IQ MCP server.
+Agent Zero now uses the Agency runner as its primary scan engine. The Express server
+starts scan jobs, renders the current task state into the `brain-work/` sandbox, and
+launches `agency.exe copilot` with the Agency Brain skill. The Agency runner inherits
+WorkIQ from the user's Copilot MCP configuration instead of the server spawning a
+long-lived WorkIQ process.
 
 ---
 
-## Agent Roles
+## Primary Agent Role
 
-### 1. Discovery Agent (`SCAN_DISCOVERY_SKILL.md`)
-- **Trigger:** User clicks "Scan Emails & Teams"
-- **Purpose:** Scan email subjects and Teams messages from the last N days to identify action items
-- **Behavior:** Subject-only scan (no body content), classifies messages as actionable or informational
-- **Output:** New task cards with title, source, sender, and direct link
-- **Duration:** ~30–60s total
+### Agency Brain Scan Agent (`AGENCY_BRAIN_SCAN_SKILL.md`)
+- **Trigger:** User clicks Scan, which creates `POST /api/jobs` with `kind:"scan"`
+- **Purpose:** Reduce recent M365 communications into project tasks and standalone tasks
+- **Behavior:** Reads rendered state from `brain-work/`, calls WorkIQ through inherited Copilot MCPs, updates existing projects first, and emits machine-readable markers only
+- **Output:** Validated task mutations: project tasks, `lineItems`, `pmStatus`, source references, review questions, and scan telemetry
+- **Duration:** Bounded by the Agency runner timeout and WorkIQ call hard limit
 
-### 2. Enrichment Agent (`ENRICH_SKILL.md`)
-- **Trigger:** Automatically after Discovery phase
-- **Purpose:** Extract full conversation content from each thread and generate summaries
-- **Behavior:** 3-attempt keyword-based search strategy, temporal awareness (distinguishes current vs. historical information), ambiguity detection
-- **Output:** Content summary, status recommendation, clarifying questions if uncertain
-- **Duration:** ~60–180s per task (up to 300s for long Teams threads)
-
-### 3. Update Check Agent (`UPDATE_CHECK_SKILL.md`)
-- **Trigger:** Automatically after Enrichment phase (runs on every scan)
-- **Purpose:** Detect new replies or activity in previously enriched threads
-- **Behavior:** 3-attempt search anchored to `lastUpdateCheck` timestamp, reports only new content
-- **Output:** Updated summary with new information, history log entry
-- **Duration:** ~30–90s per task
-
-### 4. Intelligent Search Agent (`SEARCH_SKILL.md`)
-- **Trigger:** User creates a task via "Add Task" modal with an assignment
-- **Purpose:** Goal-oriented search across M365 communications to answer specific questions
-- **Behavior:** 3-attempt strategy with self-assessment, confidence levels (high/medium/low/none), bilingual keywords (user language + English), relevance filtering
-- **Output:** Direct answer with confidence badge, search attempt details, source references
-- **Duration:** ~30–120s per search
+### Legacy Agents (fallback only)
+- **Enable:** Set `AGENT_ZERO_SCAN_ENGINE=legacy`
+- **Skill files:** `SCAN_DISCOVERY_SKILL.md`, `ENRICH_SKILL.md`, `UPDATE_CHECK_SKILL.md`, `SEARCH_SKILL.md`, `CONSOLIDATE_SKILL.md`, `CORRECT_SKILL.md`
+- **Purpose:** Preserve the previous SDK route behavior for troubleshooting and compatibility
+- **Default state:** Disabled. Legacy HTTP routes return a 409 in Agency mode.
 
 ---
 
@@ -44,35 +33,51 @@ Agent Zero uses the GitHub Copilot SDK to orchestrate multiple AI agent roles, e
 ┌─────────────────────────────────────────┐
 │          Express Server (server.js)      │
 │                                          │
-│  ┌──────────────┐  ┌──────────────────┐ │
-│  │ Skill Files   │  │ Copilot SDK      │ │
-│  │ (docs/)       │→ │ Session Manager  │ │
-│  └──────────────┘  └────────┬─────────┘ │
-│                              │ stdio     │
-│                    ┌─────────┴─────────┐ │
-│                    │   Work IQ MCP     │ │
-│                    │ (@microsoft/workiq)│ │
-│                    └─────────┬─────────┘ │
-└──────────────────────────────┼───────────┘
-                               │ Microsoft Search API
-                    ┌──────────┴──────────┐
-                    │   Microsoft 365     │
-                    │ Email · Teams · Cal  │
-                    └─────────────────────┘
+│  POST /api/jobs kind:"scan"              │
+│          │                               │
+│          ▼                               │
+│  runBrainScanOnce()                      │
+│          │                               │
+│          ▼                               │
+│  brain-work/ sandbox                     │
+│  scan-state-*.md + spill files           │
+│          │                               │
+│          ▼                               │
+│  agency.exe copilot --no-default-mcps    │
+│  + AGENCY_BRAIN_SCAN_SKILL.md            │
+└──────────┬──────────────────────────────┘
+           │ inherits ~/.copilot/mcp-config.json
+           ▼
+     WorkIQ MCP → Microsoft 365
 ```
 
-### Session Model
-- Each API call creates a **fresh Copilot SDK session** with Work IQ as MCP server
-- Sessions are independent — no shared state between agent invocations
-- Skill files are loaded at server startup and injected as system prompts
-- The agent receives task-specific context (title, sender, link, timestamps) alongside the skill instructions
+### Scan Engine Model
+- Operational default is `agency` through `START-AGENT-ZERO.bat` and `Start-WorkIQ-Scan.ps1`, which set `AGENT_ZERO_SCAN_ENGINE=agency` when the variable is absent.
+- Direct `node server.js` inherits the environment as-is; set `AGENT_ZERO_SCAN_ENGINE=agency` explicitly for Agency mode or `AGENT_ZERO_SCAN_ENGINE=legacy` for fallback.
+- Legacy override is explicit in the launch environment: `AGENT_ZERO_SCAN_ENGINE=legacy` re-enables the old SDK routes and persistent WorkIQ subprocess.
+- `mcp.json` is legacy-only documentation/configuration. The Agency runner does not read it.
+- `buildAgencyEnv()` strips `AGENCY_SESSION_ID` and `COPILOT_AGENT_SESSION_ID` before spawning Agency so parent sessions cannot bleed into child runs.
+
+### State And Marker Model
+- `tasks.json` is migrated to schema version 5.
+- Project tasks use `taskType:"project"` plus `sourceRefs`, `lineItems`, `pmStatus`, `brainState`, archive/supersession fields, and normal task history.
+- Standalone actions remain `taskType:"single"`.
+- The agent may only change state through validated marker lines:
+  `PROJECT_NEW`, `PROJECT_UPDATE`, `LINEITEM_NEW`, `LINEITEM_UPDATE`, `TASK_NEW`, `TASK_UPDATE`, `NEEDS_REVIEW`, `SCAN_DONE`.
+- `marker-parser.js` ignores markers in code fences; `marker-applier.js` validates evidence references, allowed patch fields, confidence caps, and marker ordering before writing.
+
+### Sandbox Model
+- `brain-work/` is the only writable/readable working directory added to the Agency run.
+- `render-scan-state.js` writes compact state plus spill files into that sandbox before the run.
+- Cleanup is path-guarded: code refuses to clean directories whose basename is not `brain-work`.
+- `tasks.json` is updated once per successful marker batch through atomic writes and backup rotation.
 
 ### Safety Mechanisms
-- **Ambiguity handling:** Agents flag uncertain information with `needs-review` status and present clarifying questions to the user
-- **Temporal awareness:** Agents distinguish current from historical information using discovery dates and last-check timestamps
-- **3-attempt search:** Agents try progressively broader search strategies before reporting failure
-- **Self-assessment:** Search agents evaluate whether their results actually answer the user's question (not just keyword matches)
-- **Hallucination prevention:** Agents are instructed to say "I could not find this" rather than fabricate information
+- **Ambiguity handling:** Low-confidence ownership/status decisions become `NEEDS_REVIEW`.
+- **Temporal awareness:** The skill treats current WorkIQ evidence as stronger than historical summaries.
+- **Evidence enforcement:** Status, problem, risk, waiting, and user-action changes require source references.
+- **WorkIQ budget:** The runner counts explicit WorkIQ tool starts and kills the child when the hard limit is reached.
+- **Hallucination prevention:** Unsupported facts must not be emitted as task state.
 
 ---
 
@@ -80,27 +85,36 @@ Agent Zero uses the GitHub Copilot SDK to orchestrate multiple AI agent roles, e
 
 | Skill File | Agent Role | Path |
 |---|---|---|
-| `SCAN_DISCOVERY_SKILL.md` | Discovery (Phase 1) | `docs/` |
-| `ENRICH_SKILL.md` | Enrichment (Phase 2) | `docs/` |
-| `UPDATE_CHECK_SKILL.md` | Update Check (Phase 3) | `docs/` |
-| `SEARCH_SKILL.md` | Intelligent Search | `docs/` |
-| `SCAN_SKILL.md` | Legacy scan (fallback) | `docs/` |
-| `LOG_WORK_SKILL.md` | Legacy work logging (fallback) | `docs/` |
+| `AGENCY_BRAIN_SCAN_SKILL.md` | Agency Brain scan | `docs/` |
+| `SCAN_DISCOVERY_SKILL.md` | Legacy discovery | `docs/` |
+| `ENRICH_SKILL.md` | Legacy enrichment | `docs/` |
+| `UPDATE_CHECK_SKILL.md` | Legacy update check | `docs/` |
+| `SEARCH_SKILL.md` | Legacy/manual search | `docs/` |
+| `CONSOLIDATE_SKILL.md` | Legacy consolidation | `docs/` |
+| `CORRECT_SKILL.md` | Legacy correction verification | `docs/` |
+| `LOG_WORK_SKILL.md` | Legacy work logging fallback | `docs/` |
 
 ---
 
 ## MCP Server Configuration
 
-See `mcp.json` in the project root for the Work IQ MCP server configuration.
+Agency mode uses WorkIQ from the user's inherited Copilot MCP configuration, typically
+`~/.copilot/mcp-config.json`. Keep WorkIQ configured there for Agency scans.
+
+`mcp.json` in this repo is retained for `AGENT_ZERO_SCAN_ENGINE=legacy` only. It points
+to the local `@microsoft/workiq` package and is not read by the Agency runner.
 
 ---
 
 ## Operations & Process Hygiene
 
-For operational rules (single-instance guarantee, path-restricted cleanup, diagnostic tooling, Phase 3 pitfalls), see [`.github/copilot-instructions.md`](../.github/copilot-instructions.md) at the repo root.
+For operational rules (single-instance guarantee, path-restricted cleanup, diagnostic
+tooling, Phase 3 pitfalls), see [`../.github/copilot-instructions.md`](../.github/copilot-instructions.md)
+at the Work_IQ repo root.
 
 Quick reference:
 - **One instance only**, enforced by atomic lockfile (`fs.openSync('.agent-zero.lock', 'wx')`)
 - **Diagnostic:** run `WHO-IS-AGENT-ZERO.bat` before touching processes
 - **Cleanup:** path-restricted to `E:\Work_IQ\Agent_Zero` — never broad patterns like `copilot|workiq.*mcp`
-- **Task Scheduler** restarts servers older than 24h (staleness check in `Start-WorkIQ-Scan.ps1`)
+- **No broad process kills:** do not use name-based `Stop-Process` or `taskkill /IM`
+- **Task Scheduler:** restarts stale servers older than 24h via `Start-WorkIQ-Scan.ps1`

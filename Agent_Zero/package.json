@@ -1,6 +1,6 @@
 {
   "name": "agent-zero",
-  "version": "4.1.0",
+  "version": "5.0.0",
   "type": "module",
   "main": "server.js",
   "scripts": {
