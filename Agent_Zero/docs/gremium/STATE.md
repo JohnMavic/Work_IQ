@@ -2,17 +2,28 @@
 
 Aktualisiert: 2026-07-05 · Branch: `feature/agency-brain`
 
-## Status: PHASE 2 — unabhängige Planung läuft
+## Status: PHASE 3/4 — Adjudikation erfolgt, Slice-0-Gate + Ratifizierung laufen
 
 | Schritt | Status |
 |---|---|
 | 1. Ist-Analyse (4 parallele Agenten) | ✅ done — Ergebnis in FACTS.md |
-| 2. Unabhängige Pläne (Codex + agency) | 🔄 laufen im Hintergrund |
-| 3. Debatte + Adjudikation (Master) | ⬜ |
-| 4. Ratifizierung (GO/NO-GO durch agency) | ⬜ |
-| 5. Implementierung (Codex, Slices) | ⬜ |
+| 2. Unabhängige Pläne (Codex + agency) | ✅ done — RESULT-CODEX-PLAN.md (10 Slices), RESULT-AGENCY-PLAN.md (adversarial, 13 Risiken) |
+| 3. Debatte + Adjudikation (Master) | ✅ done — DECISION.md (D1–D10) |
+| 4a. Slice-0-Gate: headless agency+workiq Smoke | 🔄 läuft |
+| 4b. Ratifizierung (GO/NO-GO durch agency) | ⬜ nach Slice-0 |
+| 5. Implementierung (Codex, Slices 1–9) | ⬜ |
 | 6. Verifikation (adversarial, Seestrasse-Testszenarien) | ⬜ |
 | 7. Loop bis Ziele G1–G7 erfüllt | ⬜ |
+
+## Adjudizierte Kernentscheide (Details in DECISION.md)
+- D1: Projekt = Task (`taskType:"project"`, lineItems[], strukturiertes pmStatus mit Evidenz je Eintrag)
+- D2: Brain macht Discovery selbst via geerbtem workiq-MCP; keine Signal-Inbox
+- D3: 8 Marker inkl. NEEDS_REVIEW statt ASK_USER; Evidenz-Gate fail-closed
+- D4: --max-autopilot-continues 0 (empirisch prüfen, SCAN_DONE-Quote messen)
+- D5: --add-dir NUR brain-work\ (Brain kann tasks.json physisch nicht erreichen)
+- D6: Seestrasse-Umbau = EIN Projekt mit Line Items (Nutzer-Mentalmodell bindend)
+- D8: Migration Dry-Run → Audit durch agency → Apply; Invarianten Σ History/Σ Links
+- D9: Slice-Reihenfolge 0–10; SDK-Entfernung erst nach Live-Verifikation
 
 ## Kernbefunde der Ist-Analyse (Kurzform, Details in FACTS.md)
 - Kein Projekt-Konzept im Datenmodell; 1 Task pro E-Mail/Teams-Nachricht.
