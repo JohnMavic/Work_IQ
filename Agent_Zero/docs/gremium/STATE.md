@@ -12,8 +12,9 @@ Aktualisiert: 2026-07-05 · Branch: `feature/agency-brain`
 | 4a. Slice-0-Gate (Default-Flags) | ✅ PASSED — workiq connected, echte Antwort, exit 0 |
 | 4b. Ratifizierung durch agency | ✅ **GO-WITH-CONDITIONS** — RESULT-RATIFICATION.md, Auflagen A1–A6 |
 | 4c. Auflage A1: Probe mit exakten D10-Flags | 🔄 läuft |
-| 5. Implementierung Batch 1 (Slices 1–4, Codex) | ⬜ nach A1 |
-| 6. Implementierung Batch 2 (Slices 5–7) | ⬜ |
+| 5. Implementierung Batch 1 (Slices 1–4, Codex) | ✅ done — Commits 7fd0ecd…53c5263, 30/30 Tests |
+| 5b. Verifikation Batch 1 (4-Dim-Review + Refute-Pass, 25 Agenten) | ✅ done — 19 bestätigte Findings (2 critical: Event-Form F1, Patch-Whitelist F2) → FINDINGS-BATCH-1.md |
+| 6. Implementierung Batch 2 (Fix F1–F19 + Slices 5–7) | 🔄 Codex läuft |
 | 7. Bestandskonsolidierung (Slice 8, Dry-Run→Audit→Apply) | ⬜ |
 | 8. Verifikation + Loop bis G1–G7 erfüllt | ⬜ |
 | 9. SDK/WorkIQ-0.2.8-Entfernung (Slice 9) + Live (Slice 10) | ⬜ |
