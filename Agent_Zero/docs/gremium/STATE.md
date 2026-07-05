@@ -2,18 +2,29 @@
 
 Aktualisiert: 2026-07-05 · Branch: `feature/agency-brain`
 
-## Status: PHASE 3/4 — Adjudikation erfolgt, Slice-0-Gate + Ratifizierung laufen
+## Status: PHASE 5 — RATIFIZIERT (GO-WITH-CONDITIONS), A1-Probe läuft, dann Implementierung
 
 | Schritt | Status |
 |---|---|
-| 1. Ist-Analyse (4 parallele Agenten) | ✅ done — Ergebnis in FACTS.md |
-| 2. Unabhängige Pläne (Codex + agency) | ✅ done — RESULT-CODEX-PLAN.md (10 Slices), RESULT-AGENCY-PLAN.md (adversarial, 13 Risiken) |
+| 1. Ist-Analyse (4 parallele Agenten) | ✅ done — FACTS.md |
+| 2. Unabhängige Pläne (Codex + agency) | ✅ done |
 | 3. Debatte + Adjudikation (Master) | ✅ done — DECISION.md (D1–D10) |
-| 4a. Slice-0-Gate: headless agency+workiq Smoke | 🔄 läuft |
-| 4b. Ratifizierung (GO/NO-GO durch agency) | ⬜ nach Slice-0 |
-| 5. Implementierung (Codex, Slices 1–9) | ⬜ |
-| 6. Verifikation (adversarial, Seestrasse-Testszenarien) | ⬜ |
-| 7. Loop bis Ziele G1–G7 erfüllt | ⬜ |
+| 4a. Slice-0-Gate (Default-Flags) | ✅ PASSED — workiq connected, echte Antwort, exit 0 |
+| 4b. Ratifizierung durch agency | ✅ **GO-WITH-CONDITIONS** — RESULT-RATIFICATION.md, Auflagen A1–A6 |
+| 4c. Auflage A1: Probe mit exakten D10-Flags | 🔄 läuft |
+| 5. Implementierung Batch 1 (Slices 1–4, Codex) | ⬜ nach A1 |
+| 6. Implementierung Batch 2 (Slices 5–7) | ⬜ |
+| 7. Bestandskonsolidierung (Slice 8, Dry-Run→Audit→Apply) | ⬜ |
+| 8. Verifikation + Loop bis G1–G7 erfüllt | ⬜ |
+| 9. SDK/WorkIQ-0.2.8-Entfernung (Slice 9) + Live (Slice 10) | ⬜ |
+
+## Auflagen aus der Ratifizierung (bindend: A1, A2)
+- **A1** (vor Slice 1/5): D10-Flag-Kombination live verifizieren (`--no-default-mcps` darf workiq nicht droppen)
+- **A2** (vor Slice 8/Abnahme): Abnahmetests an D6 anpassen — AV+LAN+Patch-Panel+Switch-Ports = Line Items EINES Seestrasse-Projekts; nur genuine Fremd-Themen getrennt
+- **A3**: Datum-only-Evidenz ⇒ confidence ≤ medium + Datum muss auf SourceRef desselben Runs zurückführen
+- **A4**: Renderer schreibt State-Doc + Spill-Dateien nach brain-work; brain-work pro Run anlegen/leeren, .gitignore, von Prozess-Cleanup ausnehmen
+- **A5**: Engine-Default bleibt `legacy` bis Slice-8-Apply auditiert; Flip auf `agency` erst Slice 10
+- **A6**: Höheres WorkIQ-Budget nur für den einmaligen Migrationslauf; premiumRequests separat loggen
 
 ## Adjudizierte Kernentscheide (Details in DECISION.md)
 - D1: Projekt = Task (`taskType:"project"`, lineItems[], strukturiertes pmStatus mit Evidenz je Eintrag)
