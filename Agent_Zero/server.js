@@ -831,17 +831,19 @@ function setupGracefulShutdown() {
 setupGracefulShutdown();
 
 // Startup orphan reaper: kill leftover CLI subprocesses from previous server runs.
-// The Copilot SDK spawns Node.js child processes via stdio with a distinctive
-// command line containing '@github/copilot'. On Windows we use PowerShell's
-// Get-CimInstance (WMIC is deprecated on Win11); on Unix we use pkill.
+// v4.1.0 — PATH-RESTRICTED: only kill node processes whose cmdline contains
+// THIS server's absolute repo path. Never touches Copilot CLI's own MCP children
+// or any node process from another project, even if they reference 'copilot' or
+// 'workiq' in their cmdline.
 async function reapOrphanedSessions() {
-  // Kill ALL SDK child processes (used at startup to clean up from previous runs)
   const { execSync } = await import('child_process');
   try {
     if (process.platform === 'win32') {
       const ownPid = process.pid;
+      // Escape backslashes for regex inside PowerShell -match
+      const pathPattern = __dirname.replace(/\\/g, '\\\\').replace(/'/g, "''");
       const psOut = execSync(
-        `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"name='node.exe'\\" | Where-Object { $_.CommandLine -match 'copilot|@github|workiq.*mcp' -and $_.ProcessId -ne ${ownPid} } | Select-Object -ExpandProperty ProcessId"`,
+        `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter \\"name='node.exe'\\" | Where-Object { $_.CommandLine -match '${pathPattern}' -and $_.ProcessId -ne ${ownPid} } | Select-Object -ExpandProperty ProcessId"`,
         { encoding: 'utf-8', timeout: 15000 }
       );
       const orphanPids = psOut.split(/\r?\n/)
@@ -852,19 +854,18 @@ async function reapOrphanedSessions() {
         for (const pid of orphanPids) {
           try { execSync(`taskkill /F /PID ${pid}`, { timeout: 5000 }); } catch {}
         }
-        console.log(`[REAPER] Killed ${orphanPids.length} orphaned subprocess(es) from previous run`);
+        console.log(`[REAPER] Killed ${orphanPids.length} orphaned subprocess(es) from previous run (path-matched: ${__dirname})`);
       }
     } else {
-      // Unix: kill node processes whose cmdline contains copilot-sdk markers
+      // Unix: kill node processes whose cmdline contains THIS repo path
       try {
-        execSync("pkill -f 'copilot.*stdio'", { timeout: 5000 });
-        console.log('[REAPER] Killed orphaned Copilot SDK subprocesses from previous run');
+        execSync(`pkill -f '${__dirname}'`, { timeout: 5000 });
+        console.log(`[REAPER] Killed orphaned subprocesses from previous run (path-matched: ${__dirname})`);
       } catch {
         // pkill returns non-zero if no processes matched — that's fine
       }
     }
   } catch (err) {
-    // Non-fatal: if we can't reap, just log and continue
     console.warn(`[REAPER] Orphan cleanup skipped: ${err.message}`);
   }
 }
@@ -1688,7 +1689,10 @@ app.get('/api/health', (req, res) => {
     memoryMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
     pid: process.pid,
     port: PORT,
-    version
+    version,
+    // v4.1.0: expose repo path so external scripts can verify identity unambiguously
+    repoPath: __dirname,
+    wiqPid: (wiqProc && !wiqProc.killed) ? wiqProc.pid : null
   });
 });
 
@@ -4709,6 +4713,47 @@ function writeLockFile() {
   }
 }
 
+// v4.1.1 — ATOMIC lockfile acquire. The OS guarantees that only one process
+// can succeed with `wx` (exclusive create). This closes any race between two
+// concurrent `node server.js` starts that both passed the soft detection.
+// Returns true if we acquired the lock, false if another live instance owns it.
+function acquireLockFileAtomic() {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
+      const payload = JSON.stringify({
+        pid: process.pid,
+        port: PORT,
+        startedAt: new Date().toISOString(),
+        version: pkg.version
+      }, null, 2);
+      // 'wx' = open for writing, FAIL if file exists. Atomic at the OS level.
+      const fd = fs.openSync(LOCK_FILE, 'wx');
+      fs.writeSync(fd, payload);
+      fs.closeSync(fd);
+      return true;
+    } catch (e) {
+      if (e.code !== 'EEXIST') {
+        console.warn(`[LOCK] Unexpected error acquiring lock: ${e.message}`);
+        return false;
+      }
+      // Lock exists - check if owner is alive
+      try {
+        const lock = JSON.parse(fs.readFileSync(LOCK_FILE, 'utf-8'));
+        if (lock.pid && lock.pid !== process.pid && isPidAlive(lock.pid)) {
+          // Owner alive - real conflict
+          return false;
+        }
+      } catch {
+        // unreadable lock - treat as stale
+      }
+      // Stale lock from a dead process - remove and retry once
+      try { fs.unlinkSync(LOCK_FILE); } catch {}
+    }
+  }
+  return false;
+}
+
 function removeLockFile() {
   try {
     if (fs.existsSync(LOCK_FILE)) {
@@ -4746,13 +4791,17 @@ async function startServer() {
     process.exit(0);
   }
 
-  // Clean stale lock (if any)
-  try { if (fs.existsSync(LOCK_FILE)) fs.unlinkSync(LOCK_FILE); } catch {}
+  // v4.1.1 — Atomic lockfile mutex. Closes any race between two concurrent
+  // `node server.js` starts that both got past detectExistingInstance().
+  if (!acquireLockFileAtomic()) {
+    console.log(`[STARTUP] ✅ Another Agent Zero instance won the lockfile race. Exiting cleanly.`);
+    process.exit(0);
+  }
+  // Register cleanup BEFORE listen so a startup failure still removes the lock.
+  registerLockCleanup();
 
   app.listen(PORT, 'localhost', async () => {
     console.log(`Agent Zero running at http://localhost:${PORT}`);
-    writeLockFile();
-    registerLockCleanup();
     // Start persistent Work IQ MCP subprocess (auth once, EULA once, cached for session)
     try {
       await startWorkIQMCP();

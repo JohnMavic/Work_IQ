@@ -30,25 +30,20 @@ function Test-ServerHealth {
     }
 }
 
-function Stop-ZombieProcesses {
-    # Kill any node process listening on port 3000
-    $listeners = netstat -ano | Select-String ":3000 " | Select-String "LISTENING"
-    foreach ($line in $listeners) {
-        $pid = ($line -split '\s+')[-1]
-        if ($pid -and $pid -ne '0') {
-            Write-Log "  Killing zombie on port 3000: PID $pid"
-            try { Stop-Process -Id ([int]$pid) -Force -ErrorAction Stop } catch {}
+function Stop-AgentZeroSafe {
+    # v4.1.0: delegate to the shared, path-restricted stop-agent-zero.ps1.
+    # NEVER kills node processes that don't literally belong to $ServerDir.
+    $stopScript = Join-Path $ServerDir "stop-agent-zero.ps1"
+    if (Test-Path $stopScript) {
+        Write-Log "  Calling shared stop-agent-zero.ps1 (path-restricted, safe)..."
+        try {
+            & powershell -NoProfile -ExecutionPolicy Bypass -File $stopScript $ServerDir 2>&1 | ForEach-Object { Write-Log "    $_" }
+        } catch {
+            Write-Log "  Stop script error: $_"
         }
+    } else {
+        Write-Log "  WARN: stop-agent-zero.ps1 not found at $stopScript - skipping cleanup."
     }
-    
-    # Kill orphaned Copilot SDK subprocesses
-    Get-CimInstance Win32_Process -Filter "name='node.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -match 'copilot|@github|workiq.*mcp' } |
-        ForEach-Object {
-            Write-Log "  Killing orphan SDK process: PID $($_.ProcessId)"
-            try { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop } catch {}
-        }
-    
     Start-Sleep 2
 }
 
@@ -70,13 +65,32 @@ function Start-AgentZeroServer {
 
 Write-Log "=== Scheduled Work IQ Scan ==="
 
-# Step 1: Check if server is healthy
+# v4.1.1 — Step 1: Liveness AND staleness check.
+# A long-running server (>24h) is at risk of stale WIQ auth (EULA stub bug).
+# A young server with healthy WIQ -> reuse. Otherwise -> kill+restart.
 $health = Test-ServerHealth
+$STALE_UPTIME_SECONDS = 24 * 60 * 60   # 24h - older than this is suspect
+$needRestart = $true
 if ($health) {
-    Write-Log "Server is HEALTHY (PID: $($health.pid), uptime: $($health.uptime)s, sessions: $($health.activeSessions))"
+    $uptimeH = [math]::Round($health.uptime / 3600, 1)
+    Write-Log "Server is responding (PID: $($health.pid), uptime: ${uptimeH}h, version: $($health.version), wiqPid: $($health.wiqPid))"
+    if ($health.uptime -lt $STALE_UPTIME_SECONDS -and $health.wiqPid) {
+        Write-Log "Server is fresh and WIQ is alive - REUSING."
+        $needRestart = $false
+    } else {
+        if ($health.uptime -ge $STALE_UPTIME_SECONDS) {
+            Write-Log "Server uptime ${uptimeH}h exceeds ${STALE_UPTIME_SECONDS}s threshold - WIQ auth may be stale. Restarting for clean state."
+        } else {
+            Write-Log "Server has no live WIQ child - restarting."
+        }
+    }
 } else {
-    Write-Log "Server not responding. Cleaning up and starting fresh..."
-    Stop-ZombieProcesses
+    Write-Log "Server not responding."
+}
+
+if ($needRestart) {
+    Write-Log "Cleaning up and starting fresh..."
+    Stop-AgentZeroSafe
     Start-AgentZeroServer
     
     # Wait for server to become healthy (max 30 seconds)
@@ -84,16 +98,16 @@ if ($health) {
     for ($i = 1; $i -le 15; $i++) {
         Start-Sleep 2
         $health = Test-ServerHealth
-        if ($health) {
-            Write-Log "Server started successfully (PID: $($health.pid), attempt $i)"
+        if ($health -and $health.wiqPid) {
+            Write-Log "Server started successfully (PID: $($health.pid), wiqPid: $($health.wiqPid), attempt $i)"
             $serverHealthy = $true
             break
         }
-        Write-Log "  Waiting... (attempt $i/15)"
+        Write-Log "  Waiting for healthy server with live WIQ... (attempt $i/15)"
     }
     
     if (-not $serverHealthy) {
-        Write-Log "ERROR: Server failed to start within 30 seconds!"
+        Write-Log "ERROR: Server failed to start with healthy WIQ within 30 seconds!"
         Write-Log "=== Aborted ==="
         exit 1
     }
@@ -167,78 +181,6 @@ try {
     Write-Log "Consolidation complete."
 } catch {
     Write-Log "  ERROR during consolidation: $_"
-}
-
-Write-Log "=== All phases complete ==="
-
-# Step 3: Run the scan via API
-Write-Log "--- Phase 1: Discovery (scanning last $ScanDays days) ---"
-try {
-    $scanStart = Get-Date
-    $scanResult = Invoke-RestMethod -Uri "$ServerUrl/api/scan" -Method POST `
-        -ContentType "application/json" `
-        -Body "{`"days`": $ScanDays}" `
-        -TimeoutSec 300
-    $scanDuration = [math]::Round(((Get-Date) - $scanStart).TotalSeconds, 1)
-    
-    Write-Log "Phase 1 complete in ${scanDuration}s: added=$($scanResult.added), updated=$($scanResult.updated), skipped=$($scanResult.skipped), total=$($scanResult.total)"
-    
-    # Enrich new tasks if any were added
-    if ($scanResult.newTaskIds -and $scanResult.newTaskIds.Count -gt 0) {
-        Write-Log "--- Phase 2: Enriching $($scanResult.newTaskIds.Count) new task(s) ---"
-        foreach ($taskId in $scanResult.newTaskIds) {
-            try {
-                $enrichStart = Get-Date
-                $enrichResult = Invoke-RestMethod -Uri "$ServerUrl/api/tasks/$taskId/enrich" -Method POST `
-                    -ContentType "application/json" -TimeoutSec 300
-                $enrichDuration = [math]::Round(((Get-Date) - $enrichStart).TotalSeconds, 1)
-                Write-Log "  Enriched $taskId in ${enrichDuration}s: status=$($enrichResult.enrichmentStatus)"
-            } catch {
-                Write-Log "  ERROR enriching ${taskId}: $_"
-            }
-        }
-    }
-    
-    # Phase 3: Update check on existing enriched tasks
-    Write-Log "--- Phase 3: Update checks ---"
-    try {
-        $tasks = Invoke-RestMethod -Uri "$ServerUrl/api/tasks" -TimeoutSec 30
-        $checkable = $tasks | Where-Object { 
-            ($_.enrichmentStatus -eq 'enriched' -or $_.enrichmentStatus -eq 'needs-review') -and 
-            $_.status -ne 'done' 
-        } | Select-Object -First 10
-        
-        foreach ($task in $checkable) {
-            try {
-                $checkStart = Get-Date
-                $checkResult = Invoke-RestMethod -Uri "$ServerUrl/api/tasks/$($task.id)/check-update" -Method POST `
-                    -ContentType "application/json" -TimeoutSec 300
-                $checkDuration = [math]::Round(((Get-Date) - $checkStart).TotalSeconds, 1)
-                $hasUpdate = if ($checkResult.hasUpdate) { "NEW UPDATE" } else { "no change" }
-                Write-Log "  Checked $($task.id.Substring(0,8))... in ${checkDuration}s: $hasUpdate"
-            } catch {
-                Write-Log "  ERROR checking $($task.id.Substring(0,8))...: $_"
-            }
-        }
-    } catch {
-        Write-Log "  ERROR fetching tasks for update check: $_"
-    }
-    
-    # Phase 4: Consolidation
-    Write-Log "--- Phase 4: Consolidation ---"
-    try {
-        $consResult = Invoke-RestMethod -Uri "$ServerUrl/api/consolidate" -Method POST `
-            -ContentType "application/json" -TimeoutSec 60
-        Write-Log "Consolidation complete: $($consResult | ConvertTo-Json -Compress)"
-    } catch {
-        Write-Log "  ERROR during consolidation: $_"
-    }
-    
-} catch {
-    $scanDuration = [math]::Round(((Get-Date) - $scanStart).TotalSeconds, 1)
-    Write-Log "ERROR Phase 1 failed after ${scanDuration}s: $_"
-    Write-Log "=== Aborted ==="
-    exit 1
 }
 
 Write-Log "=== All phases complete ==="

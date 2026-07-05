@@ -1,145 +1,152 @@
-# Agent Zero — Safe Shutdown Script
-# Called by STOP-AGENT-ZERO.bat
-# Identifies and terminates ONLY Agent Zero processes. Never kills other apps.
+# =============================================================================
+# Agent Zero - Safe Shutdown (v4.1.0)
+# =============================================================================
+# Identifies and terminates ONLY Agent Zero processes belonging to THIS
+# installation directory. Will never touch:
+#   - node processes from other projects (e.g. Copilot CLI's @playwright/mcp)
+#   - workiq/copilot subprocesses spawned by other tools (e.g. Copilot CLI)
+#   - any process whose cmdline does not literally contain THIS repo path
+#
+# Identification strategy (in order of trust):
+#   A. /api/health on ports 3000-3020 returns {service:"agent-zero", pid, repoPath}
+#      -> only kill if repoPath matches this script's directory
+#   B. .agent-zero.lock contains pid + port written by THIS server.js
+#      -> kill PID via taskkill /T /F (kills tree, including WIQ child)
+#   C. Path-restricted sweep: any node.exe whose cmdline literally contains
+#      "<ServerDir>" -> Stop-Process. Catches orphaned WIQ children whose
+#      parent server.js died.
+#
+# A taskkill /T /F on the server.js PID kills its entire process tree, so
+# WIQ children and SDK subprocesses are usually cleaned up automatically.
+# Phase C is a safety net for true orphans (parent already gone).
+# =============================================================================
 
 param([string]$ServerDir)
 
+if (-not $ServerDir) { $ServerDir = $PSScriptRoot }
+$ServerDir = (Resolve-Path $ServerDir).Path.TrimEnd('\', '/')
+$ServerDirEscaped = [regex]::Escape($ServerDir)
+
 Write-Host ""
 Write-Host "  ============================================"
-Write-Host "   Agent Zero - Safe Shutdown"
+Write-Host "   Agent Zero - Safe Shutdown (v4.1.0)"
+Write-Host "   Target: $ServerDir"
 Write-Host "  ============================================"
 Write-Host ""
 
-$found = 0
-$killed = 0
-$killedPids = @()
+$killedPids = New-Object System.Collections.Generic.HashSet[int]
+$serverKills = 0
+$orphanKills = 0
 
-# -------------------------------------------------------
-# Phase 1: Find Agent Zero via health endpoints (ports 3000-3020)
-# Only Agent Zero responds with {"status":"ok","pid":...}
-# -------------------------------------------------------
-Write-Host "[STOP] Scanning ports 3000-3020 for Agent Zero instances..."
+function Stop-Tree {
+    param([int]$TargetPid, [string]$Label)
+    if ($killedPids.Contains($TargetPid)) { return }
+    $proc = Get-Process -Id $TargetPid -ErrorAction SilentlyContinue
+    if (-not $proc) { return }
+    Write-Host "[STOP] Terminating ${Label} (PID $TargetPid) and its child tree..."
+    & taskkill /PID $TargetPid /T 2>$null | Out-Null
+    $waited = 0
+    while ($waited -lt 6 -and (Get-Process -Id $TargetPid -ErrorAction SilentlyContinue)) {
+        Start-Sleep -Milliseconds 500; $waited++
+    }
+    if (Get-Process -Id $TargetPid -ErrorAction SilentlyContinue) {
+        Write-Host "[STOP]   Forcing termination of PID $TargetPid..."
+        & taskkill /PID $TargetPid /T /F 2>$null | Out-Null
+        Start-Sleep -Seconds 1
+    }
+    $killedPids.Add($TargetPid) | Out-Null
+}
 
+# -----------------------------------------------------------------------------
+# Phase A: Find via /api/health on ports 3000-3020
+# -----------------------------------------------------------------------------
+Write-Host "[STOP] Phase A: Probing /api/health on ports 3000-3020..."
 foreach ($port in 3000..3020) {
     try {
-        $response = Invoke-RestMethod -Uri "http://localhost:$port/api/health" -TimeoutSec 1 -ErrorAction Stop
-        if ($response.pid -and $response.status -eq "ok") {
-            $azPid = [int]$response.pid
-            # Verify this PID is actually a node.exe process
-            $proc = Get-Process -Id $azPid -ErrorAction SilentlyContinue
-            if ($proc -and $proc.ProcessName -eq "node") {
-                $found++
-                Write-Host "[STOP] Found Agent Zero on port $port (PID $azPid)"
-                Write-Host "[STOP]   Sending graceful shutdown..."
-                
-                # Graceful: taskkill without /F triggers shutdown handler
-                & taskkill /PID $azPid /T 2>$null | Out-Null
-                
-                # Wait up to 8 seconds for graceful exit
-                $waited = 0
-                while ($waited -lt 8) {
-                    Start-Sleep -Seconds 1
-                    $waited++
-                    $stillRunning = Get-Process -Id $azPid -ErrorAction SilentlyContinue
-                    if (-not $stillRunning) { break }
-                }
-                
-                if (Get-Process -Id $azPid -ErrorAction SilentlyContinue) {
-                    Write-Host "[STOP]   Still running - forcing termination..."
-                    & taskkill /PID $azPid /T /F 2>$null | Out-Null
-                    Start-Sleep -Seconds 2
-                }
-                
-                $killedPids += $azPid
-                $killed++
-                Write-Host "[STOP]   Terminated."
+        $r = Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/health" -TimeoutSec 1 -ErrorAction Stop
+        if ($r.service -eq 'agent-zero' -and $r.pid) {
+            $repo = if ($r.repoPath) { $r.repoPath.TrimEnd('\','/') } else { '' }
+            # Only kill if repoPath matches this directory (or if repoPath missing - older versions)
+            $isOurs = (-not $repo) -or ($repo -ieq $ServerDir)
+            if ($isOurs) {
+                Write-Host "[STOP]   Port $port -> Agent Zero PID $($r.pid) (repoPath=$repo)"
+                Stop-Tree -TargetPid ([int]$r.pid) -Label "server.js on port $port"
+                $serverKills++
             } else {
-                Write-Host "[STOP] Port $port responds to health but PID $azPid is not node.exe - skipping."
+                Write-Host "[STOP]   Port $port -> Agent Zero from a DIFFERENT install ($repo) - leaving alone"
             }
         }
     } catch {
-        # Port not responding or not Agent Zero — skip silently
+        # not responding or not Agent Zero - skip silently
     }
 }
 
-# -------------------------------------------------------
-# Phase 2: Find zombie Agent Zero processes (not responding to health)
-# Matches: node.exe whose command line contains server.js from our directory
-# -------------------------------------------------------
-Write-Host ""
-Write-Host "[STOP] Checking for zombie Agent Zero processes..."
-
-$serverDirNorm = $ServerDir.TrimEnd('\', '/').Replace('\', '\\')
-$nodeProcs = Get-CimInstance Win32_Process -Filter "name='node.exe'" -ErrorAction SilentlyContinue
-
-foreach ($proc in $nodeProcs) {
-    if (-not $proc.CommandLine) { continue }
-    # Match: command line contains "server.js" AND is from our directory
-    $isServerJs = $proc.CommandLine -match 'server\.js'
-    $isOurDir = $proc.CommandLine -match [regex]::Escape($ServerDir.TrimEnd('\', '/'))
-    # Also match if CWD-launched (just "node server.js" without full path)
-    # by checking the process's parent or if it was started from our dir
-    $isSimpleStart = $proc.CommandLine -match '^\s*"?node("?\s+|\.exe"?\s+)server\.js'
-    
-    if ($isServerJs -and ($isOurDir -or $isSimpleStart)) {
-        $zombiePid = $proc.ProcessId
-        # Skip if already killed in Phase 1
-        if ($killedPids -contains $zombiePid) { continue }
-        # Verify still running
-        if (-not (Get-Process -Id $zombiePid -ErrorAction SilentlyContinue)) { continue }
-        
-        $found++
-        Write-Host "[STOP] Found zombie Agent Zero process (PID $zombiePid)"
-        Write-Host "[STOP]   Terminating..."
-        & taskkill /PID $zombiePid /T 2>$null | Out-Null
-        Start-Sleep -Seconds 3
-        if (Get-Process -Id $zombiePid -ErrorAction SilentlyContinue) {
-            & taskkill /PID $zombiePid /T /F 2>$null | Out-Null
-            Start-Sleep -Seconds 2
+# -----------------------------------------------------------------------------
+# Phase B: Lockfile fallback
+# -----------------------------------------------------------------------------
+Write-Host "[STOP] Phase B: Checking .agent-zero.lock..."
+$lockFile = Join-Path $ServerDir ".agent-zero.lock"
+if (Test-Path $lockFile) {
+    try {
+        $lock = Get-Content -Raw $lockFile | ConvertFrom-Json
+        if ($lock.pid) {
+            $lockPid = [int]$lock.pid
+            $proc = Get-Process -Id $lockPid -ErrorAction SilentlyContinue
+            if ($proc -and $proc.ProcessName -eq 'node') {
+                # Confirm via WMI cmdline that it's a server.js process (defensive)
+                $cim = Get-CimInstance Win32_Process -Filter "ProcessId=$lockPid" -ErrorAction SilentlyContinue
+                if ($cim -and $cim.CommandLine -match 'server\.js') {
+                    Write-Host "[STOP]   Lockfile -> server.js PID $lockPid"
+                    Stop-Tree -TargetPid $lockPid -Label "server.js (from lockfile)"
+                    $serverKills++
+                }
+            }
         }
-        $killedPids += $zombiePid
-        $killed++
-        Write-Host "[STOP]   Terminated."
+    } catch {
+        Write-Host "[STOP]   Lockfile unreadable - ignoring."
+    }
+    # Always clean up the lockfile so a fresh start is unblocked
+    try { Remove-Item $lockFile -Force -ErrorAction SilentlyContinue } catch {}
+    Write-Host "[STOP]   Lockfile removed."
+}
+
+# -----------------------------------------------------------------------------
+# Phase C: Path-restricted orphan sweep
+# Only matches node processes whose CommandLine literally contains $ServerDir.
+# Will never match @playwright/mcp, Copilot CLI MCPs, or any other project.
+# -----------------------------------------------------------------------------
+Write-Host "[STOP] Phase C: Path-restricted orphan sweep..."
+$orphans = @(Get-CimInstance Win32_Process -Filter "name='node.exe'" -ErrorAction SilentlyContinue |
+    Where-Object {
+        $_.CommandLine -and
+        ($_.CommandLine -match $ServerDirEscaped) -and
+        (-not $killedPids.Contains([int]$_.ProcessId))
+    })
+
+if ($orphans.Count -eq 0) {
+    Write-Host "[STOP]   No path-matched orphans found."
+} else {
+    foreach ($p in $orphans) {
+        $oPid = [int]$p.ProcessId
+        Write-Host "[STOP]   Orphan PID $oPid -> $($p.CommandLine)"
+        try {
+            Stop-Process -Id $oPid -Force -ErrorAction Stop
+            $killedPids.Add($oPid) | Out-Null
+            $orphanKills++
+        } catch {
+            Write-Host "[STOP]     Could not stop PID ${oPid}: $($_.Exception.Message)"
+        }
     }
 }
 
-# -------------------------------------------------------
-# Phase 3: Clean up orphaned Copilot SDK subprocesses
-# These are child processes spawned by Agent Zero for the Copilot SDK.
-# -------------------------------------------------------
-Write-Host ""
-Write-Host "[STOP] Cleaning up Copilot SDK subprocesses..."
-
-$sdkKilled = 0
-$sdkProcs = Get-CimInstance Win32_Process -Filter "name='node.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -match 'copilot|@github|workiq.*mcp' }
-
-foreach ($proc in $sdkProcs) {
-    $sdkPid = $proc.ProcessId
-    if ($killedPids -contains $sdkPid) { continue }
-    Write-Host "[STOP]   Killing SDK subprocess (PID $sdkPid)"
-    Stop-Process -Id $sdkPid -Force -ErrorAction SilentlyContinue
-    $sdkKilled++
-}
-
-if ($sdkKilled -eq 0) {
-    Write-Host "[STOP]   No SDK subprocesses found."
-} else {
-    Write-Host "[STOP]   Cleaned up $sdkKilled SDK subprocess(es)."
-}
-
-# -------------------------------------------------------
+# -----------------------------------------------------------------------------
 # Summary
-# -------------------------------------------------------
+# -----------------------------------------------------------------------------
 Write-Host ""
 Write-Host "  ============================================"
-if ($found -eq 0) {
-    Write-Host "   No Agent Zero instances were running."
-} else {
-    Write-Host "   Stopped $killed Agent Zero instance(s)."
-}
-if ($sdkKilled -gt 0) {
-    Write-Host "   Cleaned up $sdkKilled SDK subprocess(es)."
-}
+Write-Host "   Stopped:  $serverKills server.js  +  $orphanKills orphan(s)"
 Write-Host "  ============================================"
 Write-Host ""
+
+# Exit 0 even if nothing was running (idempotent)
+exit 0

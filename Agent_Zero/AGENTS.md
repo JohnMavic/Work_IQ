@@ -92,3 +92,15 @@ Agent Zero uses the GitHub Copilot SDK to orchestrate multiple AI agent roles, e
 ## MCP Server Configuration
 
 See `mcp.json` in the project root for the Work IQ MCP server configuration.
+
+---
+
+## Operations & Process Hygiene
+
+For operational rules (single-instance guarantee, path-restricted cleanup, diagnostic tooling, Phase 3 pitfalls), see [`.github/copilot-instructions.md`](../.github/copilot-instructions.md) at the repo root.
+
+Quick reference:
+- **One instance only**, enforced by atomic lockfile (`fs.openSync('.agent-zero.lock', 'wx')`)
+- **Diagnostic:** run `WHO-IS-AGENT-ZERO.bat` before touching processes
+- **Cleanup:** path-restricted to `E:\Work_IQ\Agent_Zero` — never broad patterns like `copilot|workiq.*mcp`
+- **Task Scheduler** restarts servers older than 24h (staleness check in `Start-WorkIQ-Scan.ps1`)
