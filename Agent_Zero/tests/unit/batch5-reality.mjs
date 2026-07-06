@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { applyMarkerBatch } from '../../brain/marker-applier.js';
 import { filterMarkersThroughGateway, parseGatewayDecisions } from '../../brain/reality-gateway.js';
 import { migrateToV5 } from '../../brain/tasks-v5.js';
+import { repairCircleContamination } from '../../scripts/repair-circle-contamination.mjs';
 import { repairSourceLinks } from '../../scripts/repair-source-links.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -371,4 +372,107 @@ test('shared turn1search11 fabricated links are reconstructed from archived sour
     'https://outlook.office365.com/owa/?ItemID=ZonesReal',
     'https://outlook.office365.com/owa/?ItemID=HandoverReal'
   ]);
+});
+
+test('circle repair removes Moerken-stemmed refs from active project while preserving review payload', () => {
+  const data = migrateToV5({
+    version: 5,
+    reviewQueue: [],
+    tasks: [
+      {
+        id: 'f663726c-source-task-id',
+        taskType: 'single',
+        archived: true,
+        from: 'Christian Moerken',
+        summary: 'Norway MPR source task.',
+        supersededBy: 'proj-zurich-circle-hublcr'
+      },
+      {
+        id: 'proj-zurich-circle-hublcr',
+        taskType: 'project',
+        title: 'Zurich The Circle - FY26 HUB LCR AV & MPR Refresh',
+        history: [{
+          timestamp: '2026-07-05T13:23:08.772Z',
+          type: 'batch5-repair',
+          text: 'batch5-6b-circle-contamination: moved contaminated Moerken/Norway Circle facts to reviewQueue. SourceRefs retained.'
+        }],
+        brainState: {
+          needsReview: true,
+          reviewReason: 'The 1 Jul 2026 Christian Moerken escalation is not Circle evidence. | Source link repair could not reconstruct 2 sourceRef link(s): src-7ab6764a, src-zones-aug-1783'
+        },
+        sourceRefs: [
+          {
+            id: 'src-94315dce',
+            title: 'MPR refresh schedule shift (Nov -> Dec)',
+            link: 'https://teams.microsoft.com/l/message/circle'
+          },
+          {
+            id: 'src-f663726c',
+            title: 'MPR refresh projects (timeline & coordination)',
+            sourceTaskId: 'f663726c',
+            link: 'https://teams.microsoft.com/l/message/norway-source'
+          },
+          {
+            id: 'src-moerken-20260701',
+            from: 'Christian Moerken',
+            title: 'Dual MPR refresh - repeated schedule misses',
+            link: 'https://teams.microsoft.com/l/message/moerken'
+          }
+        ],
+        additionalLinks: [
+          'https://teams.microsoft.com/l/message/circle',
+          'https://teams.microsoft.com/l/message/norway-source',
+          'https://teams.microsoft.com/l/message/moerken'
+        ],
+        lineItems: [
+          {
+            id: 'li-circle-dualmpr',
+            title: 'Dual MPR rooms',
+            evidenceRefIds: ['src-94315dce', 'src-f663726c'],
+            sourceTaskIds: ['f663726c-source-task-id']
+          },
+          {
+            id: 'li-circle-timeline',
+            title: 'MPR refresh schedule shift (Nov -> Dec 2026, freeze to ~12 Feb 2027)',
+            status: 'in-progress',
+            evidenceRefIds: ['src-94315dce'],
+            needsReview: true,
+            reviewReason: 'Recorded Dec schedule conflicts with Christian Moerken August deployment message.'
+          }
+        ],
+        factSheet: {
+          sections: {
+            scopeGoals: [{
+              id: 'fs-dualmpr',
+              text: 'Dual MPR refresh remains in planning.',
+              evidenceRefIds: ['src-94315dce', 'src-f663726c']
+            }],
+            sources: [{
+              id: 'fs-source-moerken',
+              text: 'MPR refresh projects source',
+              evidenceRefIds: ['src-f663726c']
+            }]
+          }
+        }
+      }
+    ]
+  });
+
+  const result = repairCircleContamination(data, { now: new Date('2026-07-06T09:00:00.000Z') });
+  const project = result.data.tasks.find(task => task.id === 'proj-zurich-circle-hublcr');
+  const timeline = project.lineItems.find(item => item.id === 'li-circle-timeline');
+  const serializedActiveProject = JSON.stringify(project);
+
+  assert.deepEqual(result.summary.removedSourceRefs.sort(), ['src-f663726c', 'src-moerken-20260701']);
+  assert.equal(result.summary.timelineEvidenceRetained, 1);
+  assert.equal(project.sourceRefs.some(ref => ref.id === 'src-f663726c' || ref.id === 'src-moerken-20260701'), false);
+  assert.equal(project.additionalLinks.includes('https://teams.microsoft.com/l/message/moerken'), false);
+  assert.deepEqual(project.lineItems.find(item => item.id === 'li-circle-dualmpr').evidenceRefIds, ['src-94315dce']);
+  assert.deepEqual(project.factSheet.sections.scopeGoals[0].evidenceRefIds, ['src-94315dce']);
+  assert.equal(project.factSheet.sections.sources.length, 0);
+  assert.equal(timeline.status, 'in-progress');
+  assert.equal(timeline.needsReview, undefined);
+  assert.equal(timeline.reviewReason, undefined);
+  assert.doesNotMatch(serializedActiveProject, /Moerken/);
+  assert.match(JSON.stringify(result.data.reviewQueue), /Christian Moerken/);
 });

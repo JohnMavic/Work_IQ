@@ -12,6 +12,7 @@ export const DEFAULT_TASKS_FILE = path.join(REPO_ROOT, 'tasks.json');
 export const CIRCLE_TASK_ID = 'proj-zurich-circle-hublcr';
 export const CONTAMINATED_REFS = new Set(['src-zones-aug-1783', 'src-moerken-20260701', 'src-2579f860']);
 const REPAIR_ID = 'batch5-6b-circle-contamination';
+const MOERKEN_PATTERN = /moerken/i;
 
 function readJsonFile(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -37,6 +38,65 @@ function referencesContamination(value) {
     return Object.values(value).some(referencesContamination);
   }
   return false;
+}
+
+function buildTaskIndexes(data) {
+  const byId = new Map();
+  const byShortId = new Map();
+  for (const task of normalizeArray(data.tasks)) {
+    if (!task || typeof task !== 'object') continue;
+    if (task.id) {
+      byId.set(task.id, task);
+      byShortId.set(String(task.id).slice(0, 8), task);
+    }
+    if (task.taskId) byId.set(task.taskId, task);
+  }
+  return { byId, byShortId };
+}
+
+function sourceTaskForRef(ref, indexes) {
+  if (!ref?.sourceTaskId) return null;
+  return indexes.byId.get(ref.sourceTaskId) || indexes.byShortId.get(String(ref.sourceTaskId).slice(0, 8)) || null;
+}
+
+function isMoerkenStemmedSourceRef(ref, indexes) {
+  if (!ref || typeof ref !== 'object') return false;
+  if (CONTAMINATED_REFS.has(ref.id)) return true;
+  if (MOERKEN_PATTERN.test(JSON.stringify(ref))) return true;
+  const sourceTask = sourceTaskForRef(ref, indexes);
+  if (!sourceTask) return false;
+  return MOERKEN_PATTERN.test(String(sourceTask.from || '')) || MOERKEN_PATTERN.test(String(sourceTask.summary || ''));
+}
+
+function filterReviewReason(reason, contaminatedIds) {
+  const removed = [];
+  const kept = [];
+
+  for (const rawPart of String(reason || '').split(/\s+\|\s+/)) {
+    let part = rawPart.trim();
+    if (!part) continue;
+
+    if (/^Source link repair could not reconstruct/i.test(part)) {
+      const ids = part.match(/src-[a-z0-9-]+/gi) || [];
+      const remainingIds = ids.filter(id => !contaminatedIds.has(id));
+      if (remainingIds.length !== ids.length) {
+        removed.push(part);
+        if (remainingIds.length) {
+          part = `Source link repair could not reconstruct ${remainingIds.length} sourceRef link(s): ${remainingIds.join(', ')}`;
+          kept.push(part);
+        }
+        continue;
+      }
+    }
+
+    if (referencesContamination(part) || [...contaminatedIds].some(id => part.includes(id))) {
+      removed.push(part);
+    } else {
+      kept.push(part);
+    }
+  }
+
+  return { value: kept.join(' | ') || null, removed };
 }
 
 function stripContaminatedSentences(text) {
@@ -105,7 +165,7 @@ function cleanPmStatus(data, task, now) {
   return changed;
 }
 
-function cleanLineItems(data, task, now) {
+function cleanLineItems(data, task, contaminatedIds, contaminatedSourceTaskIds, now) {
   let changed = false;
   const kept = [];
 
@@ -134,9 +194,35 @@ function cleanLineItems(data, task, now) {
       changed = true;
     }
 
+    if (item.reviewReason && referencesContamination(item.reviewReason)) {
+      pushReview(data, {
+        key: `lineItem.${item.id}.reviewReason`,
+        ref: task.id,
+        question: 'Batch 5 follow-up moved contaminated cross-project review reason out of Zurich The Circle line item.',
+        payload: { lineItemId: item.id, field: 'reviewReason', value: item.reviewReason }
+      }, now);
+      delete item.reviewReason;
+      if (item.id === 'li-circle-timeline' && normalizeArray(item.evidenceRefIds).some(id => !contaminatedIds.has(id))) {
+        delete item.needsReview;
+      }
+      changed = true;
+    }
+
     const evidenceBefore = normalizeArray(item.evidenceRefIds);
-    item.evidenceRefIds = evidenceBefore.filter(id => !CONTAMINATED_REFS.has(id));
+    item.evidenceRefIds = evidenceBefore.filter(id => !contaminatedIds.has(id));
     if (item.evidenceRefIds.length !== evidenceBefore.length) changed = true;
+
+    const sourceTaskIdsBefore = normalizeArray(item.sourceTaskIds);
+    item.sourceTaskIds = sourceTaskIdsBefore.filter(id => !contaminatedSourceTaskIds.has(id) && !contaminatedSourceTaskIds.has(String(id).slice(0, 8)));
+    if (item.sourceTaskIds.length !== sourceTaskIdsBefore.length) changed = true;
+
+    if (item.id === 'li-circle-timeline' && item.evidenceRefIds.length === 0) {
+      item.status = 'needs-review';
+      item.needsReview = true;
+      item.reviewReason = 'December timeline requires non-contaminated evidence before it can remain active.';
+      changed = true;
+    }
+
     kept.push(item);
   }
 
@@ -144,10 +230,125 @@ function cleanLineItems(data, task, now) {
   return changed;
 }
 
+function cleanFactSheet(data, task, contaminatedIds, now) {
+  let changed = false;
+  const sections = task.factSheet?.sections;
+  if (!sections || typeof sections !== 'object') return changed;
+
+  for (const [sectionName, entries] of Object.entries(sections)) {
+    if (!Array.isArray(entries)) continue;
+    const keptEntries = [];
+    entries.forEach((entry, index) => {
+      if (!entry || typeof entry !== 'object') {
+        keptEntries.push(entry);
+        return;
+      }
+
+      const originalRefs = normalizeArray(entry.evidenceRefIds);
+      const nextRefs = originalRefs.filter(id => !contaminatedIds.has(id));
+      const contaminatedText = referencesContamination(entry.text);
+      const touched = contaminatedText || nextRefs.length !== originalRefs.length;
+
+      if (!touched) {
+        keptEntries.push(entry);
+        return;
+      }
+
+      pushReview(data, {
+        key: `factSheet.${sectionName}.${entry.id || index}`,
+        ref: task.id,
+        question: `Batch 5 follow-up moved contaminated source evidence out of Zurich The Circle factSheet.${sectionName}.`,
+        payload: { section: sectionName, entry }
+      }, now);
+
+      if (!contaminatedText && nextRefs.length) {
+        keptEntries.push({ ...entry, evidenceRefIds: nextRefs });
+      }
+      changed = true;
+    });
+    sections[sectionName] = keptEntries;
+  }
+
+  return changed;
+}
+
+function cleanSourceRefs(data, task, indexes, now) {
+  const removedRefs = [];
+  const keptRefs = [];
+  for (const ref of normalizeArray(task.sourceRefs)) {
+    if (isMoerkenStemmedSourceRef(ref, indexes)) removedRefs.push(ref);
+    else keptRefs.push(ref);
+  }
+
+  if (!removedRefs.length) return { changed: false, removedRefs, contaminatedIds: new Set(), contaminatedSourceTaskIds: new Set() };
+
+  pushReview(data, {
+    key: 'sourceRefs.moerken-stemmed',
+    ref: task.id,
+    question: 'Batch 5 follow-up moved Moerken-stemmed sourceRefs out of Zurich The Circle active project state.',
+    payload: { sourceRefs: removedRefs }
+  }, now);
+
+  task.sourceRefs = keptRefs;
+  const removedLinks = new Set(removedRefs.map(ref => ref.link).filter(Boolean));
+  if (Array.isArray(task.additionalLinks) && removedLinks.size) {
+    task.additionalLinks = task.additionalLinks.filter(link => !removedLinks.has(link));
+  }
+
+  return {
+    changed: true,
+    removedRefs,
+    contaminatedIds: new Set(removedRefs.map(ref => ref.id).filter(Boolean)),
+    contaminatedSourceTaskIds: new Set(removedRefs.flatMap(ref => {
+      const ids = [];
+      if (ref.sourceTaskId) {
+        ids.push(ref.sourceTaskId);
+        ids.push(String(ref.sourceTaskId).slice(0, 8));
+      }
+      return ids;
+    }))
+  };
+}
+
+function cleanBrainStateAndHistory(data, task, contaminatedIds, now) {
+  let changed = false;
+
+  if (task.brainState?.reviewReason) {
+    const filtered = filterReviewReason(task.brainState.reviewReason, contaminatedIds);
+    if (filtered.value !== task.brainState.reviewReason) {
+      if (filtered.removed.length) {
+        pushReview(data, {
+          key: 'brainState.reviewReason.moerken-stemmed',
+          ref: task.id,
+          question: 'Batch 5 follow-up moved contaminated cross-project review reason out of Zurich The Circle brainState.',
+          payload: { field: 'brainState.reviewReason', removed: filtered.removed, original: task.brainState.reviewReason }
+        }, now);
+      }
+      task.brainState.reviewReason = filtered.value;
+      task.brainState.needsReview = Boolean(filtered.value);
+      changed = true;
+    }
+  }
+
+  for (const entry of normalizeArray(task.history)) {
+    if (!entry || typeof entry !== 'object' || !referencesContamination(entry.text)) continue;
+    pushReview(data, {
+      key: `history.${entry.timestamp || entry.type || 'entry'}`,
+      ref: task.id,
+      question: 'Batch 5 follow-up moved contaminated wording out of Zurich The Circle task history.',
+      payload: { historyEntry: { ...entry } }
+    }, now);
+    entry.text = String(entry.text || '').replace(/Moerken\/Norway\s*/gi, 'cross-project ').replace(/Moerken/gi, 'cross-project');
+    changed = true;
+  }
+
+  return changed;
+}
+
 function markTaskReview(task, now) {
   task.brainState = { ...V5_BRAIN_STATE_DEFAULTS, ...(task.brainState || {}) };
   task.brainState.needsReview = true;
-  const reason = 'Batch 5 moved Moerken/Norway contamination to reviewQueue; verify any MPR delivery-risk facts before reapplying.';
+  const reason = 'Batch 5 moved cross-project contamination to reviewQueue; verify any MPR delivery-risk facts before reapplying.';
   task.brainState.reviewReason = task.brainState.reviewReason
     ? `${task.brainState.reviewReason} | ${reason}`
     : reason;
@@ -157,7 +358,7 @@ function markTaskReview(task, now) {
     task.history.push({
       timestamp: nowIso(now),
       type: 'batch5-repair',
-      text: `${REPAIR_ID}: moved contaminated Moerken/Norway Circle facts to reviewQueue. SourceRefs retained.`
+      text: `${REPAIR_ID}: moved contaminated cross-project Circle facts to reviewQueue. SourceRefs retained.`
     });
   }
 }
@@ -170,9 +371,15 @@ export function repairCircleContamination(inputData, { now = new Date() } = {}) 
   }
 
   const beforeReviewCount = normalizeArray(data.reviewQueue).length;
+  const indexes = buildTaskIndexes(data);
+  const sourceRefResult = cleanSourceRefs(data, task, indexes, now);
+  const contaminatedIds = new Set([...CONTAMINATED_REFS, ...sourceRefResult.contaminatedIds]);
+  const contaminatedSourceTaskIds = sourceRefResult.contaminatedSourceTaskIds;
   const pmChanged = cleanPmStatus(data, task, now);
-  const lineItemsChanged = cleanLineItems(data, task, now);
-  const changed = pmChanged || lineItemsChanged;
+  const lineItemsChanged = cleanLineItems(data, task, contaminatedIds, contaminatedSourceTaskIds, now);
+  const factSheetChanged = cleanFactSheet(data, task, contaminatedIds, now);
+  const brainStateChanged = cleanBrainStateAndHistory(data, task, contaminatedIds, now);
+  const changed = sourceRefResult.changed || pmChanged || lineItemsChanged || factSheetChanged || brainStateChanged;
 
   if (changed) markTaskReview(task, now);
 
@@ -181,8 +388,15 @@ export function repairCircleContamination(inputData, { now = new Date() } = {}) 
     summary: {
       found: true,
       changed,
+      sourceRefsChanged: sourceRefResult.changed,
       pmChanged,
       lineItemsChanged,
+      factSheetChanged,
+      brainStateChanged,
+      removedSourceRefs: sourceRefResult.removedRefs.map(ref => ref.id),
+      timelineEvidenceRetained: normalizeArray(task.lineItems)
+        .find(item => item.id === 'li-circle-timeline')
+        ?.evidenceRefIds?.length || 0,
       retainedContaminatedSourceRefs: normalizeArray(task.sourceRefs).filter(ref => CONTAMINATED_REFS.has(ref.id)).map(ref => ref.id),
       reviewEntries: normalizeArray(data.reviewQueue).length - beforeReviewCount
     }
