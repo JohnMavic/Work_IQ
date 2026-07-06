@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { applyMarkerBatch } from '../../brain/marker-applier.js';
-import { filterMarkersThroughGateway, parseGatewayDecisions } from '../../brain/reality-gateway.js';
+import { filterMarkersThroughGateway, parseGatewayDecisions, runRealityGateway } from '../../brain/reality-gateway.js';
 import { migrateToV5 } from '../../brain/tasks-v5.js';
 import { repairCircleContamination } from '../../scripts/repair-circle-contamination.mjs';
 import { repairSourceLinks } from '../../scripts/repair-source-links.mjs';
@@ -316,6 +316,128 @@ test('gateway parser extracts decisions JSON while ignoring prose and corrected 
 
   assert.equal(parsed.decisions[0].decision, 'approve');
   assert.equal(Object.hasOwn(parsed.decisions[0], 'payload'), false);
+});
+
+test('gateway parser accepts documented audit failure output with prose-prefixed pretty JSON', () => {
+  const fixture = fs.readFileSync(path.join(repoRoot, 'tests', 'fixtures', 'gateway-audit-fail-output.txt'), 'utf8');
+  const parsed = parseGatewayDecisions(fixture, 4);
+
+  assert.equal(parsed.totalParseFailure, false);
+  assert.equal(parsed.format, 'json');
+  assert.equal(parsed.decisions[0].decision, 'approve');
+  assert.equal(parsed.decisions[2].decision, 'approve');
+  assert.equal(parsed.decisions[3].decision, 'needs-review');
+});
+
+test('gateway parser accepts line verdicts and one broken verdict line does not block others', () => {
+  const data = baseProjectData();
+  const markers = [
+    marker('TASK_NEW', {
+      taskId: 'single-line-ok-1',
+      title: 'Standalone one',
+      sourceRef: { id: 'src-single-line-1', link: 'https://example.test/line/1' }
+    }),
+    marker('PROJECT_UPDATE', {
+      taskId: 'proj-circle',
+      summary: 'This project update must be held because its verdict line is malformed.',
+      evidenceRefIds: ['src-zurich']
+    }),
+    marker('TASK_NEW', {
+      taskId: 'single-line-ok-2',
+      title: 'Standalone two',
+      sourceRef: { id: 'src-single-line-2', link: 'https://example.test/line/2' }
+    })
+  ];
+  const gateway = {
+    ok: true,
+    text: [
+      'GATEWAY_DECISION\t0\tapprove\tStandalone one is supported.',
+      'GATEWAY_DECISION\t1\tapprove-ish\tMalformed decision token.',
+      'GATEWAY_DECISION\t2\tapprove\tStandalone two is supported.'
+    ].join('\n')
+  };
+
+  const filtered = filterMarkersThroughGateway(markers, gateway);
+  const result = applyMarkerBatch(data, filtered.markers, { auditLogFile: null });
+
+  assert.equal(filtered.approved.length, 2);
+  assert.equal(filtered.held.length, 1);
+  assert.equal(filtered.gatewayParsed, false);
+  assert.ok(result.data.tasks.find(task => task.id === 'single-line-ok-1'));
+  assert.ok(result.data.tasks.find(task => task.id === 'single-line-ok-2'));
+  assert.equal(result.data.tasks.find(task => task.id === 'proj-circle').summary, 'Zurich The Circle project in Switzerland.');
+  assert.match(result.data.reviewQueue[0].question, /malformed/i);
+});
+
+test('reality gateway retries exactly once after total parse failure', async () => {
+  const dir = resetTmp('gateway-retry');
+  const stateFile = path.join(dir, 'scan-state.md');
+  fs.writeFileSync(stateFile, '# state\n', 'utf8');
+  const markers = [marker('TASK_NEW', {
+    taskId: 'retry-task',
+    title: 'Retry task',
+    sourceRef: { id: 'src-retry', link: 'https://example.test/retry' }
+  })];
+  const prompts = [];
+
+  const result = await runRealityGateway({
+    stateFile,
+    factSheetFiles: [],
+    markers,
+    brainWorkDir: dir,
+    runId: 'retry-run',
+    _runBrain: async ({ prompt }) => {
+      prompts.push(prompt);
+      return {
+        ok: true,
+        assistantText: prompts.length === 1
+          ? 'No machine readable verdict is present.'
+          : 'GATEWAY_DECISION\t0\tapprove\tRetry returned a parseable verdict.',
+        counters: { workIqCalls: 0 },
+        durationMs: 1
+      };
+    }
+  });
+  const parsed = parseGatewayDecisions(result.text, 1);
+
+  assert.equal(prompts.length, 2);
+  assert.equal(result.retryCount, 1);
+  assert.match(prompts[1], /only retry/i);
+  assert.equal(parsed.decisions[0].decision, 'approve');
+});
+
+test('reality gateway holds all after one failed retry on total parse failure', async () => {
+  const dir = resetTmp('gateway-retry-fails');
+  const stateFile = path.join(dir, 'scan-state.md');
+  fs.writeFileSync(stateFile, '# state\n', 'utf8');
+  const markers = [
+    marker('PROJECT_UPDATE', { taskId: 'proj-circle', summary: 'Should be held.' }),
+    marker('TASK_NEW', { taskId: 'single-after-retry-fail', title: 'Should also be held after parse retry fail.' })
+  ];
+  let calls = 0;
+
+  const result = await runRealityGateway({
+    stateFile,
+    markers,
+    brainWorkDir: dir,
+    runId: 'retry-fail-run',
+    _runBrain: async () => {
+      calls++;
+      return {
+        ok: true,
+        assistantText: calls === 1 ? 'not parseable' : 'still not parseable',
+        counters: { workIqCalls: 0 },
+        durationMs: 1
+      };
+    }
+  });
+  const filtered = filterMarkersThroughGateway(markers, result);
+
+  assert.equal(calls, 2);
+  assert.equal(result.retryCount, 1);
+  assert.equal(filtered.approved.length, 0);
+  assert.equal(filtered.held.length, 2);
+  assert.match(filtered.held[0].reason, /re-run scan/);
 });
 
 test('shared turn1search11 fabricated links are reconstructed from archived source tasks', () => {

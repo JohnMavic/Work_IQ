@@ -1,0 +1,26 @@
+Here are my decisions:
+
+{
+  "decisions": [
+    {
+      "markerIndex": 0,
+      "decision": "approve",
+      "reason": "The Zurich update is supported by the supplied state and fact sheet."
+    },
+    {
+      "markerIndex": 1,
+      "decision": "approve",
+      "reason": "The line item update belongs to the same project and has evidence."
+    },
+    {
+      "markerIndex": 2,
+      "decision": "approve",
+      "reason": "The fact sheet patch advances project reality without changing marker payloads."
+    },
+    {
+      "markerIndex": 3,
+      "decision": "needs-review",
+      "reason": "The standalone task needs human review before assignment."
+    }
+  ]
+}

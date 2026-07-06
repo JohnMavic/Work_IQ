@@ -273,9 +273,9 @@ export async function runBrainScanOnce(job, {
   const result = {
     outcome,
     runId: runIdForTelemetry,
-    newProjects: scanDone?.newProjects ?? diffCounts.newProjects,
-    updatedProjects: scanDone?.updatedProjects ?? diffCounts.updatedProjects,
-    newSingleTasks: scanDone?.newSingleTasks ?? diffCounts.newSingleTasks,
+    newProjects: diffCounts.newProjects,
+    updatedProjects: diffCounts.updatedProjects,
+    newSingleTasks: diffCounts.newSingleTasks,
     workIqCalls,
     premiumRequests,
     droppedMarkers: applyResult.dropped,
@@ -285,7 +285,9 @@ export async function runBrainScanOnce(job, {
       approvedMarkers: gatewayFilter.approved.length,
       heldMarkers: gatewayFilter.held.length,
       parsed: gatewayFilter.gatewayParsed,
-      parseError: gatewayFilter.gatewayParseError
+      parseError: gatewayFilter.gatewayParseError,
+      retryCount: gatewayResult.retryCount || 0,
+      firstParseError: gatewayResult.firstParseError || null
     },
     parseErrors: parsed.errors,
     salvaged: Boolean(brainResult.salvaged),

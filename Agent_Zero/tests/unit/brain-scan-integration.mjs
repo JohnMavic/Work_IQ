@@ -350,3 +350,51 @@ test('B-5 follow-up scan updates existing project line item instead of duplicati
   assert.equal(project.lineItems[0].currentState, 'Work has started');
   assert.equal(project.sourceRefs.length, 2);
 });
+
+test('scan result reports applied diff counts instead of SCAN_DONE intent when gateway holds update', async () => {
+  const dir = resetTmp('gateway-held-counts');
+  const tasksFile = writeFixture(dir, {
+    version: 5,
+    tasks: [{
+      id: 'proj-held-counts',
+      title: 'Held counts project',
+      taskType: 'project',
+      status: 'new',
+      summary: 'Original summary',
+      sourceRefs: [{ id: 'src-held-old', date: '2026-07-04T08:00:00.000Z', link: 'https://example.test/held/old' }],
+      lineItems: [],
+      updatedAt: '2026-07-04T08:00:00.000Z'
+    }]
+  });
+  const output = [
+    marker('PROJECT_UPDATE', {
+      taskId: 'proj-held-counts',
+      summary: 'Gateway-held summary should not apply.',
+      sourceRefs: [{ id: 'src-held-new', date: '2026-07-05T08:00:00.000Z', link: 'https://example.test/held/new' }],
+      evidenceRefIds: ['src-held-old']
+    }),
+    marker('SCAN_DONE', { runId: 'run-held-counts', outcome: 'success', newProjects: 0, updatedProjects: 1, newSingleTasks: 0 })
+  ].join('\n');
+
+  const result = await runBrainScanOnce(makeJob(), {
+    tasksFile,
+    brainWorkDir: path.join(dir, 'brain-work'),
+    runId: 'run-held-counts',
+    now: new Date('2026-07-05T10:00:00.000Z'),
+    _runBrain: fakeBrain(output),
+    _runGateway: async () => ({
+      ok: true,
+      text: 'GATEWAY_DECISION\t0\tneeds-review\tThe update could not be verified.',
+      counters: { workIqCalls: 0 }
+    })
+  });
+  const saved = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+  const project = saved.tasks.find(task => task.id === 'proj-held-counts');
+
+  assert.equal(result.updatedProjects, 0);
+  assert.equal(result.newProjects, 0);
+  assert.equal(result.newSingleTasks, 0);
+  assert.equal(result.gateway.heldMarkers, 1);
+  assert.equal(project.summary, 'Original summary');
+  assert.equal(project.sourceRefs.some(ref => ref.id === 'src-held-new'), false);
+});
