@@ -746,6 +746,26 @@
     .agent-msg-bot td { padding: 4px 10px; border: 1px solid #334155; }
     .agent-msg-bot strong { color: #e2e8f0; }
     .agent-msg-bot code { background: #1e293b; padding: 1px 4px; border-radius: 3px; font-size: 0.82rem; }
+    .conversation-attachments {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 6px 0 8px 20px;
+    }
+    .conversation-attachment {
+      width: 72px;
+      height: 72px;
+      border: 1px solid #2a2f45;
+      border-radius: 6px;
+      overflow: hidden;
+      background: #0f172a;
+    }
+    .conversation-attachment img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
     .agent-msg-status {
       font-size: 0.78rem;
       margin-bottom: 6px;
@@ -777,13 +797,63 @@
       padding-bottom: 12px;
       border-bottom: 1px solid #1e2233;
     }
-    .panel-log-form input {
+    .chat-input-wrap {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .task-chat-input {
+      width: 100%;
+      min-height: 38px;
+      max-height: 150px;
+      overflow-y: auto;
+      resize: none;
       flex: 1;
       background: #161929; color: #e0e0e0; border: 1px solid #2a2f45;
       border-radius: 6px; padding: 8px 12px; font-size: 0.85rem;
       font-family: inherit;
+      line-height: 1.35;
     }
-    .panel-log-form input:focus { outline: none; border-color: #3b82f6; }
+    .task-chat-input:focus { outline: none; border-color: #3b82f6; }
+    .attachment-preview {
+      display: none;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .attachment-preview.has-items { display: flex; }
+    .attachment-thumb {
+      position: relative;
+      width: 56px;
+      height: 56px;
+      border: 1px solid #2a2f45;
+      border-radius: 6px;
+      overflow: hidden;
+      background: #0f172a;
+    }
+    .attachment-thumb img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .attachment-remove {
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      width: 18px;
+      height: 18px;
+      border: 0;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.86);
+      color: #f8fafc;
+      cursor: pointer;
+      font-size: 0.72rem;
+      line-height: 18px;
+      padding: 0;
+    }
+    .attachment-remove:hover { background: rgba(239, 68, 68, 0.92); }
 
     /* Plan display */
     .log-plan {
@@ -1289,7 +1359,7 @@
       <button class="btn btn-ghost btn-sm" data-filter="on-radar" title="On Radar" onclick="setFilter('on-radar', this)">📡</button>
       <button class="btn btn-ghost btn-sm" data-filter="paused" title="Paused" onclick="setFilter('paused', this)">⏸️</button>
       <button class="btn btn-ghost btn-sm" data-filter="done" title="Done" onclick="setFilter('done', this)">✅</button>
-      <button class="btn btn-ghost btn-sm archive-toggle" id="btnToggleArchived" onclick="toggleArchivedTasks()" title="Archivierte und superseded Tasks anzeigen">Archivierte</button>
+      <button class="btn btn-ghost btn-sm archive-toggle" id="btnToggleArchived" onclick="toggleArchivedTasks()" title="Show archived and superseded tasks">Archived</button>
       <span class="task-count" id="taskCount"></span>
       <div class="link-mode-group">
         <span class="link-mode-label">Open links in:</span>
@@ -2380,7 +2450,7 @@
     if (archiveBtn) {
       const archivedCount = tasks.filter(isArchivedTask).length;
       archiveBtn.classList.toggle('active', showArchivedTasks);
-      archiveBtn.textContent = showArchivedTasks ? `Archivierte ${archivedCount}` : 'Archivierte';
+      archiveBtn.textContent = showArchivedTasks ? `Archived ${archivedCount}` : 'Archived';
     }
 
     // Update filter badge counts (only visible tasks)
@@ -2617,7 +2687,7 @@
       return `<a href="${escHtml(href)}" onclick="return openLink(event)" rel="noopener" title="${escHtml(title)}">${escHtml(sourceLinkLabel('Evidence', ref))}</a>`;
     }
     const title = ref ? sourceRefTooltip(ref) : 'No matching sourceRef link';
-    return `<span class="source-missing" title="${escHtml(title)}">Quelle fehlt</span>`;
+    return `<span class="source-missing" title="${escHtml(title)}">Source missing</span>`;
   }
 
   function renderSourceRefsList(task) {
@@ -2651,7 +2721,7 @@
     const open = allRefs.length > 8 ? '' : ' open';
     return `<div class="source-list">
       <details${open}>
-        <summary>Quellen (${allRefs.length})</summary>
+        <summary>Sources (${allRefs.length})</summary>
         <div class="source-list-items">${rows}</div>
       </details>
     </div>`;
@@ -2771,19 +2841,19 @@
   function ownerChip(owner) {
     if (!owner) return '';
     const isUser = String(owner).toLowerCase() === 'user';
-    const label = isUser ? 'Du' : `Owner: ${owner}`;
+    const label = isUser ? 'You' : `Owner: ${owner}`;
     return `<span class="status-chip owner-chip${isUser ? ' user' : ''}">${escHtml(label)}</span>`;
   }
 
   function userMarkedDoneBadge(entry) {
     if (!entry.userMarkedDoneAt) return '';
-    return `<span class="done-pending-badge">von dir erledigt am ${escHtml(formatSourceDate(entry.userMarkedDoneAt))} - Bestätigung ausstehend</span>`;
+    return `<span class="done-pending-badge">Marked done by you on ${escHtml(formatSourceDate(entry.userMarkedDoneAt))} - awaiting confirmation</span>`;
   }
 
   function reopenedUserActionHint(entry, task) {
     if (!entry.reopenedUserMarkedDoneAt) return '';
     const evidence = asArray(entry.reopenedEvidenceRefIds).map(id => renderEvidenceLink(task, id)).filter(Boolean).join('');
-    return `<div class="user-action-reopened">am ${escHtml(formatSourceDate(entry.reopenedUserMarkedDoneAt))} als erledigt markiert, neue Signale zeigen offen ${evidence}</div>`;
+    return `<div class="user-action-reopened">Marked done on ${escHtml(formatSourceDate(entry.reopenedUserMarkedDoneAt))}; new signals show it is open ${evidence}</div>`;
   }
 
   function renderPmUserActions(task, label) {
@@ -2806,7 +2876,7 @@
     };
     const activeBody = active.length ? active.map(entry => renderEntry(entry, false)).join('') : '<div class="pm-empty">-</div>';
     const doneBody = done.length
-      ? `<details class="done-user-actions"><summary>Von dir erledigt (${done.length})</summary>${done.map(entry => renderEntry(entry, true)).join('')}</details>`
+      ? `<details class="done-user-actions"><summary>Marked done by you (${done.length})</summary>${done.map(entry => renderEntry(entry, true)).join('')}</details>`
       : '';
     return `<section class="pm-section user-actions-section"><h4>${label}</h4>${activeBody}${doneBody}</section>`;
   }
@@ -2836,12 +2906,12 @@
     return `<div class="pm-panel">
       <div class="pm-heading">PM View ${review}</div>
       <div class="pm-grid">
-        ${renderPmSection(task, 'current', 'Stand heute')}
-        ${renderPmSection(task, 'planned', 'Geplant')}
-        ${renderPmSection(task, 'userActions', 'Nutzer-Aktion nötig')}
-        ${renderPmSection(task, 'problems', 'Probleme')}
-        ${renderPmSection(task, 'risks', 'Risiken')}
-        ${renderPmSection(task, 'waitingOn', 'Warten auf')}
+        ${renderPmSection(task, 'current', 'Status today')}
+        ${renderPmSection(task, 'planned', 'Planned')}
+        ${renderPmSection(task, 'userActions', 'Your action required')}
+        ${renderPmSection(task, 'problems', 'Problems')}
+        ${renderPmSection(task, 'risks', 'Risks')}
+        ${renderPmSection(task, 'waitingOn', 'Waiting on')}
       </div>
     </div>`;
   }
@@ -2900,7 +2970,7 @@
       const stats = projectStats(task);
       badges.push('<span class="project-badge">Project</span>');
       badges.push(`<span class="lineitem-count">${stats.open} open${stats.blocked ? ` · ${stats.blocked} blocked` : ''}</span>`);
-      if (stats.userActions) badges.push('<span class="user-action-indicator">Du musst aktiv werden</span>');
+      if (stats.userActions) badges.push('<span class="user-action-indicator">Your action required</span>');
     }
     if (taskNeedsReview(task)) badges.push('<span class="review-badge">Needs review</span>');
     if (isArchivedTask(task)) badges.push('<span class="superseded-badge">Archived</span>');
@@ -3062,9 +3132,12 @@
         <div data-slot="project-lineitems">${renderProjectLineItems(task)}</div>
         <div data-slot="factsheet">${renderFactSheetPanel(task)}</div>
         <div class="panel-log-form" data-slot="form-log">
-          <input type="text" placeholder="Message or update..." onkeydown="if(event.key==='Enter')analyzeLog('${task.id}',this)">
-          <button class="btn btn-primary btn-sm" onclick="analyzeLog('${task.id}',this.previousElementSibling)" title="Send to agent">📤 Send</button>
-          <button class="btn btn-ghost btn-sm" onclick="addNote('${task.id}',this.parentElement.querySelector('input'))" title="Save as note (no agent)">📝 Note</button>
+          <div class="chat-input-wrap">
+            <textarea class="task-chat-input" rows="1" placeholder="Message or update..." oninput="autoGrowChatInput(this)" onkeydown="handleChatKeydown(event,'${task.id}',this)" onpaste="handleChatPaste(event,'${task.id}')" ondragover="handleChatDragOver(event)" ondrop="handleChatDrop(event,'${task.id}')"></textarea>
+            <div class="attachment-preview" data-task-id="${task.id}"></div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="analyzeLog('${task.id}',this.parentElement.querySelector('textarea'))" title="Send to agent">📤 Send</button>
+          <button class="btn btn-ghost btn-sm" onclick="addNote('${task.id}',this.parentElement.querySelector('textarea'))" title="Save as note">📝 Note</button>
         </div>
         <div class="log-plan" id="plan-${task.id}" data-slot="plan"></div>
         <div class="log-clarification" id="clarify-${task.id}" data-slot="form-clarify">
@@ -3093,6 +3166,7 @@
     if (!existing) {
       safeReplaceDetail(renderTaskDetail(task));
       if (typeof applyDraftsToPanel === 'function') applyDraftsToPanel(task.id);
+      if (typeof renderChatAttachmentPreview === 'function') renderChatAttachmentPreview(task.id);
       return;
     }
     const tpl = document.createElement('template');
@@ -3110,6 +3184,7 @@
       if (!oldEl) return;
       if (oldEl.innerHTML !== newEl.innerHTML) oldEl.innerHTML = newEl.innerHTML;
     });
+    if (typeof renderChatAttachmentPreview === 'function') renderChatAttachmentPreview(task.id);
   }
 
   function renderConversations(conversations, taskId) {
@@ -3122,6 +3197,7 @@
 
       if (entry.type === 'note') {
         html += `<div class="agent-msg-user">📝 <strong>${ts}</strong> — ${escHtml(entry.text)}</div>`;
+        html += renderConversationAttachments(entry);
         html += `</div>`;
         return html;
       }
@@ -3143,6 +3219,7 @@
       } else {
         html += `<div class="agent-msg-user">${userIcon} <strong>${ts}</strong> — ${escHtml(entry.text)}</div>`;
       }
+      html += renderConversationAttachments(entry);
 
       // Agent response — collapsible, Markdown formatted
       // For search intents: show agentResponse (final result) if available, otherwise understanding (plan)
@@ -3202,6 +3279,15 @@
     }).join('');
   }
 
+  function renderConversationAttachments(entry) {
+    const attachments = asArray(entry.attachments).filter(attachment => attachment?.url && String(attachment.mimeType || '').startsWith('image/'));
+    if (!attachments.length) return '';
+    return `<div class="conversation-attachments">${attachments.map(attachment => `
+      <a class="conversation-attachment" href="${escHtml(attachment.url)}" target="_blank" rel="noopener" title="${escHtml(attachment.fileName || 'Image attachment')}">
+        <img src="${escHtml(attachment.url)}" alt="">
+      </a>`).join('')}</div>`;
+  }
+
   function renderDetails(conversations, systemEvents, taskId) {
     let detailsHtml = '';
 
@@ -3234,7 +3320,7 @@
         const ex = conv.agentExecution;
         detailsHtml += `<div class="detail-meta" style="border-left:2px solid #f59e0b;margin-top:4px">`;
 
-        // Step 2: GESENDET (promptSent = search parameters sent to Work IQ)
+        // Step 2: SENT (promptSent = search parameters sent to Work IQ)
         const methodLabels = {
           'workiq-ask': 'workiq ask (legacy)',
           'copilot-sdk-search-skill': 'Copilot SDK + SEARCH_SKILL',
@@ -3415,6 +3501,116 @@
   let pendingPlans = {}; // taskId → { plan, originalText, fallback }
   let openPanelTaskIds = new Set(JSON.parse(localStorage.getItem('openPanels') || '[]'));
   let collapsedEntries = new Set(JSON.parse(localStorage.getItem('collapsedEntries') || '[]'));
+  const pendingChatAttachments = new Map();
+  const CHAT_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024;
+
+  function pendingAttachmentsForTask(taskId) {
+    if (!pendingChatAttachments.has(taskId)) pendingChatAttachments.set(taskId, []);
+    return pendingChatAttachments.get(taskId);
+  }
+
+  function autoGrowChatInput(textarea) {
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    const max = parseInt(getComputedStyle(textarea).maxHeight, 10) || 150;
+    textarea.style.height = Math.min(textarea.scrollHeight, max) + 'px';
+  }
+
+  function handleChatKeydown(event, taskId, textarea) {
+    if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
+    event.preventDefault();
+    analyzeLog(taskId, textarea);
+  }
+
+  function addChatAttachmentFiles(taskId, files) {
+    const incoming = Array.from(files || []);
+    if (!incoming.length) return;
+    const bucket = pendingAttachmentsForTask(taskId);
+    for (const file of incoming) {
+      if (!file.type || !file.type.startsWith('image/')) {
+        showNotification('Only image attachments are allowed', 'error');
+        continue;
+      }
+      if (file.size > CHAT_ATTACHMENT_MAX_BYTES) {
+        showNotification('Image attachment exceeds the 10 MB limit', 'error');
+        continue;
+      }
+      bucket.push({
+        localId: `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        file,
+        previewUrl: URL.createObjectURL(file)
+      });
+    }
+    renderChatAttachmentPreview(taskId);
+  }
+
+  function handleChatPaste(event, taskId) {
+    const files = Array.from(event.clipboardData?.files || []).filter(file => file.type?.startsWith('image/'));
+    if (!files.length) return;
+    event.preventDefault();
+    addChatAttachmentFiles(taskId, files);
+  }
+
+  function handleChatDragOver(event) {
+    if (!Array.from(event.dataTransfer?.items || []).some(item => item.type?.startsWith('image/'))) return;
+    event.preventDefault();
+  }
+
+  function handleChatDrop(event, taskId) {
+    const files = Array.from(event.dataTransfer?.files || []).filter(file => file.type?.startsWith('image/'));
+    if (!files.length) return;
+    event.preventDefault();
+    addChatAttachmentFiles(taskId, files);
+  }
+
+  function removeChatAttachment(taskId, localId) {
+    const bucket = pendingAttachmentsForTask(taskId);
+    const idx = bucket.findIndex(item => item.localId === localId);
+    if (idx >= 0) {
+      const [removed] = bucket.splice(idx, 1);
+      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
+    }
+    renderChatAttachmentPreview(taskId);
+  }
+
+  function clearChatAttachments(taskId) {
+    const bucket = pendingAttachmentsForTask(taskId);
+    bucket.forEach(item => { if (item.previewUrl) URL.revokeObjectURL(item.previewUrl); });
+    pendingChatAttachments.set(taskId, []);
+    renderChatAttachmentPreview(taskId);
+  }
+
+  function renderChatAttachmentPreview(taskId) {
+    const preview = document.querySelector(`.attachment-preview[data-task-id="${CSS.escape(taskId)}"]`);
+    if (!preview) return;
+    const bucket = pendingAttachmentsForTask(taskId);
+    preview.classList.toggle('has-items', bucket.length > 0);
+    preview.innerHTML = bucket.map(item => `
+      <div class="attachment-thumb" title="${escHtml(item.file.name)}">
+        <img src="${escHtml(item.previewUrl)}" alt="">
+        <button class="attachment-remove" type="button" title="Remove" onclick="removeChatAttachment('${taskId}','${item.localId}')">×</button>
+      </div>`).join('');
+  }
+
+  async function uploadChatAttachments(taskId) {
+    const bucket = pendingAttachmentsForTask(taskId);
+    const uploaded = [];
+    for (const item of bucket) {
+      const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/attachments`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': item.file.type || 'image/png',
+          'X-File-Name': encodeURIComponent(item.file.name || 'image')
+        },
+        body: item.file
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Attachment upload failed (${res.status})`);
+      uploaded.push(data.attachment);
+    }
+    return uploaded;
+  }
+
   function saveUIState() {
     localStorage.setItem('openPanels', JSON.stringify([...openPanelTaskIds]));
     localStorage.setItem('collapsedEntries', JSON.stringify([...collapsedEntries]));
@@ -3431,9 +3627,10 @@
   // Execute click. See server.js runLogJob for the backend side.
 
   async function analyzeLog(taskId, input) {
-    if (!input || !input.value) return;
-    const text = String(input.value).trim();
-    if (!text) return;
+    if (!input) return;
+    const text = String(input.value || '').trim();
+    const pendingAttachments = pendingAttachmentsForTask(taskId);
+    if (!text && !pendingAttachments.length) return;
     if (activeJobsByTask[taskId]) {
       showNotification('Agent is already working on this task', 'info');
       return;
@@ -3441,17 +3638,20 @@
     const clientRequestId = `log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     input.disabled = true;
     try {
+      const attachments = await uploadChatAttachments(taskId);
       const res = await fetch(`/api/tasks/${taskId}/log`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Idempotency-Key': clientRequestId,
         },
-        body: JSON.stringify({ text, clientRequestId }),
+        body: JSON.stringify({ text, attachments, clientRequestId }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.status === 202) {
         input.value = '';
+        autoGrowChatInput(input);
+        clearChatAttachments(taskId);
         if (typeof clearDraftsForTask === 'function') clearDraftsForTask(taskId);
       } else if (res.status === 409) {
         showNotification(data.error || 'A job is already running for this task', 'info');
@@ -3537,12 +3737,13 @@
         return;
       }
       input.value = '';
+      autoGrowChatInput(input);
       showNotification('📝 Note saved', 'success');
       await fetchTasks();
     } catch (err) {
       showNotification('Failed to save note: ' + err.message, 'error');
     } finally {
-      const freshInput = document.querySelector(`#panel-${taskId} .panel-log-form input`);
+      const freshInput = document.querySelector(`.task-detail-view[data-task-id="${CSS.escape(taskId)}"] .panel-log-form textarea`);
       if (freshInput) freshInput.disabled = false;
     }
   }
@@ -4358,6 +4559,7 @@
       const k = getDraftFieldKey(el);
       if (k && drafts[k] != null && !el.value) {
         el.value = drafts[k];
+        if (el.classList.contains('task-chat-input')) autoGrowChatInput(el);
       }
     });
   }

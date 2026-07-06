@@ -21,7 +21,7 @@ export function isUserOwner(value) {
 }
 
 export function displayOwner(value) {
-  return isUserOwner(value) ? 'Du' : normalizeOwner(value);
+  return isUserOwner(value) ? 'You' : normalizeOwner(value);
 }
 
 function evidenceList(entry) {

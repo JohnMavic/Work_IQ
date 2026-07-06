@@ -389,6 +389,7 @@ function buildGatewayPrompt({ stateFile, factSheetFiles = [], markers, runId }) 
     '',
     'You are an adversarial verifier. You may only approve or hold the proposed marker lines.',
     'Do not call WorkIQ or any external tool. Read only files in the current working directory.',
+    'Always write gateway reasons and any generated review text in English.',
     '',
     `runId: ${runId}`,
     `stateFile: ./${stateFileName}`,
