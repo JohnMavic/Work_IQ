@@ -115,6 +115,20 @@ function renderSingleFactSheetSummary(task, lines) {
 
 function renderPmStatus(task, lines, { brainWorkDir, runId, spillFiles, writeFiles, pmStatusMode }) {
   if (!task.pmStatus) return;
+  const userActions = normalizeArray(task.pmStatus.userActions);
+  if (userActions.length) {
+    const renderedActions = userActions.slice(0, 8).map(entry => {
+      const parts = [
+        `id=${entry.id || '?'}`,
+        `owner=${entry.owner || 'user'}`,
+        entry.userMarkedDoneAt ? `markedDoneAt=${entry.userMarkedDoneAt}` : 'active',
+        truncate(entry.text || '', 120)
+      ];
+      return parts.join(' | ');
+    });
+    lines.push(`  userActions detail: ${renderedActions.join(' || ')}`);
+    if (userActions.length > renderedActions.length) lines.push(`  userActions omitted: ${userActions.length - renderedActions.length}`);
+  }
   if (writeFiles && pmStatusMode === 'spill') {
     const filename = `pmstatus-${safeFilePart(task.id)}-${safeFilePart(runId)}.md`;
     const spill = writeJsonSpill({

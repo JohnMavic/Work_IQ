@@ -50,12 +50,23 @@ Fact Sheet and current evidence. If any answer is uncertain, emit `NEEDS_REVIEW`
 - Does the Fact Sheet contain errors corrected by this information?
 - Is it really THIS project, or a similar one in another country, location, or organization?
 - Is the app user Martin involved at all?
+- Is a `pmStatus.userActions` entry really an action Martin must personally do,
+  or is it owned by another project member?
 - Is the result consistent, for example not "completed" and "waiting for delivery" at the same time?
 
 ## Evidence Rules
 
 - Every new or changed status, problem, risk, waiting item, or user action requires
   an evidence reference.
+- `pmStatus.userActions` is only for actions Martin, the app user, must personally
+  do. Use `owner:"user"` or omit owner there. If another person or role owns the
+  action, put it in a line item or Fact Sheet `openActions` entry with explicit
+  `owner`.
+- Existing user actions have stable `id` values. Reuse the existing `id` when the
+  same action remains open. If an action marked with `userMarkedDoneAt` is still
+  open or has reopened, re-emit the same action with `userMarkedDoneAt:null` and
+  current evidence. If current evidence confirms it is closed, omit it from
+  `pmStatus.userActions`; the server will write the closure history.
 - Evidence references must point to `sourceRefs` already in state or introduced in
   the same marker batch.
 - Existing sourceRefs from the state document are referenced by their `src-...` id.
@@ -117,6 +128,8 @@ markers in code fences.
 - Never invent sourceRef ids.
 - When emitting `PROJECT_UPDATE.pmStatus`, re-emit every pmStatus entry that should
   remain. The server replaces the whole `pmStatus` object; missing entries are removed.
+- Do not invent or assign `userMarkedDoneAt`. That flag is user-controlled; only
+  use explicit `null` to say a previously marked action is open again.
 - Keep `FACTSHEET_UPDATE.sectionPatches` additive/corrective. Deletions require
   `op:"remove"`, `entryId`, `reason`, and `evidenceRefIds`.
 - Use the fixed Fact Sheet section order and English content: Overview; Scope & Goals;

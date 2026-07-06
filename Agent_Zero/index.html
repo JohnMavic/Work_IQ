@@ -465,8 +465,20 @@
       background: rgba(148,163,184,0.13); color: #cbd5e1; border: 1px solid rgba(148,163,184,0.2);
       white-space: nowrap;
     }
+    .owner-chip.user { color: #e0f2fe; border-color: rgba(14,165,233,0.32); background: rgba(14,165,233,0.14); font-weight: 700; }
     .status-chip.blocked { color: #fecaca; background: rgba(239,68,68,0.13); border-color: rgba(239,68,68,0.28); }
     .status-chip.done { color: #bbf7d0; background: rgba(34,197,94,0.12); border-color: rgba(34,197,94,0.25); }
+    .user-actions-section { border-color: rgba(239,68,68,0.32); background: rgba(127,29,29,0.12); }
+    .user-action-entry.done { opacity: 0.82; }
+    .user-action-check { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; align-items: start; cursor: pointer; }
+    .user-action-check input { margin-top: 2px; accent-color: #22c55e; }
+    .done-user-actions { margin-top: 8px; border-top: 1px solid rgba(148,163,184,0.16); padding-top: 6px; }
+    .done-user-actions summary { cursor: pointer; color: #bbf7d0; font-size: 0.76rem; margin-bottom: 4px; }
+    .done-pending-badge {
+      color: #bbf7d0; background: rgba(34,197,94,0.12); border: 1px solid rgba(34,197,94,0.25);
+      border-radius: 4px; padding: 1px 5px; font-size: 0.68rem;
+    }
+    .user-action-reopened { color: #fca5a5; font-size: 0.72rem; margin-top: 2px; }
 
     .task-summary {
       font-size: 0.85em;
@@ -1624,6 +1636,40 @@
     }
   }
 
+  async function toggleUserActionDone(taskId, userActionId, checked, checkbox) {
+    if (frozenTasks.has(taskId)) {
+      if (checkbox) checkbox.checked = !checked;
+      return;
+    }
+    if (!userActionId) return;
+    if (checkbox) checkbox.disabled = true;
+    try {
+      const res = await fetch(`/api/tasks/${taskId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userActionId,
+          userMarkedDoneAt: checked ? new Date().toISOString() : null
+        })
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (checkbox) checkbox.checked = !checked;
+        showNotification(payload.error || 'Failed to update action', 'error');
+        return;
+      }
+      const idx = tasks.findIndex(t => t.id === taskId);
+      if (idx !== -1) tasks[idx] = payload;
+      await fetchTasks();
+      showNotification(checked ? 'Action marked done' : 'Action moved back to active', 'success');
+    } catch (err) {
+      if (checkbox) checkbox.checked = !checked;
+      showNotification('Network error: ' + err.message, 'error');
+    } finally {
+      if (checkbox) checkbox.disabled = false;
+    }
+  }
+
   function updateTaskCount() {
     const filtered = currentFilter === 'all' ? tasks : tasks.filter(t => t.status === currentFilter);
     const countEl = document.getElementById('taskCount');
@@ -2536,7 +2582,7 @@
     const blocked = items.filter(item => item.status === 'blocked' || item.problem).length;
     const userActions = asArray(task.pmStatus?.userActions).filter(entry => {
       if (typeof entry === 'string') return entry.trim();
-      return entry && entry.text;
+      return entry && entry.text && !entry.userMarkedDoneAt;
     }).length;
     return { total: items.length, open, blocked, userActions };
   }
@@ -2636,6 +2682,7 @@
 
   function factSheetEntryText(entry) {
     const parts = [];
+    if (entry.owner) parts.push(`Owner: ${entry.owner}`);
     if (entry.person) parts.push(entry.person);
     if (entry.role) parts.push(entry.role);
     if (entry.organization) parts.push(entry.organization);
@@ -2694,14 +2741,20 @@
 
   function pmEntryFromValue(value, fallbackConfidence) {
     if (!value) return null;
-    if (typeof value === 'string') return value.trim() ? { text: value, confidence: fallbackConfidence || 'low' } : null;
+    if (typeof value === 'string') return value.trim() ? { text: value, evidenceRefIds: [], owner: null, userMarkedDoneAt: null, confidence: fallbackConfidence || 'low' } : null;
     if (typeof value !== 'object') return null;
     const text = value.text || value.current || value.summary || '';
     if (!String(text).trim()) return null;
     return {
+      id: value.id || null,
       text,
       date: value.date || value.dueAt || value.at || null,
       evidence: value.evidence || value.evidenceRefId || value.sourceRefId || null,
+      evidenceRefIds: asArray(value.evidenceRefIds),
+      owner: value.owner || null,
+      userMarkedDoneAt: value.userMarkedDoneAt || null,
+      reopenedUserMarkedDoneAt: value.reopenedUserMarkedDoneAt || null,
+      reopenedEvidenceRefIds: asArray(value.reopenedEvidenceRefIds),
       confidence: value.confidence || fallbackConfidence || 'low'
     };
   }
@@ -2715,15 +2768,60 @@
     return asArray(pm[field]).map(entry => pmEntryFromValue(entry, pm.confidence)).filter(Boolean);
   }
 
+  function ownerChip(owner) {
+    if (!owner) return '';
+    const isUser = String(owner).toLowerCase() === 'user';
+    const label = isUser ? 'Du' : `Owner: ${owner}`;
+    return `<span class="status-chip owner-chip${isUser ? ' user' : ''}">${escHtml(label)}</span>`;
+  }
+
+  function userMarkedDoneBadge(entry) {
+    if (!entry.userMarkedDoneAt) return '';
+    return `<span class="done-pending-badge">von dir erledigt am ${escHtml(formatSourceDate(entry.userMarkedDoneAt))} - Bestätigung ausstehend</span>`;
+  }
+
+  function reopenedUserActionHint(entry, task) {
+    if (!entry.reopenedUserMarkedDoneAt) return '';
+    const evidence = asArray(entry.reopenedEvidenceRefIds).map(id => renderEvidenceLink(task, id)).filter(Boolean).join('');
+    return `<div class="user-action-reopened">am ${escHtml(formatSourceDate(entry.reopenedUserMarkedDoneAt))} als erledigt markiert, neue Signale zeigen offen ${evidence}</div>`;
+  }
+
+  function renderPmUserActions(task, label) {
+    const entries = pmEntries(task, 'userActions');
+    const active = entries.filter(entry => !entry.userMarkedDoneAt);
+    const done = entries.filter(entry => entry.userMarkedDoneAt);
+    const renderEntry = (entry, checked) => {
+      const evidenceIds = entry.evidenceRefIds.length ? entry.evidenceRefIds : (entry.evidence ? [entry.evidence] : []);
+      const evidence = evidenceIds.map(id => renderEvidenceLink(task, id)).filter(Boolean).join('');
+      const date = entry.date ? `<span>${escHtml(String(entry.date).substring(0, 10))}</span>` : '';
+      const id = entry.id || '';
+      return `<div class="pm-entry user-action-entry${checked ? ' done' : ''}">
+        <label class="user-action-check">
+          <input type="checkbox" ${checked ? 'checked' : ''} ${id ? '' : 'disabled'} onchange="toggleUserActionDone('${task.id}','${escHtml(id)}',this.checked,this)">
+          <span>${escHtml(entry.text)}</span>
+        </label>
+        ${reopenedUserActionHint(entry, task)}
+        <div class="pm-entry-meta">${ownerChip(entry.owner || 'user')}${date}${evidence}${confidenceBadge(entry.confidence)}${userMarkedDoneBadge(entry)}</div>
+      </div>`;
+    };
+    const activeBody = active.length ? active.map(entry => renderEntry(entry, false)).join('') : '<div class="pm-empty">-</div>';
+    const doneBody = done.length
+      ? `<details class="done-user-actions"><summary>Von dir erledigt (${done.length})</summary>${done.map(entry => renderEntry(entry, true)).join('')}</details>`
+      : '';
+    return `<section class="pm-section user-actions-section"><h4>${label}</h4>${activeBody}${doneBody}</section>`;
+  }
+
   function renderPmSection(task, field, label) {
+    if (field === 'userActions') return renderPmUserActions(task, label);
     const entries = pmEntries(task, field);
     const body = entries.length
       ? entries.map(entry => {
-          const evidence = renderEvidenceLink(task, entry.evidence);
+          const evidenceIds = entry.evidenceRefIds?.length ? entry.evidenceRefIds : (entry.evidence ? [entry.evidence] : []);
+          const evidence = evidenceIds.map(id => renderEvidenceLink(task, id)).filter(Boolean).join('');
           const date = entry.date ? `<span>${escHtml(String(entry.date).substring(0, 10))}</span>` : '';
           return `<div class="pm-entry">
             <div>${escHtml(entry.text)}</div>
-            <div class="pm-entry-meta">${date}${evidence}${confidenceBadge(entry.confidence)}</div>
+            <div class="pm-entry-meta">${ownerChip(entry.owner)}${date}${evidence}${confidenceBadge(entry.confidence)}</div>
           </div>`;
         }).join('')
       : '<div class="pm-empty">-</div>';
@@ -2761,7 +2859,7 @@
       ? items.map(item => {
           const status = item.status || 'open';
           const chipClass = status === 'blocked' ? ' blocked' : (status === 'done' ? ' done' : '');
-          const owner = item.owner ? `<span class="status-chip">${escHtml(item.owner)}</span>` : '';
+          const owner = item.owner ? ownerChip(item.owner) : '';
           const due = item.dueAt ? `<span class="status-chip">${escHtml(String(item.dueAt).substring(0, 10))}</span>` : '';
           const evidence = latestLineItemEvidence(task, item);
           const review = item.needsReview ? '<span class="review-badge">Needs review</span>' : '';

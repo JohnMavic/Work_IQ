@@ -26,6 +26,7 @@ const FACTSHEET_ENTRY_FIELDS = new Set([
   'confidence',
   'sourceType',
   'title',
+  'owner',
   'person',
   'role',
   'organization',
@@ -239,6 +240,7 @@ function pushEntry(sections, sectionId, entry) {
   sections[sectionId].push({
     id: entry.id,
     text: entry.text,
+    owner: entry.owner || null,
     date: entry.date || null,
     evidenceRefIds: normalizeArray(entry.evidenceRefIds),
     confidence: entry.confidence || 'medium'
@@ -272,6 +274,7 @@ export function bootstrapFactSheetFromTask(task, { now = new Date(), idFactory =
     pushEntry(sections, 'timelineMilestones', {
       id: idFactory('fs-timeline'),
       text: entry.text,
+      owner: entry.owner || 'user',
       date: entry.date || null,
       evidenceRefIds: entry.evidence ? [entry.evidence] : [],
       confidence: entry.confidence || pm.confidence || 'medium'
@@ -306,6 +309,7 @@ export function bootstrapFactSheetFromTask(task, { now = new Date(), idFactory =
     pushEntry(sections, target, {
       id: idFactory(`fs-${target}`),
       text: [item.title, item.currentState].filter(Boolean).join(': '),
+      owner: item.owner || null,
       date: item.dueAt || null,
       evidenceRefIds: normalizeArray(item.evidenceRefIds),
       confidence: item.confidence || 'medium'
@@ -345,6 +349,7 @@ export function renderFactSheetMarkdown(task) {
       if (entry.date) parts.push(`date=${entry.date}`);
       if (entry.evidenceRefIds?.length) parts.push(`evidence=${entry.evidenceRefIds.join(',')}`);
       if (entry.confidence) parts.push(`confidence=${entry.confidence}`);
+      if (entry.owner) parts.push(`owner=${entry.owner}`);
       if (entry.organization) parts.push(`org=${entry.organization}`);
       if (entry.location) parts.push(`location=${entry.location}`);
       if (entry.country) parts.push(`country=${entry.country}`);

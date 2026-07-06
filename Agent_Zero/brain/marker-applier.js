@@ -14,6 +14,11 @@ import {
   normalizeFactSheet,
   validateFactSheetSectionPatches
 } from './factsheet.js';
+import {
+  isUserOwner,
+  mergeUserActionCarryForward,
+  normalizePmStatusUserActions
+} from './user-actions.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -226,6 +231,9 @@ function validatePmStatus(pmStatus) {
     for (const entry of pmStatus[field]) {
       if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return `pmStatus.${field} entries must be objects`;
       if (typeof entry.text !== 'string' || !entry.text.trim()) return `pmStatus.${field} entries require text`;
+      if (field === 'userActions' && entry.owner !== undefined && !isUserOwner(entry.owner)) {
+        return 'pmStatus.userActions entries must be owned by the app user';
+      }
     }
   }
   return null;
@@ -450,15 +458,15 @@ function normalizeLineItem(item, { now, idFactory }) {
 function normalizePmStatus(pmStatus, now) {
   if (!pmStatus) return null;
   const ts = nowIso(now);
-  const result = {
+  const result = normalizePmStatusUserActions({
     current: pmStatus.current || '',
     confidence: pmStatus.confidence || 'low',
     lastSynthesizedAt: pmStatus.lastSynthesizedAt || ts
-  };
+  });
   for (const field of PM_LIST_FIELDS) {
     result[field] = normalizeArray(pmStatus[field]).map(entry => ({ ...entry }));
   }
-  return result;
+  return normalizePmStatusUserActions(result);
 }
 
 function mergeSourceRefs(existing, additions) {
@@ -575,7 +583,19 @@ function applyProjectUpdate(data, payload, context) {
   const additions = normalizeArray(payload.sourceRefs).map(ref => normalizeSourceRef(ref, context));
   if (payload.title) task.title = payload.title;
   if (payload.summary !== undefined) task.summary = payload.summary;
-  if (payload.pmStatus !== undefined) task.pmStatus = normalizePmStatus(payload.pmStatus, context.now);
+  if (payload.pmStatus !== undefined) {
+    const normalizedIncoming = normalizePmStatus(payload.pmStatus, context.now);
+    const merged = mergeUserActionCarryForward(task.pmStatus, normalizedIncoming, {
+      now: context.now,
+      evidenceRefIds: payload.evidenceRefIds,
+      rawIncomingPmStatus: payload.pmStatus
+    });
+    task.pmStatus = merged.pmStatus;
+    if (merged.historyEvents.length) {
+      task.history = normalizeArray(task.history);
+      task.history.push(...merged.historyEvents);
+    }
+  }
   if (additions.length) {
     task.sourceRefs = mergeSourceRefs(task.sourceRefs, additions);
     task.additionalLinks = normalizeArray(task.sourceRefs).map(ref => ref.link).filter(Boolean);
