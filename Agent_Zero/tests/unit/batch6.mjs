@@ -29,6 +29,28 @@ function markerObj(type, payload) {
   return { type, payload, raw: marker(type, payload) };
 }
 
+function actionProof(overrides = {}) {
+  return {
+    threadRef: 'conv-batch6-proof',
+    askQuote: {
+      text: 'Please send the quote.',
+      from: 'Alex',
+      date: '2026-07-06T08:00:00.000Z',
+      threadRef: 'conv-batch6-proof'
+    },
+    resolutionStatus: 'open',
+    lastVerifiedMessageDate: '2026-07-06T09:00:00.000Z',
+    threadCheck: {
+      coverage: 'complete',
+      addressedTo: 'user',
+      messageCount: 3,
+      lastMessageDate: '2026-07-06T09:00:00.000Z',
+      checkedThroughMessageDate: '2026-07-06T09:00:00.000Z'
+    },
+    ...overrides
+  };
+}
+
 function writeFixture(dir, data) {
   const file = path.join(dir, 'tasks.json');
   fs.writeFileSync(file, `${JSON.stringify(migrateToV5(data), null, 2)}\n`, 'utf8');
@@ -93,6 +115,7 @@ test('B foreign-owner action is rejected from userActions and can be preserved a
         status: 'open',
         owner: 'Alex',
         currentState: 'Alex owns this follow-up.',
+        ...actionProof(),
         evidenceRefIds: ['src-b6']
       }
     })
@@ -119,6 +142,14 @@ test('C userMarkedDoneAt survives PROJECT_UPDATE carry-forward for identical use
         evidence: 'src-b6',
         evidenceRefIds: ['src-b6'],
         confidence: 'medium',
+        ...actionProof({
+          askQuote: {
+            text: 'Please send the confirmation mail.',
+            from: 'Alex',
+            date: '2026-07-06T08:00:00.000Z',
+            threadRef: 'conv-batch6-proof'
+          }
+        }),
         userMarkedDoneAt: '2026-07-06T10:00:00.000Z'
       }],
       problems: [],
@@ -203,6 +234,14 @@ test('C confirmed and contradicted user-marked actions reconcile through history
         evidence: 'src-b6',
         evidenceRefIds: ['src-b6'],
         confidence: 'medium',
+        ...actionProof({
+          askQuote: {
+            text: 'Please send the confirmation mail.',
+            from: 'Alex',
+            date: '2026-07-06T08:00:00.000Z',
+            threadRef: 'conv-batch6-proof'
+          }
+        }),
         userMarkedDoneAt: null
       }],
       problems: [],

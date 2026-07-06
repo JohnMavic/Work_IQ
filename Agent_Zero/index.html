@@ -334,6 +334,23 @@
     .detail-header .task-title { font-size: 1.05rem; }
     .detail-header .task-meta { font-size: 0.78rem; }
     .detail-header .task-meta a { font-size: 0.78rem; }
+    .processing-header {
+      display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+      color: #cbd5e1; font-size: 0.74rem;
+    }
+    .processing-header span, .conflict-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      border: 1px solid rgba(148,163,184,0.22); border-radius: 4px;
+      padding: 2px 6px; background: rgba(15,23,42,0.42);
+    }
+    .conflict-badge { color: #fecaca; border-color: rgba(239,68,68,0.35); background: rgba(127,29,29,0.18); }
+    .conflict-panel {
+      border: 1px solid rgba(239,68,68,0.28); border-radius: 6px;
+      background: rgba(127,29,29,0.12); padding: 10px;
+    }
+    .conflict-panel h4 { margin: 0 0 8px; font-size: 0.82rem; color: #fecaca; }
+    .conflict-item { color: #e5e7eb; font-size: 0.8rem; padding-top: 6px; border-top: 1px solid rgba(239,68,68,0.18); }
+    .conflict-item:first-of-type { border-top: 0; padding-top: 0; }
     .task-detail-view.frozen .panel-log-form input,
     .task-detail-view.frozen .panel-log-form button,
     .task-detail-view.frozen .ambiguity-response-form input,
@@ -2654,7 +2671,65 @@
       if (typeof entry === 'string') return entry.trim();
       return entry && entry.text && !entry.userMarkedDoneAt;
     }).length;
-    return { total: items.length, open, blocked, userActions };
+    const conflicts = openConflictCount(task);
+    return { total: items.length, open, blocked, userActions, conflicts };
+  }
+
+  function truthTreeNodes(task) {
+    const nodes = [];
+    const pm = task?.pmStatus || {};
+    ['planned', 'userActions', 'problems', 'risks', 'waitingOn'].forEach(field => {
+      asArray(pm[field]).forEach(entry => nodes.push({ ...entry, _nodeLabel: entry?.text || field }));
+    });
+    asArray(task?.lineItems).forEach(item => nodes.push({ ...item, _nodeLabel: item?.title || item?.id || 'Line item' }));
+    const sections = task?.factSheet?.sections || {};
+    Object.values(sections).forEach(entries => {
+      asArray(entries).filter(entry => !entry?.removedAt).forEach(entry => nodes.push({ ...entry, _nodeLabel: entry?.text || entry?.title || entry?.person || entry?.id || 'Fact' }));
+    });
+    return nodes;
+  }
+
+  function openConflictCount(task) {
+    return truthTreeNodes(task).filter(node => node.state === 'disputed').length;
+  }
+
+  function projectLedgerStats(task) {
+    const ledger = asArray(task?.processing?.ledger);
+    const cursor = task?.processing?.cursorDate || null;
+    const lookbackDays = task?.processing?.lookbackDays || 14;
+    const treeUpdates = ledger.filter(item => ['updates-node', 'new-node', 'conflict'].includes(item.disposition)).length;
+    return {
+      cursor,
+      lookbackDays,
+      considered: ledger.length,
+      treeUpdates,
+      conflicts: openConflictCount(task)
+    };
+  }
+
+  function renderProjectVisibilityHeader(task) {
+    if (!isProjectTask(task)) return '';
+    const stats = projectLedgerStats(task);
+    const cursor = stats.cursor ? formatSourceDate(stats.cursor) : 'not yet processed';
+    return `<div class="processing-header" title="Counts reflect items surfaced by WorkIQ and accepted into the Batch 7 ledger. Lookback window: ${escHtml(String(stats.lookbackDays))} days.">
+      <span>Processed up to ${escHtml(cursor)}</span>
+      <span>${stats.considered} items considered as surfaced by WorkIQ</span>
+      <span>${stats.treeUpdates} tree updates</span>
+      <span class="${stats.conflicts ? 'conflict-badge' : ''}">${stats.conflicts} open conflicts</span>
+    </div>`;
+  }
+
+  function renderConflictPanel(task) {
+    const conflicts = truthTreeNodes(task).filter(node => node.state === 'disputed');
+    if (!conflicts.length) return '';
+    const body = conflicts.map(node => {
+      const positions = asArray(node.conflict?.positions)
+        .map(position => [position.from, position.date, position.text || position.quote].filter(Boolean).join(' · '))
+        .filter(Boolean)
+        .join(' | ');
+      return `<div class="conflict-item"><strong>${escHtml(node._nodeLabel)}</strong>${positions ? `<div>${escHtml(positions)}</div>` : ''}</div>`;
+    }).join('');
+    return `<div class="conflict-panel"><h4>Conflicting information</h4>${body}</div>`;
   }
 
   function taskNeedsReview(task) {
@@ -2971,6 +3046,7 @@
       badges.push('<span class="project-badge">Project</span>');
       badges.push(`<span class="lineitem-count">${stats.open} open${stats.blocked ? ` · ${stats.blocked} blocked` : ''}</span>`);
       if (stats.userActions) badges.push('<span class="user-action-indicator">Your action required</span>');
+      if (stats.conflicts) badges.push(`<span class="conflict-badge">${stats.conflicts} conflict${stats.conflicts !== 1 ? 's' : ''}</span>`);
     }
     if (taskNeedsReview(task)) badges.push('<span class="review-badge">Needs review</span>');
     if (isArchivedTask(task)) badges.push('<span class="superseded-badge">Archived</span>');
@@ -3118,6 +3194,7 @@
             <span>${fromText}${separator}${dateText}</span>
             ${linkHtml}
           </div>
+          ${renderProjectVisibilityHeader(task)}
           ${timestampHtml}`;
 
     return `
@@ -3126,6 +3203,7 @@
         <div data-slot="sourceRefs">${renderSourceRefsList(task)}</div>
         <div data-slot="summary">${summaryHtml}</div>
         <div data-slot="ambiguity">${ambiguityHtml}</div>
+        <div data-slot="conflicts">${renderConflictPanel(task)}</div>
         <div data-slot="notes">${notesHtml}</div>
         <div data-slot="superseded">${renderSupersededHint(task)}</div>
         <div data-slot="project-pm">${renderProjectPm(task)}</div>

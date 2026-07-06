@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { COPILOT_MODEL } from './agency-cli.js';
 import { normalizeFactSheet } from './factsheet.js';
+import { normalizeProcessing } from './processing-ledger.js';
 import { normalizePmStatusUserActions } from './user-actions.js';
 
 export const V5_BRAIN_DEFAULTS = {
@@ -174,6 +175,35 @@ function normalizeBrainState(value) {
   };
 }
 
+function normalizeLineItemNode(item) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+  return {
+    state: 'unconfirmed',
+    sources: [],
+    lastConfirmedByMessageDate: null,
+    ...item
+  };
+}
+
+function normalizePmNodeEntry(entry) {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
+  return {
+    state: 'unconfirmed',
+    sources: [],
+    lastConfirmedByMessageDate: null,
+    ...entry
+  };
+}
+
+function normalizePmStatusTreeNodes(pmStatus) {
+  if (!pmStatus || typeof pmStatus !== 'object' || Array.isArray(pmStatus)) return pmStatus;
+  const result = { ...pmStatus };
+  for (const field of ['planned', 'userActions', 'problems', 'risks', 'waitingOn']) {
+    result[field] = normalizeArray(result[field]).map(normalizePmNodeEntry);
+  }
+  return result;
+}
+
 export function migrateToV5(input) {
   const data = input && typeof input === 'object' ? structuredClone(input) : {};
   const tasks = Array.isArray(data.tasks) ? data.tasks : [];
@@ -195,11 +225,12 @@ export function migrateToV5(input) {
     if (migrated.archived === undefined) migrated.archived = false;
     if (migrated.supersededBy === undefined) migrated.supersededBy = null;
     migrated.supersedesTaskIds = normalizeArray(migrated.supersedesTaskIds);
-    migrated.lineItems = normalizeArray(migrated.lineItems);
+    migrated.lineItems = normalizeArray(migrated.lineItems).map(normalizeLineItemNode);
     migrated.sourceRefs = normalizeArray(migrated.sourceRefs);
     if (migrated.pmStatus === undefined) migrated.pmStatus = null;
-    if (migrated.pmStatus) migrated.pmStatus = normalizePmStatusUserActions(migrated.pmStatus);
+    if (migrated.pmStatus) migrated.pmStatus = normalizePmStatusTreeNodes(normalizePmStatusUserActions(migrated.pmStatus));
     migrated.factSheet = normalizeFactSheet(migrated.factSheet, { now: migrated.updatedAt || null });
+    if (migrated.taskType === 'project') migrated.processing = normalizeProcessing(migrated.processing);
     migrated.brainState = normalizeBrainState(migrated.brainState);
     return migrated;
   });

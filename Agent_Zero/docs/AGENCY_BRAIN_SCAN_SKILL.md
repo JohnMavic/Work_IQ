@@ -63,6 +63,64 @@ Fact Sheet and current evidence. If any answer is uncertain, emit `NEEDS_REVIEW`
   or is it owned by another project member?
 - Is the result consistent, for example not "completed" and "waiting for delivery" at the same time?
 
+## Batch 7 Thread And Action Gate
+
+For any thread that can create or change an action, status, risk, problem, waiting item,
+line item, or Fact Sheet fact, do not rely on lossy WorkIQ summaries. Use targeted
+thread gate probes, not full-thread dumps:
+
+- Ask whether Martin was directly addressed in TO or by @mention/name, and require a
+  verbatim sentence with sender and date.
+- Ask whether later messages in the same stable conversation/item id resolved the
+  request, by whom, with verbatim resolution quote and date.
+- Ask whether referenced dates are already in the past and whether newer evidence
+  proves the action is still open.
+- Ask for the thread message count and last message date, then verify that the probe
+  covered messages through that last message date.
+
+Visible actions must pass all three gates before you emit them:
+
+- Direct ask: include `askQuote:{text,from,date,threadRef}` and `threadRef` as the
+  stable WorkIQ conversation/item id, not the subject line.
+- Unresolved: include `resolutionStatus:"open"`, `lastVerifiedMessageDate`, and
+  `threadCheck:{coverage:"complete",messageCount,lastMessageDate,checkedThroughMessageDate}`.
+- Direct addressing must be explicit in `threadCheck.addressedTo`; `cc-only`,
+  `collective`, or unclear addressing becomes `NEEDS_REVIEW`.
+- Time-valid: if a referenced date is in the past, do not emit the old action unless
+  `currentJustificationQuote:{text,from,date}` proves it remains open now.
+
+If another person owns the action, put it in a line item or Fact Sheet Open Action with
+explicit `owner` and the same action-gate proof. If later evidence resolves an action,
+do not keep it as visible open action; record the resolved fact with `resolvedBy`
+evidence or use `NEEDS_REVIEW` if the proof is incomplete.
+
+## Batch 7 Processing Ledger
+
+For every project touched by the scan, enumerate new items surfaced by WorkIQ using
+the project's cursor with a lookback window (`cursorDate - lookbackDays`, default 14)
+so late-indexed messages are reconsidered. Each surfaced item must have exactly one
+ledger disposition before the run can be applied:
+
+`{itemRef, threadRef, date, disposition, nodeRefs, quote, reason}`
+
+Allowed dispositions are `updates-node`, `no-change`, `new-node`, `conflict`,
+`not-this-project`, and `already-processed`. `no-change` and `not-this-project` still
+require a quote and reason. Include count probes in `SCAN_DONE.processingQuality`:
+`{required:true, enumeratedItems:[...], threadCounts:[{threadRef,count}]}`. The server
+will hold the entire scan as partial if any enumerated item lacks a valid disposition
+or if a thread count does not match the ledger.
+
+Each truth-tree node you emit or change must carry:
+
+- `state:"confirmed|disputed|superseded|obsolete"`; use `disputed` only with
+  `conflict.positions` containing both conflicting quotes, people, and dates.
+- `sources:[]` and `lastConfirmedByMessageDate`.
+- For actions/open action nodes: `threadRef`, `lastVerifiedMessageDate`, and
+  `resolutionStatus`.
+
+Never silently choose between contradictory sources. Mark the node `disputed`, keep both
+positions, and surface the issue as a project problem.
+
 ## Evidence Rules
 
 - Every new or changed status, problem, risk, waiting item, or user action requires
@@ -96,9 +154,10 @@ Fact Sheet and current evidence. If any answer is uncertain, emit `NEEDS_REVIEW`
 
 ## WorkIQ Budget
 
-Use at most 10 WorkIQ calls. Start broad enough to find current signals, then narrow by
-project/task context. Stop early when the state is already current or evidence is weak.
-The orchestrator may terminate the run if the hard tool-call limit is exceeded.
+Use at most 20 WorkIQ calls when possible; the orchestrator hard limit is 40. Start
+broad enough to find current signals, then narrow by project/task context and targeted
+gate probes. Stop early when the state is already current or evidence is weak. The
+orchestrator may terminate the run if the hard tool-call limit is exceeded.
 
 ## State Files
 
@@ -119,15 +178,15 @@ Emit one marker per physical line. JSON must be single-line valid JSON. Do not w
 markers in code fences.
 
 ```text
-[PROJECT_NEW] {"projectKey":"...","title":"...","aliases":[],"summary":"...","pmStatus":{"current":"...","planned":[{"text":"...","date":"...","evidence":"src-...","confidence":"medium"}],"userActions":[],"problems":[],"risks":[],"waitingOn":[],"confidence":"medium","lastSynthesizedAt":"..."},"sourceRefs":[{"id":"src-...","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","sourceTaskId":"...","firstSeenAt":"...","lastSeenAt":"...","evidenceText":"short factual summary"}],"lineItems":[{"id":"li-...","title":"...","category":"workstream|action|decision|dependency|risk|info","status":"open|in-progress|waiting|blocked|done|on-radar","owner":null,"userActionRequired":false,"userAction":null,"currentState":"...","plannedNext":null,"dueAt":null,"waitingOn":null,"problem":null,"risk":null,"confidence":"medium","evidenceRefIds":["src-..."],"sourceTaskIds":["task-..."]}],"supersedesTaskIds":[]}
-[PROJECT_UPDATE] {"taskId":"task-...","title":"...","summary":"...","pmStatus":{"current":"...","planned":[],"userActions":[],"problems":[],"risks":[],"waitingOn":[],"confidence":"medium","lastSynthesizedAt":"..."},"sourceRefs":[],"supersedesTaskIds":[],"evidenceRefIds":["src-..."]}
-[FACTSHEET_UPDATE] {"taskId":"task-...","sectionPatches":{"overview":[{"op":"add","text":"English fact","date":"2026-07-06","evidenceRefIds":["src-..."],"confidence":"medium"}],"peopleRoles":[{"op":"add","person":"...","role":"...","organization":"...","location":"...","country":"...","contact":"...","evidenceRefIds":["src-..."],"confidence":"medium"}]}}
-[LINEITEM_NEW] {"taskId":"task-...","lineItem":{"id":"li-...","title":"...","category":"action","status":"open","owner":null,"userActionRequired":false,"userAction":null,"currentState":"...","plannedNext":null,"dueAt":null,"waitingOn":null,"problem":null,"risk":null,"confidence":"medium","evidenceRefIds":["src-..."],"sourceTaskIds":[]}}
-[LINEITEM_UPDATE] {"taskId":"task-...","lineItemId":"li-...","patch":{"status":"waiting","currentState":"...","confidence":"medium"},"evidenceRefIds":["src-..."]}
+[PROJECT_NEW] {"projectKey":"...","title":"...","aliases":[],"summary":"...","pmStatus":{"current":"...","planned":[{"text":"...","date":"...","evidence":"src-...","confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}],"userActions":[],"problems":[],"risks":[],"waitingOn":[],"confidence":"medium","lastSynthesizedAt":"..."},"sourceRefs":[{"id":"src-...","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","sourceTaskId":"...","firstSeenAt":"...","lastSeenAt":"...","evidenceText":"short factual summary"}],"lineItems":[{"id":"li-...","title":"...","category":"workstream|action|decision|dependency|risk|info","status":"open|in-progress|waiting|blocked|done|on-radar","owner":null,"userActionRequired":false,"userAction":null,"currentState":"...","plannedNext":null,"dueAt":null,"waitingOn":null,"problem":null,"risk":null,"confidence":"medium","evidenceRefIds":["src-..."],"sourceTaskIds":["task-..."],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open"}],"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":["li-..."],"quote":"short verbatim quote","reason":"why this disposition is correct"}],"supersedesTaskIds":[]}
+[PROJECT_UPDATE] {"taskId":"task-...","title":"...","summary":"...","pmStatus":{"current":"...","planned":[],"userActions":[],"problems":[],"risks":[],"waitingOn":[],"confidence":"medium","lastSynthesizedAt":"..."},"sourceRefs":[],"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["li-..."],"quote":"short verbatim quote","reason":"why this disposition is correct"}],"supersedesTaskIds":[],"evidenceRefIds":["src-..."]}
+[FACTSHEET_UPDATE] {"taskId":"task-...","sectionPatches":{"overview":[{"op":"add","text":"English fact","date":"2026-07-06","evidenceRefIds":["src-..."],"confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}],"peopleRoles":[{"op":"add","person":"...","role":"...","organization":"...","location":"...","country":"...","contact":"...","evidenceRefIds":["src-..."],"confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}]},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["fs-..."],"quote":"short verbatim quote","reason":"why this disposition is correct"}]}
+[LINEITEM_NEW] {"taskId":"task-...","lineItem":{"id":"li-...","title":"...","category":"action","status":"open","owner":"Alex","userActionRequired":false,"userAction":"...","currentState":"...","plannedNext":null,"dueAt":null,"waitingOn":null,"problem":null,"risk":null,"confidence":"medium","evidenceRefIds":["src-..."],"sourceTaskIds":[],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open","askQuote":{"text":"...","from":"...","date":"...","threadRef":"conversation-id"},"threadCheck":{"coverage":"complete","addressedTo":"Alex","messageCount":12,"lastMessageDate":"...","checkedThroughMessageDate":"..."}},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":["li-..."],"quote":"short verbatim quote","reason":"why this disposition is correct"}]}
+[LINEITEM_UPDATE] {"taskId":"task-...","lineItemId":"li-...","patch":{"status":"waiting","currentState":"...","confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["li-..."],"quote":"short verbatim quote","reason":"why this disposition is correct"}],"evidenceRefIds":["src-..."]}
 [TASK_NEW] {"title":"...","summary":"...","sourceRef":{"id":"src-...","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","evidenceText":"short factual summary"},"status":"new|on-radar|needs-attention"}
 [TASK_UPDATE] {"taskId":"task-...","patch":{"status":"in-progress","summary":"...","confidence":"medium"},"sourceRefs":[{"id":"src-...","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","evidenceText":"short factual summary"}],"evidenceRefIds":["src-..."]}
 [NEEDS_REVIEW] {"kind":"assignment|status|other","ref":"taskId|lineItemId|null","question":"...","confidence":"low"}
-[SCAN_DONE] {"runId":"...","outcome":"success|partial","newProjects":0,"updatedProjects":0,"newSingleTasks":0,"archivedTasks":0,"workIqCalls":0,"notes":"..."}
+[SCAN_DONE] {"runId":"...","outcome":"success|partial","newProjects":0,"updatedProjects":0,"newSingleTasks":0,"archivedTasks":0,"workIqCalls":0,"processingQuality":{"required":true,"enumeratedItems":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id"}],"threadCounts":[{"threadRef":"conversation-id","count":1}]},"notes":"..."}
 ```
 
 ## Output Rules
@@ -139,6 +198,9 @@ markers in code fences.
   remain. The server replaces the whole `pmStatus` object; missing entries are removed.
 - Do not invent or assign `userMarkedDoneAt`. That flag is user-controlled; only
   use explicit `null` to say a previously marked action is open again.
+- Do not emit visible actions without the Batch 7 action-gate proof fields.
+- Do not emit a project mutation without processing ledger dispositions for every
+  surfaced item behind that mutation.
 - Keep `FACTSHEET_UPDATE.sectionPatches` additive/corrective. Deletions require
   `op:"remove"`, `entryId`, `reason`, and `evidenceRefIds`.
 - Use the fixed Fact Sheet section order and English content: Overview; Scope & Goals;

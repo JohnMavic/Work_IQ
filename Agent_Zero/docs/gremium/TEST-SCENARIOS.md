@@ -78,6 +78,20 @@ Dieses Dokument ist Prozess-Doku; der Brain sieht es nie (D5-Sandbox).
 - [ ] Archivierte/superseded Tasks default ausgeblendet, per Toggle sichtbar
 - [ ] Alt-Funktionen (CRUD, Notes, Suche, Status-Filter) regressionsfrei (Playwright-Smoke)
 
+### C-7 Action Authenticity (Batch 7)
+- [ ] Sample every visible `pmStatus.userActions` entry against the full thread gate probe:
+      direct TO/@mention/name addressing to Martin, later-message unresolved check, and current
+      temporal validity.
+- [ ] Each visible action has `askQuote{text,from,date,threadRef}`, `resolutionStatus:"open"`,
+      complete `threadCheck` with message count and last message date, and `lastVerifiedMessageDate`
+      at least as new as the last thread message.
+- [ ] CC-only, collective, third-party-owned, resolved, or obsolete requests are absent from
+      `pmStatus.userActions`; if retained elsewhere, they have explicit owner/status and evidence.
+- [ ] Project header shows `Processed up to`, items considered as surfaced by WorkIQ, tree updates,
+      and open conflicts from the processing ledger.
+- [ ] Any contradictory full-thread evidence leaves the affected node `disputed` with both quoted
+      positions and appears in the project `Conflicting information` block.
+
 ## Loop-Protokoll (G-Ziel nicht erfüllt → iterieren)
 Pro fehlgeschlagenem Kriterium: (1) Ursache klassifizieren — Prompt / Marker-Validierung /
 Renderer-Kontext / WorkIQ-Datenlücke / UI; (2) kleinste Korrektur bauen (Codex);

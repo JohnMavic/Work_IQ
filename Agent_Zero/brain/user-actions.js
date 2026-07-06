@@ -53,6 +53,9 @@ export function normalizeUserActionEntry(value, { fallbackConfidence = 'low' } =
 
   const evidenceRefIds = evidenceList(base);
   const normalized = {
+    state: 'unconfirmed',
+    sources: [],
+    lastConfirmedByMessageDate: null,
     ...base,
     id: normalizeText(base.id) || stableUserActionId({ ...base, text }),
     text,

@@ -15,6 +15,16 @@ import {
   validateFactSheetSectionPatches
 } from './factsheet.js';
 import {
+  mergeProcessing,
+  validateProcessingPayload
+} from './processing-ledger.js';
+import {
+  isActionLikeLineItem,
+  normalizeNodeFields,
+  validateActionGateForVisibleAction,
+  validateNodeState
+} from './truth-tree.js';
+import {
   isUserOwner,
   mergeUserActionCarryForward,
   normalizePmStatusUserActions
@@ -57,7 +67,25 @@ const LINEITEM_UPDATE_PATCH_FIELDS = new Set([
   'waitingOn',
   'problem',
   'risk',
-  'confidence'
+  'confidence',
+  'threadRef',
+  'lastVerifiedMessageDate',
+  'resolutionStatus',
+  'askQuote',
+  'resolvedBy',
+  'referencedDate',
+  'lastThreadMessageDate',
+  'messageCount',
+  'threadCoverage',
+  'threadCheck',
+  'temporalStatus',
+  'currentJustificationQuote',
+  'state',
+  'sources',
+  'lastConfirmedByMessageDate',
+  'conflict',
+  'supersededByMessageDate',
+  'supersededReason'
 ]);
 
 function clone(value) {
@@ -221,18 +249,101 @@ function validateIntroducedSourceRefs(payload) {
   return null;
 }
 
-function validatePmStatus(pmStatus) {
+function flatSectionPatches(sectionPatches) {
+  if (Array.isArray(sectionPatches)) return sectionPatches;
+  if (!sectionPatches || typeof sectionPatches !== 'object' || Array.isArray(sectionPatches)) return [];
+  const result = [];
+  for (const [section, patches] of Object.entries(sectionPatches)) {
+    for (const patch of normalizeArray(patches)) result.push({ section, ...patch });
+  }
+  return result;
+}
+
+function validateFactSheetActionGates(sectionPatches, { now }) {
+  for (const [index, patch] of flatSectionPatches(sectionPatches).entries()) {
+    if (patch.section !== 'openActions') continue;
+    const op = patch.op || 'add';
+    if (op === 'remove') continue;
+    const error = validateActionGateForVisibleAction(patch, {
+      pathName: `factSheet.openActions[${index}]`,
+      now
+    });
+    if (error) return error;
+  }
+  return null;
+}
+
+function validateFactSheetInitialActionGates(factSheet, { now }) {
+  const entries = normalizeArray(factSheet?.sections?.openActions || factSheet?.openActions);
+  for (const [index, entry] of entries.entries()) {
+    const error = validateActionGateForVisibleAction(entry, {
+      pathName: `factSheet.openActions[${index}]`,
+      now
+    });
+    if (error) return error;
+  }
+  return null;
+}
+
+function proofQuote(value) {
+  return value
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && typeof value.text === 'string'
+    && value.text.trim()
+    && typeof value.from === 'string'
+    && value.from.trim()
+    && typeof value.date === 'string'
+    && value.date.trim();
+}
+
+function validateResolvedActions(payload, { pathName = 'resolvedActions' } = {}) {
+  if (payload.resolvedActions === undefined) return null;
+  if (!Array.isArray(payload.resolvedActions)) return `${pathName} must be an array`;
+  for (const [index, proof] of payload.resolvedActions.entries()) {
+    if (!proof || typeof proof !== 'object' || Array.isArray(proof)) return `${pathName}[${index}] must be an object`;
+    if (!proof.id && !proof.text) return `${pathName}[${index}] requires id or text`;
+    if (!['resolved', 'obsolete'].includes(proof.resolutionStatus)) {
+      return `${pathName}[${index}].resolutionStatus must be resolved or obsolete`;
+    }
+    if (proof.resolutionStatus === 'resolved' && !proofQuote(proof.resolvedBy)) {
+      return `${pathName}[${index}].resolvedBy requires text, from, and date`;
+    }
+    if (proof.resolutionStatus === 'obsolete' && !proofQuote(proof.obsoleteEvidence || proof.resolvedBy)) {
+      return `${pathName}[${index}].obsoleteEvidence requires text, from, and date`;
+    }
+  }
+  return null;
+}
+
+function validateLineItemActionGate(item, { now, pathName }) {
+  const nodeError = validateNodeState(item, pathName);
+  if (nodeError) return nodeError;
+  if (!isActionLikeLineItem(item)) return null;
+  return validateActionGateForVisibleAction(item, { pathName, now });
+}
+
+function validatePmStatus(pmStatus, { now = new Date(), pathName = 'pmStatus' } = {}) {
   if (pmStatus === undefined || pmStatus === null) return null;
   if (typeof pmStatus !== 'object' || Array.isArray(pmStatus)) return 'pmStatus must be an object';
   if (pmStatus.current !== undefined && typeof pmStatus.current !== 'string') return 'pmStatus.current must be a string';
   for (const field of PM_LIST_FIELDS) {
     if (pmStatus[field] === undefined) continue;
     if (!Array.isArray(pmStatus[field])) return `pmStatus.${field} must be an array`;
-    for (const entry of pmStatus[field]) {
+    for (const [index, entry] of pmStatus[field].entries()) {
       if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return `pmStatus.${field} entries must be objects`;
       if (typeof entry.text !== 'string' || !entry.text.trim()) return `pmStatus.${field} entries require text`;
+      const nodeError = validateNodeState(entry, `${pathName}.${field}[${index}]`);
+      if (nodeError) return nodeError;
       if (field === 'userActions' && entry.owner !== undefined && !isUserOwner(entry.owner)) {
         return 'pmStatus.userActions entries must be owned by the app user';
+      }
+      if (field === 'userActions') {
+        const actionError = validateActionGateForVisibleAction(entry, {
+          pathName: `${pathName}.userActions[${index}]`,
+          now
+        });
+        if (actionError) return actionError;
       }
     }
   }
@@ -309,8 +420,10 @@ function validateLineItemEvidence(lineItem, sourceRefIndex) {
   return evidence;
 }
 
-function validateMarker(marker, data, sourceRefIndex) {
+function validateMarker(marker, data, sourceRefIndex, { now = new Date() } = {}) {
   const payload = marker.payload || {};
+  const processingError = validateProcessingPayload(payload, marker.type);
+  if (processingError) return { ok: false, reason: processingError };
 
   switch (marker.type) {
     case 'PROJECT_NEW': {
@@ -318,12 +431,16 @@ function validateMarker(marker, data, sourceRefIndex) {
       if (!Array.isArray(payload.sourceRefs) || payload.sourceRefs.length === 0) {
         return { ok: false, reason: 'PROJECT_NEW requires sourceRefs' };
       }
-      const pmError = validatePmStatus(payload.pmStatus);
+      const pmError = validatePmStatus(payload.pmStatus, { now, pathName: 'PROJECT_NEW.pmStatus' });
       if (pmError) return { ok: false, reason: pmError };
+      const factSheetActionError = validateFactSheetInitialActionGates(payload.factSheet, { now });
+      if (factSheetActionError) return { ok: false, reason: factSheetActionError };
       const supersedesError = validateSupersedes(data, payload.supersedesTaskIds);
       if (supersedesError) return { ok: false, reason: supersedesError };
       let capConfidenceResult = false;
-      for (const item of normalizeArray(payload.lineItems)) {
+      for (const [index, item] of normalizeArray(payload.lineItems).entries()) {
+        const actionError = validateLineItemActionGate(item, { now, pathName: `PROJECT_NEW.lineItems[${index}]` });
+        if (actionError) return { ok: false, reason: actionError };
         const evidence = validateLineItemEvidence(item, sourceRefIndex);
         if (!evidence.ok) return { ok: false, reason: evidence.reason };
         capConfidenceResult = capConfidenceResult || evidence.capConfidence;
@@ -333,8 +450,10 @@ function validateMarker(marker, data, sourceRefIndex) {
 
     case 'PROJECT_UPDATE': {
       if (!payload.taskId || !taskById(data, payload.taskId)) return { ok: false, reason: `unknown taskId: ${payload.taskId}` };
-      const pmError = validatePmStatus(payload.pmStatus);
+      const pmError = validatePmStatus(payload.pmStatus, { now, pathName: 'PROJECT_UPDATE.pmStatus' });
       if (pmError) return { ok: false, reason: pmError };
+      const resolvedActionsError = validateResolvedActions(payload);
+      if (resolvedActionsError) return { ok: false, reason: resolvedActionsError };
       const supersedesError = validateSupersedes(data, payload.supersedesTaskIds);
       if (supersedesError) return { ok: false, reason: supersedesError };
       if (payload.pmStatus || patchNeedsEvidence(payload.patch)) {
@@ -349,12 +468,16 @@ function validateMarker(marker, data, sourceRefIndex) {
       if (!payload.taskId || !taskById(data, payload.taskId)) return { ok: false, reason: `unknown taskId: ${payload.taskId}` };
       const patchError = validateFactSheetSectionPatches(payload.sectionPatches, sourceRefIndex);
       if (patchError) return { ok: false, reason: patchError };
+      const actionError = validateFactSheetActionGates(payload.sectionPatches, { now });
+      if (actionError) return { ok: false, reason: actionError };
       return { ok: true, capConfidence: false };
     }
 
     case 'LINEITEM_NEW': {
       if (!payload.taskId || !taskById(data, payload.taskId)) return { ok: false, reason: `unknown taskId: ${payload.taskId}` };
       if (!payload.lineItem || typeof payload.lineItem !== 'object') return { ok: false, reason: 'LINEITEM_NEW requires lineItem' };
+      const actionError = validateLineItemActionGate(payload.lineItem, { now, pathName: 'LINEITEM_NEW.lineItem' });
+      if (actionError) return { ok: false, reason: actionError };
       const evidence = validateLineItemEvidence(payload.lineItem, sourceRefIndex);
       if (!evidence.ok) return { ok: false, reason: evidence.reason };
       return { ok: true, capConfidence: evidence.capConfidence };
@@ -368,6 +491,10 @@ function validateMarker(marker, data, sourceRefIndex) {
       }
       const patchError = validatePatchWhitelist(payload.patch, LINEITEM_UPDATE_PATCH_FIELDS, 'LINEITEM_UPDATE');
       if (patchError) return { ok: false, reason: patchError };
+      const existingLine = normalizeArray(task.lineItems).find(item => item.id === payload.lineItemId);
+      const nextLine = { ...existingLine, ...payload.patch };
+      const actionError = validateLineItemActionGate(nextLine, { now, pathName: 'LINEITEM_UPDATE.patch' });
+      if (actionError) return { ok: false, reason: actionError };
       if (patchNeedsEvidence(payload.patch)) {
         const evidence = evaluateEvidence(payload.evidenceRefIds, sourceRefIndex);
         if (!evidence.ok) return { ok: false, reason: evidence.reason };
@@ -432,7 +559,7 @@ function normalizeSourceRef(ref, { now, idFactory }) {
 
 function normalizeLineItem(item, { now, idFactory }) {
   const ts = nowIso(now);
-  return {
+  return normalizeNodeFields({
     id: item.id || idFactory('li'),
     title: item.title || 'Untitled line item',
     category: item.category || 'action',
@@ -452,7 +579,7 @@ function normalizeLineItem(item, { now, idFactory }) {
     createdAt: item.createdAt || ts,
     updatedAt: item.updatedAt || ts,
     ...item
-  };
+  });
 }
 
 function normalizePmStatus(pmStatus, now) {
@@ -464,7 +591,9 @@ function normalizePmStatus(pmStatus, now) {
     lastSynthesizedAt: pmStatus.lastSynthesizedAt || ts
   });
   for (const field of PM_LIST_FIELDS) {
-    result[field] = normalizeArray(pmStatus[field]).map(entry => ({ ...entry }));
+    result[field] = normalizeArray(pmStatus[field]).map(entry => normalizeNodeFields({ ...entry }, {
+      defaultState: entry?.state || 'confirmed'
+    }));
   }
   return normalizePmStatusUserActions(result);
 }
@@ -525,6 +654,135 @@ function archiveSuperseded(data, ids, projectId, now) {
   }
 }
 
+function nodeLabel(node) {
+  return node?.text || node?.title || node?.userAction || node?.currentState || node?.id || 'Project node';
+}
+
+function nodeEvidenceIds(node) {
+  const ids = [];
+  if (node?.evidence) ids.push(node.evidence);
+  if (node?.evidenceRefId) ids.push(node.evidenceRefId);
+  ids.push(...normalizeArray(node?.evidenceRefIds));
+  return [...new Set(ids.filter(Boolean).map(String))];
+}
+
+function collectDisputedNodes(task) {
+  const nodes = [];
+  const pm = task?.pmStatus || {};
+  for (const field of PM_LIST_FIELDS) {
+    for (const entry of normalizeArray(pm[field])) {
+      if (entry?.state === 'disputed') nodes.push({ id: entry.id || `${field}:${nodeLabel(entry)}`, node: entry });
+    }
+  }
+  for (const item of normalizeArray(task?.lineItems)) {
+    if (item?.state === 'disputed') nodes.push({ id: item.id || nodeLabel(item), node: item });
+  }
+  const sections = task?.factSheet?.sections || {};
+  for (const [section, entries] of Object.entries(sections)) {
+    for (const entry of normalizeArray(entries)) {
+      if (entry?.state === 'disputed' && !entry.removedAt) {
+        nodes.push({ id: entry.id || `${section}:${nodeLabel(entry)}`, node: entry });
+      }
+    }
+  }
+  return nodes;
+}
+
+function ensurePmStatus(task, now) {
+  if (task.pmStatus && typeof task.pmStatus === 'object' && !Array.isArray(task.pmStatus)) return;
+  task.pmStatus = normalizePmStatus({
+    current: '',
+    planned: [],
+    userActions: [],
+    problems: [],
+    risks: [],
+    waitingOn: [],
+    confidence: 'low',
+    lastSynthesizedAt: nowIso(now)
+  }, now);
+}
+
+function syncConflictProblems(task, now) {
+  if (!task || task.taskType !== 'project') return;
+  const disputed = collectDisputedNodes(task);
+  if (!disputed.length) return;
+  ensurePmStatus(task, now);
+  task.pmStatus.problems = normalizeArray(task.pmStatus.problems);
+  const existingIds = new Set(task.pmStatus.problems.map(entry => entry.id).filter(Boolean));
+  for (const { id, node } of disputed) {
+    const problemId = `conflict-${String(id).replace(/[^a-zA-Z0-9_.-]/g, '-').slice(0, 80)}`;
+    if (existingIds.has(problemId)) continue;
+    task.pmStatus.problems.push(normalizeNodeFields({
+      id: problemId,
+      text: `Conflicting information: ${nodeLabel(node)}`,
+      evidenceRefIds: nodeEvidenceIds(node),
+      confidence: node.confidence || 'medium',
+      state: 'confirmed',
+      sources: normalizeArray(node.sources),
+      lastConfirmedByMessageDate: node.lastConfirmedByMessageDate || null,
+      conflictNodeId: id
+    }, { defaultState: 'confirmed' }));
+  }
+}
+
+function actionResolutionKey(entry) {
+  return String(entry?.id || entry?.text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function resolutionProofFor(action, proofs) {
+  const id = actionResolutionKey({ id: action?.id });
+  const text = actionResolutionKey({ text: action?.text });
+  return normalizeArray(proofs).find(proof => {
+    const proofId = actionResolutionKey({ id: proof?.id });
+    const proofText = actionResolutionKey({ text: proof?.text });
+    return (id && proofId === id) || (text && proofText === text);
+  }) || null;
+}
+
+function preserveUnresolvedOmittedActions(existingPmStatus, incomingPmStatus, payload, { now }) {
+  const result = normalizePmStatusUserActions(incomingPmStatus);
+  if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    return { pmStatus: result, historyEvents: [] };
+  }
+
+  const incomingKeys = new Set(normalizeArray(result.userActions).flatMap(action => {
+    const keys = [];
+    if (action?.id) keys.push(actionResolutionKey({ id: action.id }));
+    if (action?.text) keys.push(actionResolutionKey({ text: action.text }));
+    return keys;
+  }));
+  const historyEvents = [];
+  const ts = nowIso(now);
+
+  for (const existing of normalizeArray(normalizePmStatusUserActions(existingPmStatus)?.userActions)) {
+    const keys = [actionResolutionKey({ id: existing.id }), actionResolutionKey({ text: existing.text })].filter(Boolean);
+    if (keys.some(key => incomingKeys.has(key))) continue;
+    if (existing.userMarkedDoneAt) continue;
+
+    const proof = resolutionProofFor(existing, payload.resolvedActions);
+    if (proof) {
+      const evidence = proof.resolutionStatus === 'obsolete' ? (proof.obsoleteEvidence || proof.resolvedBy) : proof.resolvedBy;
+      historyEvents.push({
+        timestamp: ts,
+        type: `user-action-${proof.resolutionStatus}`,
+        text: `User action ${proof.resolutionStatus}: ${existing.text}`,
+        userAction: existing,
+        resolution: proof,
+        evidenceQuote: evidence
+      });
+      continue;
+    }
+
+    result.userActions.push({
+      ...existing,
+      needsReview: true,
+      reviewReason: 'Batch 7 kept this action because the scan omitted it without resolvedBy or obsolete evidence.'
+    });
+  }
+
+  return { pmStatus: result, historyEvents };
+}
+
 function applyProjectNew(data, payload, context) {
   const ts = nowIso(context.now);
   const sourceRefs = normalizeArray(payload.sourceRefs).map(ref => normalizeSourceRef(ref, context));
@@ -568,12 +826,14 @@ function applyProjectNew(data, payload, context) {
     factSheet: normalizeFactSheet(payload.factSheet, { now: context.now }),
     sourceRefs,
     lineItems: normalizeArray(payload.lineItems).map(item => normalizeLineItem(item, context)),
+    processing: mergeProcessing(null, payload, { now: context.now }),
     brainState: {
       ...V5_BRAIN_STATE_DEFAULTS,
       lastScanRunId: context.runId,
       lastEvidenceAt: latestEvidenceAt(sourceRefs)
     }
   };
+  syncConflictProblems(task, context.now);
   data.tasks.push(task);
   archiveSuperseded(data, task.supersedesTaskIds, projectId, context.now);
 }
@@ -590,10 +850,12 @@ function applyProjectUpdate(data, payload, context) {
       evidenceRefIds: payload.evidenceRefIds,
       rawIncomingPmStatus: payload.pmStatus
     });
-    task.pmStatus = merged.pmStatus;
-    if (merged.historyEvents.length) {
+    const preserved = preserveUnresolvedOmittedActions(task.pmStatus, merged.pmStatus, payload, { now: context.now });
+    task.pmStatus = preserved.pmStatus;
+    const historyEvents = [...merged.historyEvents, ...preserved.historyEvents];
+    if (historyEvents.length) {
       task.history = normalizeArray(task.history);
-      task.history.push(...merged.historyEvents);
+      task.history.push(...historyEvents);
     }
   }
   if (additions.length) {
@@ -602,25 +864,31 @@ function applyProjectUpdate(data, payload, context) {
     task.link = task.link || firstLink(additions);
   }
   task.supersedesTaskIds = [...new Set([...normalizeArray(task.supersedesTaskIds), ...normalizeArray(payload.supersedesTaskIds)])];
+  task.processing = mergeProcessing(task.processing, payload, { now: context.now });
   task.updatedAt = nowIso(context.now);
   task.brainState = { ...V5_BRAIN_STATE_DEFAULTS, ...(task.brainState || {}) };
   task.brainState.lastScanRunId = context.runId;
   task.brainState.lastEvidenceAt = latestEvidenceAt(task.sourceRefs) || task.brainState.lastEvidenceAt;
+  syncConflictProblems(task, context.now);
   archiveSuperseded(data, payload.supersedesTaskIds, task.id, context.now);
 }
 
 function applyFactSheetUpdate(data, payload, context) {
   const task = taskById(data, payload.taskId);
   task.factSheet = applyFactSheetSectionPatches(task.factSheet, payload.sectionPatches, context);
+  task.processing = mergeProcessing(task.processing, payload, { now: context.now });
   task.updatedAt = nowIso(context.now);
   task.brainState = { ...V5_BRAIN_STATE_DEFAULTS, ...(task.brainState || {}) };
   task.brainState.lastScanRunId = context.runId;
+  syncConflictProblems(task, context.now);
 }
 
 function applyLineItemNew(data, payload, context) {
   const task = taskById(data, payload.taskId);
   task.lineItems = normalizeArray(task.lineItems);
   task.lineItems.push(normalizeLineItem(payload.lineItem, context));
+  task.processing = mergeProcessing(task.processing, payload, { now: context.now });
+  syncConflictProblems(task, context.now);
   task.updatedAt = nowIso(context.now);
 }
 
@@ -634,6 +902,8 @@ function applyLineItemUpdate(data, payload, context) {
   if (Array.isArray(payload.evidenceRefIds)) {
     lineItem.evidenceRefIds = [...new Set([...normalizeArray(lineItem.evidenceRefIds), ...payload.evidenceRefIds])];
   }
+  task.processing = mergeProcessing(task.processing, payload, { now: context.now });
+  syncConflictProblems(task, context.now);
   task.updatedAt = nowIso(context.now);
 }
 
@@ -787,7 +1057,7 @@ export function applyMarkerBatch(inputData, markers, {
     }
     const scopedSourceRefIndex = new Map(sourceRefIndex);
     addPayloadSourceRefs(scopedSourceRefIndex, candidate.payload);
-    const validation = validateMarker(candidate, original, scopedSourceRefIndex);
+    const validation = validateMarker(candidate, original, scopedSourceRefIndex, { now });
     if (!validation.ok) {
       const drop = {
         timestamp: appliedAt,

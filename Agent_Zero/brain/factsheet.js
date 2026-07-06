@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { normalizeNodeFields, validateNodeState } from './truth-tree.js';
 
 export const FACTSHEET_VERSION = 1;
 
@@ -36,7 +37,25 @@ const FACTSHEET_ENTRY_FIELDS = new Set([
   'notes',
   'amount',
   'currency',
-  'status'
+  'status',
+  'threadRef',
+  'lastVerifiedMessageDate',
+  'resolutionStatus',
+  'askQuote',
+  'resolvedBy',
+  'referencedDate',
+  'lastThreadMessageDate',
+  'messageCount',
+  'threadCoverage',
+  'threadCheck',
+  'temporalStatus',
+  'currentJustificationQuote',
+  'state',
+  'sources',
+  'lastConfirmedByMessageDate',
+  'conflict',
+  'supersededByMessageDate',
+  'supersededReason'
 ]);
 
 function nowIso(now) {
@@ -80,22 +99,22 @@ export function normalizeFactSheet(value, { now = null } = {}) {
   for (const section of FACTSHEET_SECTIONS) {
     sections[section.id] = normalizeArray(sectionsInput[section.id]).map((entry, index) => {
       if (typeof entry === 'string') {
-        return {
+        return normalizeNodeFields({
           id: `${section.id}-${index + 1}`,
           text: entry,
           evidenceRefIds: [],
           confidence: 'low'
-        };
+        });
       }
       if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
         return null;
       }
-      return {
+      return normalizeNodeFields({
         ...entry,
         id: entry.id || `${section.id}-${index + 1}`,
         evidenceRefIds: normalizeArray(entry.evidenceRefIds),
         confidence: ['high', 'medium', 'low'].includes(entry.confidence) ? entry.confidence : 'low'
-      };
+      });
     }).filter(Boolean);
   }
 
@@ -141,6 +160,8 @@ export function validateFactSheetSectionPatches(sectionPatches, sourceRefIndex) 
     if (!FACTSHEET_SECTION_IDS.has(patch.section)) return `unknown factSheet section: ${patch.section}`;
     const op = patch.op || 'add';
     if (!['add', 'update', 'replace', 'remove'].includes(op)) return `invalid factSheet op: ${op}`;
+    const nodeStateError = validateNodeState(patch, `factSheet.${patch.section}`);
+    if (nodeStateError) return nodeStateError;
 
     if (op === 'add') {
       if (!entryText(patch).trim()) return 'factSheet add requires text, title, person, or status';
@@ -174,14 +195,14 @@ function entryFromPatch(patch, { now, idFactory }) {
   for (const field of FACTSHEET_ENTRY_FIELDS) {
     if (patch[field] !== undefined) entry[field] = patch[field];
   }
-  return {
+  return normalizeNodeFields({
     ...entry,
     id: patch.id || idFactory(`fs-${patch.section}`),
     evidenceRefIds: normalizeArray(entry.evidenceRefIds),
     confidence: ['high', 'medium', 'low'].includes(entry.confidence) ? entry.confidence : 'low',
     firstSeenAt: patch.firstSeenAt || nowIso(now),
     updatedAt: patch.updatedAt || nowIso(now)
-  };
+  }, { defaultState: patch.state || 'confirmed' });
 }
 
 export function applyFactSheetSectionPatches(factSheet, sectionPatches, {

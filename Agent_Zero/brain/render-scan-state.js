@@ -55,6 +55,28 @@ function latestEvidenceForLineItem(task, lineItem) {
   return parts.join(' | ');
 }
 
+function projectProcessingSummary(task) {
+  const processing = task?.processing && typeof task.processing === 'object' ? task.processing : {};
+  const ledger = normalizeArray(processing.ledger);
+  const threads = processing.threads && typeof processing.threads === 'object' && !Array.isArray(processing.threads)
+    ? Object.entries(processing.threads)
+    : [];
+  const parts = [
+    `cursor=${processing.cursorDate || 'none'}`,
+    `lookbackDays=${processing.lookbackDays || 14}`,
+    `ledgerItems=${ledger.length}`,
+    `threads=${threads.length}`
+  ];
+  if (threads.length) {
+    const renderedThreads = threads.slice(0, 6).map(([threadRef, state]) => {
+      const last = typeof state === 'string' ? state : state?.lastProcessedMessageDate;
+      return `${threadRef}:${last || 'none'}`;
+    });
+    parts.push(`threadCursor=${renderedThreads.join(',')}${threads.length > renderedThreads.length ? ',...' : ''}`);
+  }
+  return parts.join(' | ');
+}
+
 function renderSourceRefs(task, lines) {
   const refs = normalizeArray(task.sourceRefs);
   const refLines = refs.slice(0, 6).map(ref => {
@@ -214,6 +236,7 @@ function buildMarkdown(data, options) {
   if (!openProjects.length) lines.push('- none');
   for (const task of openProjects) {
     lines.push(`- [${task.id}] ${truncate(task.title, 160)} | status=${task.status || 'new'} | key=${task.projectKey || 'n/a'}`);
+    lines.push(`  processing: ${projectProcessingSummary(task)}`);
     renderSourceRefs(task, lines);
     renderFactSheet(task, lines, { brainWorkDir, runId, spillFiles, factSheetFiles, writeFiles });
     if (task.summary && summaryChars > 0) lines.push(`  summary: ${truncate(task.summary, summaryChars)}`);
@@ -224,7 +247,10 @@ function buildMarkdown(data, options) {
     const lineItems = allLineItems.slice(0, lineItemLimit);
     if (!lineItems.length) lines.push('  lineItems: none');
     for (const item of lineItems) {
-      lines.push(`  - (${item.id}) ${truncate(item.title, 120)} | status=${item.status || 'open'} | state=${truncate(item.currentState || '', 100)} | evidence=${latestEvidenceForLineItem(task, item)}`);
+      const treeState = item.state ? ` | treeState=${item.state}` : '';
+      const thread = item.threadRef ? ` | threadRef=${truncate(item.threadRef, 80)}` : '';
+      const resolution = item.resolutionStatus ? ` | resolution=${item.resolutionStatus}` : '';
+      lines.push(`  - (${item.id}) ${truncate(item.title, 120)} | status=${item.status || 'open'}${treeState}${thread}${resolution} | state=${truncate(item.currentState || '', 100)} | evidence=${latestEvidenceForLineItem(task, item)}`);
     }
     renderHiddenLineItems(task, allLineItems.slice(lineItems.length), lines, { brainWorkDir, runId, spillFiles, writeFiles });
   }

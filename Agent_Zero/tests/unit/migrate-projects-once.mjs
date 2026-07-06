@@ -37,6 +37,27 @@ function marker(type, payload) {
   return `[${type}] ${JSON.stringify(payload)}`;
 }
 
+function actionProof() {
+  return {
+    threadRef: 'conv-alpha-rollout',
+    askQuote: {
+      text: 'Martin, please confirm the rollout owner.',
+      from: 'Alex Planner',
+      date: '2026-07-05T08:00:00.000Z',
+      threadRef: 'conv-alpha-rollout'
+    },
+    resolutionStatus: 'open',
+    lastVerifiedMessageDate: '2026-07-05T09:00:00.000Z',
+    threadCheck: {
+      coverage: 'complete',
+      addressedTo: 'user',
+      messageCount: 2,
+      lastMessageDate: '2026-07-05T09:00:00.000Z',
+      checkedThroughMessageDate: '2026-07-05T09:00:00.000Z'
+    }
+  };
+}
+
 function sourceTask(id, extra = {}) {
   return {
     id,
@@ -59,7 +80,7 @@ function projectMarkers() {
       pmStatus: {
         current: 'Two related workstreams are open.',
         planned: [],
-        userActions: [{ text: 'Confirm the rollout owner.', evidence: 'src-alpha-1', confidence: 'medium' }],
+        userActions: [{ text: 'Confirm the rollout owner.', evidence: 'src-alpha-1', confidence: 'medium', ...actionProof() }],
         problems: [],
         risks: [],
         waitingOn: [],

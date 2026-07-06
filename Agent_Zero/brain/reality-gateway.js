@@ -3,6 +3,10 @@ import path from 'node:path';
 import { runBrain } from './brain-runner.js';
 import { BRAIN_WORK_DIR } from './agency-cli.js';
 import { containsFabricatedSourceToken } from './link-guard.js';
+import {
+  isActionLikeLineItem,
+  validateActionGateForVisibleAction
+} from './truth-tree.js';
 
 export const DEFAULT_GATEWAY_TIMEOUT_MS = 5 * 60 * 1000;
 export const GATEWAY_DECISIONS = new Set(['approve', 'reject', 'needs-review']);
@@ -261,11 +265,57 @@ function payloadHasFabricatedFreeText(value, pathParts = []) {
   return null;
 }
 
+function flatSectionPatches(sectionPatches) {
+  if (Array.isArray(sectionPatches)) return sectionPatches;
+  if (!sectionPatches || typeof sectionPatches !== 'object' || Array.isArray(sectionPatches)) return [];
+  const result = [];
+  for (const [section, patches] of Object.entries(sectionPatches)) {
+    for (const patch of normalizeArray(patches)) result.push({ section, ...patch });
+  }
+  return result;
+}
+
+function actionGateIssue(marker) {
+  const payload = marker?.payload || {};
+  const pmActions = normalizeArray(payload.pmStatus?.userActions);
+  for (const [index, entry] of pmActions.entries()) {
+    const error = validateActionGateForVisibleAction(entry, { pathName: `pmStatus.userActions[${index}]` });
+    if (error) return error;
+  }
+
+  const lineItems = [
+    ...normalizeArray(payload.lineItems),
+    payload.lineItem
+  ].filter(Boolean);
+  for (const [index, item] of lineItems.entries()) {
+    if (!isActionLikeLineItem(item)) continue;
+    const error = validateActionGateForVisibleAction(item, { pathName: `lineItems[${index}]` });
+    if (error) return error;
+  }
+
+  if (marker?.type === 'LINEITEM_UPDATE' && payload.patch && isActionLikeLineItem(payload.patch)) {
+    const error = validateActionGateForVisibleAction(payload.patch, { pathName: 'LINEITEM_UPDATE.patch' });
+    if (error) return error;
+  }
+
+  for (const [index, patch] of flatSectionPatches(payload.sectionPatches).entries()) {
+    if (patch.section !== 'openActions') continue;
+    if ((patch.op || 'add') === 'remove') continue;
+    const error = validateActionGateForVisibleAction(patch, { pathName: `factSheet.openActions[${index}]` });
+    if (error) return error;
+  }
+
+  return null;
+}
+
 export function deterministicMarkerIssue(marker) {
   const payload = marker?.payload || {};
 
   const fabricatedField = payloadHasFabricatedFreeText(payload);
   if (fabricatedField) return `Fabricated WorkIQ citation token found in ${fabricatedField}.`;
+
+  const actionIssue = actionGateIssue(marker);
+  if (actionIssue) return `Batch 7 action gate failed: ${actionIssue}.`;
 
   if (marker.type === 'LINEITEM_NEW') {
     const item = payload.lineItem || {};
@@ -407,7 +457,11 @@ function buildGatewayPrompt({ stateFile, factSheetFiles = [], markers, runId }) 
     '- Is it really this project, not a similar one in another country, location, or organization?',
     '- Is Martin involved?',
     '- Is every pmStatus.userActions entry really an action for Martin, the app user, rather than another project member?',
+    '- For every visible action, does the payload include askQuote {text, from, date, threadRef}, threadRef as a stable conversation/item id, resolutionStatus:"open", complete threadCheck coverage, messageCount, lastMessageDate, and lastVerifiedMessageDate not older than the last thread message?',
+    '- Did the action proof check later messages for resolution, and does it avoid stale past-date requests unless currentJustificationQuote proves the action remains open?',
     '- Are actions for other people represented as lineItems or Fact Sheet Open Actions with an explicit owner?',
+    '- Are processing ledger items well-formed, including quote and reason for no-change or not-this-project dispositions?',
+    '- If a node is disputed, does it keep both conflicting positions with person/date/quote and surface the conflict instead of choosing silently?',
     '- If a user action was marked done by Martin, does current evidence confirm closure or show it is still open?',
     '- Is the result internally consistent, e.g. not done and waiting at the same time?',
     '- Are source links verbatim real WorkIQ links, not constructed citation-token URLs?',

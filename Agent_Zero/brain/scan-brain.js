@@ -7,6 +7,7 @@ import { parseMarkers } from './marker-parser.js';
 import { applyMarkerBatch } from './marker-applier.js';
 import { renderScanState } from './render-scan-state.js';
 import { filterMarkersThroughGateway, runRealityGateway } from './reality-gateway.js';
+import { evaluateProcessingQualityGate } from './processing-ledger.js';
 import { migrateToV5, V5_BRAIN_DEFAULTS, writeJsonFileAtomic } from './tasks-v5.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -125,6 +126,17 @@ function addPartialReviewHint(data, { now }) {
   });
 }
 
+function addQualityGateReviewHint(data, { now, reason }) {
+  data.reviewQueue = Array.isArray(data.reviewQueue) ? data.reviewQueue : [];
+  data.reviewQueue.push({
+    kind: 'other',
+    ref: null,
+    question: `Agency brain scan was held by the Batch 7 processing-ledger quality gate: ${reason}`,
+    confidence: 'low',
+    createdAt: nowIso(now)
+  });
+}
+
 async function persistJob(job, onPersistJob) {
   if (onPersistJob) await onPersistJob(job);
 }
@@ -183,6 +195,7 @@ export async function runBrainScanOnce(job, {
   const brainResult = await _runBrain({
     prompt,
     brainWorkDir,
+    workIqHardLimit: 40,
     onJsonEvent: (event) => {
       const value = extractPremiumRequests(event);
       if (value !== null) premiumRequests = value;
@@ -247,6 +260,53 @@ export async function runBrainScanOnce(job, {
   await setPhase(job, 'brain_apply', { scanDays }, onPersistJob);
 
   const scanDone = scanDonePayload(parsed.markers);
+  const qualityGate = evaluateProcessingQualityGate(gatewayFilter.markers);
+  if (!qualityGate.ok) {
+    const afterData = structuredClone(beforeData);
+    const workIqCalls = scanDone?.workIqCalls ?? brainResult.counters?.workIqCalls ?? 0;
+    const runIdForTelemetry = scanDone?.runId || runId;
+    addQualityGateReviewHint(afterData, { now, reason: qualityGate.reason });
+    setBrainTelemetry(afterData, {
+      runId: runIdForTelemetry,
+      outcome: 'partial',
+      premiumRequests,
+      workIqCalls,
+      now
+    });
+    _writeJsonFileAtomic(tasksFile, afterData);
+    const result = {
+      outcome: 'partial',
+      runId: runIdForTelemetry,
+      newProjects: 0,
+      updatedProjects: 0,
+      newSingleTasks: 0,
+      workIqCalls,
+      premiumRequests,
+      droppedMarkers: [],
+      appliedMarkers: 0,
+      gateway: {
+        ok: Boolean(gatewayResult.ok),
+        approvedMarkers: gatewayFilter.approved.length,
+        heldMarkers: gatewayFilter.held.length,
+        parsed: gatewayFilter.gatewayParsed,
+        parseError: gatewayFilter.gatewayParseError,
+        retryCount: gatewayResult.retryCount || 0,
+        firstParseError: gatewayResult.firstParseError || null
+      },
+      qualityGate: {
+        ok: false,
+        reason: qualityGate.reason,
+        ledgerItems: qualityGate.ledgerCount
+      },
+      parseErrors: parsed.errors,
+      salvaged: Boolean(brainResult.salvaged),
+      scanDone: Boolean(scanDone)
+    };
+    if (job) job.result = result;
+    job?.emit?.('job.phase_done', { phase: 'brain_apply', ...result });
+    await persistJob(job, onPersistJob);
+    return result;
+  }
   const applyResult = _applyMarkerBatch(beforeData, gatewayFilter.markers, {
     now,
     runId,
@@ -288,6 +348,11 @@ export async function runBrainScanOnce(job, {
       parseError: gatewayFilter.gatewayParseError,
       retryCount: gatewayResult.retryCount || 0,
       firstParseError: gatewayResult.firstParseError || null
+    },
+    qualityGate: {
+      ok: true,
+      skipped: Boolean(qualityGate.skipped),
+      ledgerItems: qualityGate.ledgerCount
     },
     parseErrors: parsed.errors,
     salvaged: Boolean(brainResult.salvaged),
