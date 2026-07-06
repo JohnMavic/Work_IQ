@@ -8,6 +8,7 @@ import { parseMarkers } from '../../brain/marker-parser.js';
 import { filterMarkersThroughGateway } from '../../brain/reality-gateway.js';
 import { runBrainScanOnce } from '../../brain/scan-brain.js';
 import { migrateToV5, writeJsonFileAtomic } from '../../brain/tasks-v5.js';
+import { repairActionGate } from '../../scripts/repair-action-gate.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -419,4 +420,59 @@ test('Batch 7 conflict fixture creates disputed node and project problem', () =>
 
   assert.equal(task.lineItems[0].state, 'disputed');
   assert.equal(task.pmStatus.problems.some(entry => /Conflicting information/.test(entry.text)), true);
+});
+
+test('Batch 7 repair sweep removes known Fall A and Fall B actions losslessly', () => {
+  const data = baseProject({
+    id: 'proj-seestrasse-356',
+    title: 'Microsoft Seestrasse 356 Zurich',
+    sourceRefs: [
+      { id: 'src-meeting', title: 'Cabling project - meeting request UNANSWERED since 12.06', from: 'Laith Skeik' },
+      { id: 'src-asset', title: 'AV equipment / decom list validation', from: 'Patrick Harris' }
+    ],
+    pmStatus: {
+      current: 'Current state',
+      planned: [],
+      userActions: [
+        { id: 'ua-fall-a', text: "Respond to Laith Skeik's unanswered meeting request to walk through the cabling plan", owner: 'user' },
+        { id: 'ua-fall-b', text: 'Review the color-coded AV decommission asset list (keep vs disposal)', owner: 'user' }
+      ],
+      problems: [],
+      risks: [],
+      waitingOn: [],
+      confidence: 'medium'
+    },
+    lineItems: [{
+      id: 'li-fall-b',
+      title: 'AV equipment decommission list validation',
+      category: 'action',
+      status: 'open',
+      userAction: 'Review the color-coded AV decommission asset list.',
+      currentState: 'Martin must review the color-coded AV decommission asset list.',
+      evidenceRefIds: ['src-asset']
+    }],
+    factSheet: {
+      sections: {
+        openActions: [
+          { id: 'fs-fall-a', text: "Respond to Laith Skeik's unanswered meeting request to walk through the cabling plan", evidenceRefIds: ['src-meeting'] },
+          { id: 'fs-fall-b', text: 'Review the color-coded AV decommission asset list (keep vs disposal)', evidenceRefIds: ['src-asset'] }
+        ]
+      }
+    }
+  });
+
+  const result = repairActionGate(data, { now: new Date('2026-07-06T12:00:00.000Z') });
+  const project = result.data.tasks[0];
+  const serializedVisibleActions = JSON.stringify({
+    pm: project.pmStatus.userActions,
+    line: project.lineItems.map(item => item.userAction).filter(Boolean),
+    fs: project.factSheet.sections.openActions.filter(entry => !entry.removedAt)
+  });
+
+  assert.equal(result.summary.fallAResolved, true);
+  assert.equal(result.summary.fallBResolved, true);
+  assert.equal(project.pmStatus.userActions.length, 0);
+  assert.doesNotMatch(serializedVisibleActions, /Laith Skeik's unanswered|color-coded AV decommission/);
+  assert.match(JSON.stringify(result.data.reviewQueue), /batch7-action-gate-sweep/);
+  assert.equal(result.summary.ledgerItems, 5);
 });
