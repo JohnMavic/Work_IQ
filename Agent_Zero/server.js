@@ -12,6 +12,8 @@ import { cleanupStaleAtomicTempsForFile, migrateTasksFileToV5, writeJsonFileAtom
 import { getScanEngine, normalizeScanJobInput, runBrainScanOnce } from './brain/scan-brain.js';
 import { FACTSHEET_SECTIONS, normalizeFactSheet } from './brain/factsheet.js';
 import { isUsableSourceLink } from './brain/link-guard.js';
+import { runTaskChatOnce } from './brain/task-chat.js';
+import { normalizeUserActionEntry } from './brain/user-actions.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1053,6 +1055,7 @@ function factSheetEvidenceHtml(task, entry) {
 
 function factSheetEntryText(entry) {
   const parts = [];
+  if (entry.owner) parts.push(`Owner: ${entry.owner}`);
   if (entry.person) parts.push(entry.person);
   if (entry.role) parts.push(entry.role);
   if (entry.organization) parts.push(entry.organization);
@@ -2174,7 +2177,6 @@ async function persistJobFailure(job, reason, extras = {}) {
 
 async function runLogJob(job) {
   return runOnTaskQueue(job.taskId, async () => {
-    // Re-read task state at queue front (might have changed while queued)
     const data = readTasks();
     const task = data.tasks.find(t => t.id === job.taskId);
     if (!task) {
@@ -2196,216 +2198,45 @@ async function runLogJob(job) {
 
     job.status = 'running';
     job.startedAt = Date.now();
-    job.emit('job.started', { title: task.title });
+    job.emit('job.started', { title: task.title, engine: 'agency' });
     await persistJobSnapshot(job);
 
-    const convo = [{ role: 'user', text: job.input.text }];
-    let parsed = null;
-    let rounds = 0;
-    let rawContent = null;
-
     try {
-      while (rounds < GAMMA_LOG_MAX_ROUNDS) {
-        if (job.status === 'cancelling') break;
-        rounds++;
-
-        await waitForSDKSlot();
-        if (job.status === 'cancelling') break;
-
-        const prompt = buildLogJobPrompt(task, convo);
-        console.log(`[GAMMA.B] log-job ${job.id.substring(0, 8)} round ${rounds} prompt=${prompt.length} chars`);
-
-        // One fresh session per round so we never depend on an unverified
-        // multi-turn API on the SDK session. The conversation is passed in
-        // the prompt itself.
-        const client = new CopilotClient();
-        const session = trackSession(await client.createSession({
-          tools: [
-            withJobContext(job, askWorkIQTool),
-            withJobContext(job, parallelSearchTool)
-          ],
-          onPermissionRequest: approveAll
-        }));
-        linkClientToSession(session, client);
-        job._session = session;
-        if (session && session.id && !job.sdkSessionId) job.sdkSessionId = session.id;
-
-        job.emit('job.progress', { phase: 'llm_round', round: rounds });
-
-        let response;
-        try {
-          response = await runWithWiqGuard(session, prompt, GAMMA_LOG_TIMEOUT_MS);
-        } catch (err) {
-          await destroySession(session);
-          try { await client.dispose(); } catch {}
-          job._session = null;
-          if (job.status === 'cancelling') break;
-          job.status = 'failed';
-          job.error = `LLM call failed: ${err.message}`;
-          await persistJobFailure(job, job.error, { rounds });
-          job.emit('job.failed', { error: job.error });
-          activeJobByTask.delete(job.taskId);
-          return;
+      const result = await runTaskChatOnce(job, {
+        tasksFile: TASKS_FILE,
+        runId: `task-chat-${job.id}`,
+        now: new Date()
+      });
+      job.result = {
+        task: result.task,
+        evaluation: {
+          titleChanged: false,
+          summaryChanged: false,
+          reasoning: `Agency task chat applied ${result.markersApplied} marker(s); held ${result.markersHeld}.`,
+          markersParsed: result.markersParsed,
+          markersApplied: result.markersApplied,
+          markersHeld: result.markersHeld
         }
-
-        await destroySession(session);
-        try { await client.dispose(); } catch {}
-        job._session = null;
-
-        if (job.status === 'cancelling') break;
-
-        rawContent = response && response.data ? response.data.content : null;
-        parsed = parseJsonFromResponse(rawContent);
-
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-          job.status = 'failed';
-          job.error = 'LLM response was not valid JSON object';
-          await persistJobFailure(job, job.error, { rounds, rawPreview: typeof rawContent === 'string' ? rawContent : null });
-          job.emit('job.failed', { error: job.error, rawPreview: typeof rawContent === 'string' ? rawContent.substring(0, 400) : null });
-          activeJobByTask.delete(job.taskId);
-          return;
-        }
-
-        // Clarification loop: only if the LLM itself decided to ask.
-        if (parsed.intent === 'clarify' && typeof parsed.clarification === 'string' && parsed.clarification.trim() && rounds < GAMMA_LOG_MAX_ROUNDS) {
-          try {
-            const reply = await job.awaitReply(parsed.clarification.trim());
-            convo.push({ role: 'agent-clarification', text: parsed.clarification.trim() });
-            convo.push({ role: 'user', text: reply });
-            continue; // next round with accumulated conversation
-          } catch (err) {
-            if (job.status === 'cancelling') break;
-            job.status = 'failed';
-            job.error = `Clarification interrupted: ${err.message}`;
-            await persistJobFailure(job, job.error, { rounds });
-            job.emit('job.failed', { error: job.error });
-            activeJobByTask.delete(job.taskId);
-            return;
-          }
-        }
-        break; // final answer produced
-      }
-    } finally {
-      if (job._session) {
-        try { await destroySession(job._session); } catch {}
-        job._session = null;
-      }
-    }
-
-    if (job.status === 'cancelling') {
-      await safeWriteTasks((d) => { const t = d.tasks.find(x=>x.id===job.taskId); if(t) t.activeJob = null; return t; });
-      job.status = 'cancelled';
+      };
+      job.status = 'completed';
       job.completedAt = Date.now();
-      job.emit('job.cancelled', {});
+      job.emit('job.completed', { task: result.task, evaluation: job.result.evaluation });
       activeJobByTask.delete(job.taskId);
-      return;
-    }
-
-    if (!parsed) {
+    } catch (err) {
+      if (job.status === 'cancelling') {
+        await safeWriteTasks((d) => { const t = d.tasks.find(x=>x.id===job.taskId); if(t) t.activeJob = null; return t; });
+        job.status = 'cancelled';
+        job.completedAt = Date.now();
+        job.emit('job.cancelled', {});
+        activeJobByTask.delete(job.taskId);
+        return;
+      }
       job.status = 'failed';
-      job.error = 'No parseable response received';
-      await persistJobFailure(job, job.error, { rounds });
+      job.error = err.message || String(err);
+      await persistJobFailure(job, job.error, { rounds: 1 });
       job.emit('job.failed', { error: job.error });
       activeJobByTask.delete(job.taskId);
-      return;
     }
-
-    // ------------------------------------------------------------------
-    // Apply the LLM's decisions to tasks.json — purely mechanical write.
-    // ------------------------------------------------------------------
-    const communications = Array.isArray(parsed.communications) ? parsed.communications : [];
-    const intent = typeof parsed.intent === 'string' ? parsed.intent : 'answer';
-    const agentResponse = buildAgentResponseString(parsed, communications);
-
-    const finalTask = await safeWriteTasks((d) => {
-      const t = d.tasks.find(x => x.id === job.taskId);
-      if (!t) return null;
-      const now = new Date().toISOString();
-      if (!t.history) t.history = [];
-
-      t.history.push({
-        timestamp: now,
-        type: 'update',
-        text: job.input.text,
-        communications,
-        agentResponse,
-        agentPlan: {
-          intent,
-          understanding: parsed.reasoning || '',
-          confidence: parsed.confidence || null,
-          userConfirmed: true,
-          jobId: job.id
-        },
-        agentExecution: {
-          parsedCount: communications.length,
-          confidence: parsed.confidence || null,
-          answer: parsed.answer || null,
-          searchAttempts: Array.isArray(parsed.searchAttempts) ? parsed.searchAttempts : [],
-          ambiguities: Array.isArray(parsed.ambiguities) ? parsed.ambiguities : [],
-          durationMs: Date.now() - job.startedAt,
-          method: 'gamma-single-call-v1',
-          rounds
-        }
-      });
-
-      if (parsed.titleChanged && parsed.newTitle && String(parsed.newTitle).trim() !== t.title) {
-        const prev = t.title;
-        t.title = String(parsed.newTitle).trim();
-        t.history.push({
-          timestamp: now,
-          type: 'title-change',
-          text: `📝 Title updated: "${prev}" → "${t.title}"\nReason: ${parsed.reasoning || ''}`
-        });
-      }
-      if (parsed.summaryChanged && parsed.newSummary) {
-        const prevLen = (t.summary || '').length;
-        t.summary = String(parsed.newSummary).trim();
-        t.history.push({
-          timestamp: now,
-          type: 'summary-update',
-          text: `📋 Summary updated (prev ${prevLen} chars)\nReason: ${parsed.reasoning || ''}`
-        });
-      }
-
-      t.activeJob = null;
-      t.jobHistory = t.jobHistory || [];
-      t.jobHistory.push({
-        jobId: job.id,
-        kind: job.kind,
-        status: 'completed',
-        startedAt: new Date(job.startedAt).toISOString(),
-        completedAt: now,
-        clientRequestId: job.clientRequestId,
-        sdkSessionId: job.sdkSessionId,
-        intent,
-        rounds
-      });
-      if (t.jobHistory.length > JOB_HISTORY_CAP) t.jobHistory.shift();
-
-      t.updatedAt = now;
-      return t;
-    });
-
-    if (!finalTask) {
-      job.status = 'failed';
-      job.error = 'Task was deleted before final write';
-      job.emit('job.failed', { error: job.error });
-      activeJobByTask.delete(job.taskId);
-      return;
-    }
-
-    job.result = {
-      task: finalTask,
-      evaluation: {
-        titleChanged: !!parsed.titleChanged,
-        summaryChanged: !!parsed.summaryChanged,
-        reasoning: parsed.reasoning || ''
-      }
-    };
-    job.status = 'completed';
-    job.completedAt = Date.now();
-    job.emit('job.completed', { task: finalTask, evaluation: job.result.evaluation });
-    activeJobByTask.delete(job.taskId);
   });
 }
 
@@ -2413,8 +2244,6 @@ async function runLogJob(job) {
 // Old /log/analyze and /log remain active until Phase γ.F cut-over.
 // Accepts Idempotency-Key header (optional but recommended).
 app.post('/api/tasks/:id/log', async (req, res) => {
-  if (guardLegacyRoute(res, '/api/tasks/:id/log', 'Use the Agency scan job to refresh project tasks, or set AGENT_ZERO_SCAN_ENGINE=legacy for interactive legacy search')) return;
-
   const { id } = req.params;
   const { text } = req.body || {};
   const idempKey = req.headers['idempotency-key'] || null;
@@ -2543,10 +2372,23 @@ app.patch('/api/tasks/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
+    const hasUserActionPatch = updates
+      && (Object.hasOwn(updates, 'userMarkedDoneAt') || Object.hasOwn(updates, 'userActionId'));
 
     const validStatuses = ['new', 'needs-attention', 'escalated', 'in-progress', 'on-radar', 'updated', 'done', 'paused'];
     if (updates.status !== undefined && !validStatuses.includes(updates.status)) {
       return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
+    }
+    if (hasUserActionPatch) {
+      if (typeof updates.userActionId !== 'string' || !updates.userActionId.trim()) {
+        return res.status(400).json({ error: 'userActionId is required for userMarkedDoneAt updates' });
+      }
+      if (updates.userMarkedDoneAt !== null) {
+        const parsed = Date.parse(updates.userMarkedDoneAt);
+        if (typeof updates.userMarkedDoneAt !== 'string' || !Number.isFinite(parsed)) {
+          return res.status(400).json({ error: 'userMarkedDoneAt must be an ISO timestamp or null' });
+        }
+      }
     }
 
     const task = await safeWriteTasks((data) => {
@@ -2583,6 +2425,39 @@ app.patch('/api/tasks/:id', async (req, res) => {
         });
       }
 
+      if (hasUserActionPatch) {
+        const pmStatus = t.pmStatus && typeof t.pmStatus === 'object' ? t.pmStatus : {};
+        const normalizedActions = Array.isArray(pmStatus.userActions)
+          ? pmStatus.userActions.map(entry => normalizeUserActionEntry(entry, { fallbackConfidence: pmStatus.confidence || 'low' })).filter(Boolean)
+          : [];
+        const actionIndex = normalizedActions.findIndex(entry => entry.id === updates.userActionId.trim());
+        if (actionIndex === -1) return { __error: 'user_action_not_found' };
+        t.pmStatus = pmStatus;
+        t.pmStatus.userActions = normalizedActions;
+        const action = t.pmStatus.userActions[actionIndex];
+
+        const previous = action.userMarkedDoneAt || null;
+        action.userMarkedDoneAt = updates.userMarkedDoneAt;
+        if (!updates.userMarkedDoneAt) {
+          delete action.reopenedUserMarkedDoneAt;
+          delete action.reopenedAt;
+          delete action.reopenedEvidenceRefIds;
+        }
+        if (previous !== action.userMarkedDoneAt) {
+          t.history.push({
+            timestamp: now,
+            type: action.userMarkedDoneAt ? 'user-action-marked-done' : 'user-action-unmarked-done',
+            text: action.userMarkedDoneAt
+              ? `User marked action done: ${action.text}`
+              : `User marked action open again: ${action.text}`,
+            userActionId: action.id,
+            userActionText: action.text,
+            previousUserMarkedDoneAt: previous,
+            userMarkedDoneAt: action.userMarkedDoneAt
+          });
+        }
+      }
+
       const allowedFields = ['status', 'notes', 'title', 'summary', 'enrichmentStatus', 'updateCheckStatus'];
       for (const field of allowedFields) {
         if (updates[field] !== undefined) {
@@ -2595,6 +2470,9 @@ app.patch('/api/tasks/:id', async (req, res) => {
 
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
+    }
+    if (task.__error === 'user_action_not_found') {
+      return res.status(404).json({ error: 'User action not found' });
     }
     res.json(task);
   } catch (err) {

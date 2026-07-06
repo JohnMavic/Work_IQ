@@ -23,12 +23,6 @@ function snippetBetween(startNeedle, endNeedle) {
 test('legacy SDK HTTP routes are gated before legacy runtime work', () => {
   const routes = [
     {
-      start: "app.post('/api/tasks/:id/log'",
-      end: "// GET /api/tasks",
-      guard: "guardLegacyRoute(res, '/api/tasks/:id/log'",
-      legacyWork: 'runLogJob(job)'
-    },
-    {
       start: "app.post('/api/scan'",
       end: "// POST /api/tasks/:id/enrich",
       guard: "guardLegacyRoute(res, '/api/scan'",
@@ -80,6 +74,16 @@ test('legacy SDK HTTP routes are gated before legacy runtime work', () => {
     assert.notEqual(workIndex, -1, `${route.start} missing expected legacy work marker`);
     assert.ok(guardIndex < workIndex, `${route.start} guard must run before legacy work`);
   }
+});
+
+test('task log route is agency task chat and is not legacy-gated', () => {
+  const routeBody = snippetBetween("app.post('/api/tasks/:id/log'", "// GET /api/tasks");
+  const runnerBody = snippetBetween('async function runLogJob(job)', "// POST /api/tasks/:id/log-job");
+
+  assert.equal(routeBody.includes("guardLegacyRoute(res, '/api/tasks/:id/log'"), false);
+  assert.match(routeBody, /runLogJob\(job\)/);
+  assert.match(runnerBody, /runTaskChatOnce\(job/);
+  assert.doesNotMatch(runnerBody, /new CopilotClient\(\)/);
 });
 
 test('legacy merge and consolidate jobs are rejected before job enqueue in agency mode', () => {
