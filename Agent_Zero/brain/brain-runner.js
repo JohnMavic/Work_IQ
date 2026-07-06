@@ -234,6 +234,8 @@ export async function runBrain({
   prompt,
   callerArgs = [],
   brainWorkDir = BRAIN_WORK_DIR,
+  attachments = [],
+  uploadsDir,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   salvageBytes = DEFAULT_SALVAGE_BYTES,
   workIqHardLimit = DEFAULT_WORKIQ_HARD_LIMIT,
@@ -296,7 +298,9 @@ export async function runBrain({
     args = buildAgencyArgs({
       bootstrap: fileContext.bootstrap,
       callerArgs,
-      brainWorkDir: resolvedBrainWorkDir
+      brainWorkDir: resolvedBrainWorkDir,
+      attachments,
+      uploadsDir
     });
     child = _spawnFn(exe, args, {
       cwd: resolvedBrainWorkDir,

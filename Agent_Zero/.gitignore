@@ -11,6 +11,7 @@ tasks.json
 .tasks.json.*.tmp
 scan-log.txt
 brain-work/
+uploads/
 
 # Non-publishable assets
 docs/archive/

@@ -14,6 +14,15 @@ import { FACTSHEET_SECTIONS, normalizeFactSheet } from './brain/factsheet.js';
 import { isUsableSourceLink } from './brain/link-guard.js';
 import { runTaskChatOnce } from './brain/task-chat.js';
 import { normalizeUserActionEntry } from './brain/user-actions.js';
+import {
+  DEFAULT_UPLOADS_DIR,
+  MAX_IMAGE_ATTACHMENT_BYTES,
+  getUploadedAttachmentFile,
+  handleTaskImageUpload,
+  handleTaskImageUploadError,
+  historyAttachmentsFromResolved,
+  resolveTaskAttachmentReferences
+} from './brain/attachments.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,6 +30,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = parseInt(process.env.PORT, 10) || 3000;
 const TASKS_FILE = path.join(__dirname, 'tasks.json');
+const UPLOADS_DIR = DEFAULT_UPLOADS_DIR;
 const NODE_PATH = process.execPath; // Cache once at startup — avoids spawn ENOENT after crash
 const LEGACY_ENGINE_FLAG = 'AGENT_ZERO_SCAN_ENGINE=legacy';
 
@@ -980,6 +990,44 @@ try {
 }
 
 app.use(express.json());
+
+const rawImageUpload = express.raw({
+  type: () => true,
+  limit: MAX_IMAGE_ATTACHMENT_BYTES
+});
+
+function taskExists(taskId) {
+  try {
+    const data = readTasks();
+    return Boolean(data.tasks.find(task => task.id === taskId));
+  } catch {
+    return false;
+  }
+}
+
+app.post('/api/tasks/:id/attachments', rawImageUpload, (req, res) => {
+  handleTaskImageUpload(req, res, {
+    uploadsDir: UPLOADS_DIR,
+    taskExists
+  });
+});
+
+app.use('/api/tasks/:id/attachments', handleTaskImageUploadError);
+
+app.get('/api/uploads/:taskId/:filename', (req, res) => {
+  try {
+    const file = getUploadedAttachmentFile({
+      taskId: req.params.taskId,
+      filename: req.params.filename,
+      uploadsDir: UPLOADS_DIR
+    });
+    res.set('Cache-Control', 'private, max-age=86400');
+    res.type(file.mimeType);
+    res.sendFile(file.absolutePath);
+  } catch (err) {
+    res.status(err.statusCode || 404).json({ error: err.expose ? err.message : 'Attachment not found' });
+  }
+});
 
 // Serve index.html at root (no-cache to ensure code changes are always picked up)
 app.get('/', (req, res) => {
@@ -2050,28 +2098,29 @@ Possible intents:
 - clarify    : the user's message is genuinely ambiguous — ask ONE short question and wait
 
 Rules:
+- Always respond and write generated task content in English, regardless of the prompt language or the existing task language.
 - Never ask for permission to act. If you can decide, decide and act.
 - For **search** intent: use the SEARCH_SKILL strategy above (parallel_search with 2-3 angles, self-assess, optional 3rd attempt). Integrate findings into title/summary when relevant.
 - For **update / correct / rename / summarize** intents: normally do NOT call tools. Act directly on the user's information.
 - For **answer** intent: provide a direct answer in \`answer\`; leave communications empty; do not touch title/summary.
-- For **clarify** intent: set \`clarification\` to exactly ONE short question (user's language). Do not call tools. Do not set titleChanged/summaryChanged.
+- For **clarify** intent: set \`clarification\` to exactly ONE short question in English. Do not call tools. Do not set titleChanged/summaryChanged.
 - Title: concise (max ~15 words), no emoji, reflects CURRENT state.
 - Summary: structured 3-section format:
   [1-2 sentence context]
   ---
-  🔴 **Nächste Schritte:** / **Next steps:**
+  🔴 **Next steps:**
   - …
   ---
-  ✅ **Bisheriger Verlauf:** / **History:**
+  ✅ **History:**
   - DD.MM. — milestone (newest first)
-  Keep the language of the existing content. Migrate older 📌-Update-style summaries into this structure when touching them.
+  Write this structure in English. Migrate older 📌-Update-style summaries into this structure when touching them.
 - Only set \`titleChanged\` or \`summaryChanged\` to true when there is a GENUINE reason in this turn.
 
 ### OUTPUT
 Output EXACTLY this JSON object and nothing else (no prose, no markdown fences):
 {
   "intent": "search" | "update" | "rename" | "summarize" | "correct" | "answer" | "clarify",
-  "clarification": "single short question in the user's language" | null,
+  "clarification": "single short question in English" | null,
   "communications": [ { "type": "email"|"teams", "from": "", "to": "", "date": "ISO-8601", "summary": "", "link": "" }, ... ],
   "answer": "user-facing answer text, may be empty string for pure updates" | null,
   "confidence": "high" | "medium" | "low" | "none",
@@ -2136,8 +2185,9 @@ async function persistJobFailure(job, reason, extras = {}) {
         timestamp: now,
         type: 'update',
         text: job.input && job.input.text ? job.input.text : '(agent request)',
+        attachments: historyAttachmentsFromResolved(job.input?.attachments || []),
         communications: [],
-        agentResponse: `⚠️ Agent failed: ${reason}`,
+        agentResponse: `Agent failed: ${reason}`,
         agentPlan: { intent: 'answer', understanding: reason, confidence: 'none', userConfirmed: false, jobId: job.id },
         agentExecution: {
           parsedCount: 0,
@@ -2245,11 +2295,13 @@ async function runLogJob(job) {
 // Accepts Idempotency-Key header (optional but recommended).
 app.post('/api/tasks/:id/log', async (req, res) => {
   const { id } = req.params;
-  const { text } = req.body || {};
+  const { text, attachments = [] } = req.body || {};
   const idempKey = req.headers['idempotency-key'] || null;
+  const trimmedText = String(text || '').trim();
+  const effectiveText = trimmedText || 'Please review the attached image(s) for this task.';
 
-  if (!text || !String(text).trim()) {
-    return res.status(400).json({ error: 'Log text is required' });
+  if (!trimmedText && (!Array.isArray(attachments) || attachments.length === 0)) {
+    return res.status(400).json({ error: 'Message text or an image attachment is required' });
   }
 
   // Confirm task exists (fast read, no lock)
@@ -2261,8 +2313,22 @@ app.post('/api/tasks/:id/log', async (req, res) => {
     return res.status(500).json({ error: 'Failed to read tasks', detail: err.message });
   }
 
+  let resolvedAttachments = [];
+  try {
+    resolvedAttachments = resolveTaskAttachmentReferences({
+      taskId: id,
+      attachments,
+      uploadsDir: UPLOADS_DIR
+    });
+  } catch (err) {
+    return res.status(err.statusCode || 400).json({ error: err.expose ? err.message : 'Invalid attachment' });
+  }
+
   // Idempotency replay protection
-  const bodyHash = hashBody({ text: String(text).trim() });
+  const bodyHash = hashBody({
+    text: effectiveText,
+    attachments: resolvedAttachments.map(attachment => attachment.relativePath)
+  });
   const idem = checkIdempotency(idempKey, bodyHash);
   if (idem.status === 'conflict') {
     return res.status(409).json({ error: 'Idempotency-Key reused with different body' });
@@ -2281,7 +2347,10 @@ app.post('/api/tasks/:id/log', async (req, res) => {
   const job = new Job({
     taskId: id,
     kind: 'log',
-    input: { text: String(text).trim() },
+    input: {
+      text: effectiveText,
+      attachments: resolvedAttachments
+    },
     clientRequestId: idempKey
   });
   registerJob(job);
@@ -3198,7 +3267,7 @@ app.post('/api/tasks/:id/check-update', withTaskQueue(async (req, res) => {
       `## Your task NOW\n\n` +
       `Determine whether the conversation referenced above has any NEW message(s) dated AFTER the temporal anchor (Last successful check). Use the smallest possible number of ask_work_iq calls (target: 1, hard cap: ${PHASE3_QUERY_BUDGET}). Prefer the Direct link / Thread ID for a focused lookup. Do NOT re-search if your first query returns the same messages already listed in the recent history above.\n\n` +
       `**MANDATORY:** Your ask_work_iq question MUST literally contain the phrase \`Sent Items\` and explicitly request BOTH incoming messages from the counterpart AND messages that I (Martin) sent or replied with in this thread. A self-sent reply IS an update — do not ignore it.\n\n` +
-      `**STATE RECONCILIATION:** Even if you find no NEW messages, inspect the current summary above against the Current status field. If the summary already documents a terminal/state-change event (approval complete, done, cancelled, abgeschlossen) but Current status is still 'new' or 'in-progress', emit \`newStatus\` (and \`newTitle\` if needed) in your JSON response — even with hasUpdate=false. This brings the lifecycle into sync with what's already known.\n\n` +
+      `**STATE RECONCILIATION:** Even if you find no NEW messages, inspect the current summary above against the Current status field. If the summary already documents a terminal/state-change event (approval complete, done, cancelled, closed) but Current status is still 'new' or 'in-progress', emit \`newStatus\` (and \`newTitle\` if needed) in your JSON response — even with hasUpdate=false. This brings the lifecycle into sync with what's already known.\n\n` +
       `Return ONLY the JSON object specified by the skill.`;
 
     const promptLen = checkPrompt.length;
@@ -3526,24 +3595,25 @@ TASKS TO MERGE:
 ${tasksToMerge.map((t, i) => `\n--- Task ${i + 1}: "${t.title}" ---\nSummary: ${t.summary || '(no summary)'}\nFrom: ${t.from || 'unknown'}\nSource: ${t.source}`).join('\n')}
 
 INSTRUCTIONS:
+0. Always respond and write generated task content in English, regardless of the original summary language.
 1. Create a UNIFIED SUMMARY in STRUCTURED FORMAT with 3 visually separated sections:
 
    [1-2 sentence context: what this merged task is about]
 
    ---
 
-   🔴 **Nächste Schritte:** (or **Next steps:** if content is in English)
+   🔴 **Next steps:**
    - All currently pending items from all tasks combined
 
    ---
 
-   ✅ **Bisheriger Verlauf:** (or **History:** if content is in English)
+   ✅ **History:**
    - DD.MM. — One-line milestone (most recent first)
 
 2. Preserve ALL important details: names, dates, decisions, action items.
 3. Use "---" (Markdown horizontal rule) between sections.
 4. NEVER use "📌 Update (date):" format — that is deprecated.
-5. Write in the SAME LANGUAGE as the original summaries.
+5. Write in English.
 6. If different people have different perspectives, attribute them clearly.
 
 Return ONLY valid JSON:
@@ -3771,7 +3841,7 @@ CRITICAL INSTRUCTIONS — RESEARCH BEFORE ANSWERING:
 After your analysis, return ONLY this JSON:
 {
   "resolvedIndices": [0, 2],
-  "updatedSummary": "The complete updated summary in STRUCTURED FORMAT. Use 3 sections separated by '---': [context paragraph] --- 🔴 **Nächste Schritte:** [pending items] --- ✅ **Bisheriger Verlauf:** [milestones]. NEVER use '📌 Update' format. If the existing summary uses old format, MIGRATE it. Write in the same language as the current summary. If no changes needed, return null.",
+  "updatedSummary": "The complete updated summary in STRUCTURED FORMAT and English. Use 3 sections separated by '---': [context paragraph] --- 🔴 **Next steps:** [pending items] --- ✅ **History:** [milestones]. NEVER use '📌 Update' format. If the existing summary uses old format, MIGRATE it. If no changes needed, return null.",
   "remainingQuestions": ["Any new or still-open question — only if truly unresolved"],
   "allResolved": true,
   "researchPerformed": true
@@ -3784,7 +3854,7 @@ RULES:
 - allResolved: true if all open questions are answered, false otherwise
 - researchPerformed: true if you used search tools to verify, false if direct answer was sufficient
 - Be thorough — if the user asks you to verify something, actually verify it before resolving
-- Write in the same language as the user's response
+- Always write generated content and remaining questions in English
 
 Return ONLY the JSON object. No markdown, no explanation.`;
 

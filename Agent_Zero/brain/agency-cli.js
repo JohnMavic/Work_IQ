@@ -1,6 +1,8 @@
 import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_UPLOADS_DIR, isPathInside } from './attachments.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -75,7 +77,43 @@ export function stripPinnedCallerArgs(args = []) {
   return result;
 }
 
-export function buildAgencyArgs({ bootstrap, callerArgs = [], brainWorkDir = BRAIN_WORK_DIR } = {}) {
+export function buildAttachmentArgs({
+  attachments = [],
+  uploadsDir = DEFAULT_UPLOADS_DIR,
+  requireExists = true
+} = {}) {
+  if (!Array.isArray(attachments)) {
+    throw new Error('attachments must be an array');
+  }
+  const root = path.resolve(uploadsDir);
+  const args = [];
+  for (const value of attachments) {
+    const attachmentPath = typeof value === 'string' ? value : value?.absolutePath || value?.path;
+    if (!attachmentPath || typeof attachmentPath !== 'string') {
+      throw new Error('attachment path is required');
+    }
+    if (!path.isAbsolute(attachmentPath)) {
+      throw new Error(`attachment path must be absolute: ${attachmentPath}`);
+    }
+    const resolved = path.resolve(attachmentPath);
+    if (!isPathInside(root, resolved)) {
+      throw new Error(`attachment path is outside uploads: ${resolved}`);
+    }
+    if (requireExists && (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile())) {
+      throw new Error(`attachment file not found: ${resolved}`);
+    }
+    args.push('--attachment', resolved);
+  }
+  return args;
+}
+
+export function buildAgencyArgs({
+  bootstrap,
+  callerArgs = [],
+  brainWorkDir = BRAIN_WORK_DIR,
+  attachments = [],
+  uploadsDir = DEFAULT_UPLOADS_DIR
+} = {}) {
   if (!bootstrap || typeof bootstrap !== 'string') {
     throw new Error('buildAgencyArgs requires a bootstrap prompt string');
   }
@@ -88,6 +126,7 @@ export function buildAgencyArgs({ bootstrap, callerArgs = [], brainWorkDir = BRA
     ...AGENCY_RUN_ARGS,
     '--add-dir',
     brainWorkDir,
+    ...buildAttachmentArgs({ attachments, uploadsDir }),
     '--allow-all-tools',
     '--disable-mcp-server',
     'playwright',
