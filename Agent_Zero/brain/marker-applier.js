@@ -3,6 +3,17 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { migrateToV5, V5_BRAIN_DEFAULTS, V5_BRAIN_STATE_DEFAULTS } from './tasks-v5.js';
+import {
+  invalidSourceLinkReason,
+  isUsableSourceLink,
+  sanitizeFabricatedSourceText,
+  sourceLinkVerdict
+} from './link-guard.js';
+import {
+  applyFactSheetSectionPatches,
+  normalizeFactSheet,
+  validateFactSheetSectionPatches
+} from './factsheet.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -103,21 +114,26 @@ function allPayloadSourceRefs(payload) {
 }
 
 function isValidSourceLink(link) {
-  return typeof link === 'string' && /^https?:\/\//i.test(link) && !link.includes('...');
-}
-
-function invalidSourceLinkReason(link) {
-  if (link === null || link === undefined || link === '') return null;
-  if (typeof link !== 'string') return 'sourceRef.link must be a string';
-  if (!/^https?:\/\//i.test(link)) return 'sourceRef.link must start with http(s)://';
-  if (link.includes('...')) return 'sourceRef.link must not contain ...';
-  return null;
+  return isUsableSourceLink(link);
 }
 
 function discardInvalidSourceRefLinks(payload, { auditLogFile, appliedAt, marker }) {
   for (const ref of allPayloadSourceRefs(payload)) {
     if (!ref || typeof ref !== 'object' || Array.isArray(ref)) continue;
-    const reason = invalidSourceLinkReason(ref.link);
+    const verdict = sourceLinkVerdict(ref.link);
+    if (verdict.ok && verdict.auditOnly && verdict.normalized) {
+      appendAudit(auditLogFile, {
+        timestamp: appliedAt,
+        action: 'flag-unusual-source-link',
+        type: marker.type,
+        sourceRefId: ref.id || null,
+        reason: 'sourceRef.link is not a known Outlook/Teams deep-link form; kept losslessly',
+        link: verdict.normalized,
+        line: marker.line ?? null,
+        raw: marker.raw ?? null
+      });
+    }
+    const reason = verdict.ok ? null : verdict.reason;
     if (!reason) continue;
     const discardedLink = ref.link;
     ref.link = null;
@@ -132,6 +148,50 @@ function discardInvalidSourceRefLinks(payload, { auditLogFile, appliedAt, marker
       raw: marker.raw ?? null
     });
   }
+}
+
+function scrubFabricatedSourceText(value, { auditLogFile, appliedAt, marker, pathParts = [] } = {}) {
+  if (typeof value === 'string') {
+    const sanitized = sanitizeFabricatedSourceText(value);
+    if (sanitized.changed) {
+      appendAudit(auditLogFile, {
+        timestamp: appliedAt,
+        action: 'scrub-fabricated-source-token',
+        type: marker.type,
+        field: pathParts.join('.'),
+        line: marker.line ?? null,
+        raw: marker.raw ?? null
+      });
+      return sanitized.text;
+    }
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      value[i] = scrubFabricatedSourceText(value[i], {
+        auditLogFile,
+        appliedAt,
+        marker,
+        pathParts: [...pathParts, String(i)]
+      });
+    }
+    return value;
+  }
+
+  if (value && typeof value === 'object') {
+    for (const [key, child] of Object.entries(value)) {
+      if (key === 'link' || key === 'url') continue;
+      value[key] = scrubFabricatedSourceText(child, {
+        auditLogFile,
+        appliedAt,
+        marker,
+        pathParts: [...pathParts, key]
+      });
+    }
+  }
+
+  return value;
 }
 
 function addPayloadSourceRefs(index, payload) {
@@ -274,6 +334,13 @@ function validateMarker(marker, data, sourceRefIndex) {
         if (!evidence.ok) return { ok: false, reason: evidence.reason };
         return { ok: true, capConfidence: evidence.capConfidence };
       }
+      return { ok: true, capConfidence: false };
+    }
+
+    case 'FACTSHEET_UPDATE': {
+      if (!payload.taskId || !taskById(data, payload.taskId)) return { ok: false, reason: `unknown taskId: ${payload.taskId}` };
+      const patchError = validateFactSheetSectionPatches(payload.sectionPatches, sourceRefIndex);
+      if (patchError) return { ok: false, reason: patchError };
       return { ok: true, capConfidence: false };
     }
 
@@ -490,6 +557,7 @@ function applyProjectNew(data, payload, context) {
     supersededBy: null,
     supersedesTaskIds: normalizeArray(payload.supersedesTaskIds),
     pmStatus: normalizePmStatus(payload.pmStatus, context.now),
+    factSheet: normalizeFactSheet(payload.factSheet, { now: context.now }),
     sourceRefs,
     lineItems: normalizeArray(payload.lineItems).map(item => normalizeLineItem(item, context)),
     brainState: {
@@ -519,6 +587,14 @@ function applyProjectUpdate(data, payload, context) {
   task.brainState.lastScanRunId = context.runId;
   task.brainState.lastEvidenceAt = latestEvidenceAt(task.sourceRefs) || task.brainState.lastEvidenceAt;
   archiveSuperseded(data, payload.supersedesTaskIds, task.id, context.now);
+}
+
+function applyFactSheetUpdate(data, payload, context) {
+  const task = taskById(data, payload.taskId);
+  task.factSheet = applyFactSheetSectionPatches(task.factSheet, payload.sectionPatches, context);
+  task.updatedAt = nowIso(context.now);
+  task.brainState = { ...V5_BRAIN_STATE_DEFAULTS, ...(task.brainState || {}) };
+  task.brainState.lastScanRunId = context.runId;
 }
 
 function applyLineItemNew(data, payload, context) {
@@ -568,6 +644,7 @@ function applyTaskNew(data, payload, context) {
     supersededBy: null,
     supersedesTaskIds: [],
     pmStatus: null,
+    factSheet: normalizeFactSheet(payload.factSheet, { now: context.now }),
     sourceRefs: [sourceRef],
     lineItems: [],
     brainState: {
@@ -646,6 +723,7 @@ function applyValidMarker(data, marker, context) {
   switch (marker.type) {
     case 'PROJECT_NEW': return applyProjectNew(data, marker.payload, context);
     case 'PROJECT_UPDATE': return applyProjectUpdate(data, marker.payload, context);
+    case 'FACTSHEET_UPDATE': return applyFactSheetUpdate(data, marker.payload, context);
     case 'LINEITEM_NEW': return applyLineItemNew(data, marker.payload, context);
     case 'LINEITEM_UPDATE': return applyLineItemUpdate(data, marker.payload, context);
     case 'TASK_NEW': return applyTaskNew(data, marker.payload, context);
@@ -672,6 +750,7 @@ export function applyMarkerBatch(inputData, markers, {
   for (const marker of markers) {
     const candidate = clone(marker);
     discardInvalidSourceRefLinks(candidate.payload, { auditLogFile, appliedAt, marker });
+    scrubFabricatedSourceText(candidate.payload, { auditLogFile, appliedAt, marker, pathParts: ['payload'] });
     const introducedSourceRefsError = validateIntroducedSourceRefs(candidate.payload);
     if (introducedSourceRefsError) {
       const drop = {

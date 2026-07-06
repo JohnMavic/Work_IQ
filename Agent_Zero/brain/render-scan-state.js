@@ -3,6 +3,7 @@ import path from 'node:path';
 import { BRAIN_WORK_DIR } from './agency-cli.js';
 import { prepareBrainWorkDir } from './brain-runner.js';
 import { migrateToV5 } from './tasks-v5.js';
+import { FACTSHEET_SECTIONS, normalizeFactSheet, renderFactSheetMarkdown } from './factsheet.js';
 
 export const DEFAULT_STATE_MAX_BYTES = 24 * 1024;
 export const DEFAULT_HISTORY_SPILL_BYTES = 1600;
@@ -75,6 +76,43 @@ function writeJsonSpill({ brainWorkDir, filename, title, value, spillFiles }) {
   return filename;
 }
 
+function writeTextSpill({ brainWorkDir, filename, text, spillFiles, factSheetFiles }) {
+  fs.writeFileSync(path.join(brainWorkDir, filename), text, 'utf8');
+  spillFiles.push(filename);
+  if (factSheetFiles) factSheetFiles.push(filename);
+  return filename;
+}
+
+function renderFactSheet(task, lines, { brainWorkDir, runId, spillFiles, factSheetFiles, writeFiles }) {
+  const text = renderFactSheetMarkdown(task);
+  if (writeFiles) {
+    const filename = `factsheet-${safeFilePart(task.id)}-${safeFilePart(runId)}.md`;
+    const spill = writeTextSpill({
+      brainWorkDir,
+      filename,
+      text,
+      spillFiles,
+      factSheetFiles
+    });
+    lines.push(`  factSheet REQUIRED spill: ${spill}`);
+    return;
+  }
+  lines.push('  factSheet inline:');
+  for (const line of text.trimEnd().split('\n')) lines.push(`    ${line}`);
+}
+
+function factSheetEntryCount(task) {
+  const sheet = normalizeFactSheet(task?.factSheet);
+  return FACTSHEET_SECTIONS.reduce((sum, section) => {
+    return sum + normalizeArray(sheet.sections[section.id]).filter(entry => !entry.removedAt).length;
+  }, 0);
+}
+
+function renderSingleFactSheetSummary(task, lines) {
+  const count = factSheetEntryCount(task);
+  if (count > 0) lines.push(`  factSheet entries: ${count} compact single-task fact(s)`);
+}
+
 function renderPmStatus(task, lines, { brainWorkDir, runId, spillFiles, writeFiles, pmStatusMode }) {
   if (!task.pmStatus) return;
   if (writeFiles && pmStatusMode === 'spill') {
@@ -135,6 +173,7 @@ function buildMarkdown(data, options) {
     runId,
     historySpillBytes,
     spillFiles,
+    factSheetFiles,
     writeFiles,
     now
   } = options;
@@ -154,6 +193,7 @@ function buildMarkdown(data, options) {
   lines.push(`Archived/superseded IDs: ${archivedIds.length ? archivedIds.join(', ') : 'none'}`);
   lines.push('');
   lines.push('Read referenced spill files from the current working directory only when needed.');
+  lines.push('For any candidate project assignment or update, read that project factSheet REQUIRED spill first.');
   lines.push('');
 
   lines.push('## Open Projects');
@@ -161,6 +201,7 @@ function buildMarkdown(data, options) {
   for (const task of openProjects) {
     lines.push(`- [${task.id}] ${truncate(task.title, 160)} | status=${task.status || 'new'} | key=${task.projectKey || 'n/a'}`);
     renderSourceRefs(task, lines);
+    renderFactSheet(task, lines, { brainWorkDir, runId, spillFiles, factSheetFiles, writeFiles });
     if (task.summary && summaryChars > 0) lines.push(`  summary: ${truncate(task.summary, summaryChars)}`);
     if (includePmStatus) renderPmStatus(task, lines, { brainWorkDir, runId, spillFiles, writeFiles, pmStatusMode });
     const spill = renderHistorySpill(task, { brainWorkDir, runId, historySpillBytes, spillFiles, writeFiles });
@@ -182,6 +223,7 @@ function buildMarkdown(data, options) {
     const hasSourceLink = Boolean(task.link || normalizeArray(task.sourceRefs).find(ref => ref.link));
     lines.push(`- [${task.id}] ${truncate(task.title, 160)} | status=${task.status || 'new'} | sourceLink=${hasSourceLink ? 'present-omitted' : 'none'}`);
     renderSourceRefs(task, lines);
+    renderSingleFactSheetSummary(task, lines);
     if (summary) lines.push(`  summary: ${summary}`);
     const spill = renderHistorySpill(task, { brainWorkDir, runId, historySpillBytes, spillFiles, writeFiles });
     if (spill) lines.push(`  history spill: ${spill}`);
@@ -219,15 +261,18 @@ export function renderScanState(inputData, {
 
   let markdown = '';
   let spillFiles = [];
+  let factSheetFiles = [];
   let selectedAttempt = attempts.at(-1);
   for (const attempt of attempts) {
     spillFiles = [];
+    factSheetFiles = [];
     markdown = buildMarkdown(data, {
       ...attempt,
       brainWorkDir: resolvedBrainWorkDir,
       runId,
       historySpillBytes,
       spillFiles,
+      factSheetFiles,
       writeFiles,
       now
     });
@@ -242,6 +287,7 @@ export function renderScanState(inputData, {
     markdown,
     stateFile,
     spillFiles,
+    factSheetFiles,
     bytes: bytes(markdown),
     maxBytes,
     truncated: bytes(markdown) > maxBytes || selectedAttempt.summaryChars < attempts[0].summaryChars,

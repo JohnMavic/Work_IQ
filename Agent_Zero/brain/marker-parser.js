@@ -1,6 +1,7 @@
 export const MARKER_TYPES = Object.freeze([
   'PROJECT_NEW',
   'PROJECT_UPDATE',
+  'FACTSHEET_UPDATE',
   'LINEITEM_NEW',
   'LINEITEM_UPDATE',
   'TASK_NEW',

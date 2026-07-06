@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 export const REPO_ROOT = path.resolve(__dirname, '..');
 export const BRAIN_WORK_DIR = path.join(REPO_ROOT, 'brain-work');
 export const COPILOT_MODEL = 'claude-opus-4.8';
-export const COPILOT_EFFORT = 'high';
+export const COPILOT_EFFORT = process.env.AGENT_ZERO_BRAIN_EFFORT || 'xhigh';
 export const COPILOT_CONTEXT = 'long_context';
 
 export const AGENCY_ARG_PREFIX = [
@@ -105,6 +105,7 @@ export function buildAgencyEnv(baseEnv = process.env) {
 
   return {
     ...env,
-    COPILOT_MODEL
+    COPILOT_MODEL,
+    COPILOT_EFFORT
   };
 }

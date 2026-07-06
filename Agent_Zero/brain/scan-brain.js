@@ -6,6 +6,7 @@ import { runBrain } from './brain-runner.js';
 import { parseMarkers } from './marker-parser.js';
 import { applyMarkerBatch } from './marker-applier.js';
 import { renderScanState } from './render-scan-state.js';
+import { filterMarkersThroughGateway, runRealityGateway } from './reality-gateway.js';
 import { migrateToV5, V5_BRAIN_DEFAULTS, writeJsonFileAtomic } from './tasks-v5.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -153,6 +154,7 @@ export async function runBrainScanOnce(job, {
   _writeJsonFileAtomic = writeJsonFileAtomic,
   _renderScanState = renderScanState,
   _runBrain = runBrain,
+  _runGateway = runRealityGateway,
   _parseMarkers = parseMarkers,
   _applyMarkerBatch = applyMarkerBatch,
   onPersistJob = null
@@ -202,7 +204,7 @@ export async function runBrainScanOnce(job, {
     premiumRequests
   });
 
-  await setPhase(job, 'brain_apply', { scanDays }, onPersistJob);
+  await setPhase(job, 'brain_gateway', { scanDays }, onPersistJob);
 
   if (!brainResult.ok) {
     const message = brainResult.error?.message || 'Agency brain run failed';
@@ -225,8 +227,27 @@ export async function runBrainScanOnce(job, {
     throw new Error(message);
   }
 
+  const gatewayResult = await _runGateway({
+    stateFile: state.stateFile,
+    factSheetFiles: state.factSheetFiles || [],
+    markers: parsed.markers,
+    brainWorkDir,
+    runId
+  });
+  const gatewayFilter = filterMarkersThroughGateway(parsed.markers, gatewayResult);
+  job?.emit?.('job.phase_done', {
+    phase: 'brain_gateway',
+    ok: Boolean(gatewayResult.ok),
+    approvedMarkers: gatewayFilter.approved.length,
+    heldMarkers: gatewayFilter.held.length,
+    gatewayParsed: gatewayFilter.gatewayParsed,
+    workIqCalls: gatewayResult.counters?.workIqCalls ?? 0
+  });
+
+  await setPhase(job, 'brain_apply', { scanDays }, onPersistJob);
+
   const scanDone = scanDonePayload(parsed.markers);
-  const applyResult = _applyMarkerBatch(beforeData, parsed.markers, {
+  const applyResult = _applyMarkerBatch(beforeData, gatewayFilter.markers, {
     now,
     runId,
     auditLogFile: null
@@ -259,6 +280,13 @@ export async function runBrainScanOnce(job, {
     premiumRequests,
     droppedMarkers: applyResult.dropped,
     appliedMarkers: applyResult.applied,
+    gateway: {
+      ok: Boolean(gatewayResult.ok),
+      approvedMarkers: gatewayFilter.approved.length,
+      heldMarkers: gatewayFilter.held.length,
+      parsed: gatewayFilter.gatewayParsed,
+      parseError: gatewayFilter.gatewayParseError
+    },
     parseErrors: parsed.errors,
     salvaged: Boolean(brainResult.salvaged),
     scanDone: Boolean(scanDone)
