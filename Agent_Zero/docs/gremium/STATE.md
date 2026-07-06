@@ -2,7 +2,9 @@
 
 Aktualisiert: 2026-07-06 · Branch: `feature/agency-brain`
 
-## Status: BATCH 5 LIVE-AUDIT **AUDIT5: PASS** (nach Gateway-Fix `71f4c9e`) — Reality-Gateway-Parser gehärtet (prosa-präfixiertes pretty-JSON + Zeilen-Verdikt-Vertrag + 1 Retry → hold-all); Fix-Live-Scan `scan-1783332440027` wandte offensichtlich zugehörige Infos auf die richtigen Projekte an (Circle +1 sourceRef/+2 factSheet, Seestrasse +1/+2, CAB unverändert), Faktensheets fortgeschrieben, 3/3 Stichproben per workiq-ask mailbox-bestätigt, 0 Fabrikate, 0 Fremd-Zuordnung, reviewQueue 18/18 mit Begründung; npm test 91/91
+## Status: BATCH 6 + 6B ABSCHLUSS-AUDIT **AUDIT6: PASS** (AUDIT-BATCH-6.md) — Sweep sigma-safe (Σ identisch über 4 Snapshots, 0 dangling, 0 Fabrikate; 8 Marker = 7 no-op updatedAt + 1 substantiell Circle-SAP), 4/4 Stichproben per workiq-ask mailbox-exakt (Circle SAP 5735844555/Sodexo/CHF 26'645.85/PO 0101608497, Dual-MPR Basement/Dez 2026, Seestrasse Temp-WS ~18/17-28 Aug/Laith Skeik, CAB 02-Jul-Session); Owner-Explizitheit (0 Fremd-Owner in userActions, Validator+UI), Tickbox (Carry-Forward + PATCH-by-id + 2-Zustand-Reconcile), Task-Chat (EIN Gateway-Apply-Pfad code-bewiesen, 10min, Multiline, Bild-Paste `--attachment` + Guards), ENGLISH-ONLY (Prompts+UI, 0 Deutsch in generierten Feldern), regressionsfrei (npm test 104/104, tasks.json-Hash unverändert). 2 Non-Blocking-Hinweise: Sweep `lastWorkIqCalls:0` (flache Re-Verifikation) + vorbestehende CAB-Aussage "CHG0858097 completed" nur als "Scheduled" belegbar — keine Batch-6-Regression. Nutzer-Instanz :3000 (pid 26068) unangetastet, kein Kind-Server, keine STOP/START-Skripte.
+
+## Vorheriger Stand: BATCH 5 LIVE-AUDIT **AUDIT5: PASS** (nach Gateway-Fix `71f4c9e`) — Reality-Gateway-Parser gehärtet (prosa-präfixiertes pretty-JSON + Zeilen-Verdikt-Vertrag + 1 Retry → hold-all); Fix-Live-Scan `scan-1783332440027` wandte offensichtlich zugehörige Infos auf die richtigen Projekte an (Circle +1 sourceRef/+2 factSheet, Seestrasse +1/+2, CAB unverändert), Faktensheets fortgeschrieben, 3/3 Stichproben per workiq-ask mailbox-bestätigt, 0 Fabrikate, 0 Fremd-Zuordnung, reviewQueue 18/18 mit Begründung; npm test 91/91
 
 | Schritt | Status |
 |---|---|
@@ -22,6 +24,9 @@ Aktualisiert: 2026-07-06 · Branch: `feature/agency-brain`
 | 11. Batch 5 — FactSheet + Reality-Check-Gateway + Datenreparatur (Codex) | ✅ done — RESULT-BATCH-5.md `BATCH5: OK`, RESULT-FIX-CIRCLE.md, npm test 85/85 |
 | 12. Batch-5 Live-Audit (agency, D-Kriterien am echten Bestand) | ⚠️ historisch: AUDIT5: FAIL (2e/2f) — Gateway strict-JSON-Parser fail-closed hielt alle Belegupdates; behoben durch `71f4c9e` |
 | 13. **Gateway-Fix (`71f4c9e`) + fokussiertes Re-Audit** | ✅ **AUDIT5: PASS** — AUDIT-BATCH-5.md; 2e+2f erfüllt (persistierter Delta + workiq-Mailbox 3/3), Kriterium 3 regressionsfrei (0 Fabrikate, 0 Moerken/Norway, reviewQueue 18/18 mit Grund), Kriterium 4 (auflage 4) per Tests belegt (kaputte Zeile hält nur diese; 1 Retry; dann hold-all), npm test 91/91 |
+| 14. Batch 6 — Re-Verifikations-Sweep + Owner + Tickbox + Task-Chat (Codex) | ✅ done — RESULT-BATCH-6.md `BATCH6: OK markers=8 applied=8`, Commits `6b8b2dc`/`8684e68`/`0b40168` |
+| 15. Batch 6b — Task-Chat Multiline + Bild-Paste + English-only (Codex) | ✅ done — RESULT-BATCH-6B.md `BATCH6B: OK`, Commits `96535fc`/`13a2c20`/`347d239`, npm test 104/104 |
+| 16. **Batch 6 + 6b Abschluss-Audit (agency, 6 Kriterien am echten Bestand)** | ✅ **AUDIT6: PASS** — AUDIT-BATCH-6.md; Sweep Σ-safe + 4/4 workiq-Mailbox exakt, Owner/Tickbox/Task-Chat/English/Regression alle belegt (code+UI+tests), npm test 104/104, tasks.json unberührt; 2 Non-Blocking-Hinweise (Sweep-Tiefe `lastWorkIqCalls:0`, CAB-"completed"-Über-Assertion) |
 
 ## Batch-5 Live-Audit (2026-07-06, AUDIT-BATCH-5.md)
 - **(1) STATIC PASS:** 0 fabrizierte `turn*search*`-Links in 24 aktiven Tasks; Circle
