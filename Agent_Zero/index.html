@@ -248,8 +248,8 @@
     .panel-right {
       display: flex;
       flex-direction: column;
-      overflow-y: auto;
-      padding: 16px 20px;
+      overflow: hidden;
+      padding: 0;
       min-height: 0;
       border-left: none;
     }
@@ -324,7 +324,47 @@
     .task-detail-view {
       display: flex;
       flex-direction: column;
+      flex: 1;
+      min-height: 0;
+    }
+    .task-detail-content {
+      display: flex;
+      flex-direction: column;
       gap: 12px;
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 16px 20px 28px;
+    }
+    .task-detail-content::-webkit-scrollbar,
+    .task-chat-history::-webkit-scrollbar { width: 4px; }
+    .task-detail-content::-webkit-scrollbar-track,
+    .task-chat-history::-webkit-scrollbar-track { background: transparent; }
+    .task-detail-content::-webkit-scrollbar-thumb,
+    .task-chat-history::-webkit-scrollbar-thumb { background: #262d40; border-radius: 2px; }
+    .task-detail-content::-webkit-scrollbar-thumb:hover,
+    .task-chat-history::-webkit-scrollbar-thumb:hover { background: #3a4358; }
+    .task-detail-content,
+    .task-chat-history { scrollbar-width: thin; scrollbar-color: #262d40 transparent; }
+    .task-chat-dock {
+      flex: 0 0 auto;
+      position: sticky;
+      bottom: 0;
+      z-index: 4;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 10px 20px 16px;
+      background: #0b0d17;
+      border-top: 1px solid #1e2233;
+      box-shadow: 0 -14px 24px rgba(5, 7, 15, 0.72);
+    }
+    .task-chat-history {
+      display: flex;
+      flex-direction: column-reverse;
+      overflow-y: auto;
+      max-height: min(34vh, 320px);
+      min-height: 0;
     }
     .detail-header {
       display: flex; flex-direction: column; gap: 6px;
@@ -351,11 +391,13 @@
     .conflict-panel h4 { margin: 0 0 8px; font-size: 0.82rem; color: #fecaca; }
     .conflict-item { color: #e5e7eb; font-size: 0.8rem; padding-top: 6px; border-top: 1px solid rgba(239,68,68,0.18); }
     .conflict-item:first-of-type { border-top: 0; padding-top: 0; }
-    .task-detail-view.frozen .panel-log-form input,
-    .task-detail-view.frozen .panel-log-form button,
     .task-detail-view.frozen .ambiguity-response-form input,
     .task-detail-view.frozen .ambiguity-response-form button {
       pointer-events: none; opacity: 0.4; cursor: not-allowed;
+    }
+    .task-detail-view.composer-busy .panel-log-form textarea,
+    .task-detail-view.composer-busy .panel-log-form button {
+      pointer-events: none; opacity: 0.48; cursor: not-allowed;
     }
     .detail-empty-state {
       display: flex; flex-direction: column; align-items: center;
@@ -808,11 +850,11 @@
     /* Log input inside panel */
     .panel-log-form {
       display: flex;
-      align-items: center;
+      flex-direction: column;
+      align-items: stretch;
       gap: 8px;
-      margin-bottom: 12px;
-      padding-bottom: 12px;
-      border-bottom: 1px solid #1e2233;
+      margin: 0;
+      padding: 0;
     }
     .chat-input-wrap {
       flex: 1;
@@ -820,6 +862,12 @@
       display: flex;
       flex-direction: column;
       gap: 6px;
+    }
+    .chat-composer-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      min-width: 0;
     }
     .task-chat-input {
       width: 100%;
@@ -834,10 +882,26 @@
       line-height: 1.35;
     }
     .task-chat-input:focus { outline: none; border-color: #3b82f6; }
+    .composer-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 0 auto;
+    }
+    .composer-status {
+      display: none;
+      align-items: center;
+      gap: 7px;
+      color: #c7d2fe;
+      font-size: 0.76rem;
+      min-height: 24px;
+    }
+    .task-detail-view.composer-busy .composer-status { display: flex; }
     .attachment-preview {
       display: none;
       gap: 6px;
       flex-wrap: wrap;
+      padding: 0 2px;
     }
     .attachment-preview.has-items { display: flex; }
     .attachment-thumb {
@@ -1681,7 +1745,7 @@
           await new Promise(r => setTimeout(r, 200));
 
           // Find the input field in the new task's panel and trigger analyzeLog
-          const input = document.querySelector(`#panel-${newTask.id} .panel-log-form input`);
+          const input = document.querySelector(`.task-detail-view[data-task-id="${CSS.escape(newTask.id)}"] .panel-log-form textarea`);
           if (input) {
             input.value = fullMessage;
             analyzeLog(newTask.id, input);
@@ -3131,6 +3195,7 @@
     const { sourceBadge, fromText, dateText, separator, linkHtml } = buildTaskMeta(task);
     const stepIndicator = buildStepIndicator(task);
     const isFrozen = frozenTasks.has(task.id);
+    const isChatBusy = Boolean(window.activeJobsByTask && window.activeJobsByTask[task.id]);
 
     // Timestamps
     const createdText = task.createdAt ? formatDateTime(task.createdAt) : '';
@@ -3198,32 +3263,44 @@
           ${timestampHtml}`;
 
     return `
-      <div class="task-detail-view${isFrozen ? ' frozen' : ''}" data-task-id="${task.id}">
-        <div class="detail-header" data-slot="header">${headerInner}</div>
-        <div data-slot="sourceRefs">${renderSourceRefsList(task)}</div>
-        <div data-slot="summary">${summaryHtml}</div>
-        <div data-slot="ambiguity">${ambiguityHtml}</div>
-        <div data-slot="conflicts">${renderConflictPanel(task)}</div>
-        <div data-slot="notes">${notesHtml}</div>
-        <div data-slot="superseded">${renderSupersededHint(task)}</div>
-        <div data-slot="project-pm">${renderProjectPm(task)}</div>
-        <div data-slot="project-lineitems">${renderProjectLineItems(task)}</div>
-        <div data-slot="factsheet">${renderFactSheetPanel(task)}</div>
-        <div class="panel-log-form" data-slot="form-log">
-          <div class="chat-input-wrap">
-            <textarea class="task-chat-input" rows="1" placeholder="Message or update..." oninput="autoGrowChatInput(this)" onkeydown="handleChatKeydown(event,'${task.id}',this)" onpaste="handleChatPaste(event,'${task.id}')" ondragover="handleChatDragOver(event)" ondrop="handleChatDrop(event,'${task.id}')"></textarea>
-            <div class="attachment-preview" data-task-id="${task.id}"></div>
+      <div class="task-detail-view${isFrozen ? ' frozen' : ''}${isChatBusy ? ' composer-busy' : ''}" data-task-id="${task.id}">
+        <div class="task-detail-content">
+          <div class="detail-header" data-slot="header">${headerInner}</div>
+          <div data-slot="sourceRefs">${renderSourceRefsList(task)}</div>
+          <div data-slot="summary">${summaryHtml}</div>
+          <div data-slot="ambiguity">${ambiguityHtml}</div>
+          <div data-slot="conflicts">${renderConflictPanel(task)}</div>
+          <div data-slot="notes">${notesHtml}</div>
+          <div data-slot="superseded">${renderSupersededHint(task)}</div>
+          <div data-slot="project-pm">${renderProjectPm(task)}</div>
+          <div data-slot="project-lineitems">${renderProjectLineItems(task)}</div>
+          <div data-slot="factsheet">${renderFactSheetPanel(task)}</div>
+          <div data-slot="details">${renderDetails(conversations, systemEvents, task.id)}</div>
+        </div>
+        <div class="task-chat-dock">
+          <div class="log-plan" id="plan-${task.id}" data-slot="plan"></div>
+          <div class="log-clarification" id="clarify-${task.id}" data-slot="form-clarify">
+            <input type="text" placeholder="Your answer..." onkeydown="if(event.key==='Enter')submitClarification('${task.id}',this)">
+            <button class="btn btn-primary btn-sm" onclick="submitClarification('${task.id}',this.previousElementSibling)">Send</button>
           </div>
-          <button class="btn btn-primary btn-sm" onclick="analyzeLog('${task.id}',this.parentElement.querySelector('textarea'))" title="Send to agent">📤 Send</button>
-          <button class="btn btn-ghost btn-sm" onclick="addNote('${task.id}',this.parentElement.querySelector('textarea'))" title="Save as note">📝 Note</button>
+          <div class="task-chat-history" data-slot="conversations">${renderConversations(conversations, task.id)}</div>
+          <div class="panel-log-form" data-slot="form-log">
+            <div class="chat-input-wrap">
+              <div class="attachment-preview" data-task-id="${task.id}"></div>
+              <div class="chat-composer-row">
+                <textarea class="task-chat-input" rows="1" placeholder="Ask the agent about this task… (Shift+Enter = new line, paste images/screenshots)" oninput="autoGrowChatInput(this)" onkeydown="handleChatKeydown(event,'${task.id}',this)" onpaste="handleChatPaste(event,'${task.id}')" ondragover="handleChatDragOver(event)" ondrop="handleChatDrop(event,'${task.id}')"></textarea>
+                <div class="composer-actions">
+                  <button class="btn btn-primary btn-sm" onclick="analyzeLog('${task.id}',this.closest('.panel-log-form').querySelector('textarea'))" title="Send to agent">📤 Send</button>
+                  <button class="btn btn-ghost btn-sm" onclick="addNote('${task.id}',this.closest('.panel-log-form').querySelector('textarea'))" title="Save as note">📝 Note</button>
+                </div>
+              </div>
+            </div>
+            <div class="composer-status" aria-live="polite">
+              <span class="task-spinner"></span>
+              <span class="composer-status-text">Agent working...</span>
+            </div>
+          </div>
         </div>
-        <div class="log-plan" id="plan-${task.id}" data-slot="plan"></div>
-        <div class="log-clarification" id="clarify-${task.id}" data-slot="form-clarify">
-          <input type="text" placeholder="Your answer..." onkeydown="if(event.key==='Enter')submitClarification('${task.id}',this)">
-          <button class="btn btn-primary btn-sm" onclick="submitClarification('${task.id}',this.previousElementSibling)">Send</button>
-        </div>
-        <div data-slot="conversations">${renderConversations(conversations, task.id)}</div>
-        <div data-slot="details">${renderDetails(conversations, systemEvents, task.id)}</div>
       </div>`;
   }
 
@@ -3245,6 +3322,9 @@
       safeReplaceDetail(renderTaskDetail(task));
       if (typeof applyDraftsToPanel === 'function') applyDraftsToPanel(task.id);
       if (typeof renderChatAttachmentPreview === 'function') renderChatAttachmentPreview(task.id);
+      const activeJobId = window.activeJobsByTask && window.activeJobsByTask[task.id];
+      const activeJob = activeJobId && window.activeJobs ? window.activeJobs[activeJobId] : null;
+      setTaskComposerBusy(task.id, Boolean(activeJobId), taskComposerStatusLabel(activeJob));
       return;
     }
     const tpl = document.createElement('template');
@@ -3252,9 +3332,13 @@
     const fresh = tpl.content.querySelector('.task-detail-view');
     if (!fresh) {
       safeReplaceDetail(renderTaskDetail(task));
+      const activeJobId = window.activeJobsByTask && window.activeJobsByTask[task.id];
+      const activeJob = activeJobId && window.activeJobs ? window.activeJobs[activeJobId] : null;
+      setTaskComposerBusy(task.id, Boolean(activeJobId), taskComposerStatusLabel(activeJob));
       return;
     }
     existing.classList.toggle('frozen', fresh.classList.contains('frozen'));
+    existing.classList.toggle('composer-busy', fresh.classList.contains('composer-busy'));
     fresh.querySelectorAll('[data-slot]').forEach(newEl => {
       const slot = newEl.getAttribute('data-slot');
       if (PAINT_PERSISTENT_SLOTS.has(slot)) return;
@@ -3262,6 +3346,9 @@
       if (!oldEl) return;
       if (oldEl.innerHTML !== newEl.innerHTML) oldEl.innerHTML = newEl.innerHTML;
     });
+    const activeJobId = window.activeJobsByTask && window.activeJobsByTask[task.id];
+    const activeJob = activeJobId && window.activeJobs ? window.activeJobs[activeJobId] : null;
+    setTaskComposerBusy(task.id, Boolean(activeJobId), taskComposerStatusLabel(activeJob));
     if (typeof renderChatAttachmentPreview === 'function') renderChatAttachmentPreview(task.id);
   }
 
@@ -3670,6 +3757,24 @@
       </div>`).join('');
   }
 
+  function taskComposerStatusLabel(entry) {
+    if (!entry) return 'Agent working...';
+    if (entry.status === 'awaiting_input') return 'Waiting for your clarification...';
+    if (entry.lastPhase === 'llm_round') return 'Agent is thinking...';
+    return 'Agent working...';
+  }
+
+  function setTaskComposerBusy(taskId, busy, label) {
+    const view = document.querySelector(`.task-detail-view[data-task-id="${CSS.escape(taskId)}"]`);
+    if (!view) return;
+    view.classList.toggle('composer-busy', Boolean(busy));
+    view.querySelectorAll('.panel-log-form textarea, .panel-log-form button').forEach(el => {
+      el.disabled = Boolean(busy);
+    });
+    const statusText = view.querySelector('.composer-status-text');
+    if (statusText) statusText.textContent = label || 'Agent working...';
+  }
+
   async function uploadChatAttachments(taskId) {
     const bucket = pendingAttachmentsForTask(taskId);
     const uploaded = [];
@@ -3714,7 +3819,9 @@
       return;
     }
     const clientRequestId = `log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    let accepted = false;
     input.disabled = true;
+    setTaskComposerBusy(taskId, true, 'Sending...');
     try {
       const attachments = await uploadChatAttachments(taskId);
       const res = await fetch(`/api/tasks/${taskId}/log`, {
@@ -3727,6 +3834,7 @@
       });
       const data = await res.json().catch(() => ({}));
       if (res.status === 202) {
+        accepted = true;
         input.value = '';
         autoGrowChatInput(input);
         clearChatAttachments(taskId);
@@ -3739,7 +3847,10 @@
     } catch (err) {
       showNotification('Network error: ' + err.message, 'error');
     } finally {
-      input.disabled = false;
+      if (!accepted && !activeJobsByTask[taskId]) {
+        input.disabled = false;
+        setTaskComposerBusy(taskId, false);
+      }
     }
   }
 
@@ -4748,6 +4859,7 @@
           : (entry.lastPhase === 'llm_round' ? '🧠 Thinking…' : '⏳ Agent working…');
         badge.textContent = label;
       }
+      setTaskComposerBusy(taskId, true, taskComposerStatusLabel(entry));
     } else {
       // Only release the freeze if a scan item isn't currently holding it
       // (scan's item_started sets window.__scanHoldsFreezeFor = taskId).
@@ -4758,6 +4870,7 @@
         const badge = card.querySelector('.frozen-badge');
         if (badge) badge.remove();
       }
+      setTaskComposerBusy(taskId, false);
     }
   }
 
