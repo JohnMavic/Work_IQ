@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrateToV5, V5_BRAIN_STATE_DEFAULTS, writeJsonFileAtomic } from '../brain/tasks-v5.js';
+import { isUsableSourceLink, sourceLinkVerdict } from '../brain/link-guard.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,7 +24,7 @@ function nowIso(now) {
 }
 
 export function isValidSourceLink(link) {
-  return typeof link === 'string' && /^https?:\/\//i.test(link.trim()) && !link.includes('...');
+  return isUsableSourceLink(link);
 }
 
 function normalizeTitle(value) {
@@ -175,11 +176,13 @@ function reconstructSourceLink(task, ref, sourceTasks, allTasksById) {
 function setNeedsReview(task, unresolvedIds, now) {
   const reason = `Source link repair could not reconstruct ${unresolvedIds.length} sourceRef link(s): ${unresolvedIds.join(', ')}`;
   task.brainState = { ...V5_BRAIN_STATE_DEFAULTS, ...(task.brainState || {}) };
+  if (String(task.brainState.reviewReason || '').includes(reason)) return false;
   task.brainState.needsReview = true;
   task.brainState.reviewReason = task.brainState.reviewReason
     ? `${task.brainState.reviewReason} | ${reason}`
     : reason;
   task.updatedAt = nowIso(now);
+  return true;
 }
 
 function uniqueValidSourceLinks(sourceRefs) {
@@ -195,6 +198,30 @@ function refreshTaskLinks(task) {
   }
   if (!isValidSourceLink(task.link)) task.link = null;
   task.additionalLinks = [];
+}
+
+function repairTaskLevelLinks(task) {
+  let changed = false;
+  if (task.link !== undefined) {
+    const verdict = sourceLinkVerdict(task.link);
+    if (!verdict.ok) {
+      task.link = null;
+      changed = true;
+    } else if (verdict.normalized && task.link !== verdict.normalized) {
+      task.link = verdict.normalized;
+      changed = true;
+    }
+  }
+
+  if (Array.isArray(task.additionalLinks)) {
+    const before = JSON.stringify(task.additionalLinks);
+    task.additionalLinks = task.additionalLinks
+      .map(entry => typeof entry === 'string' ? entry : entry?.url || entry?.link)
+      .filter(isValidSourceLink);
+    if (JSON.stringify(task.additionalLinks) !== before) changed = true;
+  }
+
+  return changed;
 }
 
 export function repairSourceLinks(inputData, { now = new Date() } = {}) {
@@ -213,15 +240,24 @@ export function repairSourceLinks(inputData, { now = new Date() } = {}) {
     let changedThisPass = false;
 
     for (const task of normalizeArray(data.tasks)) {
+      const taskLevelChanged = repairTaskLevelLinks(task);
+      if (taskLevelChanged) {
+        changedThisPass = true;
+        changedTaskIds.add(task.id);
+      }
+
       const refs = normalizeArray(task.sourceRefs);
-      if (!refs.length) continue;
+      if (!refs.length) {
+        if (taskLevelChanged) task.updatedAt = nowIso(now);
+        continue;
+      }
 
       const duplicateIds = duplicateMismatchRefIds(refs);
       const sourceTasks = normalizeArray(task.supersedesTaskIds)
         .map(id => allTasksById.get(id))
         .filter(Boolean);
       const unresolvedForTask = [];
-      let taskChanged = false;
+      let taskChanged = taskLevelChanged;
 
       for (const ref of refs) {
         const invalid = !isValidSourceLink(ref?.link);
@@ -277,7 +313,10 @@ export function repairSourceLinks(inputData, { now = new Date() } = {}) {
         refreshTaskLinks(task);
         task.updatedAt = nowIso(now);
       }
-      if (unresolvedForTask.length) setNeedsReview(task, unresolvedForTask, now);
+      if (unresolvedForTask.length && setNeedsReview(task, unresolvedForTask, now)) {
+        changedThisPass = true;
+        changedTaskIds.add(task.id);
+      }
     }
 
     if (!changedThisPass) break;
