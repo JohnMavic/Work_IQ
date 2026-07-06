@@ -2521,9 +2521,9 @@
 
     // Auto-cleanup: hide done tasks older than retention period (actual deletion happens server-side)
     const retentionDays = parseInt(document.getElementById('cleanupDays')?.value) || 3;
-    const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+    const cutoffMs = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
     const visibleTasks = tasks.filter(t =>
-      !(t.status === 'done' && t.doneAt && t.doneAt < cutoff) &&
+      !(t.status === 'done' && parseDateMs(t.doneAt) && parseDateMs(t.doneAt) < cutoffMs) &&
       (showArchivedTasks || !isArchivedTask(t))
     );
 
@@ -2553,7 +2553,7 @@
       }
       const so = (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9);
       if (so !== 0) return so;
-      return new Date(b.createdAt) - new Date(a.createdAt);
+      return (parseDateMs(b.createdAt) || 0) - (parseDateMs(a.createdAt) || 0);
     });
 
     const filtered = currentFilter === 'all' ? sorted : sorted.filter(t => t.status === currentFilter);
@@ -2664,6 +2664,21 @@
     return task && task.taskType === 'project';
   }
 
+  function hasStructuredTaskLayout(task) {
+    if (!task || isArchivedTask(task)) return false;
+    const pm = task.pmStatus;
+    const hasPm = pm && typeof pm === 'object' && !Array.isArray(pm)
+      && typeof pm.current === 'string'
+      && ['planned', 'userActions', 'problems', 'risks', 'waitingOn'].every(field => Array.isArray(pm[field]));
+    const processing = task.processing;
+    const hasProcessing = processing && typeof processing === 'object' && !Array.isArray(processing)
+      && Array.isArray(processing.ledger)
+      && processing.threads && typeof processing.threads === 'object' && !Array.isArray(processing.threads);
+    const sheet = normalizedFactSheet(task);
+    const hasFacts = FACTSHEET_SECTIONS.reduce((sum, [id]) => sum + sheet.sections[id].length, 0) > 0;
+    return Boolean(hasPm || hasProcessing || hasFacts || asArray(task.lineItems).length);
+  }
+
   function asArray(value) {
     return Array.isArray(value) ? value : [];
   }
@@ -2685,10 +2700,20 @@
     return ref?.date || ref?.lastSeenAt || ref?.firstSeenAt || null;
   }
 
-  function formatSourceDate(value) {
-    if (!value) return '';
+  function parseDateValue(value) {
+    if (!value) return null;
     const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return '';
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function parseDateMs(value) {
+    const d = parseDateValue(value);
+    return d ? d.getTime() : null;
+  }
+
+  function formatSourceDate(value) {
+    const d = parseDateValue(value);
+    if (!d) return '';
     return d.toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit', year: 'numeric' });
   }
 
@@ -2772,9 +2797,9 @@
   }
 
   function renderProjectVisibilityHeader(task) {
-    if (!isProjectTask(task)) return '';
+    if (!hasStructuredTaskLayout(task)) return '';
     const stats = projectLedgerStats(task);
-    const cursor = stats.cursor ? formatSourceDate(stats.cursor) : 'not yet processed';
+    const cursor = formatSourceDate(stats.cursor) || 'not yet processed';
     return `<div class="processing-header" title="Counts reflect items surfaced by WorkIQ and accepted into the Batch 7 ledger. Lookback window: ${escHtml(String(stats.lookbackDays))} days.">
       <span>Processed up to ${escHtml(cursor)}</span>
       <span>${stats.considered} items considered as surfaced by WorkIQ</span>
@@ -2913,7 +2938,7 @@
   function renderFactSheetPanel(task) {
     const sheet = normalizedFactSheet(task);
     const total = FACTSHEET_SECTIONS.reduce((sum, [id]) => sum + sheet.sections[id].length, 0);
-    if (!total && !isProjectTask(task)) return '';
+    if (!total && !hasStructuredTaskLayout(task)) return '';
     const sections = FACTSHEET_SECTIONS.map(([id, title]) => {
       const entries = sheet.sections[id];
       const body = entries.length
@@ -2986,13 +3011,15 @@
 
   function userMarkedDoneBadge(entry) {
     if (!entry.userMarkedDoneAt) return '';
-    return `<span class="done-pending-badge">Marked done by you on ${escHtml(formatSourceDate(entry.userMarkedDoneAt))} - awaiting confirmation</span>`;
+    const date = formatSourceDate(entry.userMarkedDoneAt);
+    return `<span class="done-pending-badge">Marked done by you${date ? ` on ${escHtml(date)}` : ''} - awaiting confirmation</span>`;
   }
 
   function reopenedUserActionHint(entry, task) {
     if (!entry.reopenedUserMarkedDoneAt) return '';
     const evidence = asArray(entry.reopenedEvidenceRefIds).map(id => renderEvidenceLink(task, id)).filter(Boolean).join('');
-    return `<div class="user-action-reopened">Marked done on ${escHtml(formatSourceDate(entry.reopenedUserMarkedDoneAt))}; new signals show it is open ${evidence}</div>`;
+    const date = formatSourceDate(entry.reopenedUserMarkedDoneAt);
+    return `<div class="user-action-reopened">Marked done${date ? ` on ${escHtml(date)}` : ''}; new signals show it is open ${evidence}</div>`;
   }
 
   function renderPmUserActions(task, label) {
@@ -3002,7 +3029,8 @@
     const renderEntry = (entry, checked) => {
       const evidenceIds = entry.evidenceRefIds.length ? entry.evidenceRefIds : (entry.evidence ? [entry.evidence] : []);
       const evidence = evidenceIds.map(id => renderEvidenceLink(task, id)).filter(Boolean).join('');
-      const date = entry.date ? `<span>${escHtml(String(entry.date).substring(0, 10))}</span>` : '';
+      const entryDate = formatSourceDate(entry.date);
+      const date = entryDate ? `<span>${escHtml(entryDate)}</span>` : '';
       const id = entry.id || '';
       return `<div class="pm-entry user-action-entry${checked ? ' done' : ''}">
         <label class="user-action-check">
@@ -3027,7 +3055,8 @@
       ? entries.map(entry => {
           const evidenceIds = entry.evidenceRefIds?.length ? entry.evidenceRefIds : (entry.evidence ? [entry.evidence] : []);
           const evidence = evidenceIds.map(id => renderEvidenceLink(task, id)).filter(Boolean).join('');
-          const date = entry.date ? `<span>${escHtml(String(entry.date).substring(0, 10))}</span>` : '';
+          const entryDate = formatSourceDate(entry.date);
+          const date = entryDate ? `<span>${escHtml(entryDate)}</span>` : '';
           return `<div class="pm-entry">
             <div>${escHtml(entry.text)}</div>
             <div class="pm-entry-meta">${ownerChip(entry.owner)}${date}${evidence}${confidenceBadge(entry.confidence)}</div>
@@ -3038,7 +3067,7 @@
   }
 
   function renderProjectPm(task) {
-    if (!isProjectTask(task)) return '';
+    if (!hasStructuredTaskLayout(task)) return '';
     const review = taskNeedsReview(task)
       ? `<span class="review-badge" title="${escHtml(task.brainState?.reviewReason || 'Needs review')}">Needs review</span>`
       : '';
@@ -3062,14 +3091,15 @@
   }
 
   function renderProjectLineItems(task) {
-    if (!isProjectTask(task)) return '';
+    if (!hasStructuredTaskLayout(task)) return '';
     const items = asArray(task.lineItems);
     const rows = items.length
       ? items.map(item => {
           const status = item.status || 'open';
           const chipClass = status === 'blocked' ? ' blocked' : (status === 'done' ? ' done' : '');
           const owner = item.owner ? ownerChip(item.owner) : '';
-          const due = item.dueAt ? `<span class="status-chip">${escHtml(String(item.dueAt).substring(0, 10))}</span>` : '';
+          const dueDate = formatSourceDate(item.dueAt);
+          const due = dueDate ? `<span class="status-chip">${escHtml(dueDate)}</span>` : '';
           const evidence = latestLineItemEvidence(task, item);
           const review = item.needsReview ? '<span class="review-badge">Needs review</span>' : '';
           return `<div class="lineitem-row">
@@ -3103,11 +3133,11 @@
   }
 
   function projectCardBadges(task) {
-    if (!isProjectTask(task) && !isArchivedTask(task) && !taskNeedsReview(task)) return '';
+    if (!hasStructuredTaskLayout(task) && !isArchivedTask(task) && !taskNeedsReview(task)) return '';
     const badges = [];
-    if (isProjectTask(task)) {
+    if (hasStructuredTaskLayout(task)) {
       const stats = projectStats(task);
-      badges.push('<span class="project-badge">Project</span>');
+      badges.push(`<span class="project-badge">${isProjectTask(task) ? 'Project' : 'Structured'}</span>`);
       badges.push(`<span class="lineitem-count">${stats.open} open${stats.blocked ? ` · ${stats.blocked} blocked` : ''}</span>`);
       if (stats.userActions) badges.push('<span class="user-action-indicator">Your action required</span>');
       if (stats.conflicts) badges.push(`<span class="conflict-badge">${stats.conflicts} conflict${stats.conflicts !== 1 ? 's' : ''}</span>`);
@@ -3207,7 +3237,8 @@
       : '';
 
     // Summary
-    const summaryHtml = task.summary
+    const showLegacySummary = task.summary && (!hasStructuredTaskLayout(task) || isArchivedTask(task));
+    const summaryHtml = showLegacySummary
       ? `<div class="task-summary" style="max-height:none;cursor:default"><span class="summary-icon">📋</span><div class="summary-text">${renderMarkdown(task.summary)}</div></div>`
       : '';
 
@@ -3552,12 +3583,7 @@
           detailsHtml += `<span>📋 ${ex.parsedCount || conv.communications.length} communication(s):</span>`;
           for (const c of conv.communications) {
             const icon = c.type === 'teams' ? '💬' : '📧';
-            // Handle both ISO dates and natural language dates from Markdown parser
-            let cDate = '';
-            if (c.date) {
-              const d = new Date(c.date);
-              cDate = isNaN(d.getTime()) ? c.date : formatDate(c.date);
-            }
+            const cDate = formatDate(c.date);
             const recipient = c.to ? ` → ${escHtml(c.to)}` : '';
             detailsHtml += `<span style="margin-left:8px"><strong>${icon} ${escHtml(c.from || '?')}${recipient}</strong> (${escHtml(cDate)})</span>`;
             if (c.summary) {
@@ -4401,7 +4427,9 @@
     }
     // Use the most recent timestamp: scan report (local) or server lastScan
     const reportTs = scanReport ? (scanReport.completedAt || scanReport.startedAt) : null;
-    const bestTs = reportTs && (!ts || new Date(reportTs) > new Date(ts)) ? reportTs : ts;
+    const reportMs = parseDateMs(reportTs);
+    const tsMs = parseDateMs(ts);
+    const bestTs = reportMs !== null && (tsMs === null || reportMs > tsMs) ? reportTs : ts;
     let text = bestTs ? `Last scan: ${formatDate(bestTs)}` : 'Never scanned';
     // Add indicator if there were issues
     if (scanReport && (scanReport.completedAt || scanReport.startedAt)) {
@@ -4412,7 +4440,8 @@
   }
 
   function formatDate(iso) {
-    const d = new Date(iso);
+    const d = parseDateValue(iso);
+    if (!d) return '';
     return d.toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
       ' ' + d.toLocaleTimeString('de-CH', { hour: '2-digit', minute: '2-digit' });
   }
@@ -4424,7 +4453,8 @@
   }
 
   function formatDateTime(iso) {
-    const d = new Date(iso);
+    const d = parseDateValue(iso);
+    if (!d) return '';
     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     return `${months[d.getMonth()]} ${d.getDate()}, ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
   }

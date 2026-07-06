@@ -1243,7 +1243,8 @@ function normalizeAmbiguities(arr) {
 
 // Format a timestamp for update markers in summaries (dd.MM.yyyy, HH:mm)
 function formatUpdateTimestamp(date) {
-  const d = date || new Date();
+  const d = date instanceof Date ? date : new Date(date || Date.now());
+  if (Number.isNaN(d.getTime())) return '';
   const day = String(d.getDate()).padStart(2, '0');
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const year = d.getFullYear();
@@ -2163,7 +2164,7 @@ function buildAgentResponseString(parsed, communications) {
   if (communications.length > 0) {
     const summaries = communications.map((c, i) => {
       const icon = c.type === 'teams' ? '💬' : '📧';
-      const date = c.date ? (() => { try { return new Date(c.date).toLocaleDateString('de-CH'); } catch { return c.date; } })() : '';
+      const date = formatSourceDate(c.date);
       return `${i + 1}. ${icon} **${c.from || 'Unknown'}** → ${c.to || ''} (${date})${c.summary ? ': ' + c.summary : ''}`;
     }).join('\n');
     out += `\n\n📋 ${communications.length} communication(s):\n${summaries}`;
