@@ -379,7 +379,7 @@ function fallbackSourceRef(task, now) {
   }
 
   const id = `src-legacy-${safeFilePart(task.id).slice(0, 48)}`;
-  const date = parseTime(task.date) === null ? null : new Date(Date.parse(task.date)).toISOString();
+  const date = bestIsoDate([task.date, task.updatedAt, task.createdAt], now);
   const link = usableLegacyLink(task.link);
   return {
     id,
@@ -406,8 +406,7 @@ export function buildFallbackStructureMarkers(task, {
   const ts = nowIso(now);
   const evidenceDate = bestIsoDate([task.date, task.updatedAt, task.createdAt], now);
   const threadRef = `legacy:${task.id}`;
-  const current = 'Legacy task migrated to the new structure with low confidence; current source evidence was not fully verified during migration.';
-  const reviewText = 'Review the preserved legacy summary and source evidence before taking action.';
+  const current = 'Structure initialized from local legacy task metadata only; no verified current external status is asserted.';
   const ledger = [{
     itemRef: { type: 'legacy-task', id: task.id },
     threadRef,
@@ -422,7 +421,7 @@ export function buildFallbackStructureMarkers(task, {
     confidence: 'low',
     state: 'unconfirmed',
     sources: [source.id],
-    lastConfirmedByMessageDate: evidenceDate
+    lastConfirmedByMessageDate: null
   };
   const projectPayload = {
     taskId: task.id,
@@ -434,11 +433,7 @@ export function buildFallbackStructureMarkers(task, {
       userActions: [],
       problems: [],
       risks: [],
-      waitingOn: [{
-        id: `wait-review-${safeFilePart(task.id).slice(0, 48)}`,
-        text: `${reviewText} The source is an unconfirmed legacy task record, not a verified open external dependency.`,
-        ...nodeBase
-      }],
+      waitingOn: [],
       confidence: 'low',
       lastSynthesizedAt: ts
     },
@@ -456,7 +451,7 @@ export function buildFallbackStructureMarkers(task, {
     sectionPatches: {
       overview: [{
         op: 'add',
-        text: 'Unconfirmed legacy task record migrated to the Batch 7 structure. The original summary remains preserved as the fallback field.',
+        text: 'Local legacy task metadata was migrated to the Batch 7 structure. The original summary remains preserved as the fallback field.',
         date: evidenceDate,
         ...nodeBase
       }],
@@ -468,7 +463,7 @@ export function buildFallbackStructureMarkers(task, {
       }],
       sources: [{
         op: 'add',
-        text: 'Legacy Agent Zero task record retained as migration evidence.',
+        text: 'Local Agent Zero legacy task metadata retained as migration evidence.',
         date: evidenceDate,
         ...nodeBase
       }]
