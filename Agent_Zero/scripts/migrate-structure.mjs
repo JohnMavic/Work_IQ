@@ -385,7 +385,7 @@ function fallbackSourceRef(task, now) {
     id,
     additions: [{
       id,
-      type: task.source || 'manual',
+      type: 'manual',
       title: task.title || 'Legacy Agent Zero task',
       from: task.from || null,
       date,
@@ -420,7 +420,7 @@ export function buildFallbackStructureMarkers(task, {
   const nodeBase = {
     evidenceRefIds: [source.id],
     confidence: 'low',
-    state: 'confirmed',
+    state: 'unconfirmed',
     sources: [source.id],
     lastConfirmedByMessageDate: evidenceDate
   };
@@ -436,7 +436,7 @@ export function buildFallbackStructureMarkers(task, {
       risks: [],
       waitingOn: [{
         id: `wait-review-${safeFilePart(task.id).slice(0, 48)}`,
-        text: reviewText,
+        text: `${reviewText} The source is an unconfirmed legacy task record, not a verified open external dependency.`,
         ...nodeBase
       }],
       confidence: 'low',
@@ -456,7 +456,7 @@ export function buildFallbackStructureMarkers(task, {
     sectionPatches: {
       overview: [{
         op: 'add',
-        text: 'Legacy task record migrated to the Batch 7 structure. The original summary remains preserved as the fallback field.',
+        text: 'Unconfirmed legacy task record migrated to the Batch 7 structure. The original summary remains preserved as the fallback field.',
         date: evidenceDate,
         ...nodeBase
       }],
