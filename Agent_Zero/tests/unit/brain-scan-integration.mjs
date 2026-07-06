@@ -12,7 +12,11 @@ const tmpRoot = path.join(repoRoot, 'tests', 'unit', '.tmp-brain-scan');
 
 function resetTmp(name) {
   const dir = path.join(tmpRoot, name);
-  fs.rmSync(dir, { recursive: true, force: true });
+  try {
+    fs.rmSync(dir, { recursive: true, force: true });
+  } catch {
+    return resetTmp(`${name}-${process.pid}-${Date.now()}`);
+  }
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -64,6 +68,20 @@ function fakeBrain(assistantText, extra = {}) {
       salvaged: Boolean(extra.salvaged),
       error: extra.error || null
     };
+  };
+}
+
+async function fakeGatewayApproveAll({ markers }) {
+  return {
+    ok: true,
+    text: JSON.stringify({
+      decisions: markers.map((_, markerIndex) => ({
+        markerIndex,
+        decision: 'approve',
+        reason: 'Unit test approval.'
+      }))
+    }),
+    counters: { workIqCalls: 0 }
   };
 }
 
@@ -125,6 +143,7 @@ test('B-1 fake brain output mutates tasks.json with one atomic write', async () 
     runId: 'run-b1',
     now: new Date('2026-07-05T10:00:00.000Z'),
     _runBrain: fakeBrain(output, { premiumRequests: 7, workIqCalls: 2 }),
+    _runGateway: fakeGatewayApproveAll,
     _writeJsonFileAtomic: countingAtomicWriter(writes)
   });
   const saved = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
@@ -159,6 +178,7 @@ test('B-2 invalid brain output leaves tasks.json unchanged and marks job failed 
       brainWorkDir: path.join(dir, 'brain-work'),
       runId: 'run-b2',
       _runBrain: fakeBrain('not marker output'),
+      _runGateway: fakeGatewayApproveAll,
       _writeJsonFileAtomic: countingAtomicWriter(writes)
     }),
     /no markers/
@@ -192,7 +212,8 @@ test('B-3 missing SCAN_DONE applies valid markers as partial with review hint', 
     brainWorkDir: path.join(dir, 'brain-work'),
     runId: 'run-b3',
     now: new Date('2026-07-05T10:00:00.000Z'),
-    _runBrain: fakeBrain(output)
+    _runBrain: fakeBrain(output),
+    _runGateway: fakeGatewayApproveAll
   });
   const saved = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
 
@@ -223,7 +244,8 @@ test('timeout salvage applies markers normally but forces partial outcome', asyn
     tasksFile,
     brainWorkDir: path.join(dir, 'brain-work'),
     runId: 'run-salvage',
-    _runBrain: fakeBrain(output, { salvaged: true })
+    _runBrain: fakeBrain(output, { salvaged: true }),
+    _runGateway: fakeGatewayApproveAll
   });
   const saved = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
 
@@ -265,7 +287,8 @@ test('B-4 consolidation fixture creates one project with two same-place workstre
     tasksFile,
     brainWorkDir: path.join(dir, 'brain-work'),
     runId: 'run-b4',
-    _runBrain: fakeBrain(output)
+    _runBrain: fakeBrain(output),
+    _runGateway: fakeGatewayApproveAll
   });
   const saved = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
   const projects = saved.tasks.filter(task => task.taskType === 'project');
@@ -313,7 +336,8 @@ test('B-5 follow-up scan updates existing project line item instead of duplicati
     brainWorkDir: path.join(dir, 'brain-work'),
     runId: 'run-b5',
     now: new Date('2026-07-05T10:00:00.000Z'),
-    _runBrain: fakeBrain(output)
+    _runBrain: fakeBrain(output),
+    _runGateway: fakeGatewayApproveAll
   });
   const saved = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
   const projects = saved.tasks.filter(task => task.taskType === 'project');
