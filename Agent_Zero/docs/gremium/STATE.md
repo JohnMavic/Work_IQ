@@ -1,8 +1,8 @@
 # Gremium-STATE: Agent Zero → Agency-Brain
 
-Aktualisiert: 2026-07-05 · Branch: `feature/agency-brain`
+Aktualisiert: 2026-07-06 · Branch: `feature/agency-brain`
 
-## Status: SLICE 10 ABGESCHLOSSEN — LIVE-VERIFIKATION **FINAL: PASS**, A5-Flip auf agency vollzogen
+## Status: BATCH 5 LIVE-AUDIT **AUDIT5: PASS** (nach Gateway-Fix `71f4c9e`) — Reality-Gateway-Parser gehärtet (prosa-präfixiertes pretty-JSON + Zeilen-Verdikt-Vertrag + 1 Retry → hold-all); Fix-Live-Scan `scan-1783332440027` wandte offensichtlich zugehörige Infos auf die richtigen Projekte an (Circle +1 sourceRef/+2 factSheet, Seestrasse +1/+2, CAB unverändert), Faktensheets fortgeschrieben, 3/3 Stichproben per workiq-ask mailbox-bestätigt, 0 Fabrikate, 0 Fremd-Zuordnung, reviewQueue 18/18 mit Begründung; npm test 91/91
 
 | Schritt | Status |
 |---|---|
@@ -19,6 +19,32 @@ Aktualisiert: 2026-07-05 · Branch: `feature/agency-brain`
 | 8. Slice 9 (Legacy-SDK/WorkIQ-0.2.8-Gating) | ✅ done — RESULT-CODEX-IMPL-4, 68/68 Tests |
 | 9. **Slice 10 — Live-Verifikation (Serie C, C-1..C-6)** | ✅ **FINAL: PASS** — FINAL-VERIFICATION.md |
 | 10. A5 — Engine-Default-Flip auf agency (Startskripte) | ✅ done — Start-WorkIQ-Scan.ps1 + START-AGENT-ZERO.bat |
+| 11. Batch 5 — FactSheet + Reality-Check-Gateway + Datenreparatur (Codex) | ✅ done — RESULT-BATCH-5.md `BATCH5: OK`, RESULT-FIX-CIRCLE.md, npm test 85/85 |
+| 12. Batch-5 Live-Audit (agency, D-Kriterien am echten Bestand) | ⚠️ historisch: AUDIT5: FAIL (2e/2f) — Gateway strict-JSON-Parser fail-closed hielt alle Belegupdates; behoben durch `71f4c9e` |
+| 13. **Gateway-Fix (`71f4c9e`) + fokussiertes Re-Audit** | ✅ **AUDIT5: PASS** — AUDIT-BATCH-5.md; 2e+2f erfüllt (persistierter Delta + workiq-Mailbox 3/3), Kriterium 3 regressionsfrei (0 Fabrikate, 0 Moerken/Norway, reviewQueue 18/18 mit Grund), Kriterium 4 (auflage 4) per Tests belegt (kaputte Zeile hält nur diese; 1 Retry; dann hold-all), npm test 91/91 |
+
+## Batch-5 Live-Audit (2026-07-06, AUDIT-BATCH-5.md)
+- **(1) STATIC PASS:** 0 fabrizierte `turn*search*`-Links in 24 aktiven Tasks; Circle
+  `proj-zurich-circle-hublcr` 0 Moerken/Norway (Kontamination reversibel in reviewQueue, 13 Einträge);
+  3 Faktensheets englisch + kanonische 12-Sektionen; 5/5 Stichproben plausibel (4× workiq-Mailbox
+  bestätigt, 1× Seestrasse via read-only report.html, patch-panel workiq DLP-blockiert).
+- **(3) UI PASS:** `/api/tasks/:id/factsheet.html` HTTP 200, 12 Sektionen, dd.mm.yyyy-Daten +
+  Evidence-Links, kein `Invalid Date`, keine Fabrikate.
+- **(2) LIVE — behoben, jetzt PASS (e+f):** Ursprünglicher isolierter Scan :3101 (runId
+  `scan-1783328859868`) hielt fail-closed 5/6 Marker (intermittenter ~50%-Parser-Fehler). Nach
+  Gateway-Fix `71f4c9e` wandte der Fix-Live-Scan `scan-1783332440027` (Child :3104) 7 Marker sauber
+  an: **Circle** sourceRefs 22→23 + factSheet 25→27, **Seestrasse** sourceRefs 33→34 + factSheet
+  59→61, CAB unverändert, reviewQueue 18→18. Persistiert im Live-Bestand; 3/3 Stichproben per
+  workiq-ask mailbox-bestätigt (Dual-MPR-Parcels/Andreas Arnold, Invoice 5735844555/Approved,
+  Seestrasse-Temp-Workspace/Martin Hämmerli).
+- **Root cause (behoben):** `brain/reality-gateway.js extractJson` — prosa-präfixiertes pretty-JSON
+  defeat der 3 Extraktionspfade. Fix `71f4c9e`: Zeilen-Verdikt-Vertrag `GATEWAY_DECISION<TAB>idx<TAB>
+  decision<TAB>reason` + gehärtete balanced-brace `"decisions"`-Extraktion als JSON-Fallback +
+  genau 1 Reformat-Retry vor hold-all (kaputte Einzelzeile hält nur diese) + actionable
+  Technik-Reason + APPLIED-statt-Intent-Telemetrie. Re-Audit-Beleg: AUDIT-BATCH-5.md.
+- **Audit-Hygiene:** Nutzer-Instanz :3000 (pid 26068) unangetastet (uptime durchgehend, Lockfile
+  unverändert); nur eigene Kind-PID beendet; keine STOP/START-Skripte, keine breiten Kills, keine
+  Scan-Überlappung.
 
 ## Schlussstand (2026-07-05, Slice 10)
 - **Alle 6 Serie-C-Kriterien bestanden** unter produktionsäquivalenter Isolation
