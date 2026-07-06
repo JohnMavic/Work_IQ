@@ -357,6 +357,38 @@
       border-top: 1px solid #1e2233;
       padding-top: 12px;
     }
+    .factsheet-panel {
+      border-top: 1px solid #1e2233;
+      padding-top: 12px;
+    }
+    .factsheet-panel details {
+      border: 1px solid #22283a; border-radius: 6px; background: rgba(15,23,42,0.35);
+    }
+    .factsheet-panel summary {
+      cursor: pointer; padding: 8px 10px; color: #e2e8f0; font-size: 0.84rem;
+      display: flex; justify-content: space-between; gap: 8px; align-items: center;
+    }
+    .factsheet-export { color: #60a5fa; text-decoration: none; font-size: 0.72rem; }
+    .factsheet-export:hover { text-decoration: underline; }
+    .factsheet-sections {
+      display: flex; flex-direction: column; gap: 10px;
+      padding: 10px; border-top: 1px solid rgba(148,163,184,0.12);
+    }
+    .factsheet-section h4 {
+      margin: 0 0 6px; font-size: 0.78rem; color: #e2e8f0; font-weight: 650;
+    }
+    .factsheet-entry {
+      padding: 6px 0; border-top: 1px solid rgba(148,163,184,0.12);
+      color: #dbe4f0; font-size: 0.8rem; line-height: 1.4; overflow-wrap: anywhere;
+    }
+    .factsheet-entry:first-of-type { border-top: none; }
+    .factsheet-entry-meta {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      color: #94a3b8; font-size: 0.7rem; margin-top: 3px;
+    }
+    .factsheet-entry-meta a { color: #60a5fa; text-decoration: none; }
+    .factsheet-entry-meta a:hover { text-decoration: underline; }
+    .factsheet-empty { color: #64748b; font-size: 0.76rem; }
     .pm-heading, .lineitems-heading {
       font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0;
       color: #94a3b8; margin-bottom: 8px; font-weight: 700;
@@ -2426,7 +2458,7 @@
     const primaryHref = validSourceHref(task.link) || sourceRefHref(primaryRef);
     const primaryTitle = primaryRef ? sourceRefTooltip(primaryRef) : 'Open source';
     const linkHtml = primaryHref
-      ? `<a href="${escHtml(primaryHref)}" onclick="return openLink(event)" rel="noopener" title="${escHtml(primaryTitle)}">Open source ↗</a>`
+      ? `<a href="${escHtml(primaryHref)}" onclick="return openLink(event)" rel="noopener" title="${escHtml(primaryTitle)}">${escHtml(sourceLinkLabel('Open source', primaryRef, task.date))}</a>`
       : '';
     return { sourceBadge, fromText, dateText, separator, linkHtml };
   }
@@ -2442,6 +2474,7 @@
   function validSourceHref(link) {
     const value = typeof link === 'string' ? link.trim() : '';
     if (!/^https?:\/\//i.test(value)) return null;
+    if (/\bturn\d+search\d+\b/i.test(value)) return null;
     if (value.includes('...')) return null;
     return value;
   }
@@ -2455,15 +2488,26 @@
     return ref?.date || ref?.lastSeenAt || ref?.firstSeenAt || null;
   }
 
-  function shortSourceDate(ref) {
-    const value = sourceRefDate(ref);
-    return value ? String(value).substring(0, 10) : '';
+  function formatSourceDate(value) {
+    if (!value) return '';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('de-CH', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  }
+
+  function sourceDisplayDate(ref, fallbackDate) {
+    return formatSourceDate(sourceRefDate(ref) || fallbackDate);
+  }
+
+  function sourceLinkLabel(base, ref, fallbackDate) {
+    const date = sourceDisplayDate(ref, fallbackDate);
+    return `${base}${date ? ' ' + date : ''} ↗`;
   }
 
   function sourceRefTooltip(ref) {
     const parts = [];
     if (ref?.title) parts.push(ref.title);
-    const date = shortSourceDate(ref);
+    const date = sourceDisplayDate(ref);
     if (date) parts.push(date);
     if (ref?.from) parts.push(ref.from);
     return parts.join(' · ') || ref?.id || 'Source';
@@ -2472,7 +2516,7 @@
   function sourceRefLabel(ref) {
     const parts = [];
     parts.push(ref?.title || ref?.id || 'Source');
-    const date = shortSourceDate(ref);
+    const date = sourceDisplayDate(ref);
     if (date) parts.push(date);
     if (ref?.from) parts.push(ref.from);
     return parts.join(' · ');
@@ -2524,7 +2568,7 @@
     const href = sourceRefHref(ref);
     if (href) {
       const title = sourceRefTooltip(ref);
-      return `<a href="${escHtml(href)}" onclick="return openLink(event)" rel="noopener" title="${escHtml(title)}">Evidence ↗</a>`;
+      return `<a href="${escHtml(href)}" onclick="return openLink(event)" rel="noopener" title="${escHtml(title)}">${escHtml(sourceLinkLabel('Evidence', ref))}</a>`;
     }
     const title = ref ? sourceRefTooltip(ref) : 'No matching sourceRef link';
     return `<span class="source-missing" title="${escHtml(title)}">Quelle fehlt</span>`;
@@ -2532,8 +2576,24 @@
 
   function renderSourceRefsList(task) {
     const refs = sortedSourceRefs(task);
-    if (!refs.length) return '';
-    const rows = refs.map(ref => {
+    const seenHrefs = new Set(refs.map(ref => sourceRefHref(ref)).filter(Boolean));
+    const extraRefs = asArray(task.additionalLinks)
+      .map((entry, index) => {
+        const href = typeof entry === 'string' ? validSourceHref(entry) : validSourceHref(entry?.url || entry?.link);
+        if (!href || seenHrefs.has(href)) return null;
+        seenHrefs.add(href);
+        return {
+          id: `additional-${index + 1}`,
+          title: typeof entry === 'object' && entry?.title ? entry.title : 'Additional source',
+          link: href,
+          date: typeof entry === 'object' ? entry.date : task.date,
+          from: typeof entry === 'object' ? entry.from : null
+        };
+      })
+      .filter(Boolean);
+    const allRefs = [...refs, ...extraRefs];
+    if (!allRefs.length) return '';
+    const rows = allRefs.map(ref => {
       const label = sourceRefLabel(ref);
       const title = sourceRefTooltip(ref);
       const href = sourceRefHref(ref);
@@ -2542,11 +2602,87 @@
         : `<span class="source-ref-unlinked" title="${escHtml(title)}">${escHtml(label)}</span>`;
       return `<div class="source-ref-item">${body}</div>`;
     }).join('');
-    const open = refs.length > 8 ? '' : ' open';
+    const open = allRefs.length > 8 ? '' : ' open';
     return `<div class="source-list">
       <details${open}>
-        <summary>Quellen (${refs.length})</summary>
+        <summary>Quellen (${allRefs.length})</summary>
         <div class="source-list-items">${rows}</div>
+      </details>
+    </div>`;
+  }
+
+  const FACTSHEET_SECTIONS = [
+    ['overview', 'Overview'],
+    ['scopeGoals', 'Scope & Goals'],
+    ['timelineMilestones', 'Timeline & Milestones'],
+    ['budgetCostsApprovals', 'Budget & Costs & Approvals'],
+    ['status', 'Status'],
+    ['opportunities', 'Opportunities'],
+    ['risksChallenges', 'Risks & Challenges'],
+    ['peopleRoles', 'People & Roles'],
+    ['decisionMakers', 'Decision Makers'],
+    ['decisionsLog', 'Decisions Log'],
+    ['openActions', 'Open Actions'],
+    ['sources', 'Sources']
+  ];
+
+  function normalizedFactSheet(task) {
+    const raw = task?.factSheet && typeof task.factSheet === 'object' ? task.factSheet : {};
+    const rawSections = raw.sections && typeof raw.sections === 'object' ? raw.sections : raw;
+    const sections = {};
+    for (const [id] of FACTSHEET_SECTIONS) sections[id] = asArray(rawSections[id]).filter(entry => entry && !entry.removedAt);
+    return { language: raw.language || 'en', updatedAt: raw.updatedAt || null, sections };
+  }
+
+  function factSheetEntryText(entry) {
+    const parts = [];
+    if (entry.person) parts.push(entry.person);
+    if (entry.role) parts.push(entry.role);
+    if (entry.organization) parts.push(entry.organization);
+    if (entry.location || entry.country) parts.push([entry.location, entry.country].filter(Boolean).join(', '));
+    if (entry.contact) parts.push(entry.contact);
+    if (entry.text) parts.push(entry.text);
+    if (!parts.length && entry.title) parts.push(entry.title);
+    if (!parts.length && entry.status) parts.push(entry.status);
+    return parts.join(' | ') || 'Fact';
+  }
+
+  function renderFactSheetEvidence(task, entry) {
+    return asArray(entry.evidenceRefIds)
+      .map(id => renderEvidenceLink(task, id))
+      .filter(Boolean)
+      .join('');
+  }
+
+  function renderFactSheetPanel(task) {
+    const sheet = normalizedFactSheet(task);
+    const total = FACTSHEET_SECTIONS.reduce((sum, [id]) => sum + sheet.sections[id].length, 0);
+    if (!total && !isProjectTask(task)) return '';
+    const sections = FACTSHEET_SECTIONS.map(([id, title]) => {
+      const entries = sheet.sections[id];
+      const body = entries.length
+        ? entries.map(entry => {
+            const date = formatSourceDate(entry.date);
+            const evidence = renderFactSheetEvidence(task, entry);
+            const meta = [
+              date ? `<span>${escHtml(date)}</span>` : '',
+              evidence,
+              entry.confidence ? confidenceBadge(entry.confidence) : ''
+            ].filter(Boolean).join('');
+            return `<div class="factsheet-entry">
+              <div>${escHtml(factSheetEntryText(entry))}</div>
+              ${meta ? `<div class="factsheet-entry-meta">${meta}</div>` : ''}
+            </div>`;
+          }).join('')
+        : '<div class="factsheet-empty">No facts captured.</div>';
+      return `<section class="factsheet-section"><h4>${escHtml(title)}</h4>${body}</section>`;
+    }).join('');
+    const exportHref = `/api/tasks/${encodeURIComponent(task.id)}/factsheet.html`;
+    const updated = sheet.updatedAt ? ` · ${formatSourceDate(sheet.updatedAt)}` : '';
+    return `<div class="factsheet-panel">
+      <details open>
+        <summary><span>Fact Sheet${updated}</span><a class="factsheet-export" href="${escHtml(exportHref)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Export HTML ↗</a></summary>
+        <div class="factsheet-sections">${sections}</div>
       </details>
     </div>`;
   }
@@ -2826,6 +2962,7 @@
         <div data-slot="superseded">${renderSupersededHint(task)}</div>
         <div data-slot="project-pm">${renderProjectPm(task)}</div>
         <div data-slot="project-lineitems">${renderProjectLineItems(task)}</div>
+        <div data-slot="factsheet">${renderFactSheetPanel(task)}</div>
         <div class="panel-log-form" data-slot="form-log">
           <input type="text" placeholder="Message or update..." onkeydown="if(event.key==='Enter')analyzeLog('${task.id}',this)">
           <button class="btn btn-primary btn-sm" onclick="analyzeLog('${task.id}',this.previousElementSibling)" title="Send to agent">📤 Send</button>
@@ -2949,10 +3086,11 @@
       if (entry.communications && entry.communications.length > 0) {
         for (const comm of entry.communications) {
           const commIcon = comm.type === 'teams' ? '💬' : '📧';
-          const commLink = comm.link
-            ? ` <a href="${escHtml(comm.link)}" onclick="return openLink(event)" rel="noopener">Open ↗</a>`
-            : '';
           const commDate = comm.date ? formatDate(comm.date) : '';
+          const commSourceDate = formatSourceDate(comm.date);
+          const commLink = comm.link
+            ? ` <a href="${escHtml(comm.link)}" onclick="return openLink(event)" rel="noopener">Open${commSourceDate ? ' ' + escHtml(commSourceDate) : ''} ↗</a>`
+            : '';
           html += `<div class="agent-comm">${commIcon} ${escHtml(comm.from || '')} → ${escHtml(comm.to || '')} (${commDate})${commLink}`;
           if (comm.summary) html += `<br><span style="color:#94a3b8;font-size:0.85em">${escHtml(comm.summary)}</span>`;
           html += `</div>`;
@@ -3080,7 +3218,8 @@
               detailsHtml += `<span style="margin-left:16px;color:#a78bfa;font-size:0.7rem">↳ ${escHtml(c.relevance)}</span>`;
             }
             if (c.link) {
-              detailsHtml += `<span style="margin-left:16px"><a href="${escHtml(c.link)}" onclick="return openLink(event)" style="color:#60a5fa;font-size:0.75rem">🔗 Open</a></span>`;
+              const sourceDate = formatSourceDate(c.date);
+              detailsHtml += `<span style="margin-left:16px"><a href="${escHtml(c.link)}" onclick="return openLink(event)" style="color:#60a5fa;font-size:0.75rem">🔗 Open${sourceDate ? ' ' + escHtml(sourceDate) : ''}</a></span>`;
             }
           }
         } else if (!ex.answer && ex.rawResponse && !ex.error) {

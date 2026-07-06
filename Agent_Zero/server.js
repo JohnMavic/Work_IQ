@@ -10,6 +10,8 @@ import { spawn, execSync } from 'child_process';
 import { EventEmitter } from 'events';
 import { cleanupStaleAtomicTempsForFile, migrateTasksFileToV5, writeJsonFileAtomic } from './brain/tasks-v5.js';
 import { getScanEngine, normalizeScanJobInput, runBrainScanOnce } from './brain/scan-brain.js';
+import { FACTSHEET_SECTIONS, normalizeFactSheet } from './brain/factsheet.js';
+import { isUsableSourceLink } from './brain/link-guard.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -998,6 +1000,114 @@ function writeTasksAtomic(data) {
 
 function writeTasks(data) {
   writeTasksAtomic(data);
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatSourceDate(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  return `${day}.${month}.${year}`;
+}
+
+function sourceRefDate(ref) {
+  return ref?.date || ref?.lastSeenAt || ref?.firstSeenAt || null;
+}
+
+function sourceRefHref(ref) {
+  const link = ref?.link || ref?.url || null;
+  return isUsableSourceLink(link) ? String(link).trim() : null;
+}
+
+function findSourceRef(task, refId) {
+  return Array.isArray(task?.sourceRefs)
+    ? task.sourceRefs.find(ref => ref?.id === refId) || null
+    : null;
+}
+
+function factSheetEvidenceHtml(task, entry) {
+  const ids = Array.isArray(entry?.evidenceRefIds) ? entry.evidenceRefIds : [];
+  if (!ids.length) return '';
+  const links = ids.map(id => {
+    const ref = findSourceRef(task, id);
+    const href = sourceRefHref(ref);
+    const date = formatSourceDate(sourceRefDate(ref) || entry.date);
+    const label = `Evidence${date ? ` ${date}` : ''}`;
+    if (!href) return `<span class="missing-source">${escapeHtml(label)}</span>`;
+    const title = [ref?.title, ref?.from, date].filter(Boolean).join(' · ');
+    return `<a href="${escapeHtml(href)}" rel="noopener" target="_blank" title="${escapeHtml(title)}">${escapeHtml(label)} ↗</a>`;
+  });
+  return `<span class="evidence">${links.join(' ')}</span>`;
+}
+
+function factSheetEntryText(entry) {
+  const parts = [];
+  if (entry.person) parts.push(entry.person);
+  if (entry.role) parts.push(entry.role);
+  if (entry.organization) parts.push(entry.organization);
+  if (entry.location || entry.country) parts.push([entry.location, entry.country].filter(Boolean).join(', '));
+  if (entry.contact) parts.push(entry.contact);
+  if (entry.text) parts.push(entry.text);
+  if (!parts.length && entry.title) parts.push(entry.title);
+  if (!parts.length && entry.status) parts.push(entry.status);
+  return parts.join(' | ');
+}
+
+function renderFactSheetHtmlDocument(task) {
+  const sheet = normalizeFactSheet(task?.factSheet);
+  const sections = FACTSHEET_SECTIONS.map(section => {
+    const entries = (sheet.sections[section.id] || []).filter(entry => !entry.removedAt);
+    const body = entries.length
+      ? `<ul>${entries.map(entry => {
+          const date = formatSourceDate(entry.date);
+          const meta = [
+            date ? `<span>${escapeHtml(date)}</span>` : '',
+            entry.confidence ? `<span>${escapeHtml(entry.confidence)}</span>` : '',
+            factSheetEvidenceHtml(task, entry)
+          ].filter(Boolean).join(' ');
+          return `<li><div>${escapeHtml(factSheetEntryText(entry))}</div>${meta ? `<div class="meta">${meta}</div>` : ''}</li>`;
+        }).join('')}</ul>`
+      : '<p class="empty">No facts captured.</p>';
+    return `<section><h2>${escapeHtml(section.title)}</h2>${body}</section>`;
+  }).join('\n');
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>${escapeHtml(task?.title || 'Task')} — Fact Sheet</title>
+  <style>
+    body { font-family: Arial, sans-serif; color: #111827; margin: 32px; line-height: 1.45; }
+    h1 { font-size: 24px; margin: 0 0 6px; }
+    .subtitle { color: #4b5563; margin-bottom: 24px; }
+    section { break-inside: avoid; border-top: 1px solid #d1d5db; padding-top: 14px; margin-top: 18px; }
+    h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0; margin: 0 0 8px; color: #374151; }
+    ul { margin: 0; padding-left: 20px; }
+    li { margin: 0 0 10px; }
+    .meta { color: #6b7280; font-size: 12px; margin-top: 3px; display: flex; gap: 8px; flex-wrap: wrap; }
+    a { color: #2563eb; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .missing-source, .empty { color: #6b7280; }
+    @media print { body { margin: 18mm; } a { color: #111827; } }
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(task?.title || 'Task')}</h1>
+  <div class="subtitle">Fact Sheet · ${escapeHtml(sheet.language || 'en')}${sheet.updatedAt ? ` · Updated ${escapeHtml(formatSourceDate(sheet.updatedAt))}` : ''}</div>
+  ${sections}
+</body>
+</html>`;
 }
 
 // --- Write Queue (sequential writes for concurrency safety) ---
@@ -2373,6 +2483,19 @@ app.get('/api/tasks', (req, res) => {
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: 'Failed to read tasks', detail: err.message });
+  }
+});
+
+app.get('/api/tasks/:id/factsheet.html', (req, res) => {
+  try {
+    const data = readTasks();
+    const task = data.tasks.find(t => t.id === req.params.id);
+    if (!task) return res.status(404).send('Task not found');
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.send(renderFactSheetHtmlDocument(task));
+  } catch (err) {
+    res.status(500).send(`Failed to render Fact Sheet: ${escapeHtml(err.message)}`);
   }
 });
 
