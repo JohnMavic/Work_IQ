@@ -6,8 +6,10 @@ import {
   BRAIN_WORK_DIR,
   buildAgencyArgs,
   buildAgencyEnv,
+  resolveAgencyEffort,
   resolveAgencyCli
 } from './agency-cli.js';
+import { BRAIN_RUN_CLASS, defaultBrainScheduler } from './brain-scheduler.js';
 
 export const BOOTSTRAP_FILE_THRESHOLD_BYTES = 16 * 1024;
 export const DEFAULT_TIMEOUT_MS = 25 * 60 * 1000;
@@ -241,14 +243,28 @@ export async function runBrain({
   workIqHardLimit = DEFAULT_WORKIQ_HARD_LIMIT,
   onToolExecution,
   onJsonEvent,
+  onSchedulerUpdate,
+  runClass = BRAIN_RUN_CLASS.BACKGROUND,
+  effort = null,
+  mcpMode = 'default',
+  disableMcpServers,
+  schedulerLabel = null,
   _spawnFn = spawn,
   _killTreeFn = killTree,
   _resolveAgencyCli = resolveAgencyCli,
+  _scheduler = defaultBrainScheduler,
   cleanBrainWorkDir = false
 } = {}) {
   if (!prompt || typeof prompt !== 'string') {
     throw new Error('runBrain requires a prompt string');
   }
+
+  const normalizedRunClass = runClass === BRAIN_RUN_CLASS.INTERACTIVE
+    ? BRAIN_RUN_CLASS.INTERACTIVE
+    : BRAIN_RUN_CLASS.BACKGROUND;
+  const selectedEffort = resolveAgencyEffort({ runClass: normalizedRunClass, effort });
+
+  const executeBrainProcess = async () => {
 
   const resolvedBrainWorkDir = cleanBrainWorkDir
     ? prepareBrainWorkDir(brainWorkDir)
@@ -300,11 +316,14 @@ export async function runBrain({
       callerArgs,
       brainWorkDir: resolvedBrainWorkDir,
       attachments,
-      uploadsDir
+      uploadsDir,
+      effort: selectedEffort,
+      mcpMode,
+      disableMcpServers
     });
     child = _spawnFn(exe, args, {
       cwd: resolvedBrainWorkDir,
-      env: buildAgencyEnv(),
+      env: buildAgencyEnv(process.env, { effort: selectedEffort }),
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe']
     });
@@ -420,5 +439,12 @@ export async function runBrain({
       try { _killTreeFn(child); } catch {}
       settle({ exitCode: null });
     }, timeoutMs);
+  });
+  };
+
+  if (!_scheduler) return executeBrainProcess();
+  return _scheduler.run(normalizedRunClass, executeBrainProcess, {
+    onStateChange: onSchedulerUpdate,
+    label: schedulerLabel
   });
 }

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { runBrain } from './brain-runner.js';
 import { BRAIN_WORK_DIR } from './agency-cli.js';
+import { BRAIN_RUN_CLASS } from './brain-scheduler.js';
 import { containsFabricatedSourceToken } from './link-guard.js';
 import {
   isActionLikeLineItem,
@@ -517,6 +518,8 @@ export async function runRealityGateway({
   markers,
   brainWorkDir = BRAIN_WORK_DIR,
   runId = `gateway-${Date.now()}`,
+  runClass = BRAIN_RUN_CLASS.BACKGROUND,
+  onSchedulerUpdate = null,
   _runBrain = runBrain
 } = {}) {
   if (!stateFile || !fs.existsSync(stateFile)) {
@@ -529,6 +532,10 @@ export async function runRealityGateway({
     brainWorkDir,
     timeoutMs: DEFAULT_GATEWAY_TIMEOUT_MS,
     workIqHardLimit: 0,
+    runClass,
+    effort: process.env.AGENT_ZERO_BRAIN_EFFORT || 'xhigh',
+    schedulerLabel: `${runClass}:gateway:${runId}`,
+    onSchedulerUpdate,
     callerArgs: ['--disable-mcp-server', 'workiq'],
     cleanBrainWorkDir: false
   });
@@ -549,6 +556,10 @@ export async function runRealityGateway({
     brainWorkDir,
     timeoutMs: DEFAULT_GATEWAY_TIMEOUT_MS,
     workIqHardLimit: 0,
+    runClass,
+    effort: process.env.AGENT_ZERO_BRAIN_EFFORT || 'xhigh',
+    schedulerLabel: `${runClass}:gateway-retry:${runId}`,
+    onSchedulerUpdate,
     callerArgs: ['--disable-mcp-server', 'workiq'],
     cleanBrainWorkDir: false
   });

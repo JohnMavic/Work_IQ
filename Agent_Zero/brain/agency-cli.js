@@ -11,20 +11,72 @@ export const REPO_ROOT = path.resolve(__dirname, '..');
 export const BRAIN_WORK_DIR = path.join(REPO_ROOT, 'brain-work');
 export const COPILOT_MODEL = 'claude-opus-4.8';
 export const COPILOT_EFFORT = process.env.AGENT_ZERO_BRAIN_EFFORT || 'xhigh';
+export const COPILOT_CHAT_EFFORT = process.env.AGENT_ZERO_CHAT_EFFORT || 'high';
 export const COPILOT_CONTEXT = 'long_context';
 
-export const AGENCY_ARG_PREFIX = [
-  'copilot',
-  '--no-default-mcps',
-  '--max-autopilot-continues',
-  '0',
-  '--model',
-  COPILOT_MODEL,
-  '--effort',
-  COPILOT_EFFORT,
-  '--context',
-  COPILOT_CONTEXT
-];
+export const AGENCY_ARG_PREFIX = buildAgencyArgPrefix({ effort: COPILOT_EFFORT });
+
+export const DEFAULT_DISABLED_MCP_SERVERS = Object.freeze([
+  'playwright',
+  'github-mcp-server'
+]);
+
+export const WORKIQ_ONLY_DISABLED_MCP_SERVERS = Object.freeze([
+  'playwright',
+  'github-mcp-server',
+  'github',
+  'ado',
+  'bluebird',
+  'kusto',
+  'es-chat',
+  'enghub',
+  'msft-learn',
+  'mrc',
+  's360-breeze',
+  'service-tree',
+  'change-ledger',
+  'safefly',
+  'perf-pas',
+  'domain-lens',
+  'smart-dri',
+  'icm',
+  'watson',
+  'engage',
+  'fluent',
+  'security-context',
+  'dvdr',
+  'ecs',
+  'top',
+  'atlas',
+  'graph',
+  'cloudbuild',
+  'teams',
+  'sharepoint',
+  'onedrive',
+  'mail',
+  'calendar',
+  'logger',
+  'word',
+  'planner',
+  'm365-user',
+  'm365-copilot'
+]);
+
+function buildAgencyArgPrefix({ effort = COPILOT_EFFORT, noConfigPlugins = false } = {}) {
+  return [
+    'copilot',
+    '--no-default-mcps',
+    ...(noConfigPlugins ? ['--no-config-plugins'] : []),
+    '--max-autopilot-continues',
+    '0',
+    '--model',
+    COPILOT_MODEL,
+    '--effort',
+    effort,
+    '--context',
+    COPILOT_CONTEXT
+  ];
+}
 
 export const AGENCY_RUN_ARGS = [
   '--yolo',
@@ -77,6 +129,53 @@ export function stripPinnedCallerArgs(args = []) {
   return result;
 }
 
+function safeFilePart(value) {
+  return String(value || 'run')
+    .replace(/[^a-zA-Z0-9_.-]/g, '-')
+    .slice(0, 100) || 'run';
+}
+
+export function isolatedBrainWorkDir(runId, root = BRAIN_WORK_DIR) {
+  return path.join(path.resolve(root), 'runs', safeFilePart(runId), 'brain-work');
+}
+
+export function resolveAgencyEffort({
+  runClass = 'background',
+  effort = null,
+  env = process.env
+} = {}) {
+  if (effort) return String(effort);
+  if (runClass === 'interactive') return env.AGENT_ZERO_CHAT_EFFORT || 'high';
+  return env.AGENT_ZERO_BRAIN_EFFORT || 'xhigh';
+}
+
+function splitEnvList(value) {
+  return String(value || '')
+    .split(/[,\s;]+/)
+    .map(item => item.trim())
+    .filter(Boolean);
+}
+
+export function disabledMcpServersForMode(mode = 'default', env = process.env) {
+  if (mode === 'workiq-only') {
+    const override = splitEnvList(env.AGENT_ZERO_CHAT_DISABLE_MCPS);
+    return override.length ? override.filter(name => name !== 'workiq') : [...WORKIQ_ONLY_DISABLED_MCP_SERVERS];
+  }
+  if (mode === 'none') {
+    return [...new Set([...WORKIQ_ONLY_DISABLED_MCP_SERVERS, 'workiq'])];
+  }
+  return [...DEFAULT_DISABLED_MCP_SERVERS];
+}
+
+function buildDisableMcpArgs(names = []) {
+  const args = [];
+  for (const name of names) {
+    if (!name || name === 'workiq-keep') continue;
+    args.push('--disable-mcp-server', name);
+  }
+  return args;
+}
+
 export function buildAttachmentArgs({
   attachments = [],
   uploadsDir = DEFAULT_UPLOADS_DIR,
@@ -112,14 +211,20 @@ export function buildAgencyArgs({
   callerArgs = [],
   brainWorkDir = BRAIN_WORK_DIR,
   attachments = [],
-  uploadsDir = DEFAULT_UPLOADS_DIR
+  uploadsDir = DEFAULT_UPLOADS_DIR,
+  effort = COPILOT_EFFORT,
+  mcpMode = 'default',
+  disableMcpServers = disabledMcpServersForMode(mcpMode)
 } = {}) {
   if (!bootstrap || typeof bootstrap !== 'string') {
     throw new Error('buildAgencyArgs requires a bootstrap prompt string');
   }
 
   return [
-    ...AGENCY_ARG_PREFIX,
+    ...buildAgencyArgPrefix({
+      effort,
+      noConfigPlugins: mcpMode === 'workiq-only' || mcpMode === 'none'
+    }),
     ...stripPinnedCallerArgs(callerArgs),
     '-p',
     bootstrap,
@@ -128,14 +233,12 @@ export function buildAgencyArgs({
     brainWorkDir,
     ...buildAttachmentArgs({ attachments, uploadsDir }),
     '--allow-all-tools',
-    '--disable-mcp-server',
-    'playwright',
-    '--disable-mcp-server',
-    'github-mcp-server'
+    ...(mcpMode === 'workiq-only' || mcpMode === 'none' ? ['--disable-builtin-mcps'] : []),
+    ...buildDisableMcpArgs(disableMcpServers)
   ];
 }
 
-export function buildAgencyEnv(baseEnv = process.env) {
+export function buildAgencyEnv(baseEnv = process.env, { effort = COPILOT_EFFORT } = {}) {
   const {
     AGENCY_SESSION_ID: _agencySessionId,
     COPILOT_AGENT_SESSION_ID: _copilotAgentSessionId,
@@ -145,6 +248,6 @@ export function buildAgencyEnv(baseEnv = process.env) {
   return {
     ...env,
     COPILOT_MODEL,
-    COPILOT_EFFORT
+    COPILOT_EFFORT: effort
   };
 }
