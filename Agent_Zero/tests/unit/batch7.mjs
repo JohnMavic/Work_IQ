@@ -319,6 +319,7 @@ test('Batch 7 processing-ledger quality gate blocks partial scans before mutatio
         date: '2026-07-06T08:00:00.000Z',
         disposition: 'updates-node',
         nodeRefs: ['proj-b7'],
+        attachmentsHandled: 'none',
         quote: 'Message one updates the project.',
         reason: 'It changes the project summary.'
       }]
@@ -365,6 +366,7 @@ test('Batch 7 ledger persists by stable conversation id across subject rename', 
         date: '2026-07-05T08:00:00.000Z',
         disposition: 'no-change',
         nodeRefs: ['proj-b7'],
+        attachmentsHandled: 'none',
         quote: 'Original subject update.',
         reason: 'No project change.'
       }]
@@ -377,6 +379,7 @@ test('Batch 7 ledger persists by stable conversation id across subject rename', 
         date: '2026-07-06T08:00:00.000Z',
         disposition: 'updates-node',
         nodeRefs: ['li-b7'],
+        attachmentsHandled: 'none',
         quote: 'Renamed subject update.',
         reason: 'Same conversation id, new item.'
       }]

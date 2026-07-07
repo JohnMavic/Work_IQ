@@ -9,6 +9,7 @@ import {
   validateActionGateForVisibleAction
 } from './truth-tree.js';
 import { renderBrainLearningsBlock, validateLearningPayload } from './learnings.js';
+import { validateProcessingPayload } from './processing-ledger.js';
 
 export const DEFAULT_GATEWAY_TIMEOUT_MS = DEFAULT_TIMEOUT_MS;
 export const GATEWAY_DECISIONS = new Set(['approve', 'reject', 'needs-review']);
@@ -313,6 +314,9 @@ function actionGateIssue(marker) {
 export function deterministicMarkerIssue(marker) {
   const payload = marker?.payload || {};
 
+  const processingIssue = validateProcessingPayload(payload, marker.type);
+  if (processingIssue) return `Processing ledger gate failed: ${processingIssue}.`;
+
   const fabricatedField = payloadHasFabricatedFreeText(payload);
   if (fabricatedField) return `Fabricated WorkIQ citation token found in ${fabricatedField}.`;
 
@@ -472,6 +476,7 @@ export function buildGatewayPrompt({ stateFile, factSheetFiles = [], markers, ru
     '- Are actions for other people represented as lineItems or Fact Sheet Open Actions with an explicit owner?',
     '- Are processing ledger items well-formed, including quote and reason for no-change or not-this-project dispositions?',
     '- If a node is disputed, does it keep both conflicting positions with person/date/quote and surface the conflict instead of choosing silently?',
+    '- Reject any ledger disposition that lacks attachmentsHandled: yes|none|failed(<reason>). If the item has attachments, only yes or failed(<reason>) is acceptable.',
     '- If a user action was marked done by Martin, does current evidence confirm closure or show it is still open?',
     '- Is the result internally consistent, e.g. not done and waiting at the same time?',
     '- Are source links verbatim real WorkIQ links, not constructed citation-token URLs?',

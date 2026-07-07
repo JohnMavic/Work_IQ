@@ -75,6 +75,7 @@ function structureMarkers() {
     date: '2026-07-05T08:00:00.000Z',
     disposition: 'updates-node',
     nodeRefs: ['legacy-1'],
+    attachmentsHandled: 'none',
     quote: 'Please check where the SFPs are located.',
     reason: 'The source confirms this legacy task topic.'
   }];

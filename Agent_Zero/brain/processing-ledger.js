@@ -17,6 +17,28 @@ function compactText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
+function isFailedAttachmentDisposition(value) {
+  return /^failed\(.+\)$/i.test(compactText(value));
+}
+
+function isValidAttachmentDisposition(value) {
+  const text = compactText(value).toLowerCase();
+  return text === 'yes' || text === 'none' || isFailedAttachmentDisposition(text);
+}
+
+function hasAttachmentSignal(item = {}) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+  if (item.hasAttachments === true) return true;
+  if (Number(item.attachmentCount) > 0) return true;
+  if (Array.isArray(item.attachments) && item.attachments.length > 0) return true;
+  return false;
+}
+
+function attachmentDispositionHandlesPresentAttachments(value) {
+  const text = compactText(value).toLowerCase();
+  return text === 'yes' || isFailedAttachmentDisposition(text);
+}
+
 function parseTime(value) {
   const parsed = Date.parse(value || '');
   return Number.isFinite(parsed) ? parsed : null;
@@ -45,6 +67,12 @@ export function validateLedgerItem(item, pathName = 'processing.ledger[]') {
     return `${pathName}.disposition must be one of ${[...LEDGER_DISPOSITIONS].join(', ')}`;
   }
   if (!Array.isArray(item.nodeRefs)) return `${pathName}.nodeRefs must be an array`;
+  if (!isValidAttachmentDisposition(item.attachmentsHandled)) {
+    return `${pathName}.attachmentsHandled must be yes, none, or failed(<reason>)`;
+  }
+  if (hasAttachmentSignal(item) && !attachmentDispositionHandlesPresentAttachments(item.attachmentsHandled)) {
+    return `${pathName}.attachmentsHandled must be yes or failed(<reason>) when attachments are present`;
+  }
   if (!compactText(item.quote)) return `${pathName}.quote is required`;
   if (!compactText(item.reason)) return `${pathName}.reason is required`;
   return null;
@@ -58,10 +86,14 @@ export function normalizeLedgerItem(item, { now = new Date() } = {}) {
     date: item.date,
     disposition: item.disposition,
     nodeRefs: normalizeArray(item.nodeRefs).map(String),
+    attachmentsHandled: compactText(item.attachmentsHandled),
     quote: compactText(item.quote),
     reason: compactText(item.reason),
     processedAt: item.processedAt || (now instanceof Date ? now.toISOString() : String(now || new Date().toISOString()))
   };
+  if (item.hasAttachments !== undefined) normalized.hasAttachments = Boolean(item.hasAttachments);
+  if (item.attachmentCount !== undefined) normalized.attachmentCount = Number(item.attachmentCount);
+  if (Array.isArray(item.attachments)) normalized.attachments = item.attachments;
   if (item.countProbe) normalized.countProbe = item.countProbe;
   return normalized;
 }
@@ -205,11 +237,25 @@ export function evaluateProcessingQualityGate(markers = []) {
   }
 
   const ledgerKeys = new Set(normalizedLedger.map(item => itemRefKey(item.itemRef)));
+  const enumeratedAttachmentKeys = new Set();
   for (const [index, item] of enumerated.entries()) {
     const key = itemRefKey(item.itemRef || item);
     if (!key) return { ok: false, reason: `enumeratedItems[${index}].itemRef is required`, ledgerItems: normalizedLedger, ledgerCount: normalizedLedger.length };
+    if (hasAttachmentSignal(item)) enumeratedAttachmentKeys.add(key);
     if (!ledgerKeys.has(key)) {
       return { ok: false, reason: `missing ledger disposition for enumerated item ${key}`, ledgerItems: normalizedLedger, ledgerCount: normalizedLedger.length };
+    }
+  }
+
+  for (const item of normalizedLedger) {
+    const key = itemRefKey(item.itemRef);
+    if (enumeratedAttachmentKeys.has(key) && !attachmentDispositionHandlesPresentAttachments(item.attachmentsHandled)) {
+      return {
+        ok: false,
+        reason: `ledger disposition for ${key} has attachments but attachmentsHandled is not yes or failed(<reason>)`,
+        ledgerItems: normalizedLedger,
+        ledgerCount: normalizedLedger.length
+      };
     }
   }
 
