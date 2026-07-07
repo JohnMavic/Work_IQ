@@ -23,3 +23,8 @@ Text: Never guess confidently. If a state, owner, approval, ticket, or deadline 
 Category: pattern
 Evidence: Imported generically from the user's agency memory pattern edge-cdp-automation.md.
 Text: For Microsoft-internal portals protected by Entra ID when a normal browser MCP is unavailable, use a dedicated Microsoft Edge remote-debugging instance rather than controlling the user's active browser. Prefer an isolated debugging profile that can use Windows/WAM SSO, wait for SSO redirects to finish, list CDP tabs from localhost, connect to the target page WebSocket, and use CDP Runtime.evaluate/Page.navigate to read portal state. For approval portals, check both Pending and History or completed views before declaring an approval open, approved, rejected, or absent. Close only the debug connection or debug browser that this run opened.
+
+## 2026-07-07 fact: myapprovals-object-classes
+Category: fact
+Evidence: Batch 8B user correction from portal-verified MyApprovals behavior.
+Text: MyApprovals hosts two object classes: MyOrder PO approvals (PO numbers) and Modern Invoice approvals (GUID request ids). A task status list tracking only PO numbers does NOT cover invoice approvals; never infer invoice approval state from PO bookkeeping.

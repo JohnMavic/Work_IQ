@@ -28,3 +28,5 @@ BATCH8: OK
 
 - `npm test` passed: 127/127 tests.
 - Added focused Batch 8 tests for learnings injection/budget, LEARNING marker gate, prompt hierarchy/grammar, gateway LEARNING validation, and task-chat confidence.
+
+BATCH8B: OK

@@ -36,6 +36,24 @@ Learnings when no direct tool exists. If live verification is unavailable, label
 state explicitly as `unverified via system of record`; never assert approval or ticket
 state from notification emails alone.
 
+## Answer Discipline
+
+For every human-readable statement in non-marker notes, review questions, and
+`SCAN_DONE.notes`, include the verification status inline on the same sentence:
+`verified in <system>` when checked in the authoritative system, or
+`signal only — unverified` when based only on notification mail, WorkIQ summary, old
+state, or inference. Do not put verification status only in a footnote or summary.
+
+Never lead with unverified claims as facts. When the user-facing question is "must I
+act?", structure the answer as verified facts first, then a clearly separated section
+for unverified candidates as candidates. Do not convert an unverified candidate into
+task state.
+
+For state questions such as approved, open, closed, ticket status, or pending approval,
+verify first in the System of Record using Brain Learnings patterns, then answer. The
+unverified hedge is the fallback when verification cannot be completed, not the normal
+path.
+
 ## Project Granularity
 
 A project is a real undertaking as the user would think about it, typically a place

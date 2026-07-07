@@ -140,7 +140,7 @@ export function renderBrainLearningsBlock(options = {}) {
   const lines = [
     '## Brain Learnings',
     '',
-    'These curated learnings are persistent operating memory for this run. Apply them before using historical state or lossy summaries.'
+    'Persistent operating memory for this run.'
   ];
 
   if (!learnings.text.trim()) {

@@ -127,6 +127,10 @@ test('Batch 8 prompts include truth hierarchy, learnings, and embedded chat gram
   const skill = fs.readFileSync(path.join(repoRoot, 'docs', 'AGENCY_BRAIN_SCAN_SKILL.md'), 'utf8');
   assert.match(skill, /Systems of Record live-checked/);
   assert.match(skill, /unverified via system of record/);
+  assert.match(skill, /verified in <system>/);
+  assert.match(skill, /signal only — unverified/);
+  assert.match(skill, /verified facts first/);
+  assert.match(skill, /verify first in the System of Record/);
   assert.match(skill, /\[LEARNING\]/);
 
   const learningsBlock = [
@@ -144,6 +148,10 @@ test('Batch 8 prompts include truth hierarchy, learnings, and embedded chat gram
     learningsBlock
   });
   assert.match(chatPrompt, /Systems of Record live-checked/);
+  assert.match(chatPrompt, /verified in <system>/);
+  assert.match(chatPrompt, /signal only — unverified/);
+  assert.match(chatPrompt, /Put verified facts first/);
+  assert.match(chatPrompt, /verify first in the System of Record/);
   assert.match(chatPrompt, /Do not read docs\/AGENCY_BRAIN_SCAN_SKILL\.md/);
   assert.match(chatPrompt, /\[LEARNING\]/);
   assert.match(chatPrompt, /system-of-record seed/);
@@ -156,6 +164,16 @@ test('Batch 8 prompts include truth hierarchy, learnings, and embedded chat gram
   });
   assert.match(gatewayPrompt, /system-of-record seed/);
   assert.match(gatewayPrompt, /For LEARNING markers/);
+});
+
+test('Batch 8B brain learnings include MyApprovals object-class distinction', () => {
+  const learnings = fs.readFileSync(path.join(repoRoot, 'brain-learnings.md'), 'utf8');
+
+  assert.match(learnings, /MyApprovals hosts two object classes/);
+  assert.match(learnings, /MyOrder PO approvals \(PO numbers\)/);
+  assert.match(learnings, /Modern Invoice approvals \(GUID request ids\)/);
+  assert.match(learnings, /does NOT cover invoice approvals/);
+  assert.match(learnings, /never infer invoice approval state from PO bookkeeping/);
 });
 
 test('Batch 8 task chat stores concrete confidence instead of unknown', async () => {
