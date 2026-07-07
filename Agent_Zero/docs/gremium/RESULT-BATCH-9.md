@@ -1,13 +1,19 @@
-BATCH9: OK
+BATCH9B: BLOCKED mail-MCP/WorkIQ/Graph did not provide a working Laith PDF/deck attachment read path
 
-Implemented without running the live acceptance from Brief §5.
+Live attachment probe against the real Laith Skeik message from 2026-07-06:
 
-- Cage flags removed from normal Agency runs: no `--no-default-mcps`, no named `--disable-mcp-server`, and `workiq-only` no longer disables other MCPs. Stage 1 chat remains the explicit MCP-free latency path via `mcpMode:"none"`.
-- Tool budget changed from WorkIQ hard kills to loop guard: warning at 40 tool starts, emergency stop at 150.
-- Discovery prompts now require mail/Teams-first update discovery, full message bodies, and PDF/DOCX/XLSX attachment reading as mandatory evidence.
-- Truth-tree context verified and extended across scan, chat fast/deep, gateway, reverify sweep, and migration prompts/states: Fact Sheets, pmStatus, lineItems, processing cursor/ledger context, brainState, and Brain Learnings.
-- Reality Gateway keeps update discipline and now checks whether available evidence, including attachments, was used instead of ignored.
-- External-write guardrail documented: reads/research/browsing are unrestricted; external writes require an explicit same-conversation user instruction.
-- `brain-learnings.md` was clean; added a complete general learning for attachment evidence.
+- Agency with explicit `--mcp mail` did not produce a usable noninteractive result for listing/downloading/reading the attachment.
+- WorkIQ 1.0 `ask` found the context but returned only a Purview/DLP restriction notice and no attachment content.
+- Microsoft Graph via `az rest` against `/me/messages` failed with `ErrorAccessDenied`, so attachments could not be listed or downloaded through Graph.
+- The local pinned WorkIQ 0.2.8 path is present; after EULA acceptance, the non-TTY probe did not return attachment content.
+- Best alternative: add a verified Graph delegated read path with Mail.Read attachment access, or implement an isolated Edge/OWA CDP routine that opens OWA in a throwaway debug profile and downloads the target attachment read-only.
 
-Tests: `npm test` -> 142/142 passing.
+Code fixes implemented despite the live attachment-path blocker:
+
+- Processing ledger dispositions now require `attachmentsHandled: "yes" | "none" | "failed(<reason>)"`.
+- If an enumerated message has attachments, the quality gate rejects `attachmentsHandled:"none"` and requires `yes` or `failed(<reason>)`.
+- Reality Gateway deterministic checks now hold project markers with malformed processing ledgers before the model verdict can approve them.
+- Agency Brain prompt now requires the per-message protocol: list attachments, read relevant ones, cite attachment facts, and record `attachmentsHandled`.
+- Scan apply now runs a Batch 9 temporal pass before writing: stale unconfirmed dates in `pmStatus.planned`, `pmStatus.waitingOn`, or `lineItems` must be explicitly confirmed with fresh evidence or marked obsolete/superseded with reason and evidence.
+
+Tests: `npm test` -> 145/145 passing.

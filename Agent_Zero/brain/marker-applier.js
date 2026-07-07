@@ -90,7 +90,8 @@ const LINEITEM_UPDATE_PATCH_FIELDS = new Set([
   'lastConfirmedByMessageDate',
   'conflict',
   'supersededByMessageDate',
-  'supersededReason'
+  'supersededReason',
+  'obsoleteReason'
 ]);
 
 function clone(value) {

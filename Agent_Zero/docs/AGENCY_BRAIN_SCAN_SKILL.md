@@ -16,6 +16,10 @@ MCPs for current Microsoft 365 evidence, enumerate new items since the relevant
 processing ledger cursor with the configured lookback, read full message bodies, and
 download/read relevant source attachments. PDF, DOCX, XLSX, and similar attachments are
 mandatory evidence when present; do not replace them with lossy summaries.
+For each newly surfaced mail or Teams message, follow this order before disposition:
+list attachments, read every relevant attachment, then cite message-body and attachment
+facts through source evidence. If attachments exist but cannot be read, record the
+failure explicitly; never leave the attachment step implicit.
 
 ## Language Rule
 
@@ -138,14 +142,20 @@ the project's cursor with a lookback window (`cursorDate - lookbackDays`, defaul
 so late-indexed messages are reconsidered. Each surfaced item must have exactly one
 ledger disposition before the run can be applied:
 
-`{itemRef, threadRef, date, disposition, nodeRefs, quote, reason}`
+`{itemRef, threadRef, date, disposition, nodeRefs, attachmentsHandled, quote, reason}`
 
 Allowed dispositions are `updates-node`, `no-change`, `new-node`, `conflict`,
 `not-this-project`, and `already-processed`. `no-change` and `not-this-project` still
-require a quote and reason. Include count probes in `SCAN_DONE.processingQuality`:
-`{required:true, enumeratedItems:[...], threadCounts:[{threadRef,count}]}`. The server
-will hold the entire scan as partial if any enumerated item lacks a valid disposition
-or if a thread count does not match the ledger.
+require a quote and reason. `attachmentsHandled` is mandatory and must be exactly
+`yes`, `none`, or `failed(<reason>)`. If the item has attachments, `none` is invalid:
+use `yes` only after listing/downloading/reading relevant attachments, or
+`failed(<reason>)` when the attachment is unavailable, blocked, encrypted, corrupt, or
+unreadable. Include attachment metadata in enumerated items when present, for example
+`hasAttachments:true`, `attachmentCount`, or attachment names. Include count probes in
+`SCAN_DONE.processingQuality`: `{required:true, enumeratedItems:[...],
+threadCounts:[{threadRef,count}]}`. The server will hold the entire scan as partial if
+any enumerated item lacks a valid disposition, if a message with attachments is marked
+`attachmentsHandled:"none"`, or if a thread count does not match the ledger.
 
 Each truth-tree node you emit or change must carry:
 
@@ -167,6 +177,31 @@ attachment is unavailable, encrypted, corrupt, or unreadable, emit `NEEDS_REVIEW
 low-confidence no-change ledger disposition rather than silently ignoring it. Emit a
 `LEARNING` marker when you discover a reusable attachment-handling pattern, file-type
 quirk, or stable general evidence rule.
+
+Mandatory per-message attachment protocol:
+- List attachments before reading or summarizing the message disposition.
+- Read every relevant source attachment and cite at least one attachment-derived fact
+  when the attachment changes or confirms project reality.
+- Set each ledger disposition's `attachmentsHandled` to `yes`, `none`, or
+  `failed(<reason>)`; do not invent `yes` from message-body mentions of a "deck" or
+  "attachment" unless the attachment content was actually read.
+- If a message has attachments and the read fails, emit `NEEDS_REVIEW` when project
+  state may depend on the attachment, and use `failed(<reason>)` in the ledger.
+
+## Temporal Pass
+
+Every discovery and scan run must reconcile stale dates before final output. Review all
+open projects' `pmStatus.planned`, `pmStatus.waitingOn`, and `lineItems` for dates
+before today's run date whose truth-tree `state` is `unconfirmed`. For each stale
+unconfirmed node, either:
+
+- mark it `state:"obsolete"` or `state:"superseded"` with explicit reason and evidence;
+  or
+- confirm it with fresh evidence and `state:"confirmed"`.
+
+Never leave a past-date `planned`, `waitingOn`, or line-item date silently unchanged.
+Omitting the stale node from a replacement `pmStatus` is also silent removal and is not
+valid; preserve it with an explicit obsolete/superseded/confirmed state.
 
 ## Evidence Rules
 
@@ -226,11 +261,11 @@ Emit one marker per physical line. JSON must be single-line valid JSON. Do not w
 markers in code fences.
 
 ```text
-[PROJECT_NEW] {"projectKey":"...","title":"...","aliases":[],"summary":"...","pmStatus":{"current":"...","planned":[{"text":"...","date":"...","evidence":"src-...","confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}],"userActions":[],"problems":[],"risks":[],"waitingOn":[],"confidence":"medium","lastSynthesizedAt":"..."},"sourceRefs":[{"id":"src-...","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","sourceTaskId":"...","firstSeenAt":"...","lastSeenAt":"...","evidenceText":"short factual summary"}],"lineItems":[{"id":"li-...","title":"...","category":"workstream|action|decision|dependency|risk|info","status":"open|in-progress|waiting|blocked|done|on-radar","owner":null,"userActionRequired":false,"userAction":null,"currentState":"...","plannedNext":null,"dueAt":null,"waitingOn":null,"problem":null,"risk":null,"confidence":"medium","evidenceRefIds":["src-..."],"sourceTaskIds":["task-..."],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open"}],"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":["li-..."],"quote":"short verbatim quote","reason":"why this disposition is correct"}],"supersedesTaskIds":[]}
-[PROJECT_UPDATE] {"taskId":"task-...","title":"...","summary":"...","pmStatus":{"current":"...","planned":[],"userActions":[],"problems":[],"risks":[],"waitingOn":[],"confidence":"medium","lastSynthesizedAt":"..."},"sourceRefs":[],"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["li-..."],"quote":"short verbatim quote","reason":"why this disposition is correct"}],"supersedesTaskIds":[],"evidenceRefIds":["src-..."]}
-[FACTSHEET_UPDATE] {"taskId":"task-...","sectionPatches":{"overview":[{"op":"add","text":"English fact","date":"2026-07-06","evidenceRefIds":["src-..."],"confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}],"peopleRoles":[{"op":"add","person":"...","role":"...","organization":"...","location":"...","country":"...","contact":"...","evidenceRefIds":["src-..."],"confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}]},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["fs-..."],"quote":"short verbatim quote","reason":"why this disposition is correct"}]}
-[LINEITEM_NEW] {"taskId":"task-...","lineItem":{"id":"li-...","title":"...","category":"action","status":"open","owner":"Alex","userActionRequired":false,"userAction":"...","currentState":"...","plannedNext":null,"dueAt":null,"waitingOn":null,"problem":null,"risk":null,"confidence":"medium","evidenceRefIds":["src-..."],"sourceTaskIds":[],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open","askQuote":{"text":"...","from":"...","date":"...","threadRef":"conversation-id"},"threadCheck":{"coverage":"complete","addressedTo":"Alex","messageCount":12,"lastMessageDate":"...","checkedThroughMessageDate":"..."}},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":["li-..."],"quote":"short verbatim quote","reason":"why this disposition is correct"}]}
-[LINEITEM_UPDATE] {"taskId":"task-...","lineItemId":"li-...","patch":{"status":"waiting","currentState":"...","confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["li-..."],"quote":"short verbatim quote","reason":"why this disposition is correct"}],"evidenceRefIds":["src-..."]}
+[PROJECT_NEW] {"projectKey":"...","title":"...","aliases":[],"summary":"...","pmStatus":{"current":"...","planned":[{"text":"...","date":"...","evidence":"src-...","confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}],"userActions":[],"problems":[],"risks":[],"waitingOn":[],"confidence":"medium","lastSynthesizedAt":"..."},"sourceRefs":[{"id":"src-...","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","sourceTaskId":"...","firstSeenAt":"...","lastSeenAt":"...","evidenceText":"short factual summary"}],"lineItems":[{"id":"li-...","title":"...","category":"workstream|action|decision|dependency|risk|info","status":"open|in-progress|waiting|blocked|done|on-radar","owner":null,"userActionRequired":false,"userAction":null,"currentState":"...","plannedNext":null,"dueAt":null,"waitingOn":null,"problem":null,"risk":null,"confidence":"medium","evidenceRefIds":["src-..."],"sourceTaskIds":["task-..."],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open"}],"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":["li-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}],"supersedesTaskIds":[]}
+[PROJECT_UPDATE] {"taskId":"task-...","title":"...","summary":"...","pmStatus":{"current":"...","planned":[],"userActions":[],"problems":[],"risks":[],"waitingOn":[],"confidence":"medium","lastSynthesizedAt":"..."},"sourceRefs":[],"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["li-..."],"attachmentsHandled":"yes","quote":"short verbatim quote","reason":"why this disposition is correct"}],"supersedesTaskIds":[],"evidenceRefIds":["src-..."]}
+[FACTSHEET_UPDATE] {"taskId":"task-...","sectionPatches":{"overview":[{"op":"add","text":"English fact","date":"2026-07-06","evidenceRefIds":["src-..."],"confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}],"peopleRoles":[{"op":"add","person":"...","role":"...","organization":"...","location":"...","country":"...","contact":"...","evidenceRefIds":["src-..."],"confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}]},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["fs-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}]}
+[LINEITEM_NEW] {"taskId":"task-...","lineItem":{"id":"li-...","title":"...","category":"action","status":"open","owner":"Alex","userActionRequired":false,"userAction":"...","currentState":"...","plannedNext":null,"dueAt":null,"waitingOn":null,"problem":null,"risk":null,"confidence":"medium","evidenceRefIds":["src-..."],"sourceTaskIds":[],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open","askQuote":{"text":"...","from":"...","date":"...","threadRef":"conversation-id"},"threadCheck":{"coverage":"complete","addressedTo":"Alex","messageCount":12,"lastMessageDate":"...","checkedThroughMessageDate":"..."}},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":["li-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}]}
+[LINEITEM_UPDATE] {"taskId":"task-...","lineItemId":"li-...","patch":{"status":"waiting","currentState":"...","confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["li-..."],"attachmentsHandled":"failed(DLP blocked attachment read)","quote":"short verbatim quote","reason":"why this disposition is correct"}],"evidenceRefIds":["src-..."]}
 [TASK_NEW] {"title":"...","summary":"...","sourceRef":{"id":"src-...","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","evidenceText":"short factual summary"},"status":"new|on-radar|needs-attention"}
 [TASK_UPDATE] {"taskId":"task-...","patch":{"status":"in-progress","summary":"...","confidence":"medium"},"sourceRefs":[{"id":"src-...","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","evidenceText":"short factual summary"}],"evidenceRefIds":["src-..."]}
 [LEARNING] {"text":"Reusable principle, pattern, or stable general fact.","category":"principle|pattern|fact","evidence":"why this learning is generally valid"}
@@ -250,6 +285,9 @@ markers in code fences.
 - Do not emit visible actions without the Batch 7 action-gate proof fields.
 - Do not emit a project mutation without processing ledger dispositions for every
   surfaced item behind that mutation.
+- Do not emit any processing ledger disposition without `attachmentsHandled`.
+- Do not finish a scan while stale past-date `planned`, `waitingOn`, or line-item
+  nodes remain `state:"unconfirmed"` unless you explicitly mark or confirm them.
 - Keep `FACTSHEET_UPDATE.sectionPatches` additive/corrective. Deletions require
   `op:"remove"`, `entryId`, `reason`, and `evidenceRefIds`.
 - Use the fixed Fact Sheet section order and English content: Overview; Scope & Goals;
@@ -272,6 +310,10 @@ Before finishing, verify:
 - Did I avoid splitting one undertaking into several projects?
 - Did every status/problem/risk/user-action change include evidence?
 - Did I use available evidence instead of ignoring it, including relevant attachments?
+- Did every surfaced message disposition include `attachmentsHandled`, and did every
+  message with attachments use `yes` or `failed(<reason>)`?
+- Did I run the temporal pass and resolve every unconfirmed past-date planned,
+  waiting, or line-item node?
 - Did any date-only evidence use confidence `medium` or `low`?
 - Did I emit at most one project decision per signal?
 - Did I use `NEEDS_REVIEW` instead of guessing?
