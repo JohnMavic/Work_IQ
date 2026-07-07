@@ -1,0 +1,1471 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - heading "📋 Agent Zero v4.0.2 (7752fb7)" [level=1] [ref=e3]
+    - generic [ref=e5]:
+      - generic [ref=e8]: Online
+      - generic [ref=e9]: ·
+      - generic [ref=e10] [cursor=pointer]: "Last scan: 22.04.2026 12:30"
+      - generic [ref=e11]: ·
+      - generic [ref=e12]:
+        - generic [ref=e13]: "Scan range:"
+        - slider "Scan range:" [ref=e14]: "4"
+        - generic [ref=e15]: 4 days
+      - generic [ref=e16]: ·
+      - generic [ref=e17]:
+        - generic [ref=e18]: "Auto-delete done:"
+        - slider "Auto-delete done:" [ref=e19]: "6"
+        - generic [ref=e20]: 6 days
+      - generic [ref=e21]: ·
+      - generic "Toggle debug logging to logs/debug.log" [ref=e22] [cursor=pointer]:
+        - generic [ref=e23]: "🪵 Log: On"
+    - generic [ref=e24]:
+      - button "All 48" [ref=e25] [cursor=pointer]
+      - button "🔴 6" [ref=e26] [cursor=pointer]
+      - button "🆕 2" [ref=e27] [cursor=pointer]
+      - button "🔄" [ref=e28] [cursor=pointer]
+      - button "🚨" [ref=e29] [cursor=pointer]
+      - button "🟡 10" [ref=e30] [cursor=pointer]
+      - button "📡 3" [ref=e31] [cursor=pointer]
+      - button "⏸️" [ref=e32] [cursor=pointer]
+      - button "✅ 27" [ref=e33] [cursor=pointer]
+      - generic [ref=e34]: 48 / 48
+      - generic [ref=e35]:
+        - generic [ref=e36]: "Open links in:"
+        - button "🪟 Window" [ref=e37] [cursor=pointer]
+        - button "📑 Tab" [ref=e38] [cursor=pointer]
+  - generic [ref=e39]:
+    - generic [ref=e40]:
+      - button "📡 Generate Action Items Scan Outlook & Teams" [ref=e41] [cursor=pointer]:
+        - text: 📡 Generate Action Items
+        - generic [ref=e42]: Scan Outlook & Teams
+      - button "＋ Add Action Item" [ref=e43] [cursor=pointer]
+      - button "🔗 Find Duplicates" [ref=e44] [cursor=pointer]
+      - button "🔗 Merge Tasks" [ref=e45] [cursor=pointer]
+      - button "🔍 Search" [ref=e47] [cursor=pointer]
+    - generic [ref=e50]:
+      - generic [ref=e51] [cursor=pointer]:
+        - generic [ref=e52]:
+          - generic [ref=e53]:
+            - text: "Incident 777519284: Trunk cable link down on cchzurseec9401 — cable/SFP replacement pending"
+            - generic [ref=e54]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e55]'
+              - 'generic "Phase 2: Enrichment ⚠️ — Needs review" [ref=e56]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e57]'
+            - text: ⚠️ 1
+          - generic [ref=e58]:
+            - generic [ref=e59]: Email
+            - generic [ref=e60]: from Experience and Reliability Engineering (HCL / siteicc)
+            - link "Open source ↗" [ref=e61]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBhkAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Email · Experience and Reliability Engineering (siteicc@microsoft.com) ↗" [ref=e62]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBgnAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e63]: 📥 Apr 22, 09:59 · 🔄 Apr 22, 18:33
+        - generic [ref=e64]:
+          - combobox [ref=e65]:
+            - option "🔴 Attention" [selected]
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done"
+          - button "✕" [ref=e66]
+      - generic [ref=e67] [cursor=pointer]:
+        - generic [ref=e68]:
+          - generic [ref=e69]:
+            - text: Copilot CLI / MSSpace room classification validation
+            - generic [ref=e70]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e71]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e72]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e73]'
+          - generic [ref=e74]:
+            - generic [ref=e75]: Teams
+            - generic [ref=e76]: from Oliver Buckie · Invalid Date Invalid Date
+            - link "Open source ↗" [ref=e77]:
+              - /url: https://teams.microsoft.com/l/message/19:meeting_YWRkMGRiNWYtM2EyMS00MzlkLThlOWYtMTUwNmYzMmZkZmRi@thread.v2/1776240083781?context=%7B%22contextType%22:%22chat%22%7D
+          - generic [ref=e78]: 📥 Apr 18, 08:27 · 🔄 Apr 22, 18:39
+        - generic [ref=e79]:
+          - combobox [ref=e80]:
+            - option "🔴 Attention" [selected]
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done"
+          - button "✕" [ref=e81]
+      - generic [ref=e82] [cursor=pointer]:
+        - generic [ref=e83]:
+          - generic [ref=e84]:
+            - text: AV Deployment – See Strasse
+            - generic [ref=e85]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e86]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e87]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e88]'
+          - generic [ref=e89]:
+            - generic [ref=e90]: Email
+            - generic [ref=e91]: from Patrick Harris (World Wide Technology LLC)
+            - link "Open source ↗" [ref=e92]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwD%2fhnQ%2fEbRAQZsZTZqHY%2fxSAAAA%2bwBsAABcNYY%2blY6gRqZ0ice4zQqyAAr6QNNOAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e93]: 📥 Apr 16, 08:42 · 🔄 Apr 22, 10:35
+        - generic [ref=e94]:
+          - combobox [ref=e95]:
+            - option "🔴 Attention" [selected]
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done"
+          - button "✕" [ref=e96]
+      - generic [ref=e97] [cursor=pointer]:
+        - generic [ref=e98]:
+          - generic [ref=e99]:
+            - text: "FW: Statusüberprüfung Swisscom IP 396 MS Flughafen Zürich The Cirlce"
+            - generic [ref=e100]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e101]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e102]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e103]'
+          - generic [ref=e104]:
+            - generic [ref=e105]: Email
+            - generic [ref=e106]: from Andreas Arnold (Sodexo (Suisse) SA)
+            - link "Open source ↗" [ref=e107]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBeRAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e108]: 📥 Apr 14, 14:10 · 🔄 Apr 22, 18:36
+        - generic [ref=e109]:
+          - combobox [ref=e110]:
+            - option "🔴 Attention" [selected]
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done"
+          - button "✕" [ref=e111]
+      - generic [ref=e112] [cursor=pointer]:
+        - generic [ref=e113]:
+          - generic [ref=e114]:
+            - text: MTC Taxonomy Intake — Class C to B Network Upgrade for 7 Sites
+            - generic [ref=e115]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e116]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e117]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e118]'
+          - generic [ref=e119]:
+            - generic [ref=e120]: Email
+            - generic [ref=e121]: from Jeff Duffield
+            - link "Open source ↗" [ref=e122]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBdWAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Email · Candy Lou (Microsoft) ↗" [ref=e123]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBegAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e124]: 📥 Apr 14, 11:01 · 🔄 Apr 22, 08:53
+        - generic [ref=e125]:
+          - combobox [ref=e126]:
+            - option "🔴 Attention" [selected]
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done"
+          - button "✕" [ref=e127]
+      - generic [ref=e128] [cursor=pointer]:
+        - generic [ref=e129]:
+          - generic [ref=e130]:
+            - text: Wired Guest Captive Portal — Crestron CHD-Migration nach FACNET
+            - generic [ref=e131]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e132]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e133]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e134]'
+          - generic [ref=e135]:
+            - generic [ref=e136]: Email
+            - generic [ref=e137]: from Jeff Duffield · 01.04.2026 02:00
+            - link "Open source ↗" [ref=e138]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAArOtGzFAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Email · Jorge Silva ↗" [ref=e139]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAArUdjBtAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Email · Jorge Silva ↗" [ref=e140]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAArUdjBsAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Email · Martin Hämmerli (sent by you, still open thread) ↗" [ref=e141]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FmAABcNYY%2blY6gRqZ0ice4zQqyAAeNhxQcAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e142]: 📥 Apr 2, 09:00 · 🔄 Apr 22, 10:05
+        - generic [ref=e143]:
+          - combobox [ref=e144]:
+            - option "🔴 Attention" [selected]
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done"
+          - button "✕" [ref=e145]
+      - generic [ref=e146] [cursor=pointer]:
+        - generic [ref=e147]:
+          - generic [ref=e148]:
+            - text: "`Reminder: Following up on your Hackathon 2025 project`"
+            - generic [ref=e149]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e150]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e151]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e152]'
+          - generic [ref=e153]:
+            - generic [ref=e154]: Email
+            - generic [ref=e155]: from The Garage Hackathon Team
+            - link "Open source ↗" [ref=e156]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBjFAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e157]: 📥 Apr 22, 09:59 · 🔄 Apr 22, 12:42
+        - generic [ref=e158]:
+          - combobox [ref=e159]:
+            - option "🔴 Attention"
+            - option "🆕 New" [selected]
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done"
+          - button "✕" [ref=e160]
+      - generic [ref=e161] [cursor=pointer]:
+        - generic [ref=e162]:
+          - generic [ref=e163]:
+            - text: "`Your Action: Review your open Purchase Orders`"
+            - generic [ref=e164]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e165]'
+              - 'generic "Phase 2: Enrichment ⚠️ — Needs review" [ref=e166]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e167]'
+            - text: ⚠️ 1
+          - generic [ref=e168]:
+            - generic [ref=e169]: Email
+            - generic [ref=e170]: from SAP Email Notification Service
+            - link "Open source ↗" [ref=e171]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBhPAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e172]: 📥 Apr 21, 17:04 · 🔄 Apr 22, 12:37
+        - generic [ref=e173]:
+          - combobox [ref=e174]:
+            - option "🔴 Attention"
+            - option "🆕 New" [selected]
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done"
+          - button "✕" [ref=e175]
+      - generic [ref=e176] [cursor=pointer]:
+        - generic [ref=e177]:
+          - generic [ref=e178]:
+            - text: IT-Scope-Alignment & Baukoordination Serverraum Microsoft Seestrasse 356 Zürich
+            - generic [ref=e179]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e180]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e181]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e182]'
+          - generic [ref=e183]:
+            - generic [ref=e184]: Email
+            - generic [ref=e185]: from Sofia Aviles (Cushman & Wakefield)
+            - link "Open source ↗" [ref=e186]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBiXAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Email · Sofia Aviles (Cushman & Wakefield) ↗" [ref=e187]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBf5AAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Email · Sofia Aviles (Cushman & Wakefield) ↗" [ref=e188]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBe%2bAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Email · Maneeza Ali Khan (werkhof) ↗" [ref=e189]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwD%2fhnQ%2fEbRAQZsZTZqHY%2fxSAAAA%2bwBsAABcNYY%2blY6gRqZ0ice4zQqyAAr6QNNJAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Email · Maneeza Ali Khan (werkhof) ↗" [ref=e190]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwD%2fhnQ%2fEbRAQZsZTZqHY%2fxSAAAA%2bwBsAABcNYY%2blY6gRqZ0ice4zQqyAAr6QNNEAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Email · Sofia Aviles (Cushman & Wakefield) ↗" [ref=e191]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBe9AAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Email · Laith Skeik (Cushman & Wakefield) ↗" [ref=e192]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBeQAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Email · Belinda Schott (Sodexo Suisse SA) ↗" [ref=e193]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBdDAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Email · Nicolas Eindiguer (Zimmerberg Elektro AG) ↗" [ref=e194]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBfhAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Email · Sofia Aviles (Cushman & Wakefield) ↗" [ref=e195]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBiVAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e196]: 📥 Apr 22, 09:59 · 🔄 Apr 22, 12:39
+        - generic [ref=e197]:
+          - combobox [ref=e198]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress" [selected]
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done"
+          - button "✕" [ref=e199]
+      - generic [ref=e200] [cursor=pointer]:
+        - generic [ref=e201]:
+          - generic [ref=e202]:
+            - text: GlobalProtect VPN not configured / connection failure
+            - generic [ref=e203]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e204]'
+              - 'generic "Phase 2: Enrichment ⚠️ — Needs review" [ref=e205]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e206]'
+            - text: ⚠️ 1
+          - generic [ref=e207]:
+            - generic [ref=e208]: Teams
+            - generic [ref=e209]: from Carlo Gallazzi · Invalid Date Invalid Date
+            - link "Open source ↗" [ref=e210]:
+              - /url: https://teams.microsoft.com/l/message/19:2970b715-dd5c-43b7-8af1-5d35400b6e84_4284d1f3-51e5-4860-a7d4-c2ee9ca6a861@unq.gbl.spaces/1776755996737?context=%7B%22contextType%22:%22chat%22%7D
+          - generic [ref=e211]: 📥 Apr 22, 09:59 · 🔄 Apr 22, 12:43
+        - generic [ref=e212]:
+          - combobox [ref=e213]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress" [selected]
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done"
+          - button "✕" [ref=e214]
+      - generic [ref=e215] [cursor=pointer]:
+        - generic [ref=e216]:
+          - generic [ref=e217]:
+            - text: Korrekturauftrag Kühlung/Bodenrahmen MPR-Technikraum Circle Zürich
+            - generic [ref=e218]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e219]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e220]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e221]'
+          - generic [ref=e222]:
+            - generic [ref=e223]: Teams
+            - generic [ref=e224]: from John Lenz · Invalid Date Invalid Date
+            - link "Open source ↗" [ref=e225]:
+              - /url: https://teams.microsoft.com/l/message/19:2d77dc81-7264-46cf-bb00-e93190f29a3f_4284d1f3-51e5-4860-a7d4-c2ee9ca6a861@unq.gbl.spaces/1776776451496?context=%7B%22contextType%22:%22chat%22%7D
+            - link "Teams · Andreas Arnold (Sodexo Suisse SA) ↗" [ref=e226]:
+              - /url: https://teams.microsoft.com/l/message/19:4284d1f3-51e5-4860-a7d4-c2ee9ca6a861_8ff57a40-5da7-490d-a8c6-646c88f15776@unq.gbl.spaces/1776780248871?context=%7B%22contextType%22:%22chat%22%7D
+          - generic [ref=e227]: 📥 Apr 22, 09:59 · 🔄 Apr 22, 12:44
+        - generic [ref=e228]:
+          - combobox [ref=e229]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress" [selected]
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done"
+          - button "✕" [ref=e230]
+      - generic [ref=e231] [cursor=pointer]:
+        - generic [ref=e232]:
+          - generic [ref=e233]:
+            - text: Training sessions / status sync
+            - generic [ref=e234]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e235]'
+              - 'generic "Phase 2: Enrichment ⚠️ — Needs review" [ref=e236]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e237]'
+            - text: ⚠️ 1
+          - generic [ref=e238]:
+            - generic [ref=e239]: Teams
+            - generic [ref=e240]: from Silvina Olkies · Invalid Date Invalid Date
+            - link "Open source ↗" [ref=e241]:
+              - /url: https://teams.microsoft.com/l/message/19:4284d1f3-51e5-4860-a7d4-c2ee9ca6a861_95c26a2f-6b6d-488e-858f-e3719db578c5@unq.gbl.spaces/1776774467616?context=%7B%22contextType%22:%22chat%22%7D
+          - generic [ref=e242]: 📥 Apr 22, 09:59 · 🔄 Apr 22, 12:46
+        - generic [ref=e243]:
+          - combobox [ref=e244]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress" [selected]
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done"
+          - button "✕" [ref=e245]
+      - generic [ref=e246] [cursor=pointer]:
+        - generic [ref=e247]:
+          - generic [ref=e248]:
+            - text: "`Re: Advice on MTR setup for our office / Referral from Martin Hämmerli`"
+            - generic [ref=e249]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e250]'
+              - 'generic "Phase 2: Enrichment ⚠️ — Needs review" [ref=e251]'
+              - 'generic "Phase 3: Update Check 🔔 — New messages found" [ref=e252]'
+            - text: ⚠️ 1
+          - generic [ref=e253]:
+            - generic [ref=e254]: Email
+            - generic [ref=e255]: from Hannah Sanzone
+            - link "Open source ↗" [ref=e256]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBgWAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e257]: 📥 Apr 21, 17:04 · 🔄 Apr 22, 12:38
+        - generic [ref=e258]:
+          - combobox [ref=e259]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress" [selected]
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done"
+          - button "✕" [ref=e260]
+      - generic [ref=e261] [cursor=pointer]:
+        - generic [ref=e262]:
+          - generic [ref=e263]:
+            - text: Power BI MCP / Copilot CLI performance
+            - generic [ref=e264]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e265]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e266]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e267]'
+          - generic [ref=e268]:
+            - generic [ref=e269]: Teams
+            - generic [ref=e270]: from Simone Frassanito · Invalid Date Invalid Date
+            - link "Open source ↗" [ref=e271]:
+              - /url: https://teams.microsoft.com/l/message/19:meeting_YjY5NzU5OTUtYTU2My00MzJhLWIyZjgtMTBiMzhjOTEyNjFj@thread.v2/1776186976034?context=%7B%22contextType%22:%22chat%22%7D
+          - generic [ref=e272]: 📥 Apr 16, 08:56 · 🔄 Apr 22, 12:36
+        - generic [ref=e273]:
+          - combobox [ref=e274]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress" [selected]
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done"
+          - button "✕" [ref=e275]
+      - generic [ref=e276] [cursor=pointer]:
+        - generic [ref=e277]:
+          - generic [ref=e278]:
+            - text: Copilot CLI Americas Training — Interaktive Session an Cliff vorgeschlagen, Antwort ausstehend
+            - generic [ref=e279]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e280]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e281]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e282]'
+            - generic [ref=e283]: 📬
+          - generic [ref=e284]:
+            - generic [ref=e285]: Email
+            - generic [ref=e286]: from Cliff Treais · 01.04.2026 02:00
+            - link "Open source ↗" [ref=e287]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAArIJpgoAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e288]: 📥 Apr 2, 09:00 · 🔄 Apr 22, 12:35
+        - generic [ref=e289]:
+          - combobox [ref=e290]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress" [selected]
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done"
+          - button "✕" [ref=e291]
+      - generic [ref=e292] [cursor=pointer]:
+        - generic [ref=e293]:
+          - generic [ref=e294]:
+            - text: AI Agent for Executive Visit Coordination via Frontier Forge & MSX Data
+            - generic [ref=e295]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e296]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e297]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e298]'
+          - generic [ref=e299]:
+            - generic [ref=e300]: Email
+            - generic [ref=e301]: from Humberto Arias · 31.03.2026 02:00
+            - link "Open source ↗" [ref=e302]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAq%2bNATvAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Teams · Claire Oppitz ↗" [ref=e303]:
+              - /url: https://teams.microsoft.com/l/message/19:4284d1f3-51e5-4860-a7d4-c2ee9ca6a861_e842675d-d91e-4d3a-963b-ecdeef9c6af7@unq.gbl.spaces/1774970177714?context=%7B%22contextType%22:%22chat%22%7D
+            - link "Email · Irina Chemerys ↗" [ref=e304]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBhhAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e305]: 📥 Apr 1, 08:09 · 🔄 Apr 22, 12:33
+        - generic [ref=e306]:
+          - combobox [ref=e307]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress" [selected]
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done"
+          - button "✕" [ref=e308]
+      - generic [ref=e309] [cursor=pointer]:
+        - generic [ref=e310]:
+          - generic [ref=e311]:
+            - text: Zurich Dual MPR — AV-Design, GC-Scoping & Timeline (FY26 HUB LCR)
+            - generic [ref=e312]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e313]'
+              - 'generic "Phase 2: Enrichment ⚠️ — Needs review" [ref=e314]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e315]'
+            - text: ⚠️ 1
+          - generic [ref=e316]:
+            - generic [ref=e317]: Email
+            - generic [ref=e318]: from Dmitrijs Antonovs (World Wide Technology LLC) · 23.03.2026 01:00
+            - link "Open source ↗" [ref=e319]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwD%2fhnQ%2fEbRAQZsZTZqHY%2fxSAAAA%2bwBsAABcNYY%2blY6gRqZ0ice4zQqyAAqF07j9AAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Email · Jordan Goldstein ↗" [ref=e320]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwD%2fhnQ%2fEbRAQZsZTZqHY%2fxSAAAA%2bwBsAABcNYY%2blY6gRqZ0ice4zQqyAAr6QNNXAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e321]: 📥 Mar 23, 12:58 · 🔄 Apr 22, 12:32
+        - generic [ref=e322]:
+          - combobox [ref=e323]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress" [selected]
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done"
+          - button "✕" [ref=e324]
+      - generic [ref=e325] [cursor=pointer]:
+        - generic [ref=e326]:
+          - generic [ref=e327]:
+            - text: HUB LCR Radon 9.3E — AV-Umbau & Deployment 5.–19. Juni 2026
+            - generic [ref=e328]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e329]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e330]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e331]'
+            - generic [ref=e332]: 📬
+          - generic [ref=e333]:
+            - generic [ref=e334]: Email
+            - generic [ref=e335]: from Andreas Arnold (Sodexo) · 19.03.2026 08:00
+            - link "Open source ↗" [ref=e336]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwD%2fhnQ%2fEbRAQZsZTZqHY%2fxSAAAA%2bwBsAABcNYY%2blY6gRqZ0ice4zQqyAApk17l3AAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Email · Sorina Fota (World Wide Technology LLC) ↗" [ref=e337]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwD%2fhnQ%2fEbRAQZsZTZqHY%2fxSAAAA%2bwBsAABcNYY%2blY6gRqZ0ice4zQqyAAqURbH2AAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Email · Sorina Fota (World Wide Technology LLC) ↗" [ref=e338]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwD%2fhnQ%2fEbRAQZsZTZqHY%2fxSAAAA%2bwBsAABcNYY%2blY6gRqZ0ice4zQqyAAqF07juAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Email · Amruth Ponnappa K (WIPRO) ↗" [ref=e339]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAArUdjByAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Email · MSApprovalNotifications ↗" [ref=e340]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAArUdjCcAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Teams · Sorina Fota (World Wide Technology LLC) ↗" [ref=e341]:
+              - /url: https://teams.microsoft.com/l/message/19:1fbe2156-4a6a-4e4a-acb1-3b01ef59b006_4284d1f3-51e5-4860-a7d4-c2ee9ca6a861@unq.gbl.spaces/1775573757939?context=%7B%22contextType%22:%22chat%22%7D
+            - link "Email · AV Procurement Tool – AutoSender ↗" [ref=e342]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBe8AAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Email · Andreas Arnold (Sodexo Suisse SA) ↗" [ref=e343]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBipAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e344]: 📥 Mar 19, 08:25 · 🔄 Apr 22, 12:31
+        - generic [ref=e345]:
+          - combobox [ref=e346]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress" [selected]
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done"
+          - button "✕" [ref=e347]
+      - generic [ref=e348] [cursor=pointer]:
+        - generic [ref=e349]:
+          - generic [ref=e350]:
+            - text: "`Re: Request ID (SAR-420245) - Secure Access Request`"
+            - generic [ref=e351]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e352]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e353]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e354]'
+          - generic [ref=e355]:
+            - generic [ref=e356]: Email
+            - generic [ref=e357]: from Evelin Sawall (Pinkerton GmbH)
+            - link "Open source ↗" [ref=e358]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBhnAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e359]: 📥 Apr 21, 17:04 · 🔄 Apr 22, 09:04
+        - generic [ref=e360]:
+          - combobox [ref=e361]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar" [selected]
+            - option "⏸️ Paused"
+            - option "✅ Done"
+          - button "✕" [ref=e362]
+      - generic [ref=e363] [cursor=pointer]:
+        - generic [ref=e364]:
+          - generic [ref=e365]:
+            - text: APJ training session (Copilot CLI)
+            - generic [ref=e366]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e367]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e368]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e369]'
+          - generic [ref=e370]:
+            - generic [ref=e371]: Teams
+            - generic [ref=e372]: from Shunsuke Kubota · Invalid Date Invalid Date
+            - link "Open source ↗" [ref=e373]:
+              - /url: https://teams.microsoft.com/l/message/19:2cc8c59a-00b7-4878-b53f-4519fbe0a32f_4284d1f3-51e5-4860-a7d4-c2ee9ca6a861@unq.gbl.spaces/1776773507191?context=%7B%22contextType%22:%22chat%22%7D
+          - generic [ref=e374]: 📥 Apr 21, 14:17 · 🔄 Apr 22, 09:01
+        - generic [ref=e375]:
+          - combobox [ref=e376]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar" [selected]
+            - option "⏸️ Paused"
+            - option "✅ Done"
+          - button "✕" [ref=e377]
+      - generic [ref=e378] [cursor=pointer]:
+        - generic [ref=e379]:
+          - generic [ref=e380]:
+            - text: Swiss Swift AG (0003001928) — Supplier-Reaktivierung blockiert seit Februar 2026
+            - generic [ref=e381]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e382]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e383]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e384]'
+          - generic [ref=e385]:
+            - generic [ref=e386]: Teams
+            - generic [ref=e387]: from Hannes Saakyan · 16.03.2026 01:00
+            - link "Open source ↗" [ref=e388]:
+              - /url: https://teams.microsoft.com/l/message/19:c4947572c7a54681bc34f1d141a344cc@thread.v2/1773660624582?context=%7B%22contextType%22:%22chat%22%7D
+            - link "Teams · Papa Doudou Ndiaye (Randstad Switzerland Ltd) ↗" [ref=e389]:
+              - /url: https://teams.microsoft.com/l/message/19:ef4f9d7b62ed41fe897b59bd746747d2@thread.v2/1775057138500?context=%7B%22contextType%22:%22chat%22%7D
+            - link "Email · Papa Doudou Ndiaye (Microsoft Schweiz) ↗" [ref=e390]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwD%2fhnQ%2fEbRAQZsZTZqHY%2fxSAAAA%2bwBsAABcNYY%2blY6gRqZ0ice4zQqyAAr6QNNFAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e391]: 📥 Mar 17, 14:54 · 🔄 Apr 22, 08:45
+        - generic [ref=e392]:
+          - combobox [ref=e393]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar" [selected]
+            - option "⏸️ Paused"
+            - option "✅ Done"
+          - button "✕" [ref=e394]
+      - generic [ref=e395] [cursor=pointer]:
+        - generic [ref=e396]:
+          - generic [ref=e397]:
+            - text: Copilot CLI – SSO access permission
+            - generic [ref=e398]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e399]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e400]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e401]'
+          - generic [ref=e402]:
+            - generic [ref=e403]: Teams
+            - generic [ref=e404]: from Feng Jiang · Invalid Date Invalid Date
+            - link "Open source ↗" [ref=e405]:
+              - /url: https://teams.microsoft.com/l/message/19:5oHlBTE0gh-VVklG-ww2-iO84_usG7Y7eyxy5giZPFw1@thread.tacv2/1776706074737?tenantId=72f988bf-86f1-41af-91ab-2d7cd011db47&groupId=5f134ecd-5789-499a-b782-1f6f2dec34de&parentMessageId=1776706074737&teamName=GitHub%20Copilot%20at%20Microsoft&channelName=General&createdTime=1776706074737
+          - generic [ref=e406]: 📥 Apr 22, 10:32 · 🔄 Apr 22, 10:52
+        - generic [ref=e407]:
+          - combobox [ref=e408]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e409]
+      - generic [ref=e410] [cursor=pointer]:
+        - generic [ref=e411]:
+          - generic [ref=e412]:
+            - text: "`Kai Kochanowski wants to join the One Microsoft Switzerland community on Viva Engage`"
+            - generic [ref=e413]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e414]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e415]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e416]'
+          - generic [ref=e417]:
+            - generic [ref=e418]: Email
+            - generic [ref=e419]: from Viva Engage
+            - link "Open source ↗" [ref=e420]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBizAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e421]: 📥 Apr 21, 19:06 · 🔄 Apr 22, 08:56
+        - generic [ref=e422]:
+          - combobox [ref=e423]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e424]
+      - generic [ref=e425] [cursor=pointer]:
+        - generic [ref=e426]:
+          - generic [ref=e427]:
+            - text: FY26 April EMEA GS All Hands deck — shared and confirmed
+            - generic [ref=e428]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e429]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e430]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e431]'
+          - generic [ref=e432]:
+            - generic [ref=e433]: Teams
+            - generic [ref=e434]: from Anders Jepsen · Invalid Date Invalid Date
+            - link "Open source ↗" [ref=e435]:
+              - /url: https://teams.microsoft.com/l/message/19:4284d1f3-51e5-4860-a7d4-c2ee9ca6a861_e0ddb640-e305-45fa-89e2-76ba0fd036cc@unq.gbl.spaces/1776761941015?context=%7B%22contextType%22:%22chat%22%7D
+          - generic [ref=e436]: 📥 Apr 21, 14:17 · 🔄 Apr 21, 19:29
+        - generic [ref=e437]:
+          - combobox [ref=e438]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e439]
+      - generic [ref=e440] [cursor=pointer]:
+        - generic [ref=e441]:
+          - generic [ref=e442]:
+            - text: Adding phone numbers to meeting rooms (10th floor)
+            - generic [ref=e443]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e444]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e445]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e446]'
+          - generic [ref=e447]:
+            - generic [ref=e448]: Teams
+            - generic [ref=e449]: from Livio Plantamura (Sodexo Suisse) · Invalid Date Invalid Date
+            - link "Open source ↗" [ref=e450]:
+              - /url: https://teams.microsoft.com/l/message/19:4284d1f3-51e5-4860-a7d4-c2ee9ca6a861_a2089aa1-7056-4789-a36f-02cab57def56@unq.gbl.spaces/1776415693386?context=%7B%22contextType%22:%22chat%22%7D
+          - generic [ref=e451]: 📥 Apr 21, 14:17 · 🔄 Apr 22, 10:51
+        - generic [ref=e452]:
+          - combobox [ref=e453]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e454]
+      - generic [ref=e455] [cursor=pointer]:
+        - generic [ref=e456]:
+          - generic [ref=e457]:
+            - text: Viva Learning – assigned training
+            - generic [ref=e458]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e459]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e460]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e461]'
+          - generic [ref=e462]:
+            - generic [ref=e463]: Teams
+            - generic [ref=e464]: from Jorge Silva · 16.04.2026 00:00
+            - link "Open source ↗" [ref=e465]:
+              - /url: https://teams.microsoft.com/l/message/19:meeting_NGVmYTlkYWUtYTg1YS00ZWNjLWI3MjMtZjUwZTM4MTVlMTJm@thread.v2/1776343458732?context=%7B%22contextType%22:%22chat%22%7D
+          - generic [ref=e466]: 📥 Apr 19, 11:00 · 🔄 Apr 22, 18:29
+        - generic [ref=e467]:
+          - combobox [ref=e468]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e469]
+      - generic [ref=e470] [cursor=pointer]:
+        - generic [ref=e471]:
+          - generic [ref=e472]:
+            - text: "`[EXTERN] Herr Hämmerli, Unternehmen in Ihrer Nähe besetzen offene Stellen`"
+            - generic [ref=e473]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e474]'
+              - 'generic "Phase 2: Enrichment — Waiting" [ref=e475]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e476]'
+          - generic [ref=e477]:
+            - generic [ref=e478]: Email
+            - generic [ref=e479]: from Experteer (news@email.experteer.com)
+            - link "Open source ↗" [ref=e480]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBhAAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e481]: 📥 Apr 18, 20:19 · 🔄 Apr 20, 09:21
+        - generic [ref=e482]:
+          - combobox [ref=e483]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e484]
+      - generic [ref=e485] [cursor=pointer]:
+        - generic [ref=e486]:
+          - generic [ref=e487]:
+            - text: "Approved: Project Intake Form (RITM2626429) — Erledigt"
+            - generic [ref=e488]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e489]'
+              - 'generic "Phase 2: Enrichment ❌ — Failed" [ref=e490]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e491]'
+          - generic [ref=e492]:
+            - generic [ref=e493]: Email
+            - generic [ref=e494]: from Microsoft Internal Support Services
+            - link "Open source ↗" [ref=e495]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBfqAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e496]: 📥 Apr 18, 08:32 · 🔄 Apr 20, 17:48
+        - generic [ref=e497]:
+          - combobox [ref=e498]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e499]
+      - generic [ref=e500] [cursor=pointer]:
+        - generic [ref=e501]:
+          - generic [ref=e502]:
+            - text: "PO# 101626915 (74,943.90 USD): Approval complete"
+            - generic [ref=e503]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e504]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e505]'
+              - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e506]'
+          - generic [ref=e507]:
+            - generic [ref=e508]: Email
+            - generic [ref=e509]: from MSApprovalNotifications
+            - link "Open source ↗" [ref=e510]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBgiAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e511]: 📥 Apr 18, 08:32 · 🔄 Apr 18, 17:59
+        - generic [ref=e512]:
+          - combobox [ref=e513]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e514]
+      - generic [ref=e515] [cursor=pointer]:
+        - generic [ref=e516]:
+          - generic [ref=e517]:
+            - text: Posting to Teams via Agency / Microsoft Graph CLI
+            - generic [ref=e518]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e519]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e520]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e521]'
+          - generic [ref=e522]:
+            - generic [ref=e523]: Teams
+            - generic [ref=e524]: from Joyesh Mishra · Invalid Date Invalid Date
+            - link "Open source ↗" [ref=e525]:
+              - /url: https://teams.microsoft.com/l/message/19:5oHlBTE0gh-VVklG-ww2-iO84_usG7Y7eyxy5giZPFw1@thread.tacv2/1776373260701?tenantId=72f988bf-86f1-41af-91ab-2d7cd011db47&groupId=5f134ecd-5789-499a-b782-1f6f2dec34de&parentMessageId=1776373260701&teamName=GitHub%20Copilot%20at%20Microsoft&channelName=General&createdTime=1776373260701
+          - generic [ref=e526]: 📥 Apr 18, 08:32 · 🔄 Apr 20, 09:22
+        - generic [ref=e527]:
+          - combobox [ref=e528]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e529]
+      - generic [ref=e530] [cursor=pointer]:
+        - generic [ref=e531]:
+          - generic [ref=e532]:
+            - text: FY26 Switzerland Area Crisis Management Validation (April 27)
+            - generic [ref=e533]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e534]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e535]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e536]'
+          - generic [ref=e537]:
+            - generic [ref=e538]: Teams
+            - generic [ref=e539]: from Raychel Oshea‑Patino (THE KAVI GROUP LLC) · Invalid Date Invalid Date
+            - link "Open source ↗" [ref=e540]:
+              - /url: https://teams.microsoft.com/l/message/19:7bbc18c1296c440ebbd86ff7605e6878@thread.skype/1776234381092?tenantId=72f988bf-86f1-41af-91ab-2d7cd011db47&groupId=1cdf475b-90c5-4d73-b6c4-7890874cbe97&parentMessageId=1776234381092&teamName=Switzerland%20Area%20CMT&channelName=General&createdTime=1776234381092
+          - generic [ref=e541]: 📥 Apr 18, 08:27 · 🔄 Apr 20, 17:48
+        - generic [ref=e542]:
+          - combobox [ref=e543]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e544]
+      - generic [ref=e545] [cursor=pointer]:
+        - generic [ref=e546]:
+          - generic [ref=e547]:
+            - text: "RE: Line Reactivation Request"
+            - generic [ref=e548]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e549]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e550]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e551]'
+          - generic [ref=e552]:
+            - generic [ref=e553]: Email
+            - generic [ref=e554]: from Hanspeter Gerspacher
+            - link "Open source ↗" [ref=e555]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwD%2fhnQ%2fEbRAQZsZTZqHY%2fxSAAAA%2bwBsAABcNYY%2blY6gRqZ0ice4zQqyAAr6QNNHAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e556]: 📥 Apr 16, 08:56 · 🔄 Apr 20, 17:49
+        - generic [ref=e557]:
+          - combobox [ref=e558]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e559]
+      - generic [ref=e560] [cursor=pointer]:
+        - generic [ref=e561]:
+          - generic [ref=e562]:
+            - text: MS Digital Enterprise CAB Meeting Agenda for 16‑Apr‑2026
+            - generic [ref=e563]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e564]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e565]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e566]'
+          - generic [ref=e567]:
+            - generic [ref=e568]: Email
+            - generic [ref=e569]: from IT Change Governance
+            - link "Open source ↗" [ref=e570]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBfkAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e571]: 📥 Apr 16, 08:56 · 🔄 Apr 20, 17:49
+        - generic [ref=e572]:
+          - combobox [ref=e573]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e574]
+      - generic [ref=e575] [cursor=pointer]:
+        - generic [ref=e576]:
+          - generic [ref=e577]:
+            - text: Mark Garrigan — Copilot CLI power user, S360 agent & EMEA All Hands success story
+            - generic [ref=e578]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e579]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e580]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e581]'
+          - generic [ref=e582]:
+            - generic [ref=e583]: Teams
+            - generic [ref=e584]: from Mark Garrigan · Invalid Date Invalid Date
+            - link "Open source ↗" [ref=e585]:
+              - /url: https://teams.microsoft.com/l/message/19:4284d1f3-51e5-4860-a7d4-c2ee9ca6a861_fbcec888-5ca3-4d12-b063-605808e08736@unq.gbl.spaces/1776243831810?context=%7B%22contextType%22:%22chat%22%7D
+            - link "Teams · Mark Garrigan ↗" [ref=e586]:
+              - /url: https://teams.microsoft.com/l/message/19:4284d1f3-51e5-4860-a7d4-c2ee9ca6a861_fbcec888-5ca3-4d12-b063-605808e08736@unq.gbl.spaces/1776258784580?context=%7B%22contextType%22:%22chat%22%7D
+          - generic [ref=e587]: 📥 Apr 16, 08:56 · 🔄 Apr 20, 17:50
+        - generic [ref=e588]:
+          - combobox [ref=e589]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e590]
+      - generic [ref=e591] [cursor=pointer]:
+        - generic [ref=e592]:
+          - generic [ref=e593]:
+            - text: NVIDIA OpenShell sandboxing
+            - generic [ref=e594]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e595]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e596]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e597]'
+          - generic [ref=e598]:
+            - generic [ref=e599]: Teams
+            - generic [ref=e600]: from Kyong Hwan Kim (in Copilot CLI channel) · Invalid Date Invalid Date
+            - link "Open source ↗" [ref=e601]:
+              - /url: https://teams.microsoft.com/l/message/19:3a10724f969043c3aab0d68a939500d1@thread.tacv2/1776116224484?tenantId=72f988bf-86f1-41af-91ab-2d7cd011db47&groupId=5f134ecd-5789-499a-b782-1f6f2dec34de&parentMessageId=1776112924440&teamName=GitHub%20Copilot%20at%20Microsoft&channelName=Copilot%20CLI&createdTime=1776116224484
+          - generic [ref=e602]: 📥 Apr 16, 08:56 · 🔄 Apr 20, 18:09
+        - generic [ref=e603]:
+          - combobox [ref=e604]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e605]
+      - generic [ref=e606] [cursor=pointer]:
+        - generic [ref=e607]:
+          - generic [ref=e608]:
+            - text: EMEA Infra Deployment Projects Office Hours
+            - generic [ref=e609]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e610]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e611]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e612]'
+          - generic [ref=e613]:
+            - generic [ref=e614]: Teams
+            - generic [ref=e615]: from Facilitator (meeting bot) · Invalid Date Invalid Date
+            - link "Open source ↗" [ref=e616]:
+              - /url: https://teams.microsoft.com/l/message/19:meeting_YjZkM2M0OTQtM2ViNS00MTQ4LTgxZWUtNDkyYzAxYmZiMzE4@thread.v2/1776254469566?context=%7B%22contextType%22:%22chat%22%7D
+          - generic [ref=e617]: 📥 Apr 16, 08:56 · 🔄 Apr 21, 11:53
+        - generic [ref=e618]:
+          - combobox [ref=e619]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e620]
+      - generic [ref=e621] [cursor=pointer]:
+        - generic [ref=e622]:
+          - generic [ref=e623]:
+            - text: Copilot CLI – TOOL_SEARCH feature flag
+            - generic [ref=e624]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e625]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e626]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e627]'
+          - generic [ref=e628]:
+            - generic [ref=e629]: Teams
+            - generic [ref=e630]: from Shibani Basava · Invalid Date Invalid Date
+            - link "Open source ↗" [ref=e631]:
+              - /url: https://teams.microsoft.com/l/message/19:3a10724f969043c3aab0d68a939500d1@thread.tacv2/1776113888846?tenantId=72f988bf-86f1-41af-91ab-2d7cd011db47&groupId=5f134ecd-5789-499a-b782-1f6f2dec34de&parentMessageId=1776108282232&teamName=GitHub%20Copilot%20at%20Microsoft&channelName=Copilot%20CLI&createdTime=1776113888846
+          - generic [ref=e632]: 📥 Apr 16, 08:56 · 🔄 Apr 20, 19:26
+        - generic [ref=e633]:
+          - combobox [ref=e634]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e635]
+      - generic [ref=e636] [cursor=pointer]:
+        - generic [ref=e637]:
+          - generic [ref=e638]:
+            - text: ✅ Emails Requiring Your Action
+            - generic [ref=e639]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e640]'
+              - 'generic "Phase 2: Enrichment ❌ — Failed" [ref=e641]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e642]'
+          - generic [ref=e643]:
+            - generic [ref=e644]: Email
+            - generic [ref=e645]: from Sofia Aviles (Cushman & Wakefield)
+            - link "Open source ↗" [ref=e646]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBe%2bAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e647]: 📥 Apr 16, 08:42 · 🔄 Apr 20, 19:29
+        - generic [ref=e648]:
+          - combobox [ref=e649]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e650]
+      - generic [ref=e651] [cursor=pointer]:
+        - generic [ref=e652]:
+          - generic [ref=e653]:
+            - text: MTR Deployment for Microsoft AI Serviced Offices — Zurich & London
+            - generic [ref=e654]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e655]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e656]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e657]'
+          - generic [ref=e658]:
+            - generic [ref=e659]: Email
+            - generic [ref=e660]: from Theresa Chime (Experis AG / Microsoft AI)
+            - link "Open source ↗" [ref=e661]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBeYAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Email · David Brown ↗" [ref=e662]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwD%2fhnQ%2fEbRAQZsZTZqHY%2fxSAAAA%2bwBsAABcNYY%2blY6gRqZ0ice4zQqyAAr6QNNLAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e663]: 📥 Apr 15, 11:02 · 🔄 Apr 20, 19:28
+        - generic [ref=e664]:
+          - combobox [ref=e665]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e666]
+      - generic [ref=e667] [cursor=pointer]:
+        - generic [ref=e668]:
+          - generic [ref=e669]:
+            - text: "`[EXTERNAL] Martin Haemmerli`"
+            - generic [ref=e670]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e671]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e672]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e673]'
+          - generic [ref=e674]:
+            - generic [ref=e675]: Email
+            - generic [ref=e676]: from Miko Chiluba (SpaceXbladee6@web.de)
+            - link "Open source ↗" [ref=e677]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBdXAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e678]: 📥 Apr 15, 09:38 · 🔄 Apr 20, 19:28
+        - generic [ref=e679]:
+          - combobox [ref=e680]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e681]
+      - generic [ref=e682] [cursor=pointer]:
+        - generic [ref=e683]:
+          - generic [ref=e684]:
+            - text: Copilot agent failing due to illegal characters / incorrect sub‑agent name
+            - generic [ref=e685]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e686]'
+              - 'generic "Phase 2: Enrichment ⚠️ — Needs review" [ref=e687]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e688]'
+            - text: ⚠️ 2
+          - generic [ref=e689]:
+            - generic [ref=e690]: Teams
+            - generic [ref=e691]: from (Team channel) GitHub Copilot at Microsoft · Invalid Date Invalid Date
+            - link "Open source ↗" [ref=e692]:
+              - /url: https://teams.microsoft.com/l/message/19:5oHlBTE0gh-VVklG-ww2-iO84_usG7Y7eyxy5giZPFw1@thread.tacv2/1776066305893?tenantId=72f988bf-86f1-41af-91ab-2d7cd011db47&groupId=5f134ecd-5789-499a-b782-1f6f2dec34de&parentMessageId=1776066305893&teamName=GitHub%20Copilot%20at%20Microsoft&channelName=General&createdTime=1776066305893
+          - generic [ref=e693]: 📥 Apr 15, 09:38 · 🔄 Apr 20, 19:28
+        - generic [ref=e694]:
+          - combobox [ref=e695]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e696]
+      - generic [ref=e697] [cursor=pointer]:
+        - generic [ref=e698]:
+          - generic [ref=e699]:
+            - text: Copilot SDK multi‑tenant isolation and session handling
+            - generic [ref=e700]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e701]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e702]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e703]'
+          - generic [ref=e704]:
+            - generic [ref=e705]: Teams
+            - generic [ref=e706]: from Ankit Masrani · Invalid Date Invalid Date
+            - link "Open source ↗" [ref=e707]:
+              - /url: https://teams.microsoft.com/l/message/19:90a0e1d041494dda9cbd07698a230c06@thread.tacv2/1776190065211?tenantId=72f988bf-86f1-41af-91ab-2d7cd011db47&groupId=5f134ecd-5789-499a-b782-1f6f2dec34de&parentMessageId=1775158132121&teamName=GitHub%20Copilot%20at%20Microsoft&channelName=Copilot%20SDK&createdTime=1776190065211
+          - generic [ref=e708]: 📥 Apr 15, 09:38 · 🔄 Apr 20, 19:28
+        - generic [ref=e709]:
+          - combobox [ref=e710]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e711]
+      - generic [ref=e712] [cursor=pointer]:
+        - generic [ref=e713]:
+          - generic [ref=e714]:
+            - text: BYOK provider – streaming vs non‑streaming chat completions
+            - generic [ref=e715]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e716]'
+              - 'generic "Phase 2: Enrichment ⚠️ — Needs review" [ref=e717]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e718]'
+            - text: ⚠️ 2
+          - generic [ref=e719]:
+            - generic [ref=e720]: Teams
+            - generic [ref=e721]: from Ankit Masrani (tagging Steve / Patrick) · Invalid Date Invalid Date
+            - link "Open source ↗" [ref=e722]:
+              - /url: https://teams.microsoft.com/l/message/19:90a0e1d041494dda9cbd07698a230c06@thread.tacv2/1776190065211?tenantId=72f988bf-86f1-41af-91ab-2d7cd011db47&groupId=5f134ecd-5789-499a-b782-1f6f2dec34de&parentMessageId=1775158132121&teamName=GitHub%20Copilot%20at%20Microsoft&channelName=Copilot%20SDK&createdTime=1776190065211
+          - generic [ref=e723]: 📥 Apr 15, 09:38 · 🔄 Apr 20, 19:28
+        - generic [ref=e724]:
+          - combobox [ref=e725]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e726]
+      - generic [ref=e727] [cursor=pointer]:
+        - generic [ref=e728]:
+          - generic [ref=e729]:
+            - text: AppNeta m50 — Entsorgungsverfahren mit Jeff Duffield klären
+            - generic [ref=e730]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e731]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e732]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e733]'
+          - generic [ref=e734]:
+            - generic [ref=e735]: Email
+            - generic [ref=e736]: from Antonio Serio (Sodexo Suisse SA)
+            - link "Open source ↗" [ref=e737]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAr4tBdEAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e738]: 📥 Apr 14, 11:01 · 🔄 Apr 20, 17:44
+        - generic [ref=e739]:
+          - combobox [ref=e740]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e741]
+      - generic [ref=e742] [cursor=pointer]:
+        - generic [ref=e743]:
+          - generic [ref=e744]:
+            - text: Cisco SSD Deployment Zurich The Circle – RITM2626429/RITM2727575 & INC777519284
+            - generic [ref=e745]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e746]'
+              - 'generic "Phase 2: Enrichment ⚠️ — Needs review" [ref=e747]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e748]'
+            - text: ⚠️ 2
+          - generic [ref=e749]:
+            - generic [ref=e750]: Teams
+            - generic [ref=e751]: from Petar Pantic (WIPRO) · Invalid Date Invalid Date
+            - link "Open source ↗" [ref=e752]:
+              - /url: https://teams.microsoft.com/l/message/19:764d1218f6004d3ca5121257e590d462@thread.v2/1775717791726?context=%7B%22contextType%22:%22chat%22%7D
+            - link "Teams · Sushma Gudimani (WIPRO LIMITED) ↗" [ref=e753]:
+              - /url: https://teams.microsoft.com/l/message/19:4284d1f3-51e5-4860-a7d4-c2ee9ca6a861_f9648c14-d572-42b4-8034-64033ff13bc3@unq.gbl.spaces/1775840601507?context=%7B%22contextType%22:%22chat%22%7D
+            - link "Teams · Sushma Gudimani (WIPRO LIMITED) ↗" [ref=e754]:
+              - /url: https://teams.microsoft.com/l/message/19:4284d1f3-51e5-4860-a7d4-c2ee9ca6a861_f9648c14-d572-42b4-8034-64033ff13bc3@unq.gbl.spaces/1775738867615?context=%7B%22contextType%22:%22chat%22%7D
+            - link "Email · Jeff Duffield ↗" [ref=e755]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAArUdjCbAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Teams · Sambangi Rasappagari Chandana (WIPRO LIMITED) ↗" [ref=e756]:
+              - /url: https://teams.microsoft.com/l/message/19:b5a45025bfb74033bc84ef25a6797c43@thread.v2/1774430859247?context=%7B%22contextType%22:%22chat%22%7D
+            - link "Email · Navneet Singh (ERE) ↗" [ref=e757]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAq%2bNATqAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Email · Jeff Duffield ↗" [ref=e758]:
+              - /url: https://outlook.office.com/mail/deeplink/read/turn1search1
+            - link "Teams · Sushma Gudimani (WIPRO LIMITED) ↗" [ref=e759]:
+              - /url: https://teams.microsoft.com/l/message/19:4284d1f3-51e5-4860-a7d4-c2ee9ca6a861_f9648c14-d572-42b4-8034-64033ff13bc3@unq.gbl.spaces/1775745459006?context=%7B%22contextType%22:%22chat%22%7D
+            - link "Email · Priyanka A M (WIPRO LIMITED) ↗" [ref=e760]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAArknyYDAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - link "Teams · Kusum Dhiman (HCL Technologies Corporate Services) ↗" [ref=e761]:
+              - /url: https://teams.microsoft.com/l/message/19:meeting_YTIwM2FkMTMtNDI4NC00ODgwLThkYzgtZjllOTM1YTI4MTUz@thread.v2/1775836804484?context=%7B%22contextType%22:%22chat%22%7D
+            - link "Email · Experience and Reliability Engineering ↗" [ref=e762]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAAru8VhZAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+          - generic [ref=e763]: 📥 Apr 11, 14:47 · 🔄 Apr 21, 11:49
+        - generic [ref=e764]:
+          - combobox [ref=e765]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e766]
+      - generic [ref=e767] [cursor=pointer]:
+        - generic [ref=e768]:
+          - generic [ref=e769]:
+            - text: MPR / Hub / AV design & handover discussions
+            - generic [ref=e770]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e771]'
+              - 'generic "Phase 2: Enrichment ❌ — Failed" [ref=e772]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e773]'
+          - generic [ref=e774]:
+            - generic [ref=e775]: Teams
+            - generic [ref=e776]: from Sorina Fota (World Wide Technology LLC) · Invalid Date Invalid Date
+            - link "Open source ↗" [ref=e777]:
+              - /url: https://teams.microsoft.com/l/message/19:1fbe2156-4a6a-4e4a-acb1-3b01ef59b006_4284d1f3-51e5-4860-a7d4-c2ee9ca6a861@unq.gbl.spaces/1775573757939?context=%7B%22contextType%22:%22chat%22%7D
+          - generic [ref=e778]: 📥 Apr 9, 08:09 · 🔄 Apr 21, 11:50
+        - generic [ref=e779]:
+          - combobox [ref=e780]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e781]
+      - generic [ref=e782] [cursor=pointer]:
+        - generic [ref=e783]:
+          - generic [ref=e784]:
+            - text: Scheduling design ratification / review call
+            - generic [ref=e785]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e786]'
+              - 'generic "Phase 2: Enrichment ❌ — Failed" [ref=e787]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e788]'
+          - generic [ref=e789]:
+            - generic [ref=e790]: Teams
+            - generic [ref=e791]: from Sorina Fota (World Wide Technology LLC) · Invalid Date Invalid Date
+            - link "Open source ↗" [ref=e792]:
+              - /url: https://teams.microsoft.com/l/message/19:1fbe2156-4a6a-4e4a-acb1-3b01ef59b006_4284d1f3-51e5-4860-a7d4-c2ee9ca6a861@unq.gbl.spaces/1775573757939?context=%7B%22contextType%22:%22chat%22%7D
+          - generic [ref=e793]: 📥 Apr 9, 08:09 · 🔄 Apr 21, 11:50
+        - generic [ref=e794]:
+          - combobox [ref=e795]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e796]
+      - generic [ref=e797] [cursor=pointer]:
+        - generic [ref=e798]:
+          - generic [ref=e799]:
+            - text: MSD Learn & Grow Session (17. April 2026) — Agent Zero Presentation (Solo, Bremen cancelled)
+            - generic [ref=e800]:
+              - 'generic "Phase 1: Discovery ✅" [ref=e801]'
+              - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e802]'
+              - 'generic "Phase 3: Update Check — Waiting" [ref=e803]'
+          - generic [ref=e804]:
+            - generic [ref=e805]: Teams
+            - generic [ref=e806]: from Harshitha Digumarthi · 10.03.2026 01:00
+            - link "Open source ↗" [ref=e807]:
+              - /url: https://teams.microsoft.com/l/message/19:665250cb934949ce844cbc118b51d114@thread.v2/1773162829189?context=%7B%22contextType%22:%22chat%22%7D
+          - generic [ref=e808]: 📥 Mar 6, 18:28 · 🔄 Apr 20, 17:44
+        - generic [ref=e809]:
+          - combobox [ref=e810]:
+            - option "🔴 Attention"
+            - option "🆕 New"
+            - option "🔄 Updated"
+            - option "🚨 Escalated"
+            - option "🟡 In Progress"
+            - option "📡 On Radar"
+            - option "⏸️ Paused"
+            - option "✅ Done" [selected]
+          - button "✕" [ref=e811]
+    - generic [ref=e814]:
+      - generic [ref=e815]:
+        - generic [ref=e816]:
+          - text: Copilot CLI Americas Training — Interaktive Session an Cliff vorgeschlagen, Antwort ausstehend
+          - generic [ref=e817]:
+            - 'generic "Phase 1: Discovery ✅" [ref=e818]'
+            - 'generic "Phase 2: Enrichment ✅ — Summary created" [ref=e819]'
+            - 'generic "Phase 3: Update Check ✅ — No new messages" [ref=e820]'
+        - generic [ref=e821]:
+          - generic [ref=e822]: Email
+          - generic [ref=e823]: from Cliff Treais · 01.04.2026 02:00
+          - link "Open source ↗" [ref=e824] [cursor=pointer]:
+            - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FkAABcNYY%2blY6gRqZ0ice4zQqyAArIJpgoAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+        - generic [ref=e825]: "📥 Discovered: Apr 2, 09:00 · 🔄 Last updated: Apr 22, 12:35"
+      - generic [ref=e827]:
+        - generic [ref=e828]: 📋
+        - generic [ref=e829]:
+          - paragraph [ref=e830]: Martin hat Cliff Treais am 21. April via Teams eine interaktive Copilot CLI Training Session für die Americas ITM Community vorgeschlagen. Er erklärte den Unterschied zur April-17 MSD Learn+Grow Session (Agent Zero Demo) und bot ein dediziertes Hands-on-Training an. Antwort von Cliff steht aus.
+          - paragraph
+          - separator [ref=e831]
+          - text: 🔴
+          - strong [ref=e832]: "Nächste Schritte:"
+          - list [ref=e833]:
+            - listitem [ref=e834]: Antwort von Cliff abwarten — hat er Interesse an der dedizierten interaktiven Session?
+            - listitem [ref=e835]: "Falls Cliff zustimmt: Termin, Format (Dauer, Hands-on vs. Demo) und Zielgruppe klären"
+            - listitem [ref=e836]: Klären ob die Session zusätzlich zur MSD Learn+Grow Session oder als Ersatz geplant wird
+          - separator [ref=e837]
+          - text: ✅
+          - strong [ref=e838]: "Bisheriger Verlauf:"
+          - list [ref=e839]:
+            - listitem [ref=e840]: "21.04. — Martin hat Cliff via Teams angeschrieben: April-17 Session ist Agent Zero Demo (Copilot CLI + Work IQ MCP), kein volles Training. Bietet dedizierte interaktive Americas Copilot CLI Training an (Basics, Setup-Hürden, Real-Life-Beispiele). Fragt ob jetzt ein guter Zeitpunkt ist"
+            - listitem [ref=e841]: "02.04. — Cliff hat via Teams geantwortet: E-Mail erhalten, bewusst gewartet, Team schlägt Anschluss an bestehende Training-Session vor (noch nicht mit David abgestimmt)"
+            - listitem [ref=e842]: "01.04. — Martin hat Cliff geantwortet: Verfügbarkeit 13.–15. April bestätigt, Rückfragen zu Publikum und Überschneidung mit Delgado-Team gestellt"
+            - listitem [ref=e843]: 18.03. — Martin hat neues Hands-on-Format vorgeschlagen (GitHub Copilot CLI + Work IQ Integration)
+            - listitem [ref=e844]: Davor — Erfolgreiche AI Café Session für David Delgados Team durchgeführt
+          - paragraph
+      - generic [ref=e845]:
+        - textbox "Message or update..." [ref=e846]
+        - button "📤 Send" [ref=e847] [cursor=pointer]
+        - button "📝 Note" [ref=e848] [cursor=pointer]
+      - generic [ref=e849]:
+        - generic [ref=e850]:
+          - button "🗑️" [ref=e851] [cursor=pointer]
+          - generic [ref=e852]:
+            - text: 🔍
+            - strong [ref=e853]: 21.04.2026 17:32
+            - text: — Suche nochmal nach meiner Teams-Nachricht an Cliff aus den letzten paar Tagen
+          - generic [ref=e854]:
+            - text: "❌ Confidence: none"
+            - paragraph [ref=e855]: Leider sind auch diesmal alle drei Suchanfragen an Work IQ wegen Timeout fehlgeschlagen (jeweils 90s). Das deutet auf ein vorübergehendes Problem mit dem Microsoft Search API hin.
+            - paragraph [ref=e856]:
+              - strong [ref=e857]: "Was du tun kannst:"
+            - list [ref=e858]:
+              - listitem [ref=e859]:
+                - strong [ref=e860]: Später nochmal versuchen
+                - text: — manchmal löst sich das Timeout-Problem nach einigen Minuten von selbst
+              - listitem [ref=e861]:
+                - strong [ref=e862]: Inhalt direkt mitteilen
+                - text: — sag mir kurz, was du Cliff geschrieben hast, dann aktualisiere ich Titel und Zusammenfassung sofort ohne Suche
+              - listitem [ref=e863]:
+                - strong [ref=e864]: Manuell prüfen
+                - text: — schau in deinem Teams-Chat mit Cliff nach und kopiere mir den relevanten Teil
+            - paragraph
+        - generic [ref=e865]:
+          - button "🗑️" [ref=e866] [cursor=pointer]
+          - generic [ref=e867] [cursor=pointer]:
+            - generic [ref=e868]: ▼
+            - text: 🔍
+            - strong [ref=e869]: 21.04.2026 17:26
+            - text: — Ich habe in der Zwischenzeit Cliff Via Teams angeschrieben. Finde diese Message …
+          - paragraph [ref=e872]: Ich habe in der Zwischenzeit Cliff Via Teams angeschrieben. Finde diese Message von heute in Teams und aktualisiere damit die Zusammenfassung dieses Action Items.
+          - generic [ref=e873]:
+            - text: "❌ Confidence: none"
+            - paragraph [ref=e874]: Leider konnte ich deine Teams-Nachricht an Cliff nicht finden — alle drei Suchanfragen (zwei parallele + eine Fallback) sind mit Timeout fehlgeschlagen. Work IQ scheint gerade nicht erreichbar zu sein.
+            - paragraph [ref=e875]:
+              - strong [ref=e876]: "Was du tun kannst:"
+            - list [ref=e877]:
+              - listitem [ref=e878]: Versuch es in ein paar Minuten nochmal ("Suche nochmal nach meiner Teams-Nachricht an Cliff")
+              - listitem [ref=e879]: Oder erzähl mir kurz, was du Cliff geschrieben hast — dann aktualisiere ich die Zusammenfassung direkt mit deiner Info.
+            - paragraph
+        - generic [ref=e880]:
+          - button "🗑️" [ref=e881] [cursor=pointer]
+          - generic [ref=e882]:
+            - text: 📤
+            - strong [ref=e883]: 21.04.2026 16:47
+            - text: — fasse zusammen was wir wissen ueber den stand
+          - generic [ref=e884]:
+            - text: "✅ Confidence: high"
+            - paragraph [ref=e885]: "Hier ist der aktuelle Stand:"
+            - paragraph [ref=e886]:
+              - strong [ref=e887]: "Worum geht's:"
+              - text: Cliff Treais hat dich gebeten, eine AI Café / Copilot CLI + Work IQ Session für die gesamte Americas ITM Community zu halten.
+            - paragraph [ref=e888]:
+              - strong [ref=e889]: "Was bisher passiert ist:"
+            - list [ref=e890]:
+              - listitem [ref=e891]: Du hast ein neues Hands-on-Format vorgeschlagen (GitHub Copilot CLI + Work IQ)
+              - listitem [ref=e892]: Cliff hat vorgeschlagen, die Session für die ganze Americas ITM Community zu machen (Mitte April, früher Pacific-Time-Slot)
+              - listitem [ref=e893]: Du hast Verfügbarkeit für 13.–15. April bestätigt und Rückfragen gestellt (Erfahrungslevel des Publikums, Überschneidung mit Delgados Team)
+              - listitem [ref=e894]: "Am 2. April hat Cliff via Teams geantwortet: Er hatte bewusst abgewartet, um intern Optionen zu besprechen. Sein Team erwägt, sich an eine bereits geplante Training-Session anzuschließen — das muss aber noch mit David abgestimmt werden."
+            - strong [ref=e895]: "Aktueller Status:"
+            - text: Die vorgeschlagenen Termine (13.–15. April) sind verstrichen, ohne dass es eine finale Bestätigung gab. Seit dem 2. April gibt es keine neuen Nachrichten von Cliff. Die letzte Suche (heute, 21. April) hat das bestätigt.
+            - paragraph
+            - paragraph [ref=e896]:
+              - strong [ref=e897]: "Offen:"
+            - list [ref=e898]:
+              - listitem [ref=e899]: Wie ist der Stand der internen Abstimmung mit David?
+              - listitem [ref=e900]: Wird die Option "Anschluss an bestehende Training-Session" weiterverfolgt, oder braucht es einen neuen Termin?
+              - listitem [ref=e901]: Deine Rückfragen zu Publikum und Overlap mit Delgados Team sind noch unbeantwortet.
+            - text: → Ein Follow-up bei Cliff wäre der logische nächste Schritt.
+            - paragraph
+        - generic [ref=e902]:
+          - button "🗑️" [ref=e903] [cursor=pointer]
+          - generic [ref=e904] [cursor=pointer]:
+            - generic [ref=e905]: ▼
+            - text: 🔍
+            - strong [ref=e906]: 02.04.2026 18:47
+            - text: — Ich habe Cliff schon geantwortet. Suche nach diesen Konversationen mit Cliff und…
+          - paragraph [ref=e909]: Ich habe Cliff schon geantwortet. Suche nach diesen Konversationen mit Cliff und aktualisiere damit die Zusammenfassung und den Titel dieses Action Items.
+          - generic [ref=e910]:
+            - text: "⚠️ Confidence: medium"
+            - paragraph [ref=e911]: "Ich habe die E-Mail-Konversation zwischen Martin und Cliff Treais gefunden. Martin hat am 1. April 2026 auf Cliffs Anfrage geantwortet und seine Verfügbarkeit für die Woche vom 13. April bestätigt. Er hat die Tage 13.–15. April vorgeschlagen und Rückfragen zur Vertrautheit des Publikums mit AI-Tools sowie zum Überschneidungspotenzial mit David Delgados Team gestellt. Der Thread geht zurück bis zum 18. März 2026, als Martin ursprünglich das neue Hands-on-Format (GitHub Copilot CLI + Work IQ) vorgeschlagen hatte. Leider konnte ich den exakten Wortlaut von Martins Antwort nicht abrufen (Folgesuchen schlugen fehl), aber die Kernpunkte sind klar: Verfügbarkeit bestätigt, April 13–15 vorgeschlagen, Klärungsfragen zu Audience und Overlap gestellt."
+          - generic [ref=e912]:
+            - text: 📧 Martin Hämmerli → Cliff Treais (+ David Delgado, others CC'd) (18.03.2026 01:00)
+            - link "Open ↗" [ref=e913] [cursor=pointer]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FmAABcNYY%2blY6gRqZ0ice4zQqyAAeNhxQGAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - text: "Martin schlägt nach einer früheren AI Café Session ein neues Hands-on-Format vor: GitHub Copilot CLI + Work IQ Integration, 30–60 Minuten, und fragt ob das Team Interesse hat."
+          - generic [ref=e914]:
+            - text: 📧 Cliff Treais → Martin Hämmerli (01.04.2026 02:00)
+            - link "Open ↗" [ref=e915] [cursor=pointer]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FmAABcNYY%2blY6gRqZ0ice4zQqyAAeNhxQGAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - text: Cliff fragt ob Martin die Session für die gesamte Americas ITM Community durchführen würde, schlägt Mitte April vor und empfiehlt wegen Zeitzonen einen frühen Pacific-Time-Termin.
+          - generic [ref=e916]:
+            - text: 📧 Martin Hämmerli → Cliff Treais (01.04.2026 02:00)
+            - link "Open ↗" [ref=e917] [cursor=pointer]:
+              - /url: https://outlook.office365.com/owa/?ItemID=AAMkADQ2ZTI2ZTk1LTk3NmMtNDQ0Yi1iNjI0LTNjM2IzMmY4OTRlMQBGAAAAAADGi0Rjd3bTEbeXAIBf5sXHBwBBfG38%2fXrREbdyAIBf5sXHAAACW7FmAABcNYY%2blY6gRqZ0ice4zQqyAAeNhxQGAAA%3d&exvsurl=1&viewmodel=ReadMessageItem
+            - text: Martin bestätigt seine Verfügbarkeit für die Woche vom 13. April, schlägt 13.–15. April vor und stellt Rückfragen zur Vertrautheit des Publikums mit AI-Tools sowie zum Overlap mit David Delgados Team.
+      - button "▶ Details" [ref=e919] [cursor=pointer]
