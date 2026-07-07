@@ -223,7 +223,6 @@ export async function runBrainScanOnce(job, {
   const brainResult = await _runBrain({
     prompt,
     brainWorkDir,
-    workIqHardLimit: 40,
     runClass: BRAIN_RUN_CLASS.BACKGROUND,
     schedulerLabel: `scan:${runId}`,
     onSchedulerUpdate: schedulerProgress(job, 'brain_run', {

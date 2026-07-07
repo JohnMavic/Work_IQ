@@ -70,14 +70,16 @@ test('brain runner resolves success from exit 0 plus assistant.message text', as
     assert.equal(capture.exe, 'C:\\Tools\\agency.exe');
     assert.equal(capture.options.cwd, brainWorkDir);
     assert.equal(capture.options.env.COPILOT_MODEL, 'claude-opus-4.8');
-    assert.ok(capture.args.includes('--no-default-mcps'));
+    assert.equal(capture.args.includes('--no-default-mcps'), false);
+    assert.equal(capture.args.includes('--disable-mcp-server'), false);
+    assert.equal(capture.args.includes('--disable-builtin-mcps'), false);
     assert.deepEqual(
       capture.args.slice(capture.args.indexOf('--model'), capture.args.indexOf('--model') + 2),
       ['--model', 'claude-opus-4.8']
     );
     assert.ok(capture.args.includes('--allow-all-tools'));
     assert.equal(capture.args[capture.args.indexOf('--add-dir') + 1], brainWorkDir);
-    assert.ok(capture.args.includes('github-mcp-server'));
+    assert.equal(capture.args.includes('github-mcp-server'), false);
   } finally {
     cleanupBrainWorkDir(brainWorkDir);
   }
@@ -312,7 +314,6 @@ test('brain runner counts WorkIQ only from explicit tool identity fields', async
     const result = await runBrain({
       prompt: 'scan state',
       brainWorkDir,
-      workIqHardLimit: 2,
       _resolveAgencyCli: resolveAgencyCli,
       _killTreeFn: () => { throw new Error('should not kill'); },
       _spawnFn: makeFakeSpawn((child) => {
@@ -332,20 +333,24 @@ test('brain runner counts WorkIQ only from explicit tool identity fields', async
   }
 });
 
-test('brain runner kills WorkIQ on the first call above the hard limit', async () => {
+test('brain runner warns at the configured threshold and emergency-stops above hard limit', async () => {
   const brainWorkDir = makeBrainWorkDir('tool-counter-hard-limit');
   let killCount = 0;
+  const warnings = [];
   try {
     const result = await runBrain({
       prompt: 'scan state',
       brainWorkDir,
-      workIqHardLimit: 2,
+      toolCallWarnThreshold: 2,
+      toolCallHardLimit: 3,
       _resolveAgencyCli: resolveAgencyCli,
       _killTreeFn: () => { killCount++; },
+      _logToolBudgetWarning: message => warnings.push(message),
       _spawnFn: makeFakeSpawn((child) => {
         emitJson(child, { type: 'tool.execution_start', server: 'workiq', tool: 'ask' });
         emitJson(child, { type: 'tool.execution_start', server: 'workiq', tool: 'ask' });
         emitJson(child, { type: 'tool.execution_start', server: 'workiq', tool: 'ask' });
+        emitJson(child, { type: 'tool.execution_start', server: 'mail', tool: 'read' });
         emitJson(child, { type: 'assistant.message', content: 'done' });
         child.emit('exit', 0);
       })
@@ -353,8 +358,12 @@ test('brain runner kills WorkIQ on the first call above the hard limit', async (
 
     assert.equal(result.ok, true);
     assert.equal(result.counters.workIqCalls, 3);
+    assert.equal(result.counters.toolExecutionStarts, 4);
+    assert.equal(result.counters.toolCallWarnings, 1);
     assert.equal(result.killedForToolBudget, true);
     assert.equal(killCount, 1);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /reached 2 tool starts/);
   } finally {
     cleanupBrainWorkDir(brainWorkDir);
   }

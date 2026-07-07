@@ -16,56 +16,12 @@ export const COPILOT_CONTEXT = 'long_context';
 
 export const AGENCY_ARG_PREFIX = buildAgencyArgPrefix({ effort: COPILOT_EFFORT });
 
-export const DEFAULT_DISABLED_MCP_SERVERS = Object.freeze([
-  'playwright',
-  'github-mcp-server'
-]);
-
-export const WORKIQ_ONLY_DISABLED_MCP_SERVERS = Object.freeze([
-  'playwright',
-  'github-mcp-server',
-  'github',
-  'ado',
-  'bluebird',
-  'kusto',
-  'es-chat',
-  'enghub',
-  'msft-learn',
-  'mrc',
-  's360-breeze',
-  'service-tree',
-  'change-ledger',
-  'safefly',
-  'perf-pas',
-  'domain-lens',
-  'smart-dri',
-  'icm',
-  'watson',
-  'engage',
-  'fluent',
-  'security-context',
-  'dvdr',
-  'ecs',
-  'top',
-  'atlas',
-  'graph',
-  'cloudbuild',
-  'teams',
-  'sharepoint',
-  'onedrive',
-  'mail',
-  'calendar',
-  'logger',
-  'word',
-  'planner',
-  'm365-user',
-  'm365-copilot'
-]);
+export const DEFAULT_DISABLED_MCP_SERVERS = Object.freeze([]);
+export const WORKIQ_ONLY_DISABLED_MCP_SERVERS = Object.freeze([]);
 
 function buildAgencyArgPrefix({ effort = COPILOT_EFFORT, noConfigPlugins = false } = {}) {
   return [
     'copilot',
-    '--no-default-mcps',
     ...(noConfigPlugins ? ['--no-config-plugins'] : []),
     '--max-autopilot-continues',
     '0',
@@ -89,6 +45,15 @@ export const AGENCY_RUN_ARGS = [
 ];
 
 const PINNED_VALUE_FLAGS = new Set(['--model', '--effort', '--context']);
+const STRIPPED_CALLER_VALUE_FLAGS = new Set([
+  ...PINNED_VALUE_FLAGS,
+  '--disable-mcp-server'
+]);
+const STRIPPED_CALLER_BOOLEAN_FLAGS = new Set([
+  '--no-default-mcps',
+  '--disable-builtin-mcps',
+  '--no-config-plugins'
+]);
 let memoizedAgencyExe = null;
 
 export function resetAgencyCliMemoForTests() {
@@ -117,11 +82,14 @@ export function stripPinnedCallerArgs(args = []) {
   const result = [];
   for (let i = 0; i < args.length; i++) {
     const arg = String(args[i]);
-    if (PINNED_VALUE_FLAGS.has(arg)) {
+    if (STRIPPED_CALLER_VALUE_FLAGS.has(arg)) {
       i++;
       continue;
     }
-    if ([...PINNED_VALUE_FLAGS].some(flag => arg.startsWith(`${flag}=`))) {
+    if (STRIPPED_CALLER_BOOLEAN_FLAGS.has(arg)) {
+      continue;
+    }
+    if ([...STRIPPED_CALLER_VALUE_FLAGS].some(flag => arg.startsWith(`${flag}=`))) {
       continue;
     }
     result.push(args[i]);
@@ -149,31 +117,15 @@ export function resolveAgencyEffort({
   return env.AGENT_ZERO_BRAIN_EFFORT || 'xhigh';
 }
 
-function splitEnvList(value) {
-  return String(value || '')
-    .split(/[,\s;]+/)
-    .map(item => item.trim())
-    .filter(Boolean);
-}
-
 export function disabledMcpServersForMode(mode = 'default', env = process.env) {
-  if (mode === 'workiq-only') {
-    const override = splitEnvList(env.AGENT_ZERO_CHAT_DISABLE_MCPS);
-    return override.length ? override.filter(name => name !== 'workiq') : [...WORKIQ_ONLY_DISABLED_MCP_SERVERS];
-  }
-  if (mode === 'none') {
-    return [...new Set([...WORKIQ_ONLY_DISABLED_MCP_SERVERS, 'workiq'])];
-  }
+  env;
+  if (mode === 'workiq-only') return [...WORKIQ_ONLY_DISABLED_MCP_SERVERS];
+  if (mode === 'none') return [];
   return [...DEFAULT_DISABLED_MCP_SERVERS];
 }
 
-function buildDisableMcpArgs(names = []) {
-  const args = [];
-  for (const name of names) {
-    if (!name || name === 'workiq-keep') continue;
-    args.push('--disable-mcp-server', name);
-  }
-  return args;
+function buildDisableMcpArgs(_names = []) {
+  return [];
 }
 
 export function buildAttachmentArgs({
@@ -223,7 +175,7 @@ export function buildAgencyArgs({
   return [
     ...buildAgencyArgPrefix({
       effort,
-      noConfigPlugins: mcpMode === 'workiq-only' || mcpMode === 'none'
+      noConfigPlugins: mcpMode === 'none'
     }),
     ...stripPinnedCallerArgs(callerArgs),
     '-p',
@@ -233,7 +185,7 @@ export function buildAgencyArgs({
     brainWorkDir,
     ...buildAttachmentArgs({ attachments, uploadsDir }),
     '--allow-all-tools',
-    ...(mcpMode === 'workiq-only' || mcpMode === 'none' ? ['--disable-builtin-mcps'] : []),
+    ...(mcpMode === 'none' ? ['--disable-builtin-mcps'] : []),
     ...buildDisableMcpArgs(disableMcpServers)
   ];
 }

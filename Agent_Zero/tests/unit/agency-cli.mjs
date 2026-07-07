@@ -55,12 +55,16 @@ test('agency effort mapping keeps scans and gateway xhigh while chat defaults hi
   const args = buildAgencyArgs({
     bootstrap: 'prompt',
     effort: 'high',
-    mcpMode: 'workiq-only',
-    disableMcpServers: disabledMcpServersForMode('workiq-only', {})
+    callerArgs: ['--no-default-mcps', '--disable-mcp-server', 'workiq', '--disable-mcp-server=mail'],
+    mcpMode: 'default',
+    disableMcpServers: disabledMcpServersForMode('default', {})
   });
   assert.deepEqual(args.slice(args.indexOf('--effort'), args.indexOf('--effort') + 2), ['--effort', 'high']);
-  assert.equal(args.includes('--disable-builtin-mcps'), true);
-  assert.equal(args.includes('--no-config-plugins'), true);
+  assert.equal(args.includes('--no-default-mcps'), false);
+  assert.equal(args.includes('--disable-mcp-server'), false);
+  assert.equal(args.includes('--disable-mcp-server=mail'), false);
+  assert.equal(args.includes('--disable-builtin-mcps'), false);
+  assert.equal(args.includes('--no-config-plugins'), false);
   assert.equal(args.includes('workiq'), false);
 
   const noMcpArgs = buildAgencyArgs({
@@ -71,5 +75,6 @@ test('agency effort mapping keeps scans and gateway xhigh while chat defaults hi
   });
   assert.equal(noMcpArgs.includes('--disable-builtin-mcps'), true);
   assert.equal(noMcpArgs.includes('--no-config-plugins'), true);
-  assert.ok(noMcpArgs.includes('workiq'));
+  assert.equal(noMcpArgs.includes('--disable-mcp-server'), false);
+  assert.equal(noMcpArgs.includes('workiq'), false);
 });

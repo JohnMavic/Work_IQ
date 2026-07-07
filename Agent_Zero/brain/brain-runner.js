@@ -14,7 +14,9 @@ import { BRAIN_RUN_CLASS, defaultBrainScheduler } from './brain-scheduler.js';
 export const BOOTSTRAP_FILE_THRESHOLD_BYTES = 16 * 1024;
 export const DEFAULT_TIMEOUT_MS = 25 * 60 * 1000;
 export const DEFAULT_SALVAGE_BYTES = 200;
-export const DEFAULT_WORKIQ_HARD_LIMIT = 25;
+export const DEFAULT_TOOL_CALL_WARN_THRESHOLD = 40;
+export const DEFAULT_TOOL_CALL_HARD_LIMIT = 150;
+export const DEFAULT_WORKIQ_HARD_LIMIT = DEFAULT_TOOL_CALL_HARD_LIMIT;
 
 export const AGENCY_BANNER_PREFIXES = [
   '🤖 Agency ',
@@ -190,6 +192,7 @@ function buildResult({
   stdoutBytes,
   timedOut,
   killedForToolBudget,
+  warnings,
   spawnError,
   salvageBytes
 }) {
@@ -214,6 +217,7 @@ function buildResult({
     salvaged,
     silentFailure,
     killedForToolBudget,
+    warnings,
     counters
   };
 
@@ -241,6 +245,8 @@ export async function runBrain({
   timeoutMs = DEFAULT_TIMEOUT_MS,
   salvageBytes = DEFAULT_SALVAGE_BYTES,
   workIqHardLimit = DEFAULT_WORKIQ_HARD_LIMIT,
+  toolCallWarnThreshold = DEFAULT_TOOL_CALL_WARN_THRESHOLD,
+  toolCallHardLimit = DEFAULT_TOOL_CALL_HARD_LIMIT,
   onToolExecution,
   onJsonEvent,
   onSchedulerUpdate,
@@ -253,6 +259,7 @@ export async function runBrain({
   _killTreeFn = killTree,
   _resolveAgencyCli = resolveAgencyCli,
   _scheduler = defaultBrainScheduler,
+  _logToolBudgetWarning = console.warn,
   cleanBrainWorkDir = false
 } = {}) {
   if (!prompt || typeof prompt !== 'string') {
@@ -281,8 +288,10 @@ export async function runBrain({
     jsonEvents: 0,
     toolExecutionEvents: 0,
     toolExecutionStarts: 0,
-    workIqCalls: 0
+    workIqCalls: 0,
+    toolCallWarnings: 0
   };
+  const warnings = [];
   let assistantText = '';
   let pendingDeltaText = '';
   let stdoutBuffer = '';
@@ -290,6 +299,7 @@ export async function runBrain({
   let rawStderr = '';
   let timedOut = false;
   let killedForToolBudget = false;
+  let toolCallWarningIssued = false;
   let settled = false;
   let timer = null;
   const stdoutDecoder = new StringDecoder('utf8');
@@ -338,6 +348,7 @@ export async function runBrain({
       stdoutBytes,
       timedOut,
       killedForToolBudget,
+      warnings,
       spawnError: err,
       salvageBytes
     });
@@ -373,7 +384,28 @@ export async function runBrain({
       if (event.type === 'tool.execution_start') counters.toolExecutionStarts++;
       if (isWorkIqStartEvent(event)) {
         counters.workIqCalls++;
-        if (counters.workIqCalls > workIqHardLimit && !killedForToolBudget) {
+      }
+      if (event.type === 'tool.execution_start') {
+        const warnAt = Number(toolCallWarnThreshold);
+        const hardLimit = Number(toolCallHardLimit);
+        if (
+          Number.isFinite(warnAt)
+          && warnAt >= 0
+          && counters.toolExecutionStarts >= warnAt
+          && !toolCallWarningIssued
+        ) {
+          toolCallWarningIssued = true;
+          counters.toolCallWarnings++;
+          const warning = `Agency brain run reached ${counters.toolExecutionStarts} tool starts; emergency stop remains at ${hardLimit}.`;
+          warnings.push(warning);
+          try { _logToolBudgetWarning?.(warning); } catch {}
+        }
+        if (
+          Number.isFinite(hardLimit)
+          && hardLimit >= 0
+          && counters.toolExecutionStarts > hardLimit
+          && !killedForToolBudget
+        ) {
           killedForToolBudget = true;
           try { _killTreeFn(child); } catch {}
         }
@@ -421,6 +453,7 @@ export async function runBrain({
         stdoutBytes,
         timedOut,
         killedForToolBudget,
+        warnings,
         spawnError,
         salvageBytes
       }));
