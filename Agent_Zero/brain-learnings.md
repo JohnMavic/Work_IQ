@@ -38,3 +38,13 @@ Text: When two sources appear to conflict on a binary status (resolved vs blocke
 Category: principle
 Evidence: Batch 9 Entfesselung directive requires discovery to read available attachments instead of relying on lossy message summaries.
 Text: For mail or Teams discovery, relevant attachments such as PDF, DOCX, and XLSX files are source evidence. Download and read them before changing task state; if an attachment cannot be read, surface the gap instead of silently ignoring it.
+
+## 2026-07-07 pattern: owa-cdp-attachment-fallback
+Category: pattern
+Evidence: Batch 9C implementation of a reusable read-only OWA attachment route after mail, WorkIQ, and Graph paths did not provide attachment contents.
+Text: When mail or Teams MCPs expose a relevant source attachment but cannot download or read it, use the OWA-CDP fallback only after the direct APIs fail: start a dedicated Edge debug instance with a disposable profile, search OWA by subject/date/sender, download read-only into brain-work/attachments for the current run, extract document text, and close only the browser process/profile opened by that helper.
+
+## 2026-07-07 fact: owa-can-auto-mark-read
+Category: fact
+Evidence: Batch 9C live OWA-CDP probe observed the inbox unread counter change after opening a target message in OWA.
+Text: OWA can automatically change read/unread state when an unread message is opened through the UI. Attachment fallback must prefer non-mutating attachment APIs or already-open/read evidence; if continuing would change mail state, stop and record the attachment as failed instead of trying more UI clicks.

@@ -18,6 +18,7 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 
 export const DEFAULT_TASKS_FILE = path.join(REPO_ROOT, 'tasks.json');
 export const DEFAULT_SCAN_SKILL_FILE = path.join(REPO_ROOT, 'docs', 'AGENCY_BRAIN_SCAN_SKILL.md');
+export const DEFAULT_OWA_ATTACHMENT_HELPER = path.join(REPO_ROOT, 'brain', 'tools', 'owa-attachment.ps1');
 
 function readJsonFile(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
@@ -70,6 +71,7 @@ function buildBootstrapPrompt({ skillText, stateFile, scanDays, runId }) {
     `- runId: ${runId}`,
     `- scanDays: ${scanDays}`,
     `- stateFile: ./${stateFileName}`,
+    `- owaAttachmentHelper: ${DEFAULT_OWA_ATTACHMENT_HELPER}`,
     '',
     `Read ./${stateFileName} from the current working directory before making any WorkIQ calls.`,
     'Use the marker grammar from the skill exactly. Emit final markers as physical lines.'

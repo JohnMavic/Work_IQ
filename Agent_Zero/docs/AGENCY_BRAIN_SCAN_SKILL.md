@@ -180,6 +180,16 @@ quirk, or stable general evidence rule.
 
 Mandatory per-message attachment protocol:
 - List attachments before reading or summarizing the message disposition.
+- Prefer mail/Teams MCP attachment APIs first. If they list or imply a relevant source
+  attachment but cannot download/read it, use the read-only OWA-CDP fallback helper
+  from Run Context `owaAttachmentHelper`: `pwsh -NoProfile -ExecutionPolicy Bypass
+  -File "<owaAttachmentHelper>" -Subject "<message subject>" -Date "<YYYY-MM-DD>"
+  -Sender "<sender if known>" -RunId "<runId>" -BrainWorkDir "<current brain-work>"
+  -Json`. Read only files produced under `brain-work/attachments/<runId>/`,
+  especially `manifest.json` and extracted `<attachment>.txt` files. The helper uses
+  an isolated Edge debug profile and must not control the user's active browser.
+  If OWA would require changing mail state such as read/unread, moving, deleting,
+  flagging, or sending, stop the fallback and use `failed(<reason>)`.
 - Read every relevant source attachment and cite at least one attachment-derived fact
   when the attachment changes or confirms project reality.
 - Set each ledger disposition's `attachmentsHandled` to `yes`, `none`, or

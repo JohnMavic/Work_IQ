@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { buildAgencyArgs } from '../../brain/agency-cli.js';
 import { buildGatewayPrompt, filterMarkersThroughGateway } from '../../brain/reality-gateway.js';
@@ -156,13 +157,65 @@ test('Batch 9 scan skill, gateway, and learnings require attachment evidence and
 
   assert.match(skill, /Discovery is the default/);
   assert.match(skill, /PDF, DOCX, XLSX/);
+  assert.match(skill, /owaAttachmentHelper/);
   assert.match(skill, /External Write Guardrail/);
   assert.match(skill, /warning at 40 tool starts/);
   assert.match(skill, /150 tool starts/);
+  assert.match(fs.readFileSync(path.join(repoRoot, 'brain', 'scan-brain.js'), 'utf8'), /owaAttachmentHelper:/);
+  assert.match(fs.readFileSync(path.join(repoRoot, 'docs', 'OWA_ATTACHMENT_FETCH.md'), 'utf8'), /brain-work\/attachments\/<runId>/);
   assert.match(learnings, /attachments-are-source-evidence/);
+  assert.match(learnings, /owa-cdp-attachment-fallback/);
   assert.match(gateway, /available evidence used instead of ignored/);
   assert.match(gateway, /PDF, DOCX, XLSX/);
   assert.match(gateway, /External write actions are forbidden/);
+});
+
+test('Batch 9C OWA attachment helper validates arguments and download sandbox', () => {
+  const dir = resetTmp('owa-helper-validation');
+  const brainWorkDir = path.join(dir, 'brain-work');
+  const script = path.join(repoRoot, 'brain', 'tools', 'owa-attachment.ps1');
+  const baseArgs = [
+    '-NoProfile',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-File',
+    script,
+    '-Subject',
+    'Fixture attachment message',
+    '-Date',
+    '2026-07-06',
+    '-RunId',
+    'batch9c-fixture',
+    '-BrainWorkDir',
+    brainWorkDir,
+    '-ValidateOnly',
+    '-Json'
+  ];
+
+  const ok = spawnSync('pwsh', baseArgs, { cwd: repoRoot, encoding: 'utf8' });
+  assert.equal(ok.status, 0, ok.stderr || ok.stdout);
+  const payload = JSON.parse(ok.stdout.slice(ok.stdout.indexOf('{')));
+  assert.equal(payload.ok, true);
+  assert.equal(payload.validateOnly, true);
+  assert.equal(path.normalize(payload.downloadDir), path.join(brainWorkDir, 'attachments', 'batch9c-fixture'));
+  assert.equal(fs.existsSync(payload.downloadDir), true);
+
+  const badRunId = spawnSync('pwsh', [
+    ...baseArgs.slice(0, baseArgs.indexOf('-RunId') + 1),
+    '../escape',
+    ...baseArgs.slice(baseArgs.indexOf('-RunId') + 2)
+  ], { cwd: repoRoot, encoding: 'utf8' });
+  assert.notEqual(badRunId.status, 0);
+  assert.match(`${badRunId.stderr}\n${badRunId.stdout}`, /RunId/);
+
+  const outside = path.join(dir, 'outside');
+  const badDownload = spawnSync('pwsh', [
+    ...baseArgs,
+    '-DownloadDir',
+    outside
+  ], { cwd: repoRoot, encoding: 'utf8' });
+  assert.notEqual(badDownload.status, 0);
+  assert.match(`${badDownload.stderr}\n${badDownload.stdout}`, /DownloadDir must stay inside brain-work\/attachments/);
 });
 
 test('Batch 9 attachment ledger gate requires handled disposition and blocks unhandled attachments', () => {
