@@ -53,6 +53,7 @@ class Job {
     this.status = 'queued';
     this.input = input;
     this.clientRequestId = clientRequestId || null;
+    this.queuedAt = Date.now();
     this.abortController = new AbortController();
     this.startedAt = null;
     this.completedAt = null;
@@ -90,6 +91,7 @@ class Job {
   snapshot() {
     return {
       jobId: this.id, taskId: this.taskId, kind: this.kind, status: this.status,
+      queuedAt: this.queuedAt,
       startedAt: this.startedAt, completedAt: this.completedAt,
       pendingClarification: this.pendingClarification,
       result: this.result, error: this.error,
@@ -156,6 +158,7 @@ test('Job — snapshot includes progress field (even when null)', () => {
   const j = new Job({ taskId: null, kind: 'scan', input: {} });
   const snap = j.snapshot();
   assert.ok('progress' in snap);
+  assert.ok('queuedAt' in snap);
   assert.equal(snap.progress, null);
 
   j.progress = { phase: 'enrich', currentItemIndex: 2, totalItems: 10 };

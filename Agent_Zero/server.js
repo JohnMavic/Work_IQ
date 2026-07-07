@@ -14,6 +14,7 @@ import { FACTSHEET_SECTIONS, normalizeFactSheet } from './brain/factsheet.js';
 import { isUsableSourceLink } from './brain/link-guard.js';
 import { runTaskChatOnce } from './brain/task-chat.js';
 import { normalizeUserActionEntry } from './brain/user-actions.js';
+import { isolatedBrainWorkDir } from './brain/agency-cli.js';
 import {
   DEFAULT_UPLOADS_DIR,
   MAX_IMAGE_ATTACHMENT_BYTES,
@@ -1591,9 +1592,11 @@ async function persistJobSnapshot(job) {
       jobId: job.id,
       kind: job.kind,
       status: job.status,
+      queuedAt: job.queuedAt,
       startedAt: job.startedAt,
       lastJobEventId: job.lastJobEventId,
-      pendingClarification: job.pendingClarification
+      pendingClarification: job.pendingClarification,
+      progress: job.progress
     };
     return t;
   });
@@ -1665,6 +1668,7 @@ class Job {
     this.status = 'queued';           // queued|running|awaiting_input|cancelling|cancelled|completed|failed
     this.input = input;
     this.clientRequestId = clientRequestId || null;
+    this.queuedAt = Date.now();
     this.abortController = new AbortController();
     this.startedAt = null;
     this.completedAt = null;
@@ -1745,6 +1749,7 @@ class Job {
       taskId: this.taskId,
       kind: this.kind,
       status: this.status,
+      queuedAt: this.queuedAt,
       startedAt: this.startedAt,
       completedAt: this.completedAt,
       pendingClarification: this.pendingClarification,
@@ -2249,12 +2254,13 @@ async function runLogJob(job) {
 
     job.status = 'running';
     job.startedAt = Date.now();
-    job.emit('job.started', { title: task.title, engine: 'agency' });
+    job.emit('job.started', { title: task.title, engine: 'agency', queuedAt: job.queuedAt, startedAt: job.startedAt, agentPhase: 'starting' });
     await persistJobSnapshot(job);
 
     try {
       const result = await runTaskChatOnce(job, {
         tasksFile: TASKS_FILE,
+        brainWorkDir: isolatedBrainWorkDir(`task-chat-${job.id}`),
         runId: `task-chat-${job.id}`,
         now: new Date()
       });
@@ -4327,12 +4333,14 @@ function parseTeamsMessages(text) {
 async function runAgencyScanJob(job) {
   job.status = 'running';
   job.startedAt = new Date().toISOString();
-  job.emit('job.started', { engine: 'agency' });
+  job.emit('job.started', { engine: 'agency', queuedAt: job.queuedAt, startedAt: job.startedAt, agentPhase: 'starting' });
   await persistJobSnapshot(job);
 
   try {
     const result = await runBrainScanOnce(job, {
       tasksFile: TASKS_FILE,
+      brainWorkDir: isolatedBrainWorkDir(`scan-${job.id}`),
+      runId: `scan-${job.id}`,
       onPersistJob: persistJobSnapshot
     });
     job.status = 'completed';
@@ -4368,7 +4376,7 @@ async function runScanJob(job) {
 
   job.status = 'running';
   job.startedAt = new Date().toISOString();
-  job.emit('job.started', {});
+  job.emit('job.started', { queuedAt: job.queuedAt, startedAt: job.startedAt });
   await persistJobSnapshot(job);
 
   const setPhase = async (phase, extra = {}) => {

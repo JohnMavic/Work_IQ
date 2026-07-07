@@ -3783,11 +3783,35 @@
       </div>`).join('');
   }
 
+  function jobTimeMs(value) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    const parsed = Date.parse(value || '');
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function formatJobElapsed(entry) {
+    const base = jobTimeMs(entry && (entry.queuedAt || entry.startedAt || entry.lastSeenAt));
+    if (!base) return '';
+    const totalSeconds = Math.max(0, Math.floor((Date.now() - base) / 1000));
+    const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+    const seconds = String(totalSeconds % 60).padStart(2, '0');
+    return `${minutes}:${seconds}`;
+  }
+
   function taskComposerStatusLabel(entry) {
     if (!entry) return 'Agent working...';
-    if (entry.status === 'awaiting_input') return 'Waiting for your clarification...';
-    if (entry.lastPhase === 'llm_round') return 'Agent is thinking...';
-    return 'Agent working...';
+    const elapsed = formatJobElapsed(entry);
+    const suffix = elapsed ? ` ${elapsed}` : '';
+    if (entry.status === 'awaiting_input') return `Waiting for your clarification…${suffix}`;
+    if (entry.lastPhase === 'queued') {
+      const ahead = Math.max(0, Number(entry.queuedAhead) || 0);
+      return `Queued (${ahead} ahead)…${suffix}`;
+    }
+    const phase = entry.agentPhase || entry.lastPhase || '';
+    if (phase === 'starting' || phase === 'brain_prepare') return `Starting…${suffix}`;
+    if (phase === 'checking' || phase === 'brain_gateway') return `Checking…${suffix}`;
+    if (phase === 'thinking' || phase === 'brain_run' || phase === 'llm_round') return `Thinking…${suffix}`;
+    return `Agent working…${suffix}`;
   }
 
   function setTaskComposerBusy(taskId, busy, label) {
@@ -4872,7 +4896,7 @@
     // preservation branch in renderTasks ~2074). Without this, a re-render
     // triggered by fetchTasks() or SSE events would rebuild the card from
     // renderTaskCard(task) and drop the .frozen class + badge mid-job.
-    const isRunning = entry && (entry.status === 'running' || entry.status === 'awaiting_input');
+    const isRunning = entry && (entry.status === 'queued' || entry.status === 'running' || entry.status === 'awaiting_input');
     const card = document.getElementById('card-' + taskId);
     if (isRunning) {
       frozenTasks.add(taskId);
@@ -4884,10 +4908,7 @@
           badge.className = 'frozen-badge';
           card.appendChild(badge);
         }
-        const label = entry.status === 'awaiting_input'
-          ? '❓ Needs input'
-          : (entry.lastPhase === 'llm_round' ? '🧠 Thinking…' : '⏳ Agent working…');
-        badge.textContent = label;
+        badge.textContent = taskComposerStatusLabel(entry);
       }
       setTaskComposerBusy(taskId, true, taskComposerStatusLabel(entry));
     } else {
@@ -5038,8 +5059,18 @@
         }
         break;
       }
+      case 'job.progress': {
+        if (payload.phase === 'queued' && loadingText) {
+          const ahead = Math.max(0, Number(payload.queuedAhead) || 0);
+          loadingText.textContent = `Brain scan queued (${ahead} ahead)…`;
+        }
+        break;
+      }
       case 'job.item_progress': {
-        if (payload.phase === 'brain_run' && loadingText) {
+        if (payload.phase === 'queued' && loadingText) {
+          const ahead = Math.max(0, Number(payload.queuedAhead) || 0);
+          loadingText.textContent = `Brain scan queued (${ahead} ahead)…`;
+        } else if (payload.phase === 'brain_run' && loadingText) {
           loadingText.textContent = `Brain scanning Microsoft 365 (${payload.workIqCalls || 0} WorkIQ call(s))...`;
         }
         break;
@@ -5090,6 +5121,10 @@
       case 'job.started':
         entry.status = 'running';
         entry.question = null;
+        entry.queuedAt = entry.queuedAt || (ev.payload && ev.payload.queuedAt) || ev.ts;
+        entry.startedAt = (ev.payload && ev.payload.startedAt) || ev.ts;
+        entry.lastPhase = (ev.payload && ev.payload.phase) || entry.lastPhase || 'starting';
+        entry.agentPhase = (ev.payload && ev.payload.agentPhase) || entry.agentPhase || 'starting';
         activeJobs[jobId] = entry;
         activeJobsByTask[taskId] = jobId;
         updateTaskJobUi(taskId, entry);
@@ -5097,6 +5132,22 @@
       case 'job.progress':
         entry.status = 'running';
         entry.lastPhase = ev.payload && ev.payload.phase;
+        entry.activePhase = ev.payload && ev.payload.activePhase;
+        entry.agentPhase = ev.payload && ev.payload.agentPhase;
+        entry.queuedAhead = ev.payload && ev.payload.queuedAhead;
+        entry.schedulerState = ev.payload && ev.payload.schedulerState;
+        entry.queuedAt = entry.queuedAt || ev.ts;
+        if (entry.lastPhase !== 'queued') entry.startedAt = entry.startedAt || ev.ts;
+        activeJobs[jobId] = entry;
+        activeJobsByTask[taskId] = jobId;
+        updateTaskJobUi(taskId, entry);
+        break;
+      case 'job.phase_changed':
+        entry.status = 'running';
+        entry.lastPhase = ev.payload && ev.payload.phase;
+        entry.agentPhase = ev.payload && ev.payload.agentPhase;
+        entry.queuedAt = entry.queuedAt || ev.ts;
+        entry.startedAt = entry.startedAt || ev.ts;
         updateTaskJobUi(taskId, entry);
         break;
       case 'job.awaiting_input':
@@ -5161,7 +5212,7 @@
     ['job.started', 'job.progress', 'job.awaiting_input',
      'job.completed', 'job.failed', 'job.cancelled',
      'job.phase_changed', 'job.phase_done', 'job.phase_error',
-     'job.item_started', 'job.item_done'].forEach(t => {
+     'job.item_started', 'job.item_done', 'job.item_progress'].forEach(t => {
       es.addEventListener(t, onJobEvent);
     });
 
@@ -5200,7 +5251,13 @@
           status: snap.status,
           question: snap.pendingClarification && snap.pendingClarification.question,
           kind: snap.kind,
+          queuedAt: snap.queuedAt || (t.activeJob && t.activeJob.queuedAt) || null,
+          startedAt: snap.startedAt || (t.activeJob && t.activeJob.startedAt) || null,
           lastSeenAt: Date.now(),
+          lastPhase: snap.progress && snap.progress.phase,
+          activePhase: snap.progress && snap.progress.activePhase,
+          agentPhase: snap.progress && snap.progress.agentPhase,
+          queuedAhead: snap.progress && snap.progress.queuedAhead,
         };
         activeJobs[jobId] = entry;
         activeJobsByTask[t.id] = jobId;
@@ -5213,6 +5270,12 @@
   window.hydrateActiveJobs = hydrateActiveJobs;
   window.activeJobs = activeJobs;
   window.activeJobsByTask = activeJobsByTask;
+
+  setInterval(() => {
+    for (const entry of Object.values(activeJobs)) {
+      if (entry && entry.taskId) updateTaskJobUi(entry.taskId, entry);
+    }
+  }, 1000);
 
   // v4.0.0-rc.1 — hydrate any active global job (scan / consolidate) from
   // the server on page load. Returns the atomic snapshotEventId so that the

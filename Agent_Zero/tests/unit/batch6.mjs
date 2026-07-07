@@ -301,6 +301,49 @@ test('D task chat markers go through gateway and cross-task marker is held', asy
   assert.equal(saved.tasks.find(task => task.id === 'task-a').brainState.needsReview, true);
 });
 
+test('D task chat pure answer skips reality gateway spawn', async () => {
+  const dir = resetTmp('task-chat-no-marker-gateway-skip');
+  const tasksFile = writeFixture(dir, {
+    version: 5,
+    tasks: [{
+      id: 'task-a',
+      taskType: 'single',
+      title: 'Task A',
+      status: 'new',
+      sourceRefs: [],
+      history: []
+    }]
+  });
+  let gatewayCalls = 0;
+
+  const result = await runTaskChatOnce({
+    id: 'job-chat-no-marker',
+    taskId: 'task-a',
+    input: { text: 'What is this task about?' },
+    emit() {}
+  }, {
+    tasksFile,
+    brainWorkDir: path.join(dir, 'brain-work'),
+    runId: 'chat-no-marker',
+    _runBrain: async () => ({
+      ok: true,
+      assistantText: 'This is a plain answer with no state update.',
+      counters: { workIqCalls: 0 }
+    }),
+    _runGateway: async () => {
+      gatewayCalls++;
+      throw new Error('gateway should not run without markers');
+    },
+    _writeJsonFileAtomic: (file, data) => writeJsonFileAtomic(file, data, { maxBackups: 0 })
+  });
+  const saved = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+
+  assert.equal(gatewayCalls, 0);
+  assert.equal(result.markersParsed, 0);
+  assert.equal(result.gateway.skipped, true);
+  assert.equal(saved.tasks[0].history.at(-1).agentResponse, 'This is a plain answer with no state update.');
+});
+
 test('D marker-only invalid chat output writes nothing', async () => {
   const dir = resetTmp('task-chat-invalid');
   const initial = migrateToV5({

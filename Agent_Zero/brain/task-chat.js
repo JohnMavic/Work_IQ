@@ -8,6 +8,7 @@ import { parseMarkers, MARKER_REGEX } from './marker-parser.js';
 import { applyMarkerBatch } from './marker-applier.js';
 import { filterMarkersThroughGateway, runRealityGateway } from './reality-gateway.js';
 import { migrateToV5, writeJsonFileAtomic } from './tasks-v5.js';
+import { BRAIN_RUN_CLASS } from './brain-scheduler.js';
 import {
   DEFAULT_UPLOADS_DIR,
   attachmentContextForPrompt,
@@ -39,6 +40,46 @@ function safeFilePart(value) {
 
 function readJsonFile(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+function setJobPhase(job, phase, payload = {}) {
+  if (!job) return;
+  job.progress = {
+    phase,
+    phaseStartedAt: Date.now(),
+    currentItemIndex: 0,
+    totalItems: 0,
+    currentTaskId: job.taskId || null,
+    ...payload
+  };
+  job.emit?.('job.phase_changed', { phase, ...payload });
+}
+
+function schedulerProgress(job, phase, payload = {}) {
+  return (update) => {
+    if (!job || update?.state === 'finished') return;
+    const queued = update?.state === 'queued';
+    const effectivePhase = queued ? 'queued' : phase;
+    job.progress = {
+      ...(job.progress || {}),
+      phase: effectivePhase,
+      phaseStartedAt: update?.startedAt || Date.now(),
+      currentTaskId: job.taskId || null,
+      queuedAhead: update?.queuedAhead ?? 0,
+      runClass: update?.runClass,
+      scheduler: update?.scheduler,
+      ...payload
+    };
+    job.emit?.('job.progress', {
+      phase: effectivePhase,
+      activePhase: phase,
+      queuedAhead: update?.queuedAhead ?? 0,
+      runClass: update?.runClass,
+      schedulerState: update?.state,
+      scheduler: update?.scheduler,
+      ...payload
+    });
+  };
 }
 
 function sourceRefsForContext(task) {
@@ -295,7 +336,7 @@ export async function runTaskChatOnce(job, {
   if (!taskId) throw new Error('runTaskChatOnce requires job.taskId');
   if (!userPrompt) throw new Error('runTaskChatOnce requires job.input.text');
 
-  job?.emit?.('job.phase_changed', { phase: 'brain_prepare', taskId });
+  setJobPhase(job, 'brain_prepare', { taskId, agentPhase: 'starting' });
   const beforeData = migrateToV5(_readJsonFile(tasksFile));
   const task = normalizeArray(beforeData.tasks).find(item => item.id === taskId);
   if (!task) throw new Error('Task not found');
@@ -315,7 +356,7 @@ export async function runTaskChatOnce(job, {
     runId
   });
 
-  job?.emit?.('job.phase_changed', { phase: 'brain_run', taskId });
+  setJobPhase(job, 'brain_run', { taskId, agentPhase: 'thinking' });
   const brainResult = await _runBrain({
     prompt,
     brainWorkDir: state.brainWorkDir,
@@ -323,6 +364,10 @@ export async function runTaskChatOnce(job, {
     uploadsDir,
     timeoutMs: DEFAULT_TASK_CHAT_TIMEOUT_MS,
     workIqHardLimit: DEFAULT_TASK_CHAT_WORKIQ_LIMIT,
+    runClass: BRAIN_RUN_CLASS.INTERACTIVE,
+    mcpMode: 'workiq-only',
+    schedulerLabel: `task-chat:${taskId}`,
+    onSchedulerUpdate: schedulerProgress(job, 'brain_run', { taskId, agentPhase: 'thinking' }),
     cleanBrainWorkDir: false
   });
   if (!brainResult.ok) {
@@ -344,13 +389,15 @@ export async function runTaskChatOnce(job, {
 
   if (parsed.markers.length) {
     scoped = scopeMarkersToTask(parsed.markers, task);
-    job?.emit?.('job.phase_changed', { phase: 'brain_gateway', taskId, markers: scoped.markers.length });
+    setJobPhase(job, 'brain_gateway', { taskId, markers: scoped.markers.length, agentPhase: 'checking' });
     const gatewayResult = await _runGateway({
       stateFile: state.stateFile,
       factSheetFiles: state.factSheetFiles,
       markers: scoped.markers,
       brainWorkDir: state.brainWorkDir,
-      runId
+      runId,
+      runClass: BRAIN_RUN_CLASS.INTERACTIVE,
+      onSchedulerUpdate: schedulerProgress(job, 'brain_gateway', { taskId, agentPhase: 'checking' })
     });
     gatewayFilter = filterMarkersThroughGateway(scoped.markers, gatewayResult);
     applyResult = _applyMarkerBatch(beforeData, gatewayFilter.markers, {
@@ -391,7 +438,8 @@ export async function runTaskChatOnce(job, {
       approvedMarkers: gatewayFilter.approved.length,
       heldMarkers: gatewayFilter.held.length,
       parsed: gatewayFilter.gatewayParsed,
-      parseError: gatewayFilter.gatewayParseError
+      parseError: gatewayFilter.gatewayParseError,
+      skipped: parsed.markers.length === 0
     }
   };
 }

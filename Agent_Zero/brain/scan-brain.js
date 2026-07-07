@@ -9,6 +9,7 @@ import { renderScanState } from './render-scan-state.js';
 import { filterMarkersThroughGateway, runRealityGateway } from './reality-gateway.js';
 import { evaluateProcessingQualityGate } from './processing-ledger.js';
 import { migrateToV5, V5_BRAIN_DEFAULTS, writeJsonFileAtomic } from './tasks-v5.js';
+import { BRAIN_RUN_CLASS } from './brain-scheduler.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -155,6 +156,33 @@ async function setPhase(job, phase, extra, onPersistJob) {
   await persistJob(job, onPersistJob);
 }
 
+function schedulerProgress(job, phase, extra, onPersistJob) {
+  return (update) => {
+    if (!job || update?.state === 'finished') return;
+    const queued = update?.state === 'queued';
+    const effectivePhase = queued ? 'queued' : phase;
+    job.progress = {
+      ...(job.progress || {}),
+      phase: effectivePhase,
+      phaseStartedAt: update?.startedAt || Date.now(),
+      queuedAhead: update?.queuedAhead ?? 0,
+      runClass: update?.runClass,
+      scheduler: update?.scheduler,
+      ...extra
+    };
+    job.emit?.('job.progress', {
+      phase: effectivePhase,
+      activePhase: phase,
+      queuedAhead: update?.queuedAhead ?? 0,
+      runClass: update?.runClass,
+      schedulerState: update?.state,
+      scheduler: update?.scheduler,
+      ...extra
+    });
+    persistJob(job, onPersistJob).catch(() => {});
+  };
+}
+
 export async function runBrainScanOnce(job, {
   tasksFile = DEFAULT_TASKS_FILE,
   skillFile = DEFAULT_SCAN_SKILL_FILE,
@@ -196,6 +224,12 @@ export async function runBrainScanOnce(job, {
     prompt,
     brainWorkDir,
     workIqHardLimit: 40,
+    runClass: BRAIN_RUN_CLASS.BACKGROUND,
+    schedulerLabel: `scan:${runId}`,
+    onSchedulerUpdate: schedulerProgress(job, 'brain_run', {
+      scanDays,
+      stateFile: path.basename(state.stateFile)
+    }, onPersistJob),
     onJsonEvent: (event) => {
       const value = extractPremiumRequests(event);
       if (value !== null) premiumRequests = value;
@@ -245,7 +279,9 @@ export async function runBrainScanOnce(job, {
     factSheetFiles: state.factSheetFiles || [],
     markers: parsed.markers,
     brainWorkDir,
-    runId
+    runId,
+    runClass: BRAIN_RUN_CLASS.BACKGROUND,
+    onSchedulerUpdate: schedulerProgress(job, 'brain_gateway', { scanDays }, onPersistJob)
   });
   const gatewayFilter = filterMarkersThroughGateway(parsed.markers, gatewayResult);
   job?.emit?.('job.phase_done', {
