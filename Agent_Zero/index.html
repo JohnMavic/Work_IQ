@@ -805,6 +805,24 @@
     .agent-msg-bot td { padding: 4px 10px; border: 1px solid #334155; }
     .agent-msg-bot strong { color: #e2e8f0; }
     .agent-msg-bot code { background: #1e293b; padding: 1px 4px; border-radius: 3px; font-size: 0.82rem; }
+    .agent-followup {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid #1e293b;
+    }
+    .deep-verify-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: #94a3b8;
+      font-size: 0.78rem;
+      margin-top: 6px;
+    }
+    .deep-verify-status .task-spinner {
+      width: 12px;
+      height: 12px;
+      border-width: 2px;
+    }
     .conversation-attachments {
       display: flex;
       flex-wrap: wrap;
@@ -3454,6 +3472,9 @@
         }
       }
 
+      html += renderDeepVerificationStatus(entry);
+      html += renderAgentFollowups(entry);
+
       if (entry.communications && entry.communications.length > 0) {
         for (const comm of entry.communications) {
           const commIcon = comm.type === 'teams' ? '💬' : '📧';
@@ -3472,6 +3493,44 @@
 
       html += `</div>`;
       return html;
+    }).join('');
+  }
+
+  function activeDeepVerification(entry) {
+    const deep = entry.agentExecution && entry.agentExecution.deepVerification;
+    if (!deep || !deep.required) return null;
+    const status = deep.status || 'running';
+    if (status === 'completed' || status === 'failed' || status === 'not-needed') return null;
+    const hasCompletedFollowup = asArray(entry.agentFollowups).some(f => f && f.kind === 'deep-verification' && f.status === 'completed');
+    if (hasCompletedFollowup) return null;
+    return deep;
+  }
+
+  function renderDeepVerificationStatus(entry) {
+    const deep = activeDeepVerification(entry);
+    if (!deep) return '';
+    const startedAt = deep.startedAt || entry.timestamp || new Date().toISOString();
+    const elapsed = formatElapsedFrom(startedAt);
+    return `<div class="deep-verify-status" data-started-at="${escHtml(startedAt)}">
+      <span class="task-spinner"></span>
+      <span>Deep verification running… (<span data-role="elapsed">${escHtml(elapsed)}</span>)</span>
+    </div>`;
+  }
+
+  function renderAgentFollowups(entry) {
+    const followups = asArray(entry.agentFollowups).filter(f => f && f.kind === 'deep-verification');
+    if (!followups.length) return '';
+    return followups.map(followup => {
+      const confColors = { high: '#4ade80', medium: '#fbbf24', low: '#fb923c', none: '#f87171' };
+      const confIcons = { high: '✅', medium: '⚠️', low: '🔍', none: '❌' };
+      const confidence = followup.confidence || (followup.status === 'failed' ? 'low' : 'medium');
+      const confColor = confColors[confidence] || '#93c5fd';
+      const confIcon = confIcons[confidence] || '🤖';
+      const label = followup.status === 'failed' ? 'Deep verification failed' : 'Deep verification';
+      return `<div class="agent-followup agent-msg-bot" style="border-left:3px solid ${confColor};padding-left:10px">
+        <span style="color:${confColor};font-weight:bold;font-size:0.8em">${confIcon} ${escHtml(label)} · Confidence: ${escHtml(confidence)}</span><br>
+        ${renderMarkdown(followup.text || '')}
+      </div>`;
     }).join('');
   }
 
@@ -3789,13 +3848,18 @@
     return Number.isFinite(parsed) ? parsed : null;
   }
 
-  function formatJobElapsed(entry) {
-    const base = jobTimeMs(entry && (entry.queuedAt || entry.startedAt || entry.lastSeenAt));
-    if (!base) return '';
+  function formatElapsedFrom(value) {
+    const base = jobTimeMs(value);
+    if (!base) return '00:00';
     const totalSeconds = Math.max(0, Math.floor((Date.now() - base) / 1000));
     const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
     const seconds = String(totalSeconds % 60).padStart(2, '0');
     return `${minutes}:${seconds}`;
+  }
+
+  function formatJobElapsed(entry) {
+    const elapsed = formatElapsedFrom(entry && (entry.queuedAt || entry.startedAt || entry.lastSeenAt));
+    return elapsed === '00:00' && !jobTimeMs(entry && (entry.queuedAt || entry.startedAt || entry.lastSeenAt)) ? '' : elapsed;
   }
 
   function taskComposerStatusLabel(entry) {
@@ -3823,6 +3887,13 @@
     });
     const statusText = view.querySelector('.composer-status-text');
     if (statusText) statusText.textContent = label || 'Agent working...';
+  }
+
+  function updateDeepVerificationTimers() {
+    document.querySelectorAll('.deep-verify-status[data-started-at]').forEach(el => {
+      const target = el.querySelector('[data-role="elapsed"]');
+      if (target) target.textContent = formatElapsedFrom(el.getAttribute('data-started-at'));
+    });
   }
 
   async function uploadChatAttachments(taskId) {
@@ -5114,6 +5185,16 @@
     const jobId = ev.jobId;
     const taskId = ev.taskId;
     if (!jobId || !taskId) return;
+    const blocksTask = ev.kind !== 'deep_verify' && !(ev.payload && ev.payload.blocksTask === false);
+    if (!blocksTask) {
+      if (ev.type === 'job.completed' || ev.type === 'job.failed' || ev.type === 'job.cancelled') {
+        if (ev.type === 'job.failed' && ev.payload && ev.payload.error) {
+          showNotification('Deep verification failed: ' + ev.payload.error, 'error');
+        }
+        if (typeof refreshSingleTask === 'function') refreshSingleTask(taskId);
+      }
+      return;
+    }
     const entry = activeJobs[jobId] || { jobId, taskId };
     entry.lastSeenAt = ev.ts;
     entry.kind = ev.kind;
@@ -5275,6 +5356,7 @@
     for (const entry of Object.values(activeJobs)) {
       if (entry && entry.taskId) updateTaskJobUi(entry.taskId, entry);
     }
+    updateDeepVerificationTimers();
   }, 1000);
 
   // v4.0.0-rc.1 — hydrate any active global job (scan / consolidate) from

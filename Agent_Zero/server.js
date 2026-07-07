@@ -12,7 +12,11 @@ import { cleanupStaleAtomicTempsForFile, migrateTasksFileToV5, writeJsonFileAtom
 import { getScanEngine, normalizeScanJobInput, runBrainScanOnce } from './brain/scan-brain.js';
 import { FACTSHEET_SECTIONS, normalizeFactSheet } from './brain/factsheet.js';
 import { isUsableSourceLink } from './brain/link-guard.js';
-import { runTaskChatOnce } from './brain/task-chat.js';
+import {
+  appendDeepVerificationFailure,
+  runTaskChatDeepVerifyOnce,
+  runTaskChatFastOnce
+} from './brain/task-chat.js';
 import { normalizeUserActionEntry } from './brain/user-actions.js';
 import { isolatedBrainWorkDir } from './brain/agency-cli.js';
 import {
@@ -1585,6 +1589,7 @@ async function persistJobSnapshot(job) {
   if (!job.taskId) {
     return persistGlobalJobSnapshot(job);
   }
+  if (job.blocksTask === false) return null;
   await safeWriteTasks((data) => {
     const t = data.tasks.find(x => x.id === job.taskId);
     if (!t) return null;
@@ -1661,10 +1666,11 @@ const sseBroker = {
 
 // --- Job class -------------------------------------------------------------
 class Job {
-  constructor({ taskId, kind, input, clientRequestId }) {
+  constructor({ taskId, kind, input, clientRequestId, blocksTask = true }) {
     this.id = uuidv4();
     this.taskId = taskId;
     this.kind = kind;                 // 'log' for γ.B, others future
+    this.blocksTask = blocksTask;
     this.status = 'queued';           // queued|running|awaiting_input|cancelling|cancelled|completed|failed
     this.input = input;
     this.clientRequestId = clientRequestId || null;
@@ -1759,7 +1765,8 @@ class Job {
       serverInstanceId: SERVER_INSTANCE_ID,
       clientRequestId: this.clientRequestId,
       sdkSessionId: this.sdkSessionId,
-      progress: this.progress
+      progress: this.progress,
+      blocksTask: this.blocksTask
     };
   }
 }
@@ -1773,7 +1780,7 @@ function registerJob(job) {
     let set = jobsByTask.get(job.taskId);
     if (!set) { set = new Set(); jobsByTask.set(job.taskId, set); }
     set.add(job.id);
-    activeJobByTask.set(job.taskId, job.id);
+    if (job.blocksTask !== false) activeJobByTask.set(job.taskId, job.id);
   } else {
     globalActiveJobByKind.set(job.kind, job.id);
   }
@@ -2231,6 +2238,111 @@ async function persistJobFailure(job, reason, extras = {}) {
   }
 }
 
+function queueDeepVerificationJob(parentJob, stageOneResult) {
+  const deep = stageOneResult?.deepVerification;
+  if (!deep?.required) return null;
+  const deepJob = new Job({
+    taskId: parentJob.taskId,
+    kind: 'deep_verify',
+    input: {
+      text: parentJob.input?.text || deep.question || '',
+      attachments: parentJob.input?.attachments || [],
+      conversationId: stageOneResult.conversationId || deep.conversationId,
+      stageOneAnswer: stageOneResult.assistantText || '',
+      deepVerification: deep,
+      parentJobId: parentJob.id
+    },
+    clientRequestId: parentJob.clientRequestId ? `${parentJob.clientRequestId}:deep` : null,
+    blocksTask: false
+  });
+  registerJob(deepJob);
+  setImmediate(() => {
+    runDeepVerificationJob(deepJob).catch(err => {
+      console.error(`[DEEP-VERIFY] unhandled error: ${err.stack || err.message}`);
+      if (!['completed', 'failed', 'cancelled'].includes(deepJob.status)) {
+        deepJob.status = 'failed';
+        deepJob.error = `Unhandled: ${err.message}`;
+        try { deepJob.emit('job.failed', { error: deepJob.error, blocksTask: false, stage: 'deep_verify' }); } catch {}
+        unregisterActiveJob(deepJob);
+      }
+    });
+  });
+  return deepJob;
+}
+
+async function runDeepVerificationJob(job) {
+  const startedAt = Date.now();
+  const runId = `task-chat-deep-${job.id}`;
+  try {
+    const data = readTasks();
+    const task = data.tasks.find(t => t.id === job.taskId);
+    if (!task) throw new Error('Task deleted before deep verification');
+
+    job.status = 'running';
+    job.startedAt = startedAt;
+    job.emit('job.started', {
+      title: task.title,
+      engine: 'agency',
+      queuedAt: job.queuedAt,
+      startedAt: job.startedAt,
+      agentPhase: 'starting',
+      stage: 'deep_verify',
+      blocksTask: false,
+      conversationId: job.input?.conversationId || null
+    });
+
+    const result = await runTaskChatDeepVerifyOnce(job, {
+      tasksFile: TASKS_FILE,
+      brainWorkDir: isolatedBrainWorkDir(`task-chat-deep-${job.id}`),
+      runId,
+      now: new Date()
+    });
+
+    job.result = {
+      task: result.task,
+      evaluation: {
+        titleChanged: false,
+        summaryChanged: false,
+        reasoning: `Deep verification applied ${result.markersApplied} marker(s); held ${result.markersHeld}.`,
+        markersParsed: result.markersParsed,
+        markersApplied: result.markersApplied,
+        markersHeld: result.markersHeld,
+        conversationId: result.conversationId
+      }
+    };
+    job.status = 'completed';
+    job.completedAt = Date.now();
+    job.emit('job.completed', {
+      task: result.task,
+      evaluation: job.result.evaluation,
+      blocksTask: false,
+      stage: 'deep_verify',
+      conversationId: result.conversationId
+    });
+    unregisterActiveJob(job);
+  } catch (err) {
+    job.status = 'failed';
+    job.error = err.message || String(err);
+    const finalTask = await safeWriteTasks((data) => appendDeepVerificationFailure(data, job.taskId, {
+      conversationId: job.input?.conversationId || null,
+      error: job.error,
+      now: new Date(),
+      jobId: job.id,
+      runId,
+      durationMs: Date.now() - startedAt
+    }));
+    job.completedAt = Date.now();
+    job.emit('job.failed', {
+      error: job.error,
+      task: finalTask || null,
+      blocksTask: false,
+      stage: 'deep_verify',
+      conversationId: job.input?.conversationId || null
+    });
+    unregisterActiveJob(job);
+  }
+}
+
 async function runLogJob(job) {
   return runOnTaskQueue(job.taskId, async () => {
     const data = readTasks();
@@ -2258,21 +2370,27 @@ async function runLogJob(job) {
     await persistJobSnapshot(job);
 
     try {
-      const result = await runTaskChatOnce(job, {
+      const result = await runTaskChatFastOnce(job, {
         tasksFile: TASKS_FILE,
-        brainWorkDir: isolatedBrainWorkDir(`task-chat-${job.id}`),
-        runId: `task-chat-${job.id}`,
+        brainWorkDir: isolatedBrainWorkDir(`task-chat-fast-${job.id}`),
+        runId: `task-chat-fast-${job.id}`,
         now: new Date()
       });
+      const deepJob = queueDeepVerificationJob(job, result);
       job.result = {
         task: result.task,
         evaluation: {
           titleChanged: false,
           summaryChanged: false,
-          reasoning: `Agency task chat applied ${result.markersApplied} marker(s); held ${result.markersHeld}.`,
+          reasoning: deepJob
+            ? `Fast task chat answered and queued deep verification ${deepJob.id}.`
+            : 'Fast task chat answered without deep verification.',
           markersParsed: result.markersParsed,
           markersApplied: result.markersApplied,
-          markersHeld: result.markersHeld
+          markersHeld: result.markersHeld,
+          deepVerification: result.deepVerification,
+          deepJobId: deepJob?.id || null,
+          conversationId: result.conversationId
         }
       };
       job.status = 'completed';

@@ -82,7 +82,8 @@ test('task log route is agency task chat and is not legacy-gated', () => {
 
   assert.equal(routeBody.includes("guardLegacyRoute(res, '/api/tasks/:id/log'"), false);
   assert.match(routeBody, /runLogJob\(job\)/);
-  assert.match(runnerBody, /runTaskChatOnce\(job/);
+  assert.match(runnerBody, /runTaskChatFastOnce\(job/);
+  assert.match(runnerBody, /queueDeepVerificationJob\(job, result\)/);
   assert.doesNotMatch(runnerBody, /new CopilotClient\(\)/);
 });
 
