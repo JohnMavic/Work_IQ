@@ -15,3 +15,5 @@ Verification:
 - `npm test` passed: 137/137.
 
 TWOTIER-FIX: OK — Stage 1 is state-only and MCP-free, scan/lookup/status questions defer to Stage 2, and the deterministic timeout fallback prevents no-answer failures.
+
+S2-SPEED: OK
