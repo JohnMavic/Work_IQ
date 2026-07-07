@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   buildDeterministicTaskChatFallback,
+  DEFAULT_TASK_CHAT_DEEP_TARGET_MS,
   DEFAULT_TASK_CHAT_DEEP_TIMEOUT_MS,
   DEFAULT_TASK_CHAT_DEEP_WORKIQ_LIMIT,
   DEFAULT_TASK_CHAT_FAST_TIMEOUT_MS,
@@ -47,14 +48,15 @@ function approveAllGateway({ markers }) {
 
 test('TWOTIER flag parser strips machine line and detects deep verification target', () => {
   const parsed = extractDeepVerificationFlag([
-    'The approval is open from project state (last verified 2026-07-06).',
-    'Deep verification against MyApprovals started — I will update this conversation.',
-    'DEEP_VERIFY {"required":true,"system":"MyApprovals","reason":"approval state needs source of record","question":"Is it approved?"}'
-  ].join('\n'));
+      'The approval is open from project state (last verified 2026-07-06).',
+      'Deep verification against MyApprovals started — I will update this conversation.',
+      'DEEP_VERIFY {"required":true,"system":"MyApprovals","reason":"approval state needs source of record","question":"Is it approved?","verifyExactly":["Check approval 123 in MyApprovals"]}'
+    ].join('\n'));
 
   assert.equal(parsed.flag.required, true);
   assert.equal(parsed.flag.system, 'MyApprovals');
   assert.equal(parsed.flag.question, 'Is it approved?');
+  assert.deepEqual(parsed.flag.verifyExactly, ['Check approval 123 in MyApprovals']);
   assert.doesNotMatch(parsed.text, /DEEP_VERIFY/);
 });
 
@@ -113,6 +115,7 @@ test('TWOTIER stage 1 is state-only, MCP-free, and never runs gateway', async ()
   assert.equal(result.gateway.skipped, true);
   assert.equal(history.agentExecution.deepVerification.status, 'running');
   assert.equal(history.agentExecution.deepVerification.system, 'MyApprovals');
+  assert.match(history.agentExecution.deepVerification.verifyExactly[0], /Is this approved\?/);
 });
 
 test('TWOTIER scan and lookup questions force the Stage 2 flag even if Stage 1 says no', async () => {
@@ -259,7 +262,7 @@ test('TWOTIER deterministic helpers classify scan questions and summarize projec
   assert.equal(fallback.flag.required, true);
 });
 
-test('TWOTIER stage 2 uses background timeout, allows gateway, and appends to same conversation', async () => {
+test('TWOTIER stage 2 posts answer before async gateway markers and keeps focused scope', async () => {
   const dir = resetTmp('stage2-followup');
   const conversationId = 'conv-deep-1';
   const tasksFile = writeFixture(dir, {
@@ -294,6 +297,9 @@ test('TWOTIER stage 2 uses background timeout, allows gateway, and appends to sa
   });
   const captured = {};
   let gatewayCalls = 0;
+  let releaseGateway;
+  const gatewayGate = new Promise(resolve => { releaseGateway = resolve; });
+  const events = [];
 
   const result = await runTaskChatDeepVerifyOnce({
     id: 'job-deep',
@@ -302,9 +308,17 @@ test('TWOTIER stage 2 uses background timeout, allows gateway, and appends to sa
       text: 'Is this approved?',
       conversationId,
       stageOneAnswer: 'State says pending.',
-      deepVerification: { required: true, system: 'MyApprovals', question: 'Is this approved?' }
+      deepVerification: {
+        required: true,
+        system: 'MyApprovals',
+        question: 'Is this approved?',
+        verifyExactly: [
+          'Check approval 123 in MyApprovals',
+          'Confirm whether the approval is still pending'
+        ]
+      }
     },
-    emit() {}
+    emit(type, payload) { events.push({ type, payload }); }
   }, {
     tasksFile,
     brainWorkDir: path.join(dir, 'brain-work'),
@@ -312,6 +326,10 @@ test('TWOTIER stage 2 uses background timeout, allows gateway, and appends to sa
     now: new Date('2026-07-07T08:05:00.000Z'),
     _runBrain: async (options) => {
       Object.assign(captured, options);
+      options.onToolExecution?.({
+        type: 'tool.execution_start',
+        data: { toolName: 'workiq.search', serverName: 'WorkIQ' }
+      }, { workIqCalls: 1 });
       return {
         ok: true,
         assistantText: [
@@ -323,24 +341,131 @@ test('TWOTIER stage 2 uses background timeout, allows gateway, and appends to sa
     },
     _runGateway: async (options) => {
       gatewayCalls++;
+      await gatewayGate;
       return approveAllGateway(options);
     },
     _writeJsonFileAtomic: (file, data) => writeJsonFileAtomic(file, data, { maxBackups: 0 })
   });
-  const saved = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
-  const history = saved.tasks[0].history[0];
+  const savedBeforeGateway = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+  const historyBeforeGateway = savedBeforeGateway.tasks[0].history[0];
 
+  assert.equal(DEFAULT_TASK_CHAT_DEEP_TARGET_MS, 5 * 60 * 1000);
   assert.equal(captured.timeoutMs, DEFAULT_TASK_CHAT_DEEP_TIMEOUT_MS);
   assert.equal(captured.workIqHardLimit, DEFAULT_TASK_CHAT_DEEP_WORKIQ_LIMIT);
   assert.equal(captured.runClass, BRAIN_RUN_CLASS.BACKGROUND);
   assert.equal(captured.mcpMode, 'default');
   assert.match(captured.prompt, /Portal\/CDP\/browser\/shell patterns/);
-  assert.equal(gatewayCalls, 1);
+  assert.match(captured.prompt, /Verify exactly:\n1\. Check approval 123 in MyApprovals\n2\. Confirm whether the approval is still pending/);
+  assert.match(captured.prompt, /Do not perform a full project rescan, full inbox rescan, or broad historical sweep/);
+  assert.equal(gatewayCalls, 0);
   assert.equal(result.conversationId, conversationId);
-  assert.equal(history.agentExecution.deepVerification.status, 'completed');
-  assert.equal(history.agentFollowups.length, 1);
-  assert.equal(history.agentFollowups[0].kind, 'deep-verification');
-  assert.match(history.agentFollowups[0].text, /verified in MyApprovals/);
+  assert.equal(historyBeforeGateway.agentExecution.deepVerification.status, 'completed');
+  assert.equal(historyBeforeGateway.agentExecution.deepVerification.markerProcessingStatus, 'scheduled');
+  assert.equal(historyBeforeGateway.agentFollowups.length, 1);
+  assert.equal(historyBeforeGateway.agentFollowups[0].kind, 'deep-verification');
+  assert.equal(historyBeforeGateway.agentFollowups[0].markerProcessingStatus, 'scheduled');
+  assert.match(historyBeforeGateway.agentFollowups[0].text, /verified in MyApprovals/);
+  assert.ok(events.some(ev => ev.type === 'job.progress' && ev.payload.statusText === 'Checking MyApprovals...'));
+
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(gatewayCalls, 1);
+  releaseGateway();
+  const markerResult = await result.markerApplyPromise;
+  assert.equal(markerResult.ok, true);
+  const savedAfterGateway = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+  const historyAfterGateway = savedAfterGateway.tasks[0].history[0];
+  assert.equal(historyAfterGateway.agentExecution.deepVerification.markerProcessingStatus, 'completed');
+  assert.equal(historyAfterGateway.agentFollowups[0].markersHeld, 0);
+});
+
+test('TWOTIER stage 2 hard cap posts partial result with open verification items', async () => {
+  const dir = resetTmp('stage2-cap-partial');
+  const conversationId = 'conv-cap-1';
+  const tasksFile = writeFixture(dir, {
+    version: 5,
+    tasks: [{
+      id: 'task-cap',
+      taskType: 'single',
+      title: 'Cap task',
+      status: 'new',
+      sourceRefs: [],
+      history: [{
+        timestamp: '2026-07-07T08:00:00.000Z',
+        conversationId,
+        type: 'update',
+        text: 'Check approval and inbox status.',
+        agentResponse: 'State says unknown from project state (last verified unknown).\nDeep verification against MyApprovals started — I will update this conversation.',
+        agentExecution: {
+          confidence: 'medium',
+          answer: 'State says unknown.',
+          method: 'agency-task-chat-fast-v1',
+          deepVerification: {
+            required: true,
+            status: 'running',
+            system: 'MyApprovals',
+            question: 'Check approval and inbox status.',
+            verifyExactly: ['Check approval 123 in MyApprovals', 'Scan inbox for the latest status mail'],
+            conversationId,
+            startedAt: '2026-07-07T08:00:00.000Z'
+          }
+        }
+      }]
+    }]
+  });
+
+  const result = await runTaskChatDeepVerifyOnce({
+    id: 'job-cap',
+    taskId: 'task-cap',
+    input: {
+      text: 'Check approval and inbox status.',
+      conversationId,
+      stageOneAnswer: 'State says unknown.',
+      deepVerification: {
+        required: true,
+        system: 'MyApprovals',
+        question: 'Check approval and inbox status.',
+        verifyExactly: ['Check approval 123 in MyApprovals', 'Scan inbox for the latest status mail']
+      }
+    },
+    emit() {}
+  }, {
+    tasksFile,
+    brainWorkDir: path.join(dir, 'brain-work'),
+    runId: 'deep-cap-run',
+    now: new Date('2026-07-07T08:10:00.000Z'),
+    _runBrain: async (options) => {
+      options.onToolExecution?.({
+        type: 'tool.execution_start',
+        data: { toolName: 'workiq.search', serverName: 'WorkIQ' }
+      }, { workIqCalls: 6 });
+      return {
+        ok: false,
+        timedOut: true,
+        salvaged: false,
+        assistantText: 'Approval 123 was checked but no final status was returned before the cap.',
+        error: { message: 'Agency brain run timed out' },
+        counters: { workIqCalls: 6 }
+      };
+    },
+    _runGateway: async () => {
+      throw new Error('gateway should not run without markers');
+    },
+    _writeJsonFileAtomic: (file, data) => writeJsonFileAtomic(file, data, { maxBackups: 0 })
+  });
+
+  const saved = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+  const history = saved.tasks[0].history[0];
+  const followup = history.agentFollowups[0];
+
+  assert.equal(result.brain.timedOut, true);
+  assert.equal(result.markerApplication.status, 'skipped');
+  assert.equal(history.agentExecution.deepVerification.status, 'partial');
+  assert.equal(history.agentExecution.deepVerification.completedAt, '2026-07-07T08:10:00.000Z');
+  assert.equal(followup.status, 'partial');
+  assert.equal(followup.confidence, 'low');
+  assert.match(followup.text, /10-minute hard cap/);
+  assert.match(followup.text, /Checked during this run: Checking MyApprovals/);
+  assert.match(followup.text, /Still open: Check approval 123 in MyApprovals; Scan inbox for the latest status mail/);
 });
 
 test('TWOTIER server auto-queues deep verification as a non-blocking background job', () => {

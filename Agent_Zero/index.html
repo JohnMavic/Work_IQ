@@ -3500,7 +3500,7 @@
     const deep = entry.agentExecution && entry.agentExecution.deepVerification;
     if (!deep || !deep.required) return null;
     const status = deep.status || 'running';
-    if (status === 'completed' || status === 'failed' || status === 'not-needed') return null;
+    if (status === 'completed' || status === 'partial' || status === 'failed' || status === 'not-needed') return null;
     const hasCompletedFollowup = asArray(entry.agentFollowups).some(f => f && f.kind === 'deep-verification' && f.status === 'completed');
     if (hasCompletedFollowup) return null;
     return deep;
@@ -3511,9 +3511,9 @@
     if (!deep) return '';
     const startedAt = deep.startedAt || entry.timestamp || new Date().toISOString();
     const elapsed = formatElapsedFrom(startedAt);
-    return `<div class="deep-verify-status" data-started-at="${escHtml(startedAt)}">
+    return `<div class="deep-verify-status" data-started-at="${escHtml(startedAt)}" data-conversation-id="${escHtml(entry.conversationId || deep.conversationId || '')}">
       <span class="task-spinner"></span>
-      <span>Deep verification running… (<span data-role="elapsed">${escHtml(elapsed)}</span>)</span>
+      <span><span data-role="status-text">Deep verification running...</span> (<span data-role="elapsed">${escHtml(elapsed)}</span>)</span>
     </div>`;
   }
 
@@ -3526,7 +3526,9 @@
       const confidence = followup.confidence || (followup.status === 'failed' ? 'low' : 'medium');
       const confColor = confColors[confidence] || '#93c5fd';
       const confIcon = confIcons[confidence] || '🤖';
-      const label = followup.status === 'failed' ? 'Deep verification failed' : 'Deep verification';
+      const label = followup.status === 'failed'
+        ? 'Deep verification failed'
+        : (followup.status === 'partial' ? 'Deep verification partial' : 'Deep verification');
       return `<div class="agent-followup agent-msg-bot" style="border-left:3px solid ${confColor};padding-left:10px">
         <span style="color:${confColor};font-weight:bold;font-size:0.8em">${confIcon} ${escHtml(label)} · Confidence: ${escHtml(confidence)}</span><br>
         ${renderMarkdown(followup.text || '')}
@@ -3894,6 +3896,22 @@
       const target = el.querySelector('[data-role="elapsed"]');
       if (target) target.textContent = formatElapsedFrom(el.getAttribute('data-started-at'));
     });
+  }
+
+  function updateDeepVerificationLiveStatus(taskId, payload) {
+    if (!payload || !payload.statusText) return;
+    const view = document.querySelector(`.task-detail-view[data-task-id="${CSS.escape(taskId)}"]`);
+    if (!view) return;
+    const conversationId = payload.conversationId || '';
+    const selector = conversationId
+      ? `.deep-verify-status[data-conversation-id="${CSS.escape(conversationId)}"]`
+      : '.deep-verify-status';
+    const statusEl = view.querySelector(selector) || view.querySelector('.deep-verify-status');
+    if (!statusEl) return;
+    const textEl = statusEl.querySelector('[data-role="status-text"]');
+    if (textEl) textEl.textContent = payload.statusText;
+    const elapsedEl = statusEl.querySelector('[data-role="elapsed"]');
+    if (elapsedEl) elapsedEl.textContent = formatElapsedFrom(statusEl.getAttribute('data-started-at'));
   }
 
   async function uploadChatAttachments(taskId) {
@@ -5187,6 +5205,13 @@
     if (!jobId || !taskId) return;
     const blocksTask = ev.kind !== 'deep_verify' && !(ev.payload && ev.payload.blocksTask === false);
     if (!blocksTask) {
+      if (ev.type === 'job.progress') {
+        updateDeepVerificationLiveStatus(taskId, ev.payload || {});
+        const phase = ev.payload && ev.payload.phase;
+        if (phase === 'answer_posted' || phase === 'marker_apply_done' || phase === 'marker_apply_failed') {
+          if (typeof refreshSingleTask === 'function') refreshSingleTask(taskId);
+        }
+      }
       if (ev.type === 'job.completed' || ev.type === 'job.failed' || ev.type === 'job.cancelled') {
         if (ev.type === 'job.failed' && ev.payload && ev.payload.error) {
           showNotification('Deep verification failed: ' + ev.payload.error, 'error');

@@ -26,8 +26,9 @@ export const DEFAULT_TASK_CHAT_TIMEOUT_MS = 10 * 60 * 1000;
 export const DEFAULT_TASK_CHAT_WORKIQ_LIMIT = 12;
 export const DEFAULT_TASK_CHAT_FAST_TIMEOUT_MS = 120 * 1000;
 export const DEFAULT_TASK_CHAT_FAST_WORKIQ_LIMIT = 0;
-export const DEFAULT_TASK_CHAT_DEEP_TIMEOUT_MS = 25 * 60 * 1000;
-export const DEFAULT_TASK_CHAT_DEEP_WORKIQ_LIMIT = 25;
+export const DEFAULT_TASK_CHAT_DEEP_TARGET_MS = 5 * 60 * 1000;
+export const DEFAULT_TASK_CHAT_DEEP_TIMEOUT_MS = 10 * 60 * 1000;
+export const DEFAULT_TASK_CHAT_DEEP_WORKIQ_LIMIT = 6;
 export const DEFAULT_TASKS_FILE = path.join(REPO_ROOT, 'tasks.json');
 export const DEEP_VERIFY_PREFIX = 'DEEP_VERIFY';
 
@@ -247,39 +248,53 @@ export function inferDeepVerificationRequirement(userPrompt) {
       required: false,
       system: 'authoritative system',
       reason: '',
-      question: ''
+      question: '',
+      verifyExactly: []
     };
   }
 
+  const system = inferVerificationSystem(normalized);
   return {
     required: true,
-    system: inferVerificationSystem(normalized),
+    system,
     reason: asksForLookup
       ? 'The question asks for an inbox, lookup, or live check that Stage 1 must defer.'
       : 'The question asks for current state and requires deep verification beyond project state.',
-    question: String(userPrompt || '').trim()
+    question: String(userPrompt || '').trim(),
+    verifyExactly: inferVerifyExactlyList(userPrompt, system)
   };
 }
 
 function mergeDeepVerificationFlag(flag, inferred) {
   const required = Boolean(flag?.required) || Boolean(inferred?.required);
+  const flagVerifyExactly = normalizeVerifyExactly(
+    flag?.verifyExactly || flag?.verifyList || flag?.checks,
+    flag?.question || ''
+  );
+  const inferredVerifyExactly = normalizeVerifyExactly(inferred?.verifyExactly, inferred?.question || '');
   if (!required) {
     return {
       required: false,
       system: flag?.system || inferred?.system || 'authoritative system',
       reason: flag?.reason || inferred?.reason || '',
       question: flag?.question || inferred?.question || '',
+      verifyExactly: flagVerifyExactly.length ? flagVerifyExactly : inferredVerifyExactly,
       raw: flag?.raw || null
     };
   }
 
   const flagSystem = String(flag?.system || '').trim();
   const inferredSystem = String(inferred?.system || '').trim();
+  const system = flagSystem && flagSystem !== 'authoritative system' ? flagSystem : inferredSystem || flagSystem || 'authoritative system';
+  const question = flag?.question || inferred?.question || '';
   return {
     required: true,
-    system: flagSystem && flagSystem !== 'authoritative system' ? flagSystem : inferredSystem || flagSystem || 'authoritative system',
+    system,
     reason: flag?.reason || inferred?.reason || 'Deep verification is required beyond project state.',
-    question: flag?.question || inferred?.question || '',
+    question,
+    verifyExactly: flagVerifyExactly.length
+      ? flagVerifyExactly
+      : (inferredVerifyExactly.length ? inferredVerifyExactly : inferVerifyExactlyList(question, system)),
     raw: flag?.raw || null
   };
 }
@@ -289,6 +304,35 @@ function compactText(value, limit = 240) {
   if (!text) return '';
   if (text.length <= limit) return text;
   return `${text.slice(0, Math.max(0, limit - 3)).trimEnd()}...`;
+}
+
+function normalizeVerifyExactly(value, fallbackText = '') {
+  const source = Array.isArray(value)
+    ? value
+    : (typeof value === 'string' && value.trim() ? [value] : []);
+  const seen = new Set();
+  const items = [];
+  for (const item of source) {
+    const text = compactText(item, 260);
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push(text);
+    if (items.length >= DEFAULT_TASK_CHAT_DEEP_WORKIQ_LIMIT) break;
+  }
+  if (!items.length && fallbackText) {
+    const fallback = compactText(fallbackText, 260);
+    if (fallback) items.push(fallback);
+  }
+  return items;
+}
+
+function inferVerifyExactlyList(userPrompt, system) {
+  const text = compactText(userPrompt, 260);
+  if (!text) return [];
+  const target = system || 'the authoritative system';
+  return [`Answer this exact question in ${target}: ${text}`];
 }
 
 function taskNodeText(entry) {
@@ -341,7 +385,8 @@ export function buildDeterministicTaskChatFallback({ task, userPrompt, now = new
     required: true,
     system: inferred.system || 'authoritative system',
     reason: inferred.reason || reason,
-    question: inferred.question || String(userPrompt || '').trim()
+    question: inferred.question || String(userPrompt || '').trim(),
+    verifyExactly: normalizeVerifyExactly(inferred.verifyExactly, inferred.question || String(userPrompt || '').trim())
   };
   const current = compactText(pm.current || task?.summary || task?.title || 'No current project summary is recorded.', 300);
   const factSignals = factSheetFallbackSignals(task);
@@ -411,7 +456,8 @@ export function buildTaskChatFastPrompt({
     '',
     'Machine flag:',
     `- Your final physical line must be ${DEEP_VERIFY_PREFIX} {"required":false} when no deep verification is needed.`,
-    `- Your final physical line must be ${DEEP_VERIFY_PREFIX} {"required":true,"system":"<authoritative system>","reason":"<why verification is needed>","question":"<the user question rewritten for verification>"}.`,
+    `- Your final physical line must be ${DEEP_VERIFY_PREFIX} {"required":true,"system":"<authoritative system>","reason":"<why verification is needed>","question":"<the user question rewritten for verification>","verifyExactly":["specific thing to verify","another specific thing if needed"]}.`,
+    '- For required deep verification, verifyExactly must contain 1-6 concrete checks from the user question and task state. Do not write a broad instruction such as "scan everything" or "review all communications".',
     '- The machine flag is not a marker. Do not wrap it in code fences.',
     '',
     'Image attachments supplied with this user prompt:',
@@ -510,6 +556,13 @@ export function buildTaskChatDeepVerifyPrompt({
   const attachmentLines = attachmentContext.length
     ? attachmentContext.map(item => `- ${item.sourceRefId}: ${item.fileName} (${item.mimeType || 'image/*'}, uploaded ${item.uploadedAt || 'unknown date'})`).join('\n')
     : '- none';
+  const verifyExactly = normalizeVerifyExactly(
+    deepVerification.verifyExactly,
+    deepVerification.question || userPrompt
+  );
+  const verifyExactlyLines = verifyExactly.length
+    ? verifyExactly.map((item, index) => `${index + 1}. ${item}`).join('\n')
+    : '1. Verify the original user question exactly as written.';
   return [
     '# Agent Zero Task Chat Deep Verification',
     '',
@@ -522,11 +575,20 @@ export function buildTaskChatDeepVerifyPrompt({
     `stateFile: ./${stateFileName}`,
     `factSheetFiles: ${factSheetFiles.map(name => `./${name}`).join(', ')}`,
     `authoritativeSystem: ${deepVerification.system || 'unknown system'}`,
+    `targetDurationMs: ${DEFAULT_TASK_CHAT_DEEP_TARGET_MS}`,
+    `hardCapMs: ${DEFAULT_TASK_CHAT_DEEP_TIMEOUT_MS}`,
+    `workIqCallLimit: ${DEFAULT_TASK_CHAT_DEEP_WORKIQ_LIMIT}`,
     '',
     learningsBlock.trimEnd(),
     '',
+    'Verify exactly:',
+    verifyExactlyLines,
+    '',
     'Deep-verification contract:',
-    '- Verify the user question against the authoritative system when feasible.',
+    '- Verify exactly the focus list above against the authoritative system when feasible.',
+    '- Do not perform a full project rescan, full inbox rescan, or broad historical sweep. Use targeted lookup only when it directly supports one listed focus item.',
+    '- Aim to finish in about 5 minutes. The runner hard-stops at 10 minutes and 6 WorkIQ calls.',
+    '- If the cap is near or reached, answer with what is already verified, what was checked, and which focus items remain open. Do not assert unsupported state.',
     '- Portal/CDP/browser/shell patterns from Brain Learnings are allowed in this background stage.',
     '- WorkIQ may be used to locate evidence, links, request ids, conversation ids, or current M365 context.',
     '- Marker emission is allowed only after verification or a clearly evidenced update.',
@@ -615,6 +677,10 @@ export function extractDeepVerificationFlag(text) {
   const system = String(payload?.system || inferred?.[1] || 'authoritative system').trim() || 'authoritative system';
   const question = typeof payload?.question === 'string' ? payload.question.trim() : '';
   const reason = typeof payload?.reason === 'string' ? payload.reason.trim() : '';
+  const verifyExactly = normalizeVerifyExactly(
+    payload?.verifyExactly || payload?.verifyList || payload?.checks,
+    question
+  );
 
   return {
     text: visibleText,
@@ -623,6 +689,7 @@ export function extractDeepVerificationFlag(text) {
       system,
       reason,
       question,
+      verifyExactly,
       raw: payload || null
     },
     errors
@@ -779,7 +846,8 @@ function appendDeepVerificationContribution(data, taskId, {
   confidence = 'medium',
   durationMs = 0,
   status = 'completed',
-  error = null
+  error = null,
+  markerProcessingStatus = null
 }) {
   const task = normalizeArray(data.tasks).find(item => item.id === taskId);
   if (!task) return null;
@@ -803,7 +871,8 @@ function appendDeepVerificationContribution(data, taskId, {
     markersHeld,
     markersDropped,
     parseErrors,
-    durationMs
+    durationMs,
+    markerProcessingStatus
   });
   entry.agentExecution = entry.agentExecution || {};
   const existing = entry.agentExecution.deepVerification || {};
@@ -811,11 +880,12 @@ function appendDeepVerificationContribution(data, taskId, {
     ...existing,
     required: true,
     status,
-    completedAt: status === 'completed' ? ts : existing.completedAt || null,
+    completedAt: ['completed', 'partial'].includes(status) ? ts : existing.completedAt || null,
     failedAt: status === 'failed' ? ts : existing.failedAt || null,
     jobId: jobId || existing.jobId || null,
     runId: runId || existing.runId || null,
-    error
+    error,
+    markerProcessingStatus: markerProcessingStatus || existing.markerProcessingStatus || null
   };
   task.activeJob = null;
   task.updatedAt = ts;
@@ -843,10 +913,239 @@ export function appendDeepVerificationFailure(data, taskId, {
   });
 }
 
+function updateDeepVerificationMarkerStatus(data, taskId, {
+  conversationId,
+  now = new Date(),
+  jobId = null,
+  runId = null,
+  markersApplied = 0,
+  markersHeld = 0,
+  markersDropped = 0,
+  gateway = null,
+  markerProcessingStatus = 'completed',
+  error = null
+} = {}) {
+  const task = normalizeArray(data.tasks).find(item => item.id === taskId);
+  if (!task) return null;
+  const entry = findConversationEntry(task, conversationId);
+  if (!entry) return null;
+  entry.agentFollowups = normalizeArray(entry.agentFollowups);
+  const followup = [...entry.agentFollowups].reverse().find(item =>
+    item?.kind === 'deep-verification'
+    && (!jobId || item.jobId === jobId)
+    && (!runId || item.runId === runId)
+  ) || [...entry.agentFollowups].reverse().find(item => item?.kind === 'deep-verification');
+  if (!followup) return null;
+
+  const ts = nowIso(now);
+  followup.markersApplied = markersApplied;
+  followup.markersHeld = markersHeld;
+  followup.markersDropped = markersDropped;
+  followup.markerProcessingStatus = markerProcessingStatus;
+  followup.markerProcessedAt = ts;
+  followup.gateway = gateway;
+  if (error) followup.markerProcessingError = error;
+
+  entry.agentExecution = entry.agentExecution || {};
+  const existing = entry.agentExecution.deepVerification || {};
+  entry.agentExecution.deepVerification = {
+    ...existing,
+    markerProcessingStatus,
+    markerProcessedAt: ts,
+    markersApplied,
+    markersHeld,
+    markersDropped,
+    markerProcessingError: error || null
+  };
+  task.updatedAt = ts;
+  return task;
+}
+
+function deepVerificationLimitReason(brainResult) {
+  if (brainResult?.timedOut) return 'hit the 10-minute hard cap';
+  if (brainResult?.killedForToolBudget) return 'hit the 6-call WorkIQ budget';
+  return 'stopped before a complete verified answer was available';
+}
+
+function buildDeepVerificationPartialText({
+  chatText,
+  brainResult,
+  deepVerification,
+  verifyExactly,
+  toolStatuses,
+  userPrompt
+}) {
+  const base = String(chatText || '').trim();
+  const system = deepVerification?.system || 'the authoritative system';
+  const checked = normalizeVerifyExactly(toolStatuses).slice(-4);
+  const openItems = normalizeVerifyExactly(verifyExactly, deepVerification?.question || userPrompt);
+  const lines = [];
+  if (base) lines.push(base);
+  lines.push(`Deep verification ${deepVerificationLimitReason(brainResult)}; this is a partial result, not a new asserted task state.`);
+  lines.push(checked.length
+    ? `Checked during this run: ${checked.join('; ')}.`
+    : `Checked during this run: started targeted verification against ${system}, but no complete verified result was returned.`);
+  lines.push(openItems.length
+    ? `Still open: ${openItems.join('; ')}.`
+    : 'Still open: the original verification question remains unverified.');
+  return lines.join('\n');
+}
+
+function toolEventTextParts(event) {
+  const parts = [
+    event?.data?.toolName,
+    event?.data?.serverName,
+    event?.data?.server,
+    event?.data?.name,
+    event?.data?.command,
+    event?.toolName,
+    event?.tool,
+    event?.server,
+    event?.name
+  ];
+  return parts.filter(value => typeof value === 'string' && value.trim()).join(' ');
+}
+
+function describeDeepVerificationToolStart(event, deepVerification) {
+  if (event?.type !== 'tool.execution_start') return '';
+  const system = String(deepVerification?.system || '').trim();
+  const focusText = normalizeVerifyExactly(deepVerification?.verifyExactly, deepVerification?.question || '').join(' ');
+  const haystack = `${toolEventTextParts(event)} ${system} ${focusText}`.toLowerCase();
+
+  if (/\b(myapprovals?|approval|approv|invoice|purchase order|\bpo\b|freigabe|genehmig|rechnung|bestellung)\b/.test(haystack)) {
+    return 'Checking MyApprovals...';
+  }
+  if (/\b(inbox|mailbox|outlook|e-?mail|message)\b/.test(haystack)) {
+    return 'Scanning inbox...';
+  }
+  if (/\bteams?\b/.test(haystack)) {
+    return 'Scanning Teams...';
+  }
+  if (/\b(browser|edge|cdp|portal)\b/.test(haystack)) {
+    return system ? `Checking ${system}...` : 'Checking portal...';
+  }
+  if (/work[_-]?iq/i.test(haystack)) {
+    return system && !/microsoft 365/i.test(system) ? `Checking ${system}...` : 'Scanning Microsoft 365...';
+  }
+  return system ? `Checking ${system}...` : 'Checking authoritative system...';
+}
+
 function deriveChatConfidence({ markersParsed, markersApplied, markersHeld, markersDropped, parseErrors }) {
   if (normalizeArray(parseErrors).length || markersHeld > 0 || markersDropped > 0) return 'low';
   if (markersParsed > 0 && markersApplied >= markersParsed) return 'high';
   return 'medium';
+}
+
+async function applyDeepVerificationMarkersAfterAnswer({
+  tasksFile,
+  taskId,
+  conversationId,
+  parsedMarkers,
+  state,
+  now,
+  runId,
+  job,
+  _readJsonFile,
+  _writeJsonFileAtomic,
+  _runGateway,
+  _applyMarkerBatch
+}) {
+  let scoped = { markers: [], held: [] };
+  let gatewayFilter = { held: [], approved: [], markers: [], gatewayParsed: true, gatewayParseError: null };
+  let applyResult = { applied: 0, dropped: [], data: null };
+  try {
+    const latestData = migrateToV5(_readJsonFile(tasksFile));
+    const latestTask = normalizeArray(latestData.tasks).find(item => item.id === taskId);
+    if (!latestTask) throw new Error('Task was deleted before deep verification marker apply');
+    scoped = scopeMarkersToTask(parsedMarkers, latestTask);
+
+    job?.emit?.('job.progress', {
+      phase: 'brain_gateway',
+      activePhase: 'brain_gateway',
+      agentPhase: 'checking',
+      stage: 'deep_verify',
+      blocksTask: false,
+      conversationId,
+      statusText: 'Applying verified task updates...',
+      markers: scoped.markers.length
+    });
+
+    const gatewayResult = await _runGateway({
+      stateFile: state.stateFile,
+      factSheetFiles: state.factSheetFiles,
+      markers: scoped.markers,
+      brainWorkDir: state.brainWorkDir,
+      runId,
+      runClass: BRAIN_RUN_CLASS.BACKGROUND
+    });
+    gatewayFilter = filterMarkersThroughGateway(scoped.markers, gatewayResult);
+    applyResult = _applyMarkerBatch(latestData, gatewayFilter.markers, {
+      now,
+      runId,
+      auditLogFile: null
+    });
+    updateDeepVerificationMarkerStatus(applyResult.data, taskId, {
+      conversationId,
+      now: new Date(),
+      jobId: job?.id || null,
+      runId,
+      markersApplied: applyResult.applied,
+      markersHeld: gatewayFilter.held.length + scoped.held.length,
+      markersDropped: applyResult.dropped.length,
+      markerProcessingStatus: 'completed',
+      gateway: {
+        approvedMarkers: gatewayFilter.approved.length,
+        heldMarkers: gatewayFilter.held.length,
+        parsed: gatewayFilter.gatewayParsed,
+        parseError: gatewayFilter.gatewayParseError
+      }
+    });
+    _writeJsonFileAtomic(tasksFile, applyResult.data);
+    job?.emit?.('job.progress', {
+      phase: 'marker_apply_done',
+      activePhase: 'marker_apply_done',
+      agentPhase: 'completed',
+      stage: 'deep_verify',
+      blocksTask: false,
+      conversationId,
+      statusText: 'Task updates applied.',
+      markersApplied: applyResult.applied,
+      markersHeld: gatewayFilter.held.length + scoped.held.length
+    });
+    return {
+      ok: true,
+      scoped,
+      gatewayFilter,
+      applyResult
+    };
+  } catch (err) {
+    try {
+      const latestData = migrateToV5(_readJsonFile(tasksFile));
+      updateDeepVerificationMarkerStatus(latestData, taskId, {
+        conversationId,
+        now: new Date(),
+        jobId: job?.id || null,
+        runId,
+        markersApplied: applyResult.applied || 0,
+        markersHeld: (gatewayFilter.held?.length || 0) + (scoped.held?.length || 0),
+        markersDropped: applyResult.dropped?.length || 0,
+        markerProcessingStatus: 'failed',
+        error: err.message || String(err)
+      });
+      _writeJsonFileAtomic(tasksFile, latestData);
+    } catch {}
+    job?.emit?.('job.progress', {
+      phase: 'marker_apply_failed',
+      activePhase: 'marker_apply_failed',
+      agentPhase: 'failed',
+      stage: 'deep_verify',
+      blocksTask: false,
+      conversationId,
+      statusText: 'Task update markers failed.',
+      error: err.message || String(err)
+    });
+    return { ok: false, error: err.message || String(err) };
+  }
 }
 
 export async function runTaskChatFastOnce(job, {
@@ -931,6 +1230,7 @@ export async function runTaskChatFastOnce(job, {
           system: flag.system,
           reason: flag.reason,
           question: flag.question || userPrompt,
+          verifyExactly: normalizeVerifyExactly(flag.verifyExactly, flag.question || userPrompt),
           conversationId,
           startedAt: nowIso(now),
           jobId: null,
@@ -942,6 +1242,7 @@ export async function runTaskChatFastOnce(job, {
           system: flag.system,
           reason: flag.reason,
           question: flag.question || '',
+          verifyExactly: normalizeVerifyExactly(flag.verifyExactly, flag.question || ''),
           conversationId
         };
 
@@ -1090,27 +1391,73 @@ export async function runTaskChatDeepVerifyOnce(job, {
     runId
   });
 
+  const verifyExactly = normalizeVerifyExactly(deepVerification.verifyExactly, deepVerification.question || userPrompt);
+  const toolStatuses = [];
   setJobPhase(job, 'brain_run', { taskId, agentPhase: 'verifying', stage: 'deep_verify' });
-  const brainResult = await _runBrain({
-    prompt,
-    brainWorkDir: state.brainWorkDir,
-    attachments: attachments.map(attachment => attachment.absolutePath),
-    uploadsDir,
-    timeoutMs: DEFAULT_TASK_CHAT_DEEP_TIMEOUT_MS,
-    workIqHardLimit: DEFAULT_TASK_CHAT_DEEP_WORKIQ_LIMIT,
-    runClass: BRAIN_RUN_CLASS.BACKGROUND,
-    mcpMode: 'default',
-    schedulerLabel: `task-chat-deep:${taskId}`,
-    onSchedulerUpdate: schedulerProgress(job, 'brain_run', { taskId, agentPhase: 'verifying', stage: 'deep_verify' }),
-    cleanBrainWorkDir: false
-  });
-  if (!brainResult.ok) {
-    throw new Error(brainResult.error?.message || 'Task chat deep verification failed');
+  let brainResult;
+  try {
+    brainResult = await _runBrain({
+      prompt,
+      brainWorkDir: state.brainWorkDir,
+      attachments: attachments.map(attachment => attachment.absolutePath),
+      uploadsDir,
+      timeoutMs: DEFAULT_TASK_CHAT_DEEP_TIMEOUT_MS,
+      workIqHardLimit: DEFAULT_TASK_CHAT_DEEP_WORKIQ_LIMIT,
+      runClass: BRAIN_RUN_CLASS.BACKGROUND,
+      mcpMode: 'default',
+      schedulerLabel: `task-chat-deep:${taskId}`,
+      onSchedulerUpdate: schedulerProgress(job, 'brain_run', { taskId, agentPhase: 'verifying', stage: 'deep_verify' }),
+      onToolExecution: (event, counters = {}) => {
+        const statusText = describeDeepVerificationToolStart(event, deepVerification);
+        if (!statusText) return;
+        toolStatuses.push(statusText.replace(/\.+$/, ''));
+        job?.emit?.('job.progress', {
+          phase: 'brain_run',
+          activePhase: 'brain_run',
+          agentPhase: 'verifying',
+          stage: 'deep_verify',
+          blocksTask: false,
+          conversationId,
+          statusText,
+          elapsedMs: Date.now() - startedAt,
+          workIqCalls: counters.workIqCalls || 0
+        });
+      },
+      cleanBrainWorkDir: false
+    });
+  } catch (err) {
+    brainResult = {
+      ok: false,
+      error: { message: err.message || String(err) },
+      timedOut: false,
+      salvaged: false,
+      killedForToolBudget: false,
+      counters: { workIqCalls: 0 },
+      assistantText: ''
+    };
   }
 
   const assistantText = brainResult.assistantText || brainResult.text || '';
   const parsed = _parseMarkers(assistantText);
-  const chatText = chatTextWithoutMarkers(assistantText);
+  const rawChatText = chatTextWithoutMarkers(assistantText);
+  const limited = Boolean(brainResult.timedOut || brainResult.killedForToolBudget);
+  if (!brainResult.ok && !limited && !rawChatText) {
+    throw new Error(brainResult.error?.message || 'Task chat deep verification failed');
+  }
+
+  const partial = limited || !brainResult.ok;
+  const status = partial ? 'partial' : 'completed';
+  const chatText = partial
+    ? buildDeepVerificationPartialText({
+        chatText: rawChatText,
+        brainResult,
+        deepVerification,
+        verifyExactly,
+        toolStatuses,
+        userPrompt
+      })
+    : rawChatText;
+
   if (!parsed.markers.length && !chatText) {
     throw new Error(parsed.errors.length ? 'Deep verification output had no valid markers or answer text' : 'Deep verification output was empty');
   }
@@ -1119,79 +1466,93 @@ export async function runTaskChatDeepVerifyOnce(job, {
   const latestTask = normalizeArray(latestData.tasks).find(item => item.id === taskId);
   if (!latestTask) throw new Error('Task was deleted before deep verification write');
 
-  let afterData = latestData;
-  let applyResult = { applied: 0, dropped: [], data: latestData };
-  let gatewayFilter = { held: [], approved: [], gatewayParsed: true, gatewayParseError: null };
-  let scoped = { markers: [], held: [] };
-
-  if (parsed.markers.length) {
-    scoped = scopeMarkersToTask(parsed.markers, latestTask);
-    setJobPhase(job, 'brain_gateway', { taskId, markers: scoped.markers.length, agentPhase: 'checking', stage: 'deep_verify' });
-    const gatewayResult = await _runGateway({
-      stateFile: state.stateFile,
-      factSheetFiles: state.factSheetFiles,
-      markers: scoped.markers,
-      brainWorkDir: state.brainWorkDir,
-      runId,
-      runClass: BRAIN_RUN_CLASS.BACKGROUND,
-      onSchedulerUpdate: schedulerProgress(job, 'brain_gateway', { taskId, agentPhase: 'checking', stage: 'deep_verify' })
-    });
-    gatewayFilter = filterMarkersThroughGateway(scoped.markers, gatewayResult);
-    applyResult = _applyMarkerBatch(latestData, gatewayFilter.markers, {
-      now,
-      runId,
-      auditLogFile: null
-    });
-    afterData = applyResult.data;
-  }
-
-  const confidence = deriveChatConfidence({
-    markersParsed: parsed.markers.length,
-    markersApplied: applyResult.applied,
-    markersHeld: gatewayFilter.held.length + scoped.held.length,
-    markersDropped: applyResult.dropped.length,
-    parseErrors: parsed.errors
-  });
-  const finalTask = appendDeepVerificationContribution(afterData, taskId, {
+  const confidence = status === 'partial'
+    ? 'low'
+    : deriveChatConfidence({
+        markersParsed: parsed.markers.length,
+        markersApplied: 0,
+        markersHeld: 0,
+        markersDropped: 0,
+        parseErrors: parsed.errors
+      });
+  const finalTask = appendDeepVerificationContribution(latestData, taskId, {
     conversationId,
     assistantText: chatText || 'Deep verification completed.',
     now,
     jobId: job?.id || null,
     runId,
     markersParsed: parsed.markers.length,
-    markersApplied: applyResult.applied,
-    markersHeld: gatewayFilter.held.length + scoped.held.length,
-    markersDropped: applyResult.dropped.length,
+    markersApplied: 0,
+    markersHeld: 0,
+    markersDropped: 0,
     parseErrors: parsed.errors,
     confidence,
     durationMs: Date.now() - startedAt,
-    status: 'completed'
+    status,
+    markerProcessingStatus: parsed.markers.length ? 'scheduled' : 'skipped'
   });
   if (!finalTask) throw new Error('Conversation disappeared before deep verification write');
 
-  _writeJsonFileAtomic(tasksFile, afterData);
+  _writeJsonFileAtomic(tasksFile, latestData);
+  job?.emit?.('job.progress', {
+    phase: 'answer_posted',
+    activePhase: 'answer_posted',
+    agentPhase: 'completed',
+    stage: 'deep_verify',
+    blocksTask: false,
+    conversationId,
+    statusText: status === 'partial' ? 'Partial result posted.' : 'Deep verification result posted.'
+  });
+
+  const markerApplyPromise = parsed.markers.length
+    ? new Promise(resolve => {
+        setImmediate(() => {
+          applyDeepVerificationMarkersAfterAnswer({
+            tasksFile,
+            taskId,
+            conversationId,
+            parsedMarkers: parsed.markers,
+            state,
+            now,
+            runId,
+            job,
+            _readJsonFile,
+            _writeJsonFileAtomic,
+            _runGateway,
+            _applyMarkerBatch
+          }).then(resolve, err => resolve({ ok: false, error: err.message || String(err) }));
+        });
+      })
+    : Promise.resolve({ ok: true, skipped: true });
 
   return {
     task: finalTask,
     assistantText: chatText,
     conversationId,
     markersParsed: parsed.markers.length,
-    markersApplied: applyResult.applied,
-    markersDropped: applyResult.dropped,
-    markersHeld: gatewayFilter.held.length + scoped.held.length,
+    markersApplied: 0,
+    markersDropped: [],
+    markersHeld: 0,
     confidence,
-    scopeHeld: scoped.held.length,
+    scopeHeld: 0,
     parseErrors: parsed.errors,
+    markerApplication: {
+      scheduled: parsed.markers.length > 0,
+      status: parsed.markers.length ? 'scheduled' : 'skipped'
+    },
+    markerApplyPromise,
     gateway: {
-      approvedMarkers: gatewayFilter.approved.length,
-      heldMarkers: gatewayFilter.held.length,
-      parsed: gatewayFilter.gatewayParsed,
-      parseError: gatewayFilter.gatewayParseError,
-      skipped: parsed.markers.length === 0
+      approvedMarkers: 0,
+      heldMarkers: 0,
+      parsed: true,
+      parseError: null,
+      skipped: parsed.markers.length === 0,
+      scheduled: parsed.markers.length > 0
     },
     brain: {
       timedOut: Boolean(brainResult.timedOut),
       salvaged: Boolean(brainResult.salvaged),
+      killedForToolBudget: Boolean(brainResult.killedForToolBudget),
       workIqCalls: brainResult.counters?.workIqCalls || 0
     }
   };
