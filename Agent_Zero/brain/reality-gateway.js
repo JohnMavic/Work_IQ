@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { runBrain } from './brain-runner.js';
+import { DEFAULT_TIMEOUT_MS, runBrain } from './brain-runner.js';
 import { BRAIN_WORK_DIR } from './agency-cli.js';
 import { BRAIN_RUN_CLASS } from './brain-scheduler.js';
 import { containsFabricatedSourceToken } from './link-guard.js';
@@ -10,7 +10,7 @@ import {
 } from './truth-tree.js';
 import { renderBrainLearningsBlock, validateLearningPayload } from './learnings.js';
 
-export const DEFAULT_GATEWAY_TIMEOUT_MS = 5 * 60 * 1000;
+export const DEFAULT_GATEWAY_TIMEOUT_MS = DEFAULT_TIMEOUT_MS;
 export const GATEWAY_DECISIONS = new Set(['approve', 'reject', 'needs-review']);
 const GATEWAY_LINE_PREFIX = 'GATEWAY_DECISION';
 
@@ -445,7 +445,8 @@ export function buildGatewayPrompt({ stateFile, factSheetFiles = [], markers, ru
     '# Agent Zero Reality-Check Gateway',
     '',
     'You are an adversarial verifier. You may only approve or hold the proposed marker lines.',
-    'Do not call WorkIQ or any external tool. Read only files in the current working directory.',
+    'Read the state file, Fact Sheets, Brain Learnings, and available evidence before deciding. Read/research/browse tools are allowed when they help verify marker evidence.',
+    'External write actions are forbidden unless the user explicitly requested that exact write in this same conversation. Do not send mail, click approvals, edit external systems, or mutate Agent Zero state directly.',
     'Always write gateway reasons and any generated review text in English.',
     '',
     `runId: ${runId}`,
@@ -474,6 +475,8 @@ export function buildGatewayPrompt({ stateFile, factSheetFiles = [], markers, ru
     '- If a user action was marked done by Martin, does current evidence confirm closure or show it is still open?',
     '- Is the result internally consistent, e.g. not done and waiting at the same time?',
     '- Are source links verbatim real WorkIQ links, not constructed citation-token URLs?',
+    '- Was available evidence used instead of ignored, including full message bodies and attachments when the marker depends on them?',
+    '- If the run discovered or referenced PDF, DOCX, XLSX, or other source attachments, were they downloaded/read and represented as source evidence before approving?',
     '- For LEARNING markers: approve only reusable principles, patterns, or stable general facts; reject task facts, secrets, credentials, and one-off project state.',
     '',
     'Default to needs-review on country/location/organization mismatch, missing evidence, mixed projects, fabricated links, or inconsistency.',
@@ -540,12 +543,10 @@ export async function runRealityGateway({
     prompt,
     brainWorkDir,
     timeoutMs: DEFAULT_GATEWAY_TIMEOUT_MS,
-    workIqHardLimit: 0,
     runClass,
     effort: process.env.AGENT_ZERO_BRAIN_EFFORT || 'xhigh',
     schedulerLabel: `${runClass}:gateway:${runId}`,
     onSchedulerUpdate,
-    callerArgs: ['--disable-mcp-server', 'workiq'],
     cleanBrainWorkDir: false
   });
   const first = normalizeGatewayRunResult(firstResult);
@@ -564,12 +565,10 @@ export async function runRealityGateway({
     prompt: retryPrompt,
     brainWorkDir,
     timeoutMs: DEFAULT_GATEWAY_TIMEOUT_MS,
-    workIqHardLimit: 0,
     runClass,
     effort: process.env.AGENT_ZERO_BRAIN_EFFORT || 'xhigh',
     schedulerLabel: `${runClass}:gateway-retry:${runId}`,
     onSchedulerUpdate,
-    callerArgs: ['--disable-mcp-server', 'workiq'],
     cleanBrainWorkDir: false
   });
   const retry = normalizeGatewayRunResult(retryResult);

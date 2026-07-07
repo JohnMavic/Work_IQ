@@ -299,7 +299,7 @@ export function renderScanState(inputData, {
   const data = migrateToV5(inputData);
   const resolvedBrainWorkDir = writeFiles ? prepareBrainWorkDir(brainWorkDir) : brainWorkDir;
   if (writeFiles) fs.mkdirSync(resolvedBrainWorkDir, { recursive: true });
-  const learnings = renderBrainLearningsBlock({
+  let learnings = renderBrainLearningsBlock({
     filePath: learningsFile,
     maxBytes: learningsMaxBytes
   });
@@ -315,22 +315,37 @@ export function renderScanState(inputData, {
   let spillFiles = [];
   let factSheetFiles = [];
   let selectedAttempt = attempts.at(-1);
-  for (const attempt of attempts) {
-    spillFiles = [];
-    factSheetFiles = [];
-    markdown = buildMarkdown(data, {
-      ...attempt,
-      brainWorkDir: resolvedBrainWorkDir,
-      runId,
-      historySpillBytes,
-      spillFiles,
-      factSheetFiles,
-      writeFiles,
-      now,
-      learningsBlock: learnings.markdown
-    });
-    selectedAttempt = attempt;
-    if (bytes(markdown) <= maxBytes) break;
+  function runRenderAttempts() {
+    for (const attempt of attempts) {
+      spillFiles = [];
+      factSheetFiles = [];
+      markdown = buildMarkdown(data, {
+        ...attempt,
+        brainWorkDir: resolvedBrainWorkDir,
+        runId,
+        historySpillBytes,
+        spillFiles,
+        factSheetFiles,
+        writeFiles,
+        now,
+        learningsBlock: learnings.markdown
+      });
+      selectedAttempt = attempt;
+      if (bytes(markdown) <= maxBytes) break;
+    }
+  }
+
+  runRenderAttempts();
+  if (bytes(markdown) > maxBytes && learningsMaxBytes === undefined && learnings.bytes > 1024) {
+    const overflow = bytes(markdown) - maxBytes;
+    const targetLearningBytes = Math.max(1024, learnings.bytes - overflow - 256);
+    if (targetLearningBytes < learnings.bytes) {
+      learnings = renderBrainLearningsBlock({
+        filePath: learningsFile,
+        maxBytes: targetLearningBytes
+      });
+      runRenderAttempts();
+    }
   }
 
   const stateFile = writeFiles ? path.join(resolvedBrainWorkDir, `scan-state-${safeFilePart(runId)}.md`) : null;

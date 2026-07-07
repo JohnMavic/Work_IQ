@@ -49,6 +49,12 @@ extracts content summaries, and monitors threads for updates — all powered by 
 
 **Data flow:** Browser → Express → Copilot SDK → Work IQ MCP → Microsoft 365 → back up the chain.
 
+**External write guardrail:** Agent Zero may read, research, browse, and download evidence
+freely. It must not send mail, click approvals, create calendar items, update tickets, or
+mutate any external system unless the user explicitly requests that exact write in the
+same conversation. State changes inside Agent Zero still go through marker validation,
+Reality Gateway review, and atomic writes.
+
 **Session lifecycle management:** Each SDK-based scan operation (Phases 2, 3, search, correction) creates a fresh Copilot SDK session. Phase 1 uses a different path — it communicates with the Work IQ subprocess directly via JSON-RPC (no SDK session needed). All SDK sessions are tracked in a global `activeSessions` Set and guaranteed to be destroyed via `destroySession()` in finally blocks, graceful shutdown handlers (SIGINT/SIGTERM), and a startup orphan reaper. A session slot limiter (`waitForSDKSlot()`) caps concurrent SDK sessions at 2.
 
 ---

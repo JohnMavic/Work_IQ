@@ -22,13 +22,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '..');
 
-export const DEFAULT_TASK_CHAT_TIMEOUT_MS = 10 * 60 * 1000;
-export const DEFAULT_TASK_CHAT_WORKIQ_LIMIT = 12;
+export const DEFAULT_TASK_CHAT_TIMEOUT_MS = 25 * 60 * 1000;
+export const DEFAULT_TASK_CHAT_WORKIQ_LIMIT = 150;
 export const DEFAULT_TASK_CHAT_FAST_TIMEOUT_MS = 120 * 1000;
 export const DEFAULT_TASK_CHAT_FAST_WORKIQ_LIMIT = 0;
-export const DEFAULT_TASK_CHAT_DEEP_TARGET_MS = 5 * 60 * 1000;
-export const DEFAULT_TASK_CHAT_DEEP_TIMEOUT_MS = 10 * 60 * 1000;
-export const DEFAULT_TASK_CHAT_DEEP_WORKIQ_LIMIT = 6;
+export const DEFAULT_TASK_CHAT_DEEP_TARGET_MS = 25 * 60 * 1000;
+export const DEFAULT_TASK_CHAT_DEEP_TIMEOUT_MS = 25 * 60 * 1000;
+export const DEFAULT_TASK_CHAT_DEEP_WORKIQ_LIMIT = 150;
 export const DEFAULT_TASKS_FILE = path.join(REPO_ROOT, 'tasks.json');
 export const DEEP_VERIFY_PREFIX = 'DEEP_VERIFY';
 
@@ -197,7 +197,9 @@ function writeTaskChatState({ data, task, taskId, userPrompt, attachments, brain
       pmStatus: task.pmStatus || null,
       lineItems: normalizeArray(task.lineItems),
       sourceRefs: sourceRefsForContext(task),
+      processing: task.processing || null,
       brainState: task.brainState || null,
+      factSheetFile,
       recentHistory: recentHistory(task),
       verificationSummary: {
         projectStateLastVerifiedAt: projectStateLastVerifiedAt(task),
@@ -319,7 +321,6 @@ function normalizeVerifyExactly(value, fallbackText = '') {
     if (seen.has(key)) continue;
     seen.add(key);
     items.push(text);
-    if (items.length >= DEFAULT_TASK_CHAT_DEEP_WORKIQ_LIMIT) break;
   }
   if (!items.length && fallbackText) {
     const fallback = compactText(fallbackText, 260);
@@ -520,6 +521,9 @@ export function buildTaskChatPrompt({ stateFileName, factSheetFiles, userPrompt,
     '',
     'Rules:',
     '- You may call WorkIQ when current M365 evidence is needed.',
+    '- For update-search requests, discover new M365 communications since the task processing cursor when available, using mail/Teams MCPs preferentially; read full bodies and any PDF, DOCX, or XLSX attachments before proposing updates.',
+    '- Attachments are mandatory evidence when present and relevant; do not ignore them or replace them with a lossy summary.',
+    '- External write actions are forbidden unless the user explicitly requested that exact write in this same conversation. Reading, researching, browsing, and evidence collection are unrestricted.',
     '- Answer the user in normal concise English text.',
     '- If task state should change, append valid marker lines after the answer.',
     '- Marker lines must use the same grammar as Agency scans and must not be in code fences.',
@@ -577,7 +581,7 @@ export function buildTaskChatDeepVerifyPrompt({
     `authoritativeSystem: ${deepVerification.system || 'unknown system'}`,
     `targetDurationMs: ${DEFAULT_TASK_CHAT_DEEP_TARGET_MS}`,
     `hardCapMs: ${DEFAULT_TASK_CHAT_DEEP_TIMEOUT_MS}`,
-    `workIqCallLimit: ${DEFAULT_TASK_CHAT_DEEP_WORKIQ_LIMIT}`,
+    `toolEmergencyStop: ${DEFAULT_TASK_CHAT_DEEP_WORKIQ_LIMIT}`,
     '',
     learningsBlock.trimEnd(),
     '',
@@ -585,12 +589,14 @@ export function buildTaskChatDeepVerifyPrompt({
     verifyExactlyLines,
     '',
     'Deep-verification contract:',
-    '- Verify exactly the focus list above against the authoritative system when feasible.',
-    '- Do not perform a full project rescan, full inbox rescan, or broad historical sweep. Use targeted lookup only when it directly supports one listed focus item.',
-    '- Aim to finish in about 5 minutes. The runner hard-stops at 10 minutes and 6 WorkIQ calls.',
-    '- If the cap is near or reached, answer with what is already verified, what was checked, and which focus items remain open. Do not assert unsupported state.',
+    '- Treat the focus list above as a priority hint, not a limit. If the user asked to search for updates, discover all relevant new communications for this task.',
+    '- For update-search requests, start from task.processing.cursorDate and task.processing.threads when present, use the lookback window, and enumerate newly surfaced mail/Teams items before deciding that nothing changed.',
+    '- Prefer mail and Teams MCPs for discovery. Read full message bodies and download/read relevant attachments, especially PDF, DOCX, and XLSX files. Attachments are mandatory evidence when present.',
+    '- The runner allows the full 25-minute deep window. It warns at 40 tool starts and emergency-stops at 150 tool starts only to prevent loops.',
+    '- If the cap is near or reached, answer with what is already verified, what was checked, and which items remain open. Do not assert unsupported state.',
     '- Portal/CDP/browser/shell patterns from Brain Learnings are allowed in this background stage.',
-    '- WorkIQ may be used to locate evidence, links, request ids, conversation ids, or current M365 context.',
+    '- WorkIQ, mail, Teams, browser, and other read/research tools may be used to locate evidence, links, request ids, conversation ids, source documents, or current M365 context.',
+    '- External write actions are forbidden unless the user explicitly requested that exact write in this same conversation. Do not send mail, click approvals, or mutate external systems.',
     '- Marker emission is allowed only after verification or a clearly evidenced update.',
     '- The Reality Gateway will review non-exempt markers, so keep marker evidence tight and scoped to this task.',
     '',
@@ -962,8 +968,8 @@ function updateDeepVerificationMarkerStatus(data, taskId, {
 }
 
 function deepVerificationLimitReason(brainResult) {
-  if (brainResult?.timedOut) return 'hit the 10-minute hard cap';
-  if (brainResult?.killedForToolBudget) return 'hit the 6-call WorkIQ budget';
+  if (brainResult?.timedOut) return 'hit the 25-minute hard cap';
+  if (brainResult?.killedForToolBudget) return 'hit the 150-tool emergency stop';
   return 'stopped before a complete verified answer was available';
 }
 
@@ -1196,7 +1202,7 @@ export async function runTaskChatFastOnce(job, {
       attachments: attachments.map(attachment => attachment.absolutePath),
       uploadsDir,
       timeoutMs: DEFAULT_TASK_CHAT_FAST_TIMEOUT_MS,
-      workIqHardLimit: DEFAULT_TASK_CHAT_FAST_WORKIQ_LIMIT,
+      toolCallHardLimit: DEFAULT_TASK_CHAT_FAST_WORKIQ_LIMIT,
       runClass: BRAIN_RUN_CLASS.INTERACTIVE,
       mcpMode: 'none',
       schedulerLabel: `task-chat-fast:${taskId}`,
@@ -1402,7 +1408,6 @@ export async function runTaskChatDeepVerifyOnce(job, {
       attachments: attachments.map(attachment => attachment.absolutePath),
       uploadsDir,
       timeoutMs: DEFAULT_TASK_CHAT_DEEP_TIMEOUT_MS,
-      workIqHardLimit: DEFAULT_TASK_CHAT_DEEP_WORKIQ_LIMIT,
       runClass: BRAIN_RUN_CLASS.BACKGROUND,
       mcpMode: 'default',
       schedulerLabel: `task-chat-deep:${taskId}`,
@@ -1606,9 +1611,8 @@ export async function runTaskChatOnce(job, {
     attachments: attachments.map(attachment => attachment.absolutePath),
     uploadsDir,
     timeoutMs: DEFAULT_TASK_CHAT_TIMEOUT_MS,
-    workIqHardLimit: DEFAULT_TASK_CHAT_WORKIQ_LIMIT,
     runClass: BRAIN_RUN_CLASS.INTERACTIVE,
-    mcpMode: 'workiq-only',
+    mcpMode: 'default',
     schedulerLabel: `task-chat:${taskId}`,
     onSchedulerUpdate: schedulerProgress(job, 'brain_run', { taskId, agentPhase: 'thinking' }),
     cleanBrainWorkDir: false

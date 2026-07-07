@@ -33,3 +33,8 @@ Text: MyApprovals hosts two object classes: MyOrder PO approvals (PO numbers) an
 Category: principle
 Evidence: Live inbox/Teams checks repeatedly resolve apparent status conflicts into partial states rather than one side being wholly correct.
 Text: When two sources appear to conflict on a binary status (resolved vs blocked), live verification often reveals a split state where one sub-component is complete and another remains blocked; capture both sub-states instead of forcing a single resolved/blocked verdict.
+
+## 2026-07-07 principle: attachments-are-source-evidence
+Category: principle
+Evidence: Batch 9 Entfesselung directive requires discovery to read available attachments instead of relying on lossy message summaries.
+Text: For mail or Teams discovery, relevant attachments such as PDF, DOCX, and XLSX files are source evidence. Download and read them before changing task state; if an attachment cannot be read, surface the gap instead of silently ignoring it.

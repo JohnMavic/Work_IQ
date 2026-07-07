@@ -10,6 +10,7 @@ import { filterMarkersThroughGateway, runRealityGateway } from '../brain/reality
 import { evaluateProcessingQualityGate } from '../brain/processing-ledger.js';
 import { renderFactSheetMarkdown, FACTSHEET_SECTIONS, normalizeFactSheet } from '../brain/factsheet.js';
 import { migrateToV5, writeJsonFileAtomic } from '../brain/tasks-v5.js';
+import { renderBrainLearningsBlock } from '../brain/learnings.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,7 +23,6 @@ export const DEFAULT_PREVIEW_FILE = path.join(REPO_ROOT, 'tests', 'runs', 'struc
 export const DEFAULT_REPORT_FILE = path.join(REPO_ROOT, 'docs', 'gremium', 'RESULT-MIGRATE-STRUCTURE.md');
 export const DEFAULT_BRAIN_WORK_DIR = path.join(REPO_ROOT, 'tests', 'runs', 'structure-migration', 'brain-work');
 export const DEFAULT_BATCH_SIZE = 5;
-export const DEFAULT_WORKIQ_LIMIT = 40;
 export const STRUCTURE_MIGRATION_REPAIR_ID = 'migrate-structure';
 
 const PM_LIST_FIELDS = ['planned', 'userActions', 'problems', 'risks', 'waitingOn'];
@@ -201,6 +201,7 @@ function taskForState(task, factSheetFile) {
     pmStatus: task.pmStatus || null,
     lineItems: normalizeArray(task.lineItems),
     processing: task.processing || null,
+    brainState: task.brainState || null,
     factSheetFile,
     sourceRefs: sourceRefsForState(task),
     recentHistory: normalizeArray(task.history).slice(-10).map(entry => ({
@@ -261,20 +262,24 @@ export function buildStructureMigrationPrompt({
   factSheetFiles,
   runId,
   batchIndex,
-  totalBatches
+  totalBatches,
+  learningsBlock = renderBrainLearningsBlock().markdown
 }) {
   return [
     skillText.trim(),
     '',
     '# One-Time Structure Migration Run',
     '',
-    'Read the batch state JSON and every listed Fact Sheet file before using WorkIQ.',
+    'Read the batch state JSON, every listed Fact Sheet file, and Brain Learnings before using tools or emitting markers.',
     'This run migrates legacy active tasks into the Batch 7 structure; it is not a consolidation run.',
+    'External write actions are forbidden unless the user explicitly requested that exact write in this same conversation.',
     '',
     `runId: ${runId}`,
     `batch: ${batchIndex}/${totalBatches}`,
     `stateFile: ./${stateFileName}`,
     `factSheetFiles: ${factSheetFiles.map(name => `./${name}`).join(', ') || 'none'}`,
+    '',
+    learningsBlock.trimEnd(),
     '',
     'Structure migration rules:',
     '- Mutate only task IDs listed in state.targetTaskIds.',
@@ -286,6 +291,7 @@ export function buildStructureMigrationPrompt({
     '- For each target task, initialize processing with cursorDate, threads, and processingLedger entries.',
     '- Use lineItems only when the evidence supports separable workstreams or dependencies.',
     '- Prefer a complete WorkIQ thread lookup for the task title/source. If WorkIQ does not index the source, do not invent facts.',
+    '- If current evidence has PDF, DOCX, XLSX, or other attachments, download/read them before emitting state based on that evidence.',
     '- If source evidence is unavailable or incomplete, still emit a low-confidence structure based on preserved legacy state and emit NEEDS_REVIEW for that task.',
     '- For unavailable source evidence, do not emit userActions. Use pmStatus.current/waitingOn to say the task needs review because source evidence was not verified.',
     '- Visible userActions are allowed only with askQuote and the full Batch 7 action gate proof.',
@@ -708,7 +714,6 @@ export async function runStructureMigrationDryRun({
       prompt,
       brainWorkDir: state.brainWorkDir,
       timeoutMs: 25 * 60 * 1000,
-      workIqHardLimit: DEFAULT_WORKIQ_LIMIT,
       cleanBrainWorkDir: false
     });
     if (!brainResult.ok) {

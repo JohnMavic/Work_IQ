@@ -9,6 +9,7 @@ import { applyMarkerBatch } from '../brain/marker-applier.js';
 import { parseMarkers } from '../brain/marker-parser.js';
 import { renderScanState } from '../brain/render-scan-state.js';
 import { migrateToV5, writeJsonFileAtomic } from '../brain/tasks-v5.js';
+import { renderBrainLearningsBlock } from '../brain/learnings.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,7 +18,6 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 export const DEFAULT_TASKS_FILE = path.join(REPO_ROOT, 'tasks.json');
 export const DEFAULT_SKILL_FILE = path.join(REPO_ROOT, 'docs', 'AGENCY_BRAIN_SCAN_SKILL.md');
 export const DEFAULT_PREVIEW_FILE = path.join(REPO_ROOT, 'docs', 'gremium', 'migration-preview.json');
-export const MIGRATION_WORKIQ_HARD_LIMIT = 60;
 export const DEFAULT_MIGRATION_STATE_MAX_BYTES = 128 * 1024;
 
 function readJsonFile(filePath) {
@@ -218,7 +218,12 @@ export function buildSimulatedResult(beforeData, afterData) {
   };
 }
 
-export function buildMigrationPrompt({ skillText, stateFile, runId }) {
+export function buildMigrationPrompt({
+  skillText,
+  stateFile,
+  runId,
+  learningsBlock = renderBrainLearningsBlock().markdown
+}) {
   const stateFileName = path.basename(stateFile);
   return [
     skillText.trim(),
@@ -227,13 +232,17 @@ export function buildMigrationPrompt({ skillText, stateFile, runId }) {
     '',
     'Auftrag: konsolidiere den bestehenden aktiven Agent-Zero-Bestand zu Projekt-Tasks mit Line Items.',
     'Dies ist ein Dry-Run- bzw. Preview-Lauf. Schreibe keine Dateien und aendere keinen State direkt.',
+    'External write actions are forbidden unless the user explicitly requested that exact write in this same conversation.',
+    '',
+    learningsBlock.trimEnd(),
     '',
     'Migration-specific rules:',
     '- Read the migration state file before making any WorkIQ calls.',
     '- Consider every active task in the state file, including tasks that are not enriched yet.',
     '- Prefer existing task titles, summaries, legacy links, and sourceRefs as evidence.',
     '- WorkIQ may be used only to clarify grouping, currentness, or missing evidence.',
-    '- Hard WorkIQ budget for this one-time migration is 60 calls; stop earlier when evidence is sufficient.',
+    '- The runner warns at 40 tool starts and only emergency-stops at 150 tool starts to prevent loops; stop earlier when evidence is sufficient.',
+    '- If current evidence has PDF, DOCX, XLSX, or other attachments, download/read them before emitting state based on that evidence.',
     '- Create or update project tasks only for real undertakings as the user would think about them.',
     '- Different workstreams inside the same undertaking are line items, not separate projects.',
     '- Genuine unrelated incidents, different undertakings, or uncertain merges must stay separate or become NEEDS_REVIEW.',
@@ -414,7 +423,6 @@ export async function runMigrationDryRun({
   const brainResult = await _runBrain({
     prompt,
     brainWorkDir,
-    workIqHardLimit: MIGRATION_WORKIQ_HARD_LIMIT,
     onJsonEvent: (event) => {
       const value = extractPremiumRequests(event);
       if (value !== null) premiumRequests = value;

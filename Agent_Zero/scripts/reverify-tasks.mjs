@@ -9,6 +9,7 @@ import { parseMarkers } from '../brain/marker-parser.js';
 import { applyMarkerBatch } from '../brain/marker-applier.js';
 import { filterMarkersThroughGateway, runRealityGateway } from '../brain/reality-gateway.js';
 import { migrateToV5, writeJsonFileAtomic } from '../brain/tasks-v5.js';
+import { renderBrainLearningsBlock } from '../brain/learnings.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,7 +18,6 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 export const DEFAULT_TASKS_FILE = path.join(REPO_ROOT, 'tasks.json');
 export const REVERIFY_REPAIR_ID = 'batch6-reverify-sweep';
 export const DEFAULT_BATCH_SIZE = 5;
-export const DEFAULT_WORKIQ_LIMIT = 40;
 
 function normalizeArray(value) {
   return Array.isArray(value) ? value : [];
@@ -81,6 +81,8 @@ function writeBatchState({ data, tasks, brainWorkDir, runId, batchIndex, now }) 
       lineItems: normalizeArray(task.lineItems),
       factSheetFile,
       sourceRefs: sourceRefsForContext(task),
+      processing: task.processing || null,
+      brainState: task.brainState || null,
       recentHistory: normalizeArray(task.history).slice(-8).map(entry => ({
         timestamp: entry.timestamp || null,
         type: entry.type || null,
@@ -109,17 +111,26 @@ function writeBatchState({ data, tasks, brainWorkDir, runId, batchIndex, now }) 
   };
 }
 
-function buildPrompt({ stateFileName, factSheetFiles, runId, batchIndex }) {
+function buildPrompt({
+  stateFileName,
+  factSheetFiles,
+  runId,
+  batchIndex,
+  learningsBlock = renderBrainLearningsBlock().markdown
+}) {
   return [
     '# Agent Zero Batch 6 Re-Verification Sweep',
     '',
-    'You are repairing existing Agent Zero task state. Read the batch state JSON and all listed Fact Sheet files.',
-    'Use WorkIQ when current M365 evidence is needed. Emit only valid marker lines and short non-marker notes if partial.',
+    'You are repairing existing Agent Zero task state. Read the batch state JSON, all listed Fact Sheet files, and Brain Learnings before using tools or emitting markers.',
+    'Use available read/research tools when current M365 evidence is needed. Emit only valid marker lines and short non-marker notes if partial.',
+    'External write actions are forbidden unless the user explicitly requested that exact write in this same conversation.',
     '',
     `runId: ${runId}`,
     `batchIndex: ${batchIndex}`,
     `stateFile: ./${stateFileName}`,
     `factSheetFiles: ${factSheetFiles.map(name => `./${name}`).join(', ')}`,
+    '',
+    learningsBlock.trimEnd(),
     '',
     'For every active task in this batch, verify every statement in summary, pmStatus, lineItems, and Fact Sheet:',
     '- Is the statement supported by sourceRefs or current WorkIQ mailbox evidence?',
@@ -128,6 +139,7 @@ function buildPrompt({ stateFileName, factSheetFiles, runId, batchIndex }) {
     '- Is every pmStatus.userActions entry truly an action Martin personally must do?',
     '- Are actions for other people represented as lineItems or Fact Sheet Open Actions with explicit owner?',
     '- For user actions marked done by Martin, does current evidence confirm closure or show still open?',
+    '- If evidence includes PDF, DOCX, XLSX, or other attachments, read those attachments before keeping or changing the node.',
     '',
     'Repair rules:',
     '- Prefer FACTSHEET_UPDATE corrective patches and PROJECT_UPDATE/LINEITEM_UPDATE markers over narration.',
@@ -352,7 +364,6 @@ export async function runReverifyTasks({
       prompt,
       brainWorkDir: state.brainWorkDir,
       timeoutMs: 25 * 60 * 1000,
-      workIqHardLimit: DEFAULT_WORKIQ_LIMIT,
       cleanBrainWorkDir: false
     });
     if (!brainResult.ok) {

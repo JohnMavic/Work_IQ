@@ -165,8 +165,10 @@ test('structure migration dry-run and apply migrate old task without field loss'
     brainWorkDir: path.join(dir, 'brain-work'),
     runId: 'structure-test',
     now: new Date('2026-07-06T10:00:00.000Z'),
-    _runBrain: async ({ prompt, workIqHardLimit }) => {
-      sawPrompt = /old summary is a fallback field/.test(prompt) && workIqHardLimit === 40;
+    _runBrain: async ({ prompt }) => {
+      sawPrompt = /old summary is a fallback field/.test(prompt)
+        && /Brain Learnings/.test(prompt)
+        && /PDF, DOCX, XLSX/.test(prompt);
       return {
         ok: true,
         assistantText: structureMarkers(),

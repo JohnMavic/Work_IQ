@@ -104,7 +104,7 @@ test('TWOTIER stage 1 is state-only, MCP-free, and never runs gateway', async ()
   const history = saved.tasks[0].history.at(-1);
 
   assert.equal(captured.timeoutMs, DEFAULT_TASK_CHAT_FAST_TIMEOUT_MS);
-  assert.equal(captured.workIqHardLimit, DEFAULT_TASK_CHAT_FAST_WORKIQ_LIMIT);
+  assert.equal(captured.toolCallHardLimit, DEFAULT_TASK_CHAT_FAST_WORKIQ_LIMIT);
   assert.equal(captured.runClass, BRAIN_RUN_CLASS.INTERACTIVE);
   assert.equal(captured.mcpMode, 'none');
   assert.match(captured.prompt, /Do not emit Agent Zero marker lines/);
@@ -349,14 +349,16 @@ test('TWOTIER stage 2 posts answer before async gateway markers and keeps focuse
   const savedBeforeGateway = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
   const historyBeforeGateway = savedBeforeGateway.tasks[0].history[0];
 
-  assert.equal(DEFAULT_TASK_CHAT_DEEP_TARGET_MS, 5 * 60 * 1000);
+  assert.equal(DEFAULT_TASK_CHAT_DEEP_TARGET_MS, 25 * 60 * 1000);
   assert.equal(captured.timeoutMs, DEFAULT_TASK_CHAT_DEEP_TIMEOUT_MS);
-  assert.equal(captured.workIqHardLimit, DEFAULT_TASK_CHAT_DEEP_WORKIQ_LIMIT);
+  assert.equal(DEFAULT_TASK_CHAT_DEEP_WORKIQ_LIMIT, 150);
+  assert.equal(Object.hasOwn(captured, 'workIqHardLimit'), false);
   assert.equal(captured.runClass, BRAIN_RUN_CLASS.BACKGROUND);
   assert.equal(captured.mcpMode, 'default');
   assert.match(captured.prompt, /Portal\/CDP\/browser\/shell patterns/);
   assert.match(captured.prompt, /Verify exactly:\n1\. Check approval 123 in MyApprovals\n2\. Confirm whether the approval is still pending/);
-  assert.match(captured.prompt, /Do not perform a full project rescan, full inbox rescan, or broad historical sweep/);
+  assert.match(captured.prompt, /priority hint, not a limit/);
+  assert.match(captured.prompt, /PDF, DOCX, and XLSX/);
   assert.equal(gatewayCalls, 0);
   assert.equal(result.conversationId, conversationId);
   assert.equal(historyBeforeGateway.agentExecution.deepVerification.status, 'completed');
@@ -463,7 +465,7 @@ test('TWOTIER stage 2 hard cap posts partial result with open verification items
   assert.equal(history.agentExecution.deepVerification.completedAt, '2026-07-07T08:10:00.000Z');
   assert.equal(followup.status, 'partial');
   assert.equal(followup.confidence, 'low');
-  assert.match(followup.text, /10-minute hard cap/);
+  assert.match(followup.text, /25-minute hard cap/);
   assert.match(followup.text, /Checked during this run: Checking MyApprovals/);
   assert.match(followup.text, /Still open: Check approval 123 in MyApprovals; Scan inbox for the latest status mail/);
 });

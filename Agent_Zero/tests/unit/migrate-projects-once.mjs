@@ -148,7 +148,7 @@ test('dry-run writes a valid preview and leaves tasks.json hash unchanged', asyn
   });
   const previewFile = path.join(dir, 'migration-preview.json');
   const beforeHash = sha256File(tasksFile);
-  let sawHardLimit = false;
+  let sawPromptContext = false;
 
   const preview = await runMigrationDryRun({
     tasksFile,
@@ -157,8 +157,10 @@ test('dry-run writes a valid preview and leaves tasks.json hash unchanged', asyn
     brainWorkDir: path.join(dir, 'brain-work'),
     runId: 'migration-test',
     now: new Date('2026-07-05T10:00:00.000Z'),
-    _runBrain: async ({ prompt, workIqHardLimit, onJsonEvent }) => {
-      sawHardLimit = workIqHardLimit === 60;
+    _runBrain: async ({ prompt, onJsonEvent }) => {
+      sawPromptContext = /Brain Learnings/.test(prompt)
+        && /150 tool starts/.test(prompt)
+        && /PDF, DOCX, XLSX/.test(prompt);
       assert.match(prompt, /konsolidiere den bestehenden aktiven Agent-Zero-Bestand/);
       onJsonEvent?.({ type: 'result', data: { usage: { premiumRequests: 9 } } });
       return {
@@ -173,7 +175,7 @@ test('dry-run writes a valid preview and leaves tasks.json hash unchanged', asyn
     }
   });
 
-  assert.equal(sawHardLimit, true);
+  assert.equal(sawPromptContext, true);
   assert.equal(sha256File(tasksFile), beforeHash);
   assert.equal(preview.tasksHashBefore, beforeHash);
   assert.equal(preview.tasksHashAfter, beforeHash);
