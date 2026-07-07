@@ -4,6 +4,7 @@ import { BRAIN_WORK_DIR } from './agency-cli.js';
 import { prepareBrainWorkDir } from './brain-runner.js';
 import { migrateToV5 } from './tasks-v5.js';
 import { FACTSHEET_SECTIONS, normalizeFactSheet, renderFactSheetMarkdown } from './factsheet.js';
+import { renderBrainLearningsBlock } from './learnings.js';
 
 export const DEFAULT_STATE_MAX_BYTES = 24 * 1024;
 export const DEFAULT_HISTORY_SPILL_BYTES = 1600;
@@ -211,7 +212,8 @@ function buildMarkdown(data, options) {
     spillFiles,
     factSheetFiles,
     writeFiles,
-    now
+    now,
+    learningsBlock
   } = options;
 
   const tasks = normalizeArray(data.tasks);
@@ -231,6 +233,10 @@ function buildMarkdown(data, options) {
   lines.push('Read referenced spill files from the current working directory only when needed.');
   lines.push('For any candidate project assignment or update, read that project factSheet REQUIRED spill first.');
   lines.push('');
+  if (learningsBlock) {
+    lines.push(learningsBlock.trimEnd());
+    lines.push('');
+  }
 
   lines.push('## Open Projects');
   if (!openProjects.length) lines.push('- none');
@@ -286,11 +292,17 @@ export function renderScanState(inputData, {
   maxBytes = DEFAULT_STATE_MAX_BYTES,
   historySpillBytes = DEFAULT_HISTORY_SPILL_BYTES,
   writeFiles = true,
-  now = new Date().toISOString()
+  now = new Date().toISOString(),
+  learningsFile,
+  learningsMaxBytes
 } = {}) {
   const data = migrateToV5(inputData);
   const resolvedBrainWorkDir = writeFiles ? prepareBrainWorkDir(brainWorkDir) : brainWorkDir;
   if (writeFiles) fs.mkdirSync(resolvedBrainWorkDir, { recursive: true });
+  const learnings = renderBrainLearningsBlock({
+    filePath: learningsFile,
+    maxBytes: learningsMaxBytes
+  });
 
   const attempts = [
     { summaryChars: 180, lineItemLimit: 12, includePmStatus: true, pmStatusMode: 'inline' },
@@ -314,7 +326,8 @@ export function renderScanState(inputData, {
       spillFiles,
       factSheetFiles,
       writeFiles,
-      now
+      now,
+      learningsBlock: learnings.markdown
     });
     selectedAttempt = attempt;
     if (bytes(markdown) <= maxBytes) break;
@@ -331,6 +344,9 @@ export function renderScanState(inputData, {
     bytes: bytes(markdown),
     maxBytes,
     truncated: bytes(markdown) > maxBytes || selectedAttempt.summaryChars < attempts[0].summaryChars,
+    learningsBytes: learnings.bytes,
+    learningsTruncated: learnings.truncated,
+    learningsWarning: learnings.warning,
     openTaskIds: normalizeArray(data.tasks).filter(task => !isArchived(task)).map(task => task.id),
     archivedTaskIds: normalizeArray(data.tasks).filter(isArchived).map(task => task.id)
   };
