@@ -9,6 +9,7 @@ import { applyMarkerBatch } from './marker-applier.js';
 import { filterMarkersThroughGateway, runRealityGateway } from './reality-gateway.js';
 import { migrateToV5, writeJsonFileAtomic } from './tasks-v5.js';
 import { BRAIN_RUN_CLASS } from './brain-scheduler.js';
+import { renderBrainLearningsBlock } from './learnings.js';
 import {
   DEFAULT_UPLOADS_DIR,
   attachmentContextForPrompt,
@@ -153,7 +154,18 @@ function writeTaskChatState({ data, task, taskId, userPrompt, attachments, brain
   };
 }
 
-function buildTaskChatPrompt({ stateFileName, factSheetFiles, userPrompt, attachments, taskId, runId }) {
+const CHAT_MARKER_GRAMMAR = [
+  '[PROJECT_UPDATE] {"taskId":"task-...","summary":"...","pmStatus":{"current":"...","planned":[],"userActions":[],"problems":[],"risks":[],"waitingOn":[],"confidence":"medium"},"sourceRefs":[],"evidenceRefIds":["src-..."]}',
+  '[FACTSHEET_UPDATE] {"taskId":"task-...","sectionPatches":{"overview":[{"op":"add","text":"English fact","evidenceRefIds":["src-..."],"confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}]}}',
+  '[LINEITEM_NEW] {"taskId":"task-...","lineItem":{"id":"li-...","title":"...","category":"action","status":"open","owner":"user","userActionRequired":true,"userAction":"...","currentState":"...","confidence":"medium","evidenceRefIds":["src-..."],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open","askQuote":{"text":"...","from":"...","date":"...","threadRef":"conversation-id"},"threadCheck":{"coverage":"complete","addressedTo":"user","messageCount":1,"lastMessageDate":"...","checkedThroughMessageDate":"..."}}}',
+  '[LINEITEM_UPDATE] {"taskId":"task-...","lineItemId":"li-...","patch":{"status":"waiting","currentState":"...","confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."},"evidenceRefIds":["src-..."]}',
+  '[TASK_UPDATE] {"taskId":"task-...","patch":{"status":"in-progress","summary":"...","confidence":"medium"},"sourceRefs":[{"id":"src-...","type":"email|teams|manual","title":"...","date":"...","link":null,"evidenceText":"short factual summary"}],"evidenceRefIds":["src-..."]}',
+  '[LEARNING] {"text":"Reusable principle, pattern, or stable general fact.","category":"principle|pattern|fact","evidence":"why this learning is generally valid"}',
+  '[NEEDS_REVIEW] {"kind":"assignment|status|other","ref":"taskId|lineItemId|null","question":"...","confidence":"low"}',
+  '[SCAN_DONE] {"runId":"...","outcome":"success|partial","workIqCalls":0,"notes":"..."}'
+].join('\n');
+
+export function buildTaskChatPrompt({ stateFileName, factSheetFiles, userPrompt, attachments, taskId, runId, learningsBlock = renderBrainLearningsBlock().markdown }) {
   const attachmentContext = attachmentContextForPrompt(attachments);
   const attachmentLines = attachmentContext.length
     ? attachmentContext.map(item => `- ${item.sourceRefId}: ${item.fileName} (${item.mimeType || 'image/*'}, uploaded ${item.uploadedAt || 'unknown date'})`).join('\n')
@@ -170,6 +182,20 @@ function buildTaskChatPrompt({ stateFileName, factSheetFiles, userPrompt, attach
     `stateFile: ./${stateFileName}`,
     `factSheetFiles: ${factSheetFiles.map(name => `./${name}`).join(', ')}`,
     '',
+    learningsBlock.trimEnd(),
+    '',
+    'Truth hierarchy for answers and markers:',
+    '1. Systems of Record live-checked in the authoritative portal or service.',
+    '2. Full verbatim threads or source documents.',
+    '3. WorkIQ summaries and search results.',
+    '4. The task state file and Fact Sheet.',
+    '5. Old summaries, history, and inference.',
+    '',
+    'For state questions such as approved, open, closed, ticket status, or pending approval, attempt to verify the System of Record when feasible. Use the Edge-CDP pattern from Brain Learnings through shell/browser automation if no direct tool exists. If verification is not possible, explicitly say "unverified via system of record" and do not assert state from notification emails alone.',
+    '',
+    'Embedded marker grammar short reference. Do not read docs/AGENCY_BRAIN_SCAN_SKILL.md during task chat just to recover grammar:',
+    CHAT_MARKER_GRAMMAR,
+    '',
     'Image attachments supplied with this user prompt:',
     attachmentLines,
     '',
@@ -179,6 +205,7 @@ function buildTaskChatPrompt({ stateFileName, factSheetFiles, userPrompt, attach
     '- If task state should change, append valid marker lines after the answer.',
     '- Marker lines must use the same grammar as Agency scans and must not be in code fences.',
     '- Markers may only mutate the scoped taskId. Do not create or mutate other tasks.',
+    '- LEARNING markers may only propose reusable, general operating memory. They must not contain task facts, secrets, credentials, or one-off project state.',
     '- Attached images belong to this user prompt and may be screenshots of mail, plans, or related task evidence.',
     '- If you use information visible only in an attached image for a marker, introduce a sourceRef with type:"manual", the listed sourceRefId, the file name as title, the uploaded date, link:null, and a short English evidenceText.',
     '- Image-derived facts follow every normal rule: assignment checklist, evidence requirements, confidence caps, and gateway verification still apply.',
@@ -235,6 +262,9 @@ export function scopeMarkersToTask(markers, task) {
     if (['PROJECT_UPDATE', 'FACTSHEET_UPDATE', 'LINEITEM_NEW', 'LINEITEM_UPDATE', 'TASK_UPDATE'].includes(marker.type)) {
       ok = payload.taskId === taskId;
       reason = `marker targets ${payload.taskId || '(none)'}, expected ${taskId}`;
+    } else if (marker.type === 'LEARNING') {
+      ok = true;
+      reason = 'LEARNING markers do not mutate a task';
     } else if (marker.type === 'NEEDS_REVIEW') {
       ok = !payload.ref || payload.ref === taskId || allowedLineItemIds.has(payload.ref);
       reason = `review ref ${payload.ref || '(none)'} is outside task ${taskId}`;
@@ -263,6 +293,7 @@ function appendChatHistory(data, taskId, {
   markersApplied,
   markersHeld,
   parseErrors,
+  confidence,
   durationMs
 }) {
   const task = normalizeArray(data.tasks).find(item => item.id === taskId);
@@ -279,14 +310,14 @@ function appendChatHistory(data, taskId, {
     agentPlan: {
       intent: 'answer',
       understanding: 'Task-scoped Agency Brain chat',
-      confidence: null,
+      confidence,
       userConfirmed: true,
       jobId,
       runId
     },
     agentExecution: {
       parsedCount: 0,
-      confidence: null,
+      confidence,
       answer: assistantText || null,
       searchAttempts: [],
       ambiguities: [],
@@ -313,6 +344,12 @@ function appendChatHistory(data, taskId, {
   if (task.jobHistory.length > 20) task.jobHistory.shift();
   task.updatedAt = ts;
   return task;
+}
+
+function deriveChatConfidence({ markersParsed, markersApplied, markersHeld, markersDropped, parseErrors }) {
+  if (normalizeArray(parseErrors).length || markersHeld > 0 || markersDropped > 0) return 'low';
+  if (markersParsed > 0 && markersApplied >= markersParsed) return 'high';
+  return 'medium';
 }
 
 export async function runTaskChatOnce(job, {
@@ -419,6 +456,13 @@ export async function runTaskChatOnce(job, {
     markersApplied: applyResult.applied,
     markersHeld: gatewayFilter.held.length + scoped.held.length,
     parseErrors: parsed.errors,
+    confidence: deriveChatConfidence({
+      markersParsed: parsed.markers.length,
+      markersApplied: applyResult.applied,
+      markersHeld: gatewayFilter.held.length + scoped.held.length,
+      markersDropped: applyResult.dropped.length,
+      parseErrors: parsed.errors
+    }),
     durationMs: Date.now() - startedAt
   });
   if (!finalTask) throw new Error('Task was deleted before final write');
@@ -432,6 +476,7 @@ export async function runTaskChatOnce(job, {
     markersApplied: applyResult.applied,
     markersDropped: applyResult.dropped,
     markersHeld: gatewayFilter.held.length + scoped.held.length,
+    confidence: finalTask.history.at(-1)?.agentExecution?.confidence || 'medium',
     scopeHeld: scoped.held.length,
     parseErrors: parsed.errors,
     gateway: {

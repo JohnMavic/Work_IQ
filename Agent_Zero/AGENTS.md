@@ -63,7 +63,7 @@ long-lived WorkIQ process.
 - Project tasks use `taskType:"project"` plus `sourceRefs`, `lineItems`, `pmStatus`, `brainState`, archive/supersession fields, and normal task history.
 - Standalone actions remain `taskType:"single"`.
 - The agent may only change state through validated marker lines:
-  `PROJECT_NEW`, `PROJECT_UPDATE`, `LINEITEM_NEW`, `LINEITEM_UPDATE`, `TASK_NEW`, `TASK_UPDATE`, `NEEDS_REVIEW`, `SCAN_DONE`.
+  `PROJECT_NEW`, `PROJECT_UPDATE`, `LINEITEM_NEW`, `LINEITEM_UPDATE`, `TASK_NEW`, `TASK_UPDATE`, `LEARNING`, `NEEDS_REVIEW`, `SCAN_DONE`.
 - `marker-parser.js` ignores markers in code fences; `marker-applier.js` validates evidence references, allowed patch fields, confidence caps, and marker ordering before writing.
 
 ### Sandbox Model

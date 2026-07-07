@@ -22,14 +22,19 @@ English.
 
 ## Truth Hierarchy
 
-1. WorkIQ evidence from the current run.
-2. The provided state document and any spill files it references.
-3. Fact Sheet spill files, which are authoritative project reality context.
-4. Existing task summaries and histories.
-5. Inference.
+1. Systems of Record live-checked in the authoritative portal or service.
+2. Full verbatim threads or source documents.
+3. WorkIQ summaries and search results from the current run.
+4. The provided state document and Fact Sheet spill files.
+5. Existing task summaries, histories, old summaries, and inference.
 
 If a statement is not supported by levels 1-4, do not present it as fact. Use
-`NEEDS_REVIEW` for low-confidence assignment or status questions.
+`NEEDS_REVIEW` for low-confidence assignment or status questions. For state
+questions such as approved, open, closed, ticket status, or pending approval, try to
+verify the System of Record using the relevant tool or the Edge-CDP pattern from Brain
+Learnings when no direct tool exists. If live verification is unavailable, label the
+state explicitly as `unverified via system of record`; never assert approval or ticket
+state from notification emails alone.
 
 ## Project Granularity
 
@@ -185,6 +190,7 @@ markers in code fences.
 [LINEITEM_UPDATE] {"taskId":"task-...","lineItemId":"li-...","patch":{"status":"waiting","currentState":"...","confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["li-..."],"quote":"short verbatim quote","reason":"why this disposition is correct"}],"evidenceRefIds":["src-..."]}
 [TASK_NEW] {"title":"...","summary":"...","sourceRef":{"id":"src-...","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","evidenceText":"short factual summary"},"status":"new|on-radar|needs-attention"}
 [TASK_UPDATE] {"taskId":"task-...","patch":{"status":"in-progress","summary":"...","confidence":"medium"},"sourceRefs":[{"id":"src-...","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","evidenceText":"short factual summary"}],"evidenceRefIds":["src-..."]}
+[LEARNING] {"text":"Reusable principle, pattern, or stable general fact.","category":"principle|pattern|fact","evidence":"why this learning is generally valid"}
 [NEEDS_REVIEW] {"kind":"assignment|status|other","ref":"taskId|lineItemId|null","question":"...","confidence":"low"}
 [SCAN_DONE] {"runId":"...","outcome":"success|partial","newProjects":0,"updatedProjects":0,"newSingleTasks":0,"archivedTasks":0,"workIqCalls":0,"processingQuality":{"required":true,"enumeratedItems":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id"}],"threadCounts":[{"threadRef":"conversation-id","count":1}]},"notes":"..."}
 ```
@@ -208,6 +214,9 @@ markers in code fences.
   Risks & Challenges; People & Roles; Decision Makers; Decisions Log; Open Actions;
   Sources.
 - Never apply low-confidence assignments directly; emit `NEEDS_REVIEW`.
+- Emit `LEARNING` only for reusable operating memory: principles, generic patterns, or
+  stable general facts. Do not emit task facts, secrets, credentials, sourceRef ids,
+  project-specific state, or one-off observations as learnings.
 - If you detect a contradiction or project/country/location/organization mismatch,
   emit `NEEDS_REVIEW` instead of narrating around it.
 - If no useful updates are found, still emit `SCAN_DONE` with outcome `success`.
