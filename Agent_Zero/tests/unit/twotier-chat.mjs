@@ -4,11 +4,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  buildDeterministicTaskChatFallback,
   DEFAULT_TASK_CHAT_DEEP_TIMEOUT_MS,
   DEFAULT_TASK_CHAT_DEEP_WORKIQ_LIMIT,
   DEFAULT_TASK_CHAT_FAST_TIMEOUT_MS,
   DEFAULT_TASK_CHAT_FAST_WORKIQ_LIMIT,
   extractDeepVerificationFlag,
+  inferDeepVerificationRequirement,
   runTaskChatDeepVerifyOnce,
   runTaskChatFastOnce
 } from '../../brain/task-chat.js';
@@ -56,7 +58,7 @@ test('TWOTIER flag parser strips machine line and detects deep verification targ
   assert.doesNotMatch(parsed.text, /DEEP_VERIFY/);
 });
 
-test('TWOTIER stage 1 uses fast timeout, max two WorkIQ calls, and never runs gateway', async () => {
+test('TWOTIER stage 1 is state-only, MCP-free, and never runs gateway', async () => {
   const dir = resetTmp('stage1-guards');
   const tasksFile = writeFixture(dir, {
     version: 5,
@@ -102,14 +104,159 @@ test('TWOTIER stage 1 uses fast timeout, max two WorkIQ calls, and never runs ga
   assert.equal(captured.timeoutMs, DEFAULT_TASK_CHAT_FAST_TIMEOUT_MS);
   assert.equal(captured.workIqHardLimit, DEFAULT_TASK_CHAT_FAST_WORKIQ_LIMIT);
   assert.equal(captured.runClass, BRAIN_RUN_CLASS.INTERACTIVE);
-  assert.equal(captured.mcpMode, 'workiq-only');
+  assert.equal(captured.mcpMode, 'none');
   assert.match(captured.prompt, /Do not emit Agent Zero marker lines/);
-  assert.match(captured.prompt, /Do not use portal, CDP, browser, shell/);
+  assert.match(captured.prompt, /State-only means no WorkIQ/);
+  assert.doesNotMatch(captured.prompt, /You may use WorkIQ/);
   assert.equal(saved.tasks[0].status, 'new');
   assert.equal(result.markersHeld, 1);
   assert.equal(result.gateway.skipped, true);
   assert.equal(history.agentExecution.deepVerification.status, 'running');
   assert.equal(history.agentExecution.deepVerification.system, 'MyApprovals');
+});
+
+test('TWOTIER scan and lookup questions force the Stage 2 flag even if Stage 1 says no', async () => {
+  const dir = resetTmp('stage1-scan-flag');
+  const tasksFile = writeFixture(dir, {
+    version: 5,
+    tasks: [{
+      id: 'task-scan',
+      taskType: 'project',
+      title: 'Scan task',
+      status: 'new',
+      sourceRefs: [],
+      history: [],
+      pmStatus: {
+        current: 'No open user actions are recorded.',
+        planned: [],
+        userActions: [],
+        problems: [],
+        risks: [],
+        waitingOn: [],
+        confidence: 'medium',
+        lastSynthesizedAt: '2026-07-07T08:00:00.000Z'
+      }
+    }]
+  });
+
+  const result = await runTaskChatFastOnce({
+    id: 'job-scan',
+    taskId: 'task-scan',
+    input: { text: 'Gibt es Action Items, bei denen ich aktiv werden muss? Ich scanne dazu meine Inbox der letzten zwei Wochen.' },
+    emit() {}
+  }, {
+    tasksFile,
+    brainWorkDir: path.join(dir, 'brain-work'),
+    runId: 'scan-flag-run',
+    now: new Date('2026-07-07T08:00:00.000Z'),
+    _runBrain: async () => ({
+      ok: true,
+      assistantText: [
+        'No open user actions are recorded from project state, last verified 2026-07-07T08:00:00.000Z.',
+        'DEEP_VERIFY {"required":false}'
+      ].join('\n'),
+      counters: { workIqCalls: 0 }
+    }),
+    _writeJsonFileAtomic: (file, data) => writeJsonFileAtomic(file, data, { maxBackups: 0 })
+  });
+
+  assert.equal(DEFAULT_TASK_CHAT_FAST_WORKIQ_LIMIT, 0);
+  assert.equal(result.deepVerification.required, true);
+  assert.equal(result.deepVerification.status, 'running');
+  assert.equal(result.deepVerification.system, 'Microsoft 365');
+  assert.match(result.assistantText, /Deep verification against Microsoft 365 started/);
+});
+
+test('TWOTIER deterministic Stage 1 timeout fallback persists an answer and queues deep verification', async () => {
+  const dir = resetTmp('stage1-timeout-fallback');
+  const tasksFile = writeFixture(dir, {
+    version: 5,
+    tasks: [{
+      id: 'task-timeout',
+      taskType: 'project',
+      title: 'Timeout task',
+      status: 'new',
+      updatedAt: '2026-07-06T18:00:00.000Z',
+      sourceRefs: [],
+      history: [],
+      pmStatus: {
+        current: 'The project is waiting for approval status confirmation.',
+        planned: [],
+        userActions: [{ text: 'Review the approval if still pending.', status: 'open' }],
+        problems: [],
+        risks: [],
+        waitingOn: [{ text: 'System-of-record approval state.' }],
+        confidence: 'medium',
+        lastSynthesizedAt: '2026-07-06T18:00:00.000Z'
+      },
+      factSheet: {
+        sections: {
+          status: [{ text: 'Approval state is not verified in the system of record.', date: '2026-07-06' }],
+          openActions: [],
+          budgetCostsApprovals: [],
+          risksChallenges: []
+        }
+      }
+    }]
+  });
+
+  const result = await runTaskChatFastOnce({
+    id: 'job-timeout',
+    taskId: 'task-timeout',
+    input: { text: 'Check whether this approval is still open.' },
+    emit() {}
+  }, {
+    tasksFile,
+    brainWorkDir: path.join(dir, 'brain-work'),
+    runId: 'timeout-fallback-run',
+    now: new Date('2026-07-07T08:00:00.000Z'),
+    _runBrain: async (options) => ({
+      ok: false,
+      timedOut: true,
+      salvaged: false,
+      error: { message: 'Agency brain run timed out' },
+      counters: { workIqCalls: 0 },
+      options
+    }),
+    _writeJsonFileAtomic: (file, data) => writeJsonFileAtomic(file, data, { maxBackups: 0 })
+  });
+  const saved = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+  const history = saved.tasks[0].history.at(-1);
+
+  assert.equal(result.brain.timedOut, true);
+  assert.equal(result.brain.deterministicFallback, true);
+  assert.equal(result.deepVerification.required, true);
+  assert.equal(result.deepVerification.system, 'MyApprovals');
+  assert.match(result.assistantText, /^Current project state:/);
+  assert.match(result.assistantText, /from project state, last verified 2026-07-06T18:00:00.000Z/);
+  assert.match(result.assistantText, /Deep verification against MyApprovals started/);
+  assert.equal(history.agentExecution.method, 'agency-task-chat-fast-fallback-v1');
+  assert.equal(history.agentResponse, result.assistantText);
+});
+
+test('TWOTIER deterministic helpers classify scan questions and summarize project state', () => {
+  const inferred = inferDeepVerificationRequirement('Bitte Inbox scannen und Status prüfen.');
+  assert.equal(inferred.required, true);
+  assert.equal(inferred.system, 'Microsoft 365');
+
+  const fallback = buildDeterministicTaskChatFallback({
+    userPrompt: 'Bitte Inbox scannen.',
+    task: {
+      id: 'task-helper',
+      title: 'Helper task',
+      updatedAt: '2026-07-06T09:00:00.000Z',
+      pmStatus: {
+        current: 'Known state only.',
+        userActions: [],
+        waitingOn: [],
+        problems: [],
+        risks: []
+      }
+    }
+  });
+  assert.match(fallback.assistantText, /Current project state: Known state only/);
+  assert.match(fallback.assistantText, /Deep verification against Microsoft 365 started/);
+  assert.equal(fallback.flag.required, true);
 });
 
 test('TWOTIER stage 2 uses background timeout, allows gateway, and appends to same conversation', async () => {

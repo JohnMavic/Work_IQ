@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { BRAIN_WORK_DIR } from './agency-cli.js';
 import { prepareBrainWorkDir, runBrain } from './brain-runner.js';
-import { renderFactSheetMarkdown } from './factsheet.js';
+import { normalizeFactSheet, renderFactSheetMarkdown } from './factsheet.js';
 import { parseMarkers, MARKER_REGEX } from './marker-parser.js';
 import { applyMarkerBatch } from './marker-applier.js';
 import { filterMarkersThroughGateway, runRealityGateway } from './reality-gateway.js';
@@ -24,8 +24,8 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 
 export const DEFAULT_TASK_CHAT_TIMEOUT_MS = 10 * 60 * 1000;
 export const DEFAULT_TASK_CHAT_WORKIQ_LIMIT = 12;
-export const DEFAULT_TASK_CHAT_FAST_TIMEOUT_MS = 3 * 60 * 1000;
-export const DEFAULT_TASK_CHAT_FAST_WORKIQ_LIMIT = 2;
+export const DEFAULT_TASK_CHAT_FAST_TIMEOUT_MS = 120 * 1000;
+export const DEFAULT_TASK_CHAT_FAST_WORKIQ_LIMIT = 0;
 export const DEFAULT_TASK_CHAT_DEEP_TIMEOUT_MS = 25 * 60 * 1000;
 export const DEFAULT_TASK_CHAT_DEEP_WORKIQ_LIMIT = 25;
 export const DEFAULT_TASKS_FILE = path.join(REPO_ROOT, 'tasks.json');
@@ -217,6 +217,155 @@ function writeTaskChatState({ data, task, taskId, userPrompt, attachments, brain
   };
 }
 
+function normalizedQuestionText(text) {
+  return String(text || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function inferVerificationSystem(normalizedText) {
+  if (/\b(approval|approved|approver|invoice|purchase order|po|myapprovals|myorder|freigabe|genehmig|rechnung|bestellung)\b/.test(normalizedText)) {
+    return 'MyApprovals';
+  }
+  if (/\b(inbox|mailbox|e-?mail|mail|teams|m365|microsoft 365|scan|scanne|search|suche|lookup|look up|durchsuch)\b/.test(normalizedText)) {
+    return 'Microsoft 365';
+  }
+  if (/\b(ticket|request|icm|ado|incident|service now|servicenow)\b/.test(normalizedText)) {
+    return 'system of record';
+  }
+  return 'authoritative system';
+}
+
+export function inferDeepVerificationRequirement(userPrompt) {
+  const normalized = normalizedQuestionText(userPrompt);
+  const asksForLookup = /\b(scan|scanne|search|suche|lookup|look up|durchsuch|inbox|mailbox|e-?mail|teams|check|pruf|verify|verifiz|nachsehen|last two weeks|letzten zwei wochen)\b/.test(normalized);
+  const asksForState = /\b(approval|approved|approver|pending|open|closed|paid|booked|completed|accepted|rejected|blocked|status|state|action items?|user actions?|invoice|purchase order|po|ticket|request|freigabe|genehmig|offen|erledigt|bezahlt|gebucht|abgeschlossen|angenommen|abgelehnt|blockiert|rechnung|bestellung|antrag|zustand|aktiv werden|muss ich)\b/.test(normalized);
+
+  if (!asksForLookup && !asksForState) {
+    return {
+      required: false,
+      system: 'authoritative system',
+      reason: '',
+      question: ''
+    };
+  }
+
+  return {
+    required: true,
+    system: inferVerificationSystem(normalized),
+    reason: asksForLookup
+      ? 'The question asks for an inbox, lookup, or live check that Stage 1 must defer.'
+      : 'The question asks for current state and requires deep verification beyond project state.',
+    question: String(userPrompt || '').trim()
+  };
+}
+
+function mergeDeepVerificationFlag(flag, inferred) {
+  const required = Boolean(flag?.required) || Boolean(inferred?.required);
+  if (!required) {
+    return {
+      required: false,
+      system: flag?.system || inferred?.system || 'authoritative system',
+      reason: flag?.reason || inferred?.reason || '',
+      question: flag?.question || inferred?.question || '',
+      raw: flag?.raw || null
+    };
+  }
+
+  const flagSystem = String(flag?.system || '').trim();
+  const inferredSystem = String(inferred?.system || '').trim();
+  return {
+    required: true,
+    system: flagSystem && flagSystem !== 'authoritative system' ? flagSystem : inferredSystem || flagSystem || 'authoritative system',
+    reason: flag?.reason || inferred?.reason || 'Deep verification is required beyond project state.',
+    question: flag?.question || inferred?.question || '',
+    raw: flag?.raw || null
+  };
+}
+
+function compactText(value, limit = 240) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  if (text.length <= limit) return text;
+  return `${text.slice(0, Math.max(0, limit - 3)).trimEnd()}...`;
+}
+
+function taskNodeText(entry) {
+  if (!entry || typeof entry !== 'object') return '';
+  return compactText(entry.text || entry.title || entry.currentState || entry.status || '', 180);
+}
+
+function activeStateEntries(entries) {
+  return normalizeArray(entries)
+    .filter(entry => entry && typeof entry === 'object')
+    .filter(entry => !entry.removedAt && !entry.userMarkedDoneAt)
+    .filter(entry => !['done', 'closed', 'resolved', 'obsolete', 'superseded'].includes(String(entry.resolutionStatus || entry.status || '').toLowerCase()))
+    .map(taskNodeText)
+    .filter(Boolean);
+}
+
+function summarizeEntries(label, entries, emptyText) {
+  const visible = activeStateEntries(entries).slice(0, 3);
+  if (!visible.length) return `${label}: ${emptyText}`;
+  return `${label}: ${visible.join('; ')}`;
+}
+
+function factSheetFallbackSignals(task) {
+  const sheet = normalizeFactSheet(task?.factSheet);
+  const sections = sheet.sections || {};
+  const sectionOrder = ['status', 'openActions', 'budgetCostsApprovals', 'risksChallenges'];
+  const signals = [];
+  const seen = new Set();
+
+  for (const sectionId of sectionOrder) {
+    for (const entry of normalizeArray(sections[sectionId])) {
+      if (!entry || entry.removedAt) continue;
+      const text = compactText(entry.text || entry.title || entry.status || '', 160);
+      if (!text || seen.has(text)) continue;
+      seen.add(text);
+      signals.push(text);
+      if (signals.length >= 3) return signals;
+    }
+  }
+
+  return signals;
+}
+
+export function buildDeterministicTaskChatFallback({ task, userPrompt, now = new Date(), reason = 'Stage 1 did not return an answer' } = {}) {
+  const lastVerified = projectStateLastVerifiedAt(task) || 'unknown';
+  const verification = `from project state, last verified ${lastVerified}`;
+  const pm = task?.pmStatus || {};
+  const inferred = inferDeepVerificationRequirement(userPrompt);
+  const flag = {
+    required: true,
+    system: inferred.system || 'authoritative system',
+    reason: inferred.reason || reason,
+    question: inferred.question || String(userPrompt || '').trim()
+  };
+  const current = compactText(pm.current || task?.summary || task?.title || 'No current project summary is recorded.', 300);
+  const factSignals = factSheetFallbackSignals(task);
+
+  const lines = [
+    `Current project state: ${current} (${verification}).`,
+    `${summarizeEntries('User actions', pm.userActions, 'none recorded')} (${verification}).`,
+    `${summarizeEntries('Waiting on', pm.waitingOn, 'none recorded')} (${verification}).`,
+    `${summarizeEntries('Problems', pm.problems, 'none recorded')} (${verification}).`,
+    `${summarizeEntries('Risks', pm.risks, 'none recorded')} (${verification}).`
+  ];
+
+  if (factSignals.length) {
+    lines.push(`Fact Sheet signals: ${factSignals.join('; ')} (${verification}).`);
+  }
+
+  lines.push(`Deep verification against ${flag.system} started — I will update this conversation.`);
+
+  return {
+    assistantText: lines.join('\n'),
+    flag
+  };
+}
+
 export function buildTaskChatFastPrompt({
   stateFileName,
   factSheetFiles,
@@ -247,15 +396,16 @@ export function buildTaskChatFastPrompt({
     '',
     'Stage 1 contract:',
     '- Answer immediately from the known task state, Fact Sheet, recent history, and Brain Learnings.',
-    '- You may use WorkIQ only for at most two quick Microsoft 365 lookups when a fast signal is needed.',
-    '- Do not use portal, CDP, browser, shell, or system-of-record verification patterns in this stage.',
+    '- State-only means no WorkIQ, no Microsoft 365 lookup, no inbox scan, no MCP query, no portal, no CDP, no browser, no shell, and no system-of-record verification in this stage.',
+    '- If the user asks for an inbox scan, lookup, live check, current status, approval state, ticket/request/order/invoice state, or says they will scan their inbox, answer only from the project state and require deep verification.',
+    '- Do not introduce fresh search findings, inbox signals, or notification-email claims unless they already exist in the state file or Fact Sheet.',
     '- Do not emit Agent Zero marker lines such as [TASK_UPDATE], [PROJECT_UPDATE], [LINEITEM_UPDATE], [FACTSHEET_UPDATE], [NEEDS_REVIEW], [LEARNING], or [SCAN_DONE].',
     '- Do not propose task mutations in marker form. This stage is answer-only.',
     '',
     'Answer discipline:',
     '- Every factual sentence must carry its verification status inline.',
-    '- Facts from the task state or Fact Sheet must say "from project state (last verified <date>)" using task.verificationSummary.projectStateLastVerifiedAt when available, otherwise "from project state (last verified unknown)".',
-    '- Facts from WorkIQ summaries, notification emails, old history, inference, or attachments that are not system-of-record proof must say "signal only — unverified".',
+    '- Facts from the task state or Fact Sheet must say "from project state, last verified <date>" using task.verificationSummary.projectStateLastVerifiedAt when available, otherwise "from project state, last verified unknown".',
+    '- Facts from old history, inference, or attachments that are not system-of-record proof must say "signal only — unverified".',
     '- If the user asks whether something is approved, closed, open, paid, booked, completed, pending, blocked, accepted, rejected, or asks for a ticket/request/order/invoice status, give the best state-based answer but require deep verification.',
     '- If deep verification is required, the visible answer must end with exactly: "Deep verification against <system> started — I will update this conversation."',
     '',
@@ -739,98 +889,156 @@ export async function runTaskChatFastOnce(job, {
   });
 
   setJobPhase(job, 'brain_run', { taskId, agentPhase: 'thinking', stage: 'fast' });
-  const brainResult = await _runBrain({
-    prompt,
-    brainWorkDir: state.brainWorkDir,
-    attachments: attachments.map(attachment => attachment.absolutePath),
-    uploadsDir,
-    timeoutMs: DEFAULT_TASK_CHAT_FAST_TIMEOUT_MS,
-    workIqHardLimit: DEFAULT_TASK_CHAT_FAST_WORKIQ_LIMIT,
-    runClass: BRAIN_RUN_CLASS.INTERACTIVE,
-    mcpMode: 'workiq-only',
-    schedulerLabel: `task-chat-fast:${taskId}`,
-    onSchedulerUpdate: schedulerProgress(job, 'brain_run', { taskId, agentPhase: 'thinking', stage: 'fast' }),
-    cleanBrainWorkDir: false
-  });
-  if (!brainResult.ok) {
-    throw new Error(brainResult.error?.message || 'Task chat fast brain run failed');
+  let brainResult;
+  try {
+    brainResult = await _runBrain({
+      prompt,
+      brainWorkDir: state.brainWorkDir,
+      attachments: attachments.map(attachment => attachment.absolutePath),
+      uploadsDir,
+      timeoutMs: DEFAULT_TASK_CHAT_FAST_TIMEOUT_MS,
+      workIqHardLimit: DEFAULT_TASK_CHAT_FAST_WORKIQ_LIMIT,
+      runClass: BRAIN_RUN_CLASS.INTERACTIVE,
+      mcpMode: 'none',
+      schedulerLabel: `task-chat-fast:${taskId}`,
+      onSchedulerUpdate: schedulerProgress(job, 'brain_run', { taskId, agentPhase: 'thinking', stage: 'fast' }),
+      cleanBrainWorkDir: false
+    });
+  } catch (err) {
+    brainResult = {
+      ok: false,
+      error: { message: err.message || String(err) },
+      timedOut: false,
+      salvaged: false,
+      counters: { workIqCalls: 0 }
+    };
+  }
+
+  const persistFastAnswer = ({
+    chatText,
+    flag,
+    parsedMarkers = [],
+    parseErrors = [],
+    method = 'agency-task-chat-fast-v1',
+    confidence = 'medium',
+    deterministicFallback = false
+  }) => {
+    const conversationId = randomUUID();
+    const deepVerification = flag.required
+      ? {
+          required: true,
+          status: 'running',
+          system: flag.system,
+          reason: flag.reason,
+          question: flag.question || userPrompt,
+          conversationId,
+          startedAt: nowIso(now),
+          jobId: null,
+          runId: null
+        }
+      : {
+          required: false,
+          status: 'not-needed',
+          system: flag.system,
+          reason: flag.reason,
+          question: flag.question || '',
+          conversationId
+        };
+
+    const finalTask = appendChatHistory(beforeData, taskId, {
+      userText: userPrompt,
+      assistantText: chatText,
+      attachments,
+      now,
+      jobId: job?.id || null,
+      runId,
+      conversationId,
+      method,
+      deepVerification,
+      markersParsed: 0,
+      markersApplied: 0,
+      markersHeld: parsedMarkers.length,
+      parseErrors,
+      confidence,
+      durationMs: Date.now() - startedAt
+    });
+    if (!finalTask) throw new Error('Task was deleted before final write');
+
+    _writeJsonFileAtomic(tasksFile, beforeData);
+
+    return {
+      task: finalTask,
+      assistantText: chatText,
+      conversationId,
+      deepVerification,
+      markersParsed: 0,
+      markersApplied: 0,
+      markersDropped: 0,
+      markersHeld: parsedMarkers.length,
+      confidence: finalTask.history.at(-1)?.agentExecution?.confidence || confidence,
+      parseErrors,
+      gateway: {
+        approvedMarkers: 0,
+        heldMarkers: 0,
+        parsed: true,
+        parseError: null,
+        skipped: true
+      },
+      brain: {
+        timedOut: Boolean(brainResult?.timedOut),
+        salvaged: Boolean(brainResult?.salvaged),
+        workIqCalls: brainResult?.counters?.workIqCalls || 0,
+        deterministicFallback
+      }
+    };
+  };
+
+  if (!brainResult?.ok) {
+    const fallback = buildDeterministicTaskChatFallback({
+      task,
+      userPrompt,
+      now,
+      reason: brainResult?.error?.message || 'Task chat fast brain run failed'
+    });
+    return persistFastAnswer({
+      chatText: fallback.assistantText,
+      flag: fallback.flag,
+      method: 'agency-task-chat-fast-fallback-v1',
+      confidence: 'medium',
+      deterministicFallback: true
+    });
   }
 
   const assistantText = brainResult.assistantText || brainResult.text || '';
   const parsed = _parseMarkers(assistantText);
   const flagResult = extractDeepVerificationFlag(chatTextWithoutMarkers(assistantText));
-  const chatText = ensureDeepVerificationLine(flagResult.text, flagResult.flag);
+  const inferredFlag = inferDeepVerificationRequirement(userPrompt);
+  const effectiveFlag = mergeDeepVerificationFlag(flagResult.flag, inferredFlag);
+  const chatText = ensureDeepVerificationLine(flagResult.text, effectiveFlag);
   if (!chatText) {
-    throw new Error(flagResult.errors.length ? 'Task chat output had no answer text and an invalid deep verification flag' : 'Task chat output was empty');
+    const fallback = buildDeterministicTaskChatFallback({
+      task,
+      userPrompt,
+      now,
+      reason: flagResult.errors.length ? 'Task chat output had no answer text and an invalid deep verification flag' : 'Task chat output was empty'
+    });
+    return persistFastAnswer({
+      chatText: fallback.assistantText,
+      flag: fallback.flag,
+      method: 'agency-task-chat-fast-fallback-v1',
+      confidence: 'medium',
+      deterministicFallback: true,
+      parseErrors: flagResult.errors
+    });
   }
 
-  const conversationId = randomUUID();
-  const deepVerification = flagResult.flag.required
-    ? {
-        required: true,
-        status: 'running',
-        system: flagResult.flag.system,
-        reason: flagResult.flag.reason,
-        question: flagResult.flag.question || userPrompt,
-        conversationId,
-        startedAt: nowIso(now),
-        jobId: null,
-        runId: null
-      }
-    : {
-        required: false,
-        status: 'not-needed',
-        system: flagResult.flag.system,
-        reason: flagResult.flag.reason,
-        question: flagResult.flag.question || '',
-        conversationId
-      };
-
-  const finalTask = appendChatHistory(beforeData, taskId, {
-    userText: userPrompt,
-    assistantText: chatText,
-    attachments,
-    now,
-    jobId: job?.id || null,
-    runId,
-    conversationId,
-    method: 'agency-task-chat-fast-v1',
-    deepVerification,
-    markersParsed: 0,
-    markersApplied: 0,
-    markersHeld: parsed.markers.length,
+  return persistFastAnswer({
+    chatText,
+    flag: effectiveFlag,
+    parsedMarkers: parsed.markers,
     parseErrors: [...parsed.errors, ...flagResult.errors],
-    confidence: flagResult.errors.length || parsed.markers.length ? 'low' : 'medium',
-    durationMs: Date.now() - startedAt
+    confidence: flagResult.errors.length || parsed.markers.length ? 'low' : 'medium'
   });
-  if (!finalTask) throw new Error('Task was deleted before final write');
-
-  _writeJsonFileAtomic(tasksFile, beforeData);
-
-  return {
-    task: finalTask,
-    assistantText: chatText,
-    conversationId,
-    deepVerification,
-    markersParsed: 0,
-    markersApplied: 0,
-    markersDropped: 0,
-    markersHeld: parsed.markers.length,
-    confidence: finalTask.history.at(-1)?.agentExecution?.confidence || 'medium',
-    parseErrors: [...parsed.errors, ...flagResult.errors],
-    gateway: {
-      approvedMarkers: 0,
-      heldMarkers: 0,
-      parsed: true,
-      parseError: null,
-      skipped: true
-    },
-    brain: {
-      timedOut: Boolean(brainResult.timedOut),
-      salvaged: Boolean(brainResult.salvaged),
-      workIqCalls: brainResult.counters?.workIqCalls || 0
-    }
-  };
 }
 
 export async function runTaskChatDeepVerifyOnce(job, {

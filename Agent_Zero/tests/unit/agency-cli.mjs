@@ -62,4 +62,14 @@ test('agency effort mapping keeps scans and gateway xhigh while chat defaults hi
   assert.equal(args.includes('--disable-builtin-mcps'), true);
   assert.equal(args.includes('--no-config-plugins'), true);
   assert.equal(args.includes('workiq'), false);
+
+  const noMcpArgs = buildAgencyArgs({
+    bootstrap: 'prompt',
+    effort: 'high',
+    mcpMode: 'none',
+    disableMcpServers: disabledMcpServersForMode('none', {})
+  });
+  assert.equal(noMcpArgs.includes('--disable-builtin-mcps'), true);
+  assert.equal(noMcpArgs.includes('--no-config-plugins'), true);
+  assert.ok(noMcpArgs.includes('workiq'));
 });
