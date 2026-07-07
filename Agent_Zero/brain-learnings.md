@@ -28,3 +28,8 @@ Text: For Microsoft-internal portals protected by Entra ID when a normal browser
 Category: fact
 Evidence: Batch 8B user correction from portal-verified MyApprovals behavior.
 Text: MyApprovals hosts two object classes: MyOrder PO approvals (PO numbers) and Modern Invoice approvals (GUID request ids). A task status list tracking only PO numbers does NOT cover invoice approvals; never infer invoice approval state from PO bookkeeping.
+
+## 2026-07-07 principle: when-two-sources-appear-to-conflict-on-a-binary-status-resolved-
+Category: principle
+Evidence: Live inbox/Teams checks repeatedly resolve apparent status conflicts into partial states rather than one side being wholly correct.
+Text: When two sources appear to conflict on a binary status (resolved vs blocked), live verification often reveals a split state where one sub-component is complete and another remains blocked; capture both sub-states instead of forcing a single resolved/blocked verdict.
