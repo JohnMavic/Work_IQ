@@ -1,19 +1,44 @@
-BATCH9B: BLOCKED mail-MCP/WorkIQ/Graph did not provide a working Laith PDF/deck attachment read path
+BATCH9C: BLOCKED OWA-CDP reached the real thread but no PDF/deck bytes were retrieved; further UI attempts stopped after OWA changed read/unread state
 
-Live attachment probe against the real Laith Skeik message from 2026-07-06:
+Batch 9C implementation completed the reusable attachment route but did not produce
+the requested live PIS proof.
 
-- Agency with explicit `--mcp mail` did not produce a usable noninteractive result for listing/downloading/reading the attachment.
-- WorkIQ 1.0 `ask` found the context but returned only a Purview/DLP restriction notice and no attachment content.
-- Microsoft Graph via `az rest` against `/me/messages` failed with `ErrorAccessDenied`, so attachments could not be listed or downloaded through Graph.
-- The local pinned WorkIQ 0.2.8 path is present; after EULA acceptance, the non-TTY probe did not return attachment content.
-- Best alternative: add a verified Graph delegated read path with Mail.Read attachment access, or implement an isolated Edge/OWA CDP routine that opens OWA in a throwaway debug profile and downloads the target attachment read-only.
+Implemented:
 
-Code fixes implemented despite the live attachment-path blocker:
+- Added `brain/tools/owa-attachment.ps1`.
+- The helper validates `RunId`, requires `BrainWorkDir` to resolve to `brain-work`,
+  and restricts downloads to `brain-work/attachments/<runId>/`.
+- It launches a dedicated Edge debugging instance with a disposable
+  `brain-work/owa-profiles/<runId>/` profile and cleans up only that process/profile.
+- It searches OWA by subject/date/sender, can use `-MessageUrl`, writes
+  `manifest.json`, and extracts PDF text through local `pdftotext` when a PDF is
+  downloaded.
+- It includes an OWA same-session REST fallback, but the live probe returned 401 for
+  `outlook.office.com/api/v2.0/me/messages/...`.
+- Added `docs/OWA_ATTACHMENT_FETCH.md`, Scan-skill protocol text, and Brain Learnings
+  for the OWA attachment fallback and the OWA auto-mark-read caveat.
+- Discovery protocol now says: try mail/Teams attachment APIs first; then OWA-CDP;
+  set `attachmentsHandled:"yes"` only after reading attachment content; otherwise use
+  `failed(<reason>)`.
 
-- Processing ledger dispositions now require `attachmentsHandled: "yes" | "none" | "failed(<reason>)"`.
-- If an enumerated message has attachments, the quality gate rejects `attachmentsHandled:"none"` and requires `yes` or `failed(<reason>)`.
-- Reality Gateway deterministic checks now hold project markers with malformed processing ledgers before the model verdict can approve them.
-- Agency Brain prompt now requires the per-message protocol: list attachments, read relevant ones, cite attachment facts, and record `attachmentsHandled`.
-- Scan apply now runs a Batch 9 temporal pass before writing: stale unconfirmed dates in `pmStatus.planned`, `pmStatus.waitingOn`, or `lineItems` must be explicitly confirmed with fresh evidence or marked obsolete/superseded with reason and evidence.
+Live probe against the real Laith Skeik thread:
 
-Tests: `npm test` -> 145/145 passing.
+- Target: `Confirmation: Temporary Workspace Setup at Seestrasse`, Laith Skeik,
+  2026-07-06 18:45.
+- OWA-CDP successfully reached Outlook with the isolated Edge profile and opened the
+  real conversation.
+- Visible evidence confirmed the real thread context: Belinda's 2026-07-07 reply
+  quotes Laith's 2026-07-06 18:45 message saying he put out a deck for the August
+  office-closure communication.
+- The OWA UI exposed a conversation paperclip, but no visible PDF/PPTX/DOCX/XLSX
+  attachment tile or download control appeared for the opened view.
+- OWA REST fallback from the same browser session returned 401 for the message lookup,
+  so attachment bytes were not retrieved.
+- No PDF text was extracted and no PIS date was proven.
+- The inbox unread counter changed during OWA opening, so further UI attempts were
+  stopped to preserve the read-only safety requirement.
+
+Tests:
+
+- `node --test tests/unit/batch9.mjs` -> 8/8 passing.
+- `npm test` -> 146/146 passing.
