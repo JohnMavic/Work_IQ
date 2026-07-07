@@ -29,6 +29,11 @@ import {
   mergeUserActionCarryForward,
   normalizePmStatusUserActions
 } from './user-actions.js';
+import {
+  DEFAULT_LEARNINGS_FILE,
+  appendBrainLearning,
+  validateLearningPayload
+} from './learnings.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -521,6 +526,12 @@ function validateMarker(marker, data, sourceRefIndex, { now = new Date() } = {})
       return { ok: true, capConfidence: false };
     }
 
+    case 'LEARNING': {
+      const learningError = validateLearningPayload(payload);
+      if (learningError) return { ok: false, reason: learningError };
+      return { ok: true, capConfidence: false };
+    }
+
     case 'NEEDS_REVIEW': {
       if (!['assignment', 'status', 'other'].includes(payload.kind)) return { ok: false, reason: 'NEEDS_REVIEW has invalid kind' };
       if (typeof payload.question !== 'string' || !payload.question.trim()) return { ok: false, reason: 'NEEDS_REVIEW requires question' };
@@ -1009,6 +1020,13 @@ function applyScanDone(data, payload, context) {
   };
 }
 
+function applyLearning(_data, payload, context) {
+  appendBrainLearning(payload, {
+    filePath: context.learningFile,
+    now: context.now
+  });
+}
+
 function applyValidMarker(data, marker, context) {
   switch (marker.type) {
     case 'PROJECT_NEW': return applyProjectNew(data, marker.payload, context);
@@ -1018,6 +1036,7 @@ function applyValidMarker(data, marker, context) {
     case 'LINEITEM_UPDATE': return applyLineItemUpdate(data, marker.payload, context);
     case 'TASK_NEW': return applyTaskNew(data, marker.payload, context);
     case 'TASK_UPDATE': return applyTaskUpdate(data, marker.payload, context);
+    case 'LEARNING': return applyLearning(data, marker.payload, context);
     case 'NEEDS_REVIEW': return applyNeedsReview(data, marker.payload, context);
     case 'SCAN_DONE': return applyScanDone(data, marker.payload, context);
     default: return undefined;
@@ -1028,7 +1047,8 @@ export function applyMarkerBatch(inputData, markers, {
   auditLogFile = DEFAULT_AUDIT_LOG,
   now = new Date(),
   runId = null,
-  idFactory = defaultIdFactory
+  idFactory = defaultIdFactory,
+  learningFile = DEFAULT_LEARNINGS_FILE
 } = {}) {
   const original = migrateToV5(inputData);
   const sourceRefIndex = buildSourceRefIndex(original);
@@ -1077,7 +1097,7 @@ export function applyMarkerBatch(inputData, markers, {
   }
 
   const data = clone(original);
-  const context = { now, runId, idFactory };
+  const context = { now, runId, idFactory, learningFile };
   for (const marker of valid) applyValidMarker(data, marker, context);
 
   return {

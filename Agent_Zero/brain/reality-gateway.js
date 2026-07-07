@@ -8,6 +8,7 @@ import {
   isActionLikeLineItem,
   validateActionGateForVisibleAction
 } from './truth-tree.js';
+import { renderBrainLearningsBlock, validateLearningPayload } from './learnings.js';
 
 export const DEFAULT_GATEWAY_TIMEOUT_MS = 5 * 60 * 1000;
 export const GATEWAY_DECISIONS = new Set(['approve', 'reject', 'needs-review']);
@@ -318,6 +319,11 @@ export function deterministicMarkerIssue(marker) {
   const actionIssue = actionGateIssue(marker);
   if (actionIssue) return `Batch 7 action gate failed: ${actionIssue}.`;
 
+  if (marker.type === 'LEARNING') {
+    const learningIssue = validateLearningPayload(payload);
+    if (learningIssue) return `Learning gate failed: ${learningIssue}.`;
+  }
+
   if (marker.type === 'LINEITEM_NEW') {
     const item = payload.lineItem || {};
     if (statusIsDone(item.status) && hasWaitingValue(item.waitingOn)) {
@@ -428,7 +434,7 @@ export function filterMarkersThroughGateway(markers, gatewayResult = {}) {
   };
 }
 
-function buildGatewayPrompt({ stateFile, factSheetFiles = [], markers, runId }) {
+export function buildGatewayPrompt({ stateFile, factSheetFiles = [], markers, runId, learningsBlock = renderBrainLearningsBlock().markdown }) {
   const stateFileName = path.basename(stateFile);
   const markerLines = markers.map((marker, index) => `${index}: ${markerLine(marker)}`).join('\n');
   const factSheetList = factSheetFiles.length
@@ -444,6 +450,8 @@ function buildGatewayPrompt({ stateFile, factSheetFiles = [], markers, runId }) 
     '',
     `runId: ${runId}`,
     `stateFile: ./${stateFileName}`,
+    '',
+    learningsBlock.trimEnd(),
     '',
     'Read the state file and every Fact Sheet file listed below before deciding.',
     '',
@@ -466,6 +474,7 @@ function buildGatewayPrompt({ stateFile, factSheetFiles = [], markers, runId }) 
     '- If a user action was marked done by Martin, does current evidence confirm closure or show it is still open?',
     '- Is the result internally consistent, e.g. not done and waiting at the same time?',
     '- Are source links verbatim real WorkIQ links, not constructed citation-token URLs?',
+    '- For LEARNING markers: approve only reusable principles, patterns, or stable general facts; reject task facts, secrets, credentials, and one-off project state.',
     '',
     'Default to needs-review on country/location/organization mismatch, missing evidence, mixed projects, fabricated links, or inconsistency.',
     'NEEDS_REVIEW and SCAN_DONE markers are exempt from veto.',
