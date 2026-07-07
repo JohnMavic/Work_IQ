@@ -373,7 +373,7 @@ export async function runBrain({
       if (event.type === 'tool.execution_start') counters.toolExecutionStarts++;
       if (isWorkIqStartEvent(event)) {
         counters.workIqCalls++;
-        if (counters.workIqCalls >= workIqHardLimit && !killedForToolBudget) {
+        if (counters.workIqCalls > workIqHardLimit && !killedForToolBudget) {
           killedForToolBudget = true;
           try { _killTreeFn(child); } catch {}
         }

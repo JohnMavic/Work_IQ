@@ -332,6 +332,34 @@ test('brain runner counts WorkIQ only from explicit tool identity fields', async
   }
 });
 
+test('brain runner kills WorkIQ on the first call above the hard limit', async () => {
+  const brainWorkDir = makeBrainWorkDir('tool-counter-hard-limit');
+  let killCount = 0;
+  try {
+    const result = await runBrain({
+      prompt: 'scan state',
+      brainWorkDir,
+      workIqHardLimit: 2,
+      _resolveAgencyCli: resolveAgencyCli,
+      _killTreeFn: () => { killCount++; },
+      _spawnFn: makeFakeSpawn((child) => {
+        emitJson(child, { type: 'tool.execution_start', server: 'workiq', tool: 'ask' });
+        emitJson(child, { type: 'tool.execution_start', server: 'workiq', tool: 'ask' });
+        emitJson(child, { type: 'tool.execution_start', server: 'workiq', tool: 'ask' });
+        emitJson(child, { type: 'assistant.message', content: 'done' });
+        child.emit('exit', 0);
+      })
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.counters.workIqCalls, 3);
+    assert.equal(result.killedForToolBudget, true);
+    assert.equal(killCount, 1);
+  } finally {
+    cleanupBrainWorkDir(brainWorkDir);
+  }
+});
+
 test('brain runner does not classify empty timeout as silent failure', async () => {
   const brainWorkDir = makeBrainWorkDir('timeout-not-silent');
   try {
