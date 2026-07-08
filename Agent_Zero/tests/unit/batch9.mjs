@@ -159,6 +159,8 @@ test('Batch 9 scan skill, gateway, and learnings require WorkIQ-index attachment
   assert.match(skill, /Discovery is the default/);
   assert.match(skill, /PDF, DOCX, XLSX/);
   assert.match(skill, /targeted WorkIQ\/M365 Copilot index/);
+  assert.match(skill, /list all attachments of this thread with filenames/);
+  assert.match(skill, /Batch atomicity is limited to intrinsically related markers/);
   assert.match(skill, /yes\(workiq-index\)/);
   assert.match(skill, /External Write Guardrail/);
   assert.match(skill, /warning at 40 tool starts/);
@@ -286,6 +288,288 @@ test('Batch 9 attachment ledger gate requires handled disposition and blocks unh
   failedWithReason[0].payload.processingLedger[0].attachmentsHandled = 'failed(encrypted PDF)';
   const failedGate = evaluateProcessingQualityGate(failedWithReason);
   assert.equal(failedGate.ok, true);
+});
+
+test('Batch 9F granular quality gate applies complete mutations and holds only ledgerless marker', async () => {
+  const dir = resetTmp('granular-quality-gate');
+  const tasksFile = writeFixture(dir, {
+    version: 5,
+    reviewQueue: [],
+    tasks: [{
+      id: 'proj-b9f-granular',
+      taskType: 'project',
+      title: 'Granular quality project',
+      status: 'new',
+      sourceRefs: [1, 2, 3, 4].map(index => ({
+        id: `src-gq-${index}`,
+        type: 'email',
+        title: `Source ${index}`,
+        date: `2026-07-08T0${index}:00:00.000Z`,
+        link: `https://example.test/gq/${index}`
+      })),
+      pmStatus: {
+        current: 'Original current state.',
+        planned: [],
+        userActions: [],
+        problems: [],
+        risks: [],
+        waitingOn: [],
+        confidence: 'medium'
+      },
+      lineItems: [1, 2, 3, 4].map(index => ({
+        id: `li-gq-${index}`,
+        title: `Line ${index}`,
+        category: 'workstream',
+        status: 'open',
+        currentState: `Original ${index}`,
+        evidenceRefIds: [`src-gq-${index}`],
+        state: 'confirmed'
+      }))
+    }]
+  });
+
+  const lineUpdate = (index, withLedger = true) => marker('LINEITEM_UPDATE', {
+    taskId: 'proj-b9f-granular',
+    lineItemId: `li-gq-${index}`,
+    patch: {
+      currentState: `Updated ${index}`,
+      confidence: 'medium'
+    },
+    evidenceRefIds: [`src-gq-${index}`],
+    ...(withLedger
+      ? {
+          processingLedger: [{
+            itemRef: { type: 'email', id: `msg-gq-${index}` },
+            threadRef: 'thread-gq',
+            date: `2026-07-08T0${index}:00:00.000Z`,
+            disposition: 'updates-node',
+            nodeRefs: [`li-gq-${index}`],
+            attachmentsHandled: 'none',
+            quote: `Message ${index} updates line ${index}.`,
+            reason: `Message ${index} has a complete ledger trail.`
+          }]
+        }
+      : {
+          processingEnumeratedItems: [{
+            itemRef: { type: 'email', id: `msg-gq-${index}` },
+            threadRef: 'thread-gq'
+          }]
+        })
+  });
+
+  const output = [
+    lineUpdate(1),
+    lineUpdate(2),
+    lineUpdate(3),
+    lineUpdate(4, false),
+    marker('SCAN_DONE', {
+      runId: 'b9f-granular-quality',
+      outcome: 'success',
+      workIqCalls: 4,
+      processingQuality: {
+        required: true,
+        enumeratedItems: [1, 2, 3, 4].map(index => ({
+          itemRef: { type: 'email', id: `msg-gq-${index}` },
+          threadRef: 'thread-gq',
+          hasAttachments: false
+        }))
+      }
+    })
+  ].join('\n');
+
+  const result = await runBrainScanOnce({ input: {}, emit() {} }, {
+    tasksFile,
+    brainWorkDir: path.join(dir, 'brain-work'),
+    runId: 'b9f-granular-quality',
+    now: new Date('2026-07-08T08:00:00.000Z'),
+    _runBrain: async () => ({ ok: true, assistantText: output, counters: { workIqCalls: 4 } }),
+    _runGateway: async ({ markers }) => approveAll(markers),
+    _writeJsonFileAtomic: (file, data) => writeJsonFileAtomic(file, data, { maxBackups: 0 })
+  });
+  const saved = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+  const project = saved.tasks[0];
+
+  assert.equal(result.outcome, 'partial');
+  assert.equal(result.qualityGate.ok, false);
+  assert.equal(result.qualityGate.heldMarkers, 1);
+  assert.equal(result.heldMarkers, 1);
+  assert.equal(project.lineItems.find(item => item.id === 'li-gq-1').currentState, 'Updated 1');
+  assert.equal(project.lineItems.find(item => item.id === 'li-gq-2').currentState, 'Updated 2');
+  assert.equal(project.lineItems.find(item => item.id === 'li-gq-3').currentState, 'Updated 3');
+  assert.equal(project.lineItems.find(item => item.id === 'li-gq-4').currentState, 'Original 4');
+  assert.match(saved.reviewQueue[0].question, /missing ledger disposition for enumerated item email:msg-gq-4/);
+});
+
+test('Batch 9F temporal pass still applies complete stale cleanup when unrelated quality marker is held', async () => {
+  const dir = resetTmp('temporal-independent-quality');
+  const tasksFile = writeFixture(dir, {
+    version: 5,
+    reviewQueue: [],
+    tasks: [{
+      id: 'proj-b9f-temporal',
+      taskType: 'project',
+      title: 'Temporal independent project',
+      status: 'new',
+      sourceRefs: [{
+        id: 'src-old-temporal',
+        type: 'email',
+        title: 'Old AV target',
+        date: '2026-06-20T08:00:00.000Z',
+        link: 'https://example.test/old-temporal'
+      }, {
+        id: 'src-fresh-temporal',
+        type: 'email',
+        title: 'Fresh temporal evidence',
+        date: '2026-07-08T07:30:00.000Z',
+        link: 'https://example.test/fresh-temporal'
+      }, {
+        id: 'src-unrelated',
+        type: 'email',
+        title: 'Unrelated update',
+        date: '2026-07-08T07:45:00.000Z',
+        link: 'https://example.test/unrelated'
+      }],
+      pmStatus: {
+        current: 'Original current state.',
+        planned: [{
+          id: 'plan-av-go-live',
+          text: 'AV Go-Live target 1 Jul 2026 for commissioned rooms',
+          date: '2026-07-01',
+          evidenceRefIds: ['src-old-temporal'],
+          confidence: 'medium',
+          state: 'unconfirmed'
+        }],
+        userActions: [],
+        problems: [],
+        risks: [],
+        waitingOn: [],
+        confidence: 'medium'
+      },
+      lineItems: [{
+        id: 'li-see-av-commissioning',
+        title: 'AV commissioning',
+        category: 'workstream',
+        status: 'open',
+        currentState: 'AV sign-off requested toward a 1 Jul 2026 go-live.',
+        evidenceRefIds: ['src-old-temporal'],
+        state: 'unconfirmed'
+      }, {
+        id: 'li-unrelated',
+        title: 'Unrelated workstream',
+        category: 'workstream',
+        status: 'open',
+        currentState: 'Original unrelated state.',
+        evidenceRefIds: ['src-unrelated'],
+        state: 'confirmed'
+      }]
+    }]
+  });
+
+  const output = [
+    marker('PROJECT_UPDATE', {
+      taskId: 'proj-b9f-temporal',
+      pmStatus: {
+        current: 'Original current state.',
+        planned: [{
+          id: 'plan-av-go-live',
+          text: 'AV Go-Live target 1 Jul 2026 for commissioned rooms',
+          date: '2026-07-01',
+          evidenceRefIds: ['src-fresh-temporal'],
+          confidence: 'medium',
+          state: 'obsolete',
+          obsoleteReason: 'The planned date is before the current scan date and fresh evidence supersedes it.'
+        }],
+        userActions: [],
+        problems: [],
+        risks: [],
+        waitingOn: [],
+        confidence: 'medium'
+      },
+      processingLedger: [{
+        itemRef: { type: 'email', id: 'msg-stale-pm' },
+        threadRef: 'thread-temporal',
+        date: '2026-07-08T07:30:00.000Z',
+        disposition: 'updates-node',
+        nodeRefs: ['plan-av-go-live'],
+        attachmentsHandled: 'none',
+        quote: 'The old go-live is folded into the later scope.',
+        reason: 'Fresh evidence supersedes the stale planned date.'
+      }],
+      evidenceRefIds: ['src-fresh-temporal']
+    }),
+    marker('LINEITEM_UPDATE', {
+      taskId: 'proj-b9f-temporal',
+      lineItemId: 'li-see-av-commissioning',
+      patch: {
+        state: 'obsolete',
+        currentState: 'The old 1 Jul 2026 AV go-live target is obsolete pending the later scope.',
+        obsoleteReason: 'The date has passed and fresh evidence supersedes it.',
+        confidence: 'medium'
+      },
+      processingLedger: [{
+        itemRef: { type: 'email', id: 'msg-stale-line' },
+        threadRef: 'thread-temporal',
+        date: '2026-07-08T07:31:00.000Z',
+        disposition: 'updates-node',
+        nodeRefs: ['li-see-av-commissioning'],
+        attachmentsHandled: 'none',
+        quote: 'The old go-live is folded into the later scope.',
+        reason: 'Fresh evidence supersedes the stale line item state.'
+      }],
+      evidenceRefIds: ['src-fresh-temporal']
+    }),
+    marker('LINEITEM_UPDATE', {
+      taskId: 'proj-b9f-temporal',
+      lineItemId: 'li-unrelated',
+      patch: {
+        currentState: 'This update lacks a ledger disposition and must be held.',
+        confidence: 'medium'
+      },
+      processingEnumeratedItems: [{
+        itemRef: { type: 'teams', id: 'msg-unrelated-ledgerless' },
+        threadRef: 'thread-unrelated'
+      }],
+      evidenceRefIds: ['src-unrelated']
+    }),
+    marker('SCAN_DONE', {
+      runId: 'b9f-temporal-independent',
+      outcome: 'success',
+      workIqCalls: 3,
+      processingQuality: {
+        required: true,
+        enumeratedItems: [{
+          itemRef: { type: 'email', id: 'msg-stale-pm' },
+          threadRef: 'thread-temporal'
+        }, {
+          itemRef: { type: 'email', id: 'msg-stale-line' },
+          threadRef: 'thread-temporal'
+        }, {
+          itemRef: { type: 'teams', id: 'msg-unrelated-ledgerless' },
+          threadRef: 'thread-unrelated'
+        }]
+      }
+    })
+  ].join('\n');
+
+  const result = await runBrainScanOnce({ input: {}, emit() {} }, {
+    tasksFile,
+    brainWorkDir: path.join(dir, 'brain-work'),
+    runId: 'b9f-temporal-independent',
+    now: new Date('2026-07-08T08:00:00.000Z'),
+    _runBrain: async () => ({ ok: true, assistantText: output, counters: { workIqCalls: 3 } }),
+    _runGateway: async ({ markers }) => approveAll(markers),
+    _writeJsonFileAtomic: (file, data) => writeJsonFileAtomic(file, data, { maxBackups: 0 })
+  });
+  const saved = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+  const project = saved.tasks[0];
+
+  assert.equal(result.outcome, 'partial');
+  assert.equal(result.qualityGate.ok, false);
+  assert.equal(result.temporalGate.ok, true);
+  assert.equal(project.pmStatus.planned[0].state, 'obsolete');
+  assert.equal(project.lineItems.find(item => item.id === 'li-see-av-commissioning').state, 'obsolete');
+  assert.equal(project.lineItems.find(item => item.id === 'li-unrelated').currentState, 'Original unrelated state.');
+  assert.match(saved.reviewQueue[0].question, /missing ledger disposition for enumerated item teams:msg-unrelated-ledgerless/);
 });
 
 test('Batch 9 temporal pass blocks stale unconfirmed planned and line item dates before apply', async () => {

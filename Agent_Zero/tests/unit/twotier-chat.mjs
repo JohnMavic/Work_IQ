@@ -359,6 +359,8 @@ test('TWOTIER stage 2 posts answer before async gateway markers and keeps focuse
   assert.match(captured.prompt, /Verify exactly:\n1\. Check approval 123 in MyApprovals\n2\. Confirm whether the approval is still pending/);
   assert.match(captured.prompt, /priority hint, not a limit/);
   assert.match(captured.prompt, /Mandatory M365 workflow/);
+  assert.match(captured.prompt, /list all attachments of this thread with filenames/);
+  assert.match(captured.prompt, /every enumerated mail\/Teams item and every enumerated attachment filename must have a matching ledger disposition/);
   assert.match(captured.prompt, /only then answer or emit markers/);
   assert.match(captured.prompt, /PDF, DOCX, XLSX/);
   assert.match(captured.prompt, /Temporal pass is mandatory/);
@@ -513,8 +515,9 @@ test('BATCH9E chat deep attachment gate holds M365 updates when attachment handl
   assert.equal(task.pmStatus.current, 'Original PM state.');
   assert.equal(task.processing.ledger.length, 0);
   assert.match(saved.reviewQueue[0].question, /processing-ledger quality gate/);
-  assert.equal(followup.markerProcessingStatus, 'held');
-  assert.equal(followup.markersApplied, 0);
+  assert.equal(followup.markerProcessingStatus, 'partial');
+  assert.equal(followup.markersApplied, 1);
+  assert.equal(followup.markersHeld, 1);
 });
 
 test('BATCH9E chat deep temporal gate requires stale planned and line-item cleanup', async () => {

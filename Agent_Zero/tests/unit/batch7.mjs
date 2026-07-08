@@ -305,14 +305,14 @@ test('Batch 7 omitted user action is preserved unless resolvedBy proof is suppli
   assert.equal(withProof.data.tasks[0].history.at(-1).type, 'user-action-resolved');
 });
 
-test('Batch 7 processing-ledger quality gate blocks partial scans before mutation', async () => {
+test('Batch 7 processing-ledger quality gate applies complete markers and reviews ledgerless global items', async () => {
   const dir = resetTmp('quality-gate');
   const tasksFile = path.join(dir, 'tasks.json');
   writeJsonFileAtomic(tasksFile, baseProject(), { maxBackups: 0 });
   const output = [
     marker('PROJECT_UPDATE', {
       taskId: 'proj-b7',
-      summary: 'This summary must not be applied.',
+      summary: 'This summary has a complete ledger trail and may apply.',
       processingLedger: [{
         itemRef: { type: 'email', id: 'msg-1' },
         threadRef: 'conv-quality',
@@ -333,8 +333,7 @@ test('Batch 7 processing-ledger quality gate blocks partial scans before mutatio
         enumeratedItems: [
           { itemRef: { type: 'email', id: 'msg-1' }, threadRef: 'conv-quality' },
           { itemRef: { type: 'email', id: 'msg-2' }, threadRef: 'conv-quality' }
-        ],
-        threadCounts: [{ threadRef: 'conv-quality', count: 2 }]
+        ]
       }
     })
   ].join('\n');
@@ -352,7 +351,8 @@ test('Batch 7 processing-ledger quality gate blocks partial scans before mutatio
 
   assert.equal(result.outcome, 'partial');
   assert.equal(result.qualityGate.ok, false);
-  assert.equal(saved.tasks[0].summary, 'Original summary');
+  assert.equal(result.qualityGate.reviewItems, 1);
+  assert.equal(saved.tasks[0].summary, 'This summary has a complete ledger trail and may apply.');
   assert.match(saved.reviewQueue[0].question, /missing ledger disposition/);
 });
 
