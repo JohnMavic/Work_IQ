@@ -28,6 +28,10 @@ function isFailedAttachmentDisposition(value) {
   return /^failed\(.+\)$/i.test(compactText(value));
 }
 
+export function isContentNotIndexedAttachmentDisposition(value) {
+  return /^failed\(\s*content-not-indexed\s*\)$/i.test(compactText(value));
+}
+
 function isHandledAttachmentDisposition(value) {
   const text = compactText(value).toLowerCase();
   return text === 'yes' || text === 'yes(workiq-index)';
@@ -137,6 +141,42 @@ function attachmentDispositionHandlesPresentAttachments(value) {
   return isHandledAttachmentDisposition(text) || isFailedAttachmentDisposition(text);
 }
 
+export function hasContentNotIndexedAttachmentFailure(item = {}) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+  if (isContentNotIndexedAttachmentDisposition(item.attachmentsHandled)) return true;
+  return normalizeArray(item.attachments).some(attachment => {
+    return isContentNotIndexedAttachmentDisposition(
+      attachment?.attachmentsHandled
+      || attachment?.disposition
+      || attachment?.status
+      || attachment?.error
+      || attachment?.reason
+    );
+  });
+}
+
+function attachmentIndexAttempts(existingItem) {
+  const explicit = Number(existingItem?.attachmentIndexAttempts);
+  if (Number.isInteger(explicit) && explicit > 0) return explicit;
+  return hasContentNotIndexedAttachmentFailure(existingItem) ? 1 : 0;
+}
+
+function annotateAttachmentIndexRetry(item, existingItem) {
+  if (!hasContentNotIndexedAttachmentFailure(item)) return item;
+  const attempts = Math.min(3, attachmentIndexAttempts(existingItem) + 1);
+  return {
+    ...item,
+    attachmentIndexAttempts: attempts,
+    reprobeNextScan: attempts < 3,
+    attachmentRetryReason: 'content-not-indexed'
+  };
+}
+
+function shouldHoldCursorForAttachmentRetry(item) {
+  return hasContentNotIndexedAttachmentFailure(item)
+    && Number(item?.attachmentIndexAttempts || 1) < 3;
+}
+
 function parseTime(value) {
   const parsed = Date.parse(value || '');
   return Number.isFinite(parsed) ? parsed : null;
@@ -189,6 +229,9 @@ export function normalizeLedgerItem(item, { now = new Date() } = {}) {
     reason: compactText(item.reason),
     processedAt: item.processedAt || (now instanceof Date ? now.toISOString() : String(now || new Date().toISOString()))
   };
+  if (item.attachmentIndexAttempts !== undefined) normalized.attachmentIndexAttempts = Number(item.attachmentIndexAttempts);
+  if (item.reprobeNextScan !== undefined) normalized.reprobeNextScan = Boolean(item.reprobeNextScan);
+  if (item.attachmentRetryReason !== undefined) normalized.attachmentRetryReason = compactText(item.attachmentRetryReason);
   if (item.hasAttachments !== undefined) normalized.hasAttachments = Boolean(item.hasAttachments);
   if (item.attachmentCount !== undefined) normalized.attachmentCount = Number(item.attachmentCount);
   if (Array.isArray(item.attachments)) normalized.attachments = item.attachments;
@@ -276,6 +319,7 @@ export function normalizeProcessing(value = {}) {
 
 export function mergeProcessing(existing, payload = {}, { now = new Date() } = {}) {
   const merged = normalizeProcessing(existing);
+  const priorCursorDate = merged.cursorDate;
   const incoming = payload.processing && typeof payload.processing === 'object' && !Array.isArray(payload.processing)
     ? payload.processing
     : {};
@@ -285,21 +329,56 @@ export function mergeProcessing(existing, payload = {}, { now = new Date() } = {
   }
 
   const byKey = new Map(merged.ledger.map(item => [itemRefKey(item.itemRef), item]));
-  const newItems = extractProcessingLedgerFromPayload(payload).map(item => normalizeLedgerItem(item, { now }));
+  const newItems = extractProcessingLedgerFromPayload(payload).map(item => {
+    const normalized = normalizeLedgerItem(item, { now });
+    return annotateAttachmentIndexRetry(normalized, byKey.get(itemRefKey(normalized.itemRef)));
+  });
+  const cursorEligibleDates = [];
+  const blockedThreadDates = new Map();
   for (const item of newItems) {
     byKey.set(itemRefKey(item.itemRef), item);
+    if (shouldHoldCursorForAttachmentRetry(item)) {
+      const threadRef = compactText(item.threadRef);
+      const itemTime = parseTime(item.date);
+      if (threadRef && itemTime !== null) {
+        const existingTime = blockedThreadDates.get(threadRef);
+        if (existingTime === undefined || itemTime < existingTime) blockedThreadDates.set(threadRef, itemTime);
+      }
+      continue;
+    }
+    cursorEligibleDates.push(item.date);
     mergeThreadState(merged.threads, item.threadRef, item.date);
   }
   merged.ledger = [...byKey.values()];
 
   if (incoming.threads && typeof incoming.threads === 'object' && !Array.isArray(incoming.threads)) {
     for (const [threadRef, state] of Object.entries(incoming.threads)) {
-      mergeThreadState(merged.threads, compactText(threadRef), typeof state === 'string' ? state : state?.lastProcessedMessageDate);
+      const key = compactText(threadRef);
+      const date = typeof state === 'string' ? state : state?.lastProcessedMessageDate;
+      const blockTime = blockedThreadDates.get(key);
+      const dateTime = parseTime(date);
+      if (blockTime !== undefined && (dateTime === null || dateTime >= blockTime)) continue;
+      mergeThreadState(merged.threads, key, date);
     }
   }
 
-  const latestCommittedDate = maxDate(newItems.map(item => item.date));
-  merged.cursorDate = maxDate([merged.cursorDate, incoming.cursorDate, latestCommittedDate]);
+  const latestCommittedDate = maxDate(cursorEligibleDates);
+  let nextCursorDate = maxDate([merged.cursorDate, incoming.cursorDate, latestCommittedDate]);
+  const blockedTimes = newItems
+    .filter(shouldHoldCursorForAttachmentRetry)
+    .map(item => parseTime(item.date))
+    .filter(value => value !== null);
+  if (blockedTimes.length) {
+    const earliestBlocked = Math.min(...blockedTimes);
+    const nextCursorTime = parseTime(nextCursorDate);
+    if (nextCursorTime !== null && nextCursorTime >= earliestBlocked) {
+      const priorCursorTime = parseTime(priorCursorDate);
+      nextCursorDate = priorCursorTime !== null && priorCursorTime < earliestBlocked
+        ? priorCursorDate
+        : null;
+    }
+  }
+  merged.cursorDate = nextCursorDate;
   return merged;
 }
 

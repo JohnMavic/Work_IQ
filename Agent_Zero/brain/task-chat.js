@@ -448,7 +448,7 @@ export function buildTaskChatFastPrompt({
     '- State-only means no WorkIQ, no Microsoft 365 lookup, no inbox scan, no MCP query, no portal, no CDP, no browser, no shell, and no system-of-record verification in this stage.',
     '- If the user asks for an inbox scan, lookup, live check, current status, approval state, ticket/request/order/invoice state, or says they will scan their inbox, answer only from the project state and require deep verification.',
     '- Do not introduce fresh search findings, inbox signals, or notification-email claims unless they already exist in the state file or Fact Sheet.',
-    '- Do not emit Agent Zero marker lines such as [TASK_UPDATE], [PROJECT_UPDATE], [LINEITEM_UPDATE], [FACTSHEET_UPDATE], [NEEDS_REVIEW], [LEARNING], or [SCAN_DONE].',
+    '- Do not emit Agent Zero marker lines such as [TASK_UPDATE], [PROJECT_UPDATE], [LINEITEM_UPDATE], [NODE_OBSOLETE], [FACTSHEET_UPDATE], [NEEDS_REVIEW], [LEARNING], or [SCAN_DONE].',
     '- Do not propose task mutations in marker form. This stage is answer-only.',
     '',
     'Answer discipline:',
@@ -477,6 +477,7 @@ const CHAT_MARKER_GRAMMAR = [
   '[FACTSHEET_UPDATE] {"taskId":"task-...","sectionPatches":{"overview":[{"op":"add","text":"English fact","evidenceRefIds":["src-..."],"confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}]},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["fs-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}]}',
   '[LINEITEM_NEW] {"taskId":"task-...","lineItem":{"id":"li-...","title":"...","category":"action","status":"open","owner":"user","userActionRequired":true,"userAction":"...","currentState":"...","confidence":"medium","evidenceRefIds":["src-..."],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open","askQuote":{"text":"...","from":"...","date":"...","threadRef":"conversation-id"},"threadCheck":{"coverage":"complete","addressedTo":"user","messageCount":1,"lastMessageDate":"...","checkedThroughMessageDate":"..."}},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":["li-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}]}',
   '[LINEITEM_UPDATE] {"taskId":"task-...","lineItemId":"li-...","patch":{"status":"waiting","currentState":"...","confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["li-..."],"attachmentsHandled":"failed(<reason>)","quote":"short verbatim quote","reason":"why this disposition is correct"}],"evidenceRefIds":["src-..."]}',
+  '[NODE_OBSOLETE] {"taskId":"task-...","nodeRef":"pmStatus.planned:<id-or-text>|pmStatus.waitingOn:<id-or-text>|li-...","obsoleteReason":"target date passed without completion evidence — needs re-plan","evidenceRefIds":["src-..."]}',
   '[TASK_UPDATE] {"taskId":"task-...","patch":{"status":"in-progress","summary":"...","confidence":"medium"},"sourceRefs":[{"id":"src-...","type":"email|teams|manual","title":"...","date":"...","link":null,"evidenceText":"short factual summary"}],"evidenceRefIds":["src-..."]}',
   '[LEARNING] {"text":"Reusable principle, pattern, or stable general fact.","category":"principle|pattern|fact","evidence":"why this learning is generally valid"}',
   '[NEEDS_REVIEW] {"kind":"assignment|status|other","ref":"taskId|lineItemId|null","question":"...","confidence":"low"}',
@@ -525,7 +526,7 @@ export function buildTaskChatPrompt({ stateFileName, factSheetFiles, userPrompt,
     'Rules:',
     '- You may call WorkIQ when current M365 evidence is needed.',
     '- For update-search requests, discover new M365 communications since the task processing cursor when available, using mail/Teams MCPs preferentially; read full bodies and use targeted WorkIQ attachment-content questions for any relevant PDF, DOCX, or XLSX attachments before proposing updates.',
-    '- Attachments are mandatory evidence when present and relevant. WorkIQ can surface attachment contents via the M365 Copilot index; cite concrete attachment-derived facts with an as-of caveat, or fail closed instead of silently ignoring the attachment.',
+    '- Attachments are mandatory evidence when present and relevant. WorkIQ can surface attachment contents via the M365 Copilot index; cite concrete attachment-derived facts with an as-of caveat, or fail closed instead of silently ignoring the attachment. If WorkIQ returns content-not-indexed, retry exactly once with an alternative filename versus thread+sender+date formulation, then use attachmentsHandled:"failed(content-not-indexed)" and surface "attachment not indexed yet — re-probe next scan" if still empty.',
     '- External write actions are forbidden unless the user explicitly requested that exact write in this same conversation. Reading, researching, browsing, and evidence collection are unrestricted.',
     '- Answer the user in normal concise English text.',
     '- If task state should change, append valid marker lines after the answer.',
@@ -541,6 +542,7 @@ export function buildTaskChatPrompt({ stateFileName, factSheetFiles, userPrompt,
     '- If a user action marked with userMarkedDoneAt is confirmed closed by evidence, omit it from userActions.',
     '- If a user-marked action is still open or reopened, re-emit the same user action id with userMarkedDoneAt:null and evidence.',
     '- Every status, problem, risk, waiting, or user-action change needs evidenceRefIds.',
+    '- Temporal obsolete/superseded bookings for stale dates must use standalone NODE_OBSOLETE markers, never a bundled PROJECT_UPDATE.pmStatus or LINEITEM_UPDATE.',
     '- Unsupported or uncertain changes should be NEEDS_REVIEW, not asserted as state.',
     '',
     'User prompt:',
@@ -595,13 +597,13 @@ export function buildTaskChatDeepVerifyPrompt({
     '- Treat the focus list above as a priority hint, not a limit. If the user asked to search for updates, discover all relevant new communications for this task.',
     '- For update-search requests, start from task.processing.cursorDate and task.processing.threads when present, use the lookback window, and enumerate newly surfaced mail/Teams items before deciding that nothing changed.',
     '- Prefer mail and Teams MCPs for discovery.',
-    '- Mandatory M365 workflow for update-search requests: first enumerate surfaced mail/Teams items, then read full message bodies, then for each surfaced thread ask WorkIQ exactly: "list all attachments of this thread with filenames". After attachment filenames are enumerated, ask a targeted WorkIQ attachment-content question for every PDF, DOCX, XLSX, deck, or other source attachment file by filename, and only then answer or emit markers.',
+    '- Mandatory M365 workflow for update-search requests: first enumerate surfaced mail/Teams items, then read full message bodies, then for each surfaced thread ask WorkIQ exactly: "list all attachments of this thread with filenames". After attachment filenames are enumerated, ask a targeted WorkIQ attachment-content question for every PDF, DOCX, XLSX, deck, or other source attachment file by filename. If WorkIQ returns content-not-indexed or empty indexed content, retry exactly once with an alternative formulation such as exact filename versus thread+sender+date, and only then answer or emit markers.',
     '- After attachment content capture, explicitly list all dates, milestones, scope items, quantities, port counts, and names from that attachment. Do not summarize or collapse the list. If the thread has multiple attachments, perform this extraction separately for each attachment filename.',
-    '- Do not answer or emit task-state markers from a message that has relevant attachments until the attachment step is complete. If WorkIQ returns concrete attachment-derived facts, use attachmentsHandled:"yes(workiq-index)"; if direct read-only bytes/content were actually read, use "yes"; if the attachment cannot be read, use "failed(<reason>)" and do not assert attachment-only facts.',
+    '- Do not answer or emit task-state markers from a message that has relevant attachments until the attachment step is complete. If WorkIQ returns concrete attachment-derived facts, use attachmentsHandled:"yes(workiq-index)"; if direct read-only bytes/content were actually read, use "yes"; if the attachment remains unavailable after the one content-not-indexed retry, use attachmentsHandled:"failed(content-not-indexed)", surface "attachment not indexed yet — re-probe next scan", and do not assert attachment-only facts; for other read failures use "failed(<reason>)".',
     '- For every enumerated or processed M365 item, include a processingLedger disposition on the relevant marker with itemRef, threadRef, date, disposition, nodeRefs, attachmentsHandled, quote, and reason. If attachments are enumerated, include each attachment filename and per-file disposition in the ledger item attachments array.',
     '- The final SCAN_DONE for M365 update-search runs must include processingQuality.required:true with every enumerated item and per-thread counts. For enumerated items with attachments, set hasAttachments:true or attachmentCount and attachment filenames. A message with attachments and ledger attachmentsHandled:"none" will be held.',
     '- Enumeration congruence self-check before any marker emission: every enumerated mail/Teams item and every enumerated attachment filename must have a matching ledger disposition. If any item or attachment file lacks a disposition, do not emit task-state mutation markers for that source; emit NEEDS_REVIEW or a no-change/failed ledger disposition instead.',
-    '- Temporal pass is mandatory before final output: review task.pmStatus.planned, task.pmStatus.waitingOn, and lineItems for unconfirmed dates before today. For each stale node, either confirm it with fresh evidence or mark it obsolete/superseded with evidence and an explicit reason. If a planned target date has passed and there is no completion evidence, mark it obsolete/superseded with obsoleteReason:"target date passed without completion evidence — needs re-plan"; this is not a claim of completion. Use retain for review only when evidence is genuinely contradictory. Do not silently omit stale pmStatus entries from a replacement pmStatus.',
+    '- Temporal pass is mandatory before final output: review task.pmStatus.planned, task.pmStatus.waitingOn, and lineItems for unconfirmed dates before today. For each stale node, either confirm it with fresh evidence or emit a standalone NODE_OBSOLETE marker with an explicit obsoleteReason. If a planned target date has passed and there is no completion evidence, emit NODE_OBSOLETE with obsoleteReason:"target date passed without completion evidence — needs re-plan"; this is not a claim of completion. Temporal bookings must always be standalone NODE_OBSOLETE markers, never bundled into PROJECT_UPDATE.pmStatus or LINEITEM_UPDATE. Use retain for review only when evidence is genuinely contradictory. Do not silently omit stale pmStatus entries from a replacement pmStatus.',
     '- The runner allows the full 25-minute deep window. It warns at 40 tool starts and emergency-stops at 150 tool starts only to prevent loops.',
     '- If the cap is near or reached, answer with what is already verified, what was checked, and which items remain open. Do not assert unsupported state.',
     '- Portal/CDP/browser/shell patterns from Brain Learnings are allowed in this background stage.',
@@ -632,6 +634,7 @@ export function buildTaskChatDeepVerifyPrompt({
     '- Markers may only mutate the scoped taskId. Do not create or mutate other tasks.',
     '- LEARNING markers may only propose reusable, general operating memory. They must not contain task facts, secrets, credentials, or one-off project state.',
     '- Every status, problem, risk, waiting, or user-action change needs evidenceRefIds.',
+    '- Temporal obsolete/superseded bookings for stale dates must use standalone NODE_OBSOLETE markers, never a bundled PROJECT_UPDATE.pmStatus or LINEITEM_UPDATE.',
     '- Unsupported or uncertain changes should be NEEDS_REVIEW, not asserted as state.',
     '',
     'Image attachments supplied with the original user prompt:',
@@ -750,7 +753,7 @@ export function scopeMarkersToTask(markers, task) {
     let ok = false;
     let reason = 'marker type is not allowed in task-scoped chat';
 
-    if (['PROJECT_UPDATE', 'FACTSHEET_UPDATE', 'LINEITEM_NEW', 'LINEITEM_UPDATE', 'TASK_UPDATE'].includes(marker.type)) {
+    if (['PROJECT_UPDATE', 'FACTSHEET_UPDATE', 'LINEITEM_NEW', 'LINEITEM_UPDATE', 'NODE_OBSOLETE', 'TASK_UPDATE'].includes(marker.type)) {
       ok = payload.taskId === taskId;
       reason = `marker targets ${payload.taskId || '(none)'}, expected ${taskId}`;
     } else if (marker.type === 'LEARNING') {

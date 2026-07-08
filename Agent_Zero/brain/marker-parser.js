@@ -4,6 +4,7 @@ export const MARKER_TYPES = Object.freeze([
   'FACTSHEET_UPDATE',
   'LINEITEM_NEW',
   'LINEITEM_UPDATE',
+  'NODE_OBSOLETE',
   'TASK_NEW',
   'TASK_UPDATE',
   'LEARNING',

@@ -1,5 +1,5 @@
 export const PM_TEMPORAL_FIELDS = ['planned', 'waitingOn'];
-const LINEITEM_TEXT_FIELDS = ['dueAt', 'referencedDate', 'plannedNext', 'waitingOn', 'currentState'];
+export const LINEITEM_TEXT_FIELDS = ['dueAt', 'referencedDate', 'plannedNext', 'waitingOn', 'currentState'];
 
 const MONTHS = new Map(Object.entries({
   jan: 0,
@@ -113,9 +113,23 @@ function isUnconfirmed(node) {
 }
 
 export function isStalePmTemporalNode(node, { now = new Date() } = {}) {
+  return isUnconfirmed(node) && pmTemporalNodeHasPastDate(node, { now });
+}
+
+export function pmTemporalNodeHasPastDate(node, { now = new Date() } = {}) {
   const today = todayUtc(now);
-  return isUnconfirmed(node)
-    && hasPastDateValue(node?.date || node?.dueAt || node?.targetDate || node?.referencedDate || node?.text, today);
+  return hasPastDateValue(node?.date || node?.dueAt || node?.targetDate || node?.referencedDate || node?.text, today);
+}
+
+export function lineItemTemporalNodeHasPastDate(item, { now = new Date() } = {}) {
+  const today = todayUtc(now);
+  return LINEITEM_TEXT_FIELDS.some(field => hasPastDateValue(item?.[field], today));
+}
+
+export function isStaleLineItemTemporalNode(item, { now = new Date() } = {}) {
+  if (!isUnconfirmed(item)) return false;
+  if (String(item?.resolutionStatus || '').toLowerCase() === 'resolved') return false;
+  return lineItemTemporalNodeHasPastDate(item, { now });
 }
 
 function isProject(task) {
@@ -155,6 +169,91 @@ function nodeLabel(node) {
   return compactText(node?.id || node?.title || node?.text || node?.currentState || 'unnamed');
 }
 
+function normalizeRef(value, taskId = '') {
+  let text = compactText(value).toLowerCase();
+  const scopedPrefix = taskId ? `${String(taskId).toLowerCase()}.` : '';
+  if (scopedPrefix && text.startsWith(scopedPrefix)) text = text.slice(scopedPrefix.length);
+  return text;
+}
+
+function temporalRefCandidates(taskId, kind, field, node) {
+  const candidates = new Set();
+  if (kind === 'pmStatus') {
+    const values = [node?.id, node?.text].map(compactText).filter(Boolean);
+    for (const value of values) {
+      candidates.add(`${taskId}.pmStatus.${field}:${value}`);
+      candidates.add(`pmStatus.${field}:${value}`);
+      candidates.add(`${field}:${value}`);
+      candidates.add(value);
+    }
+  } else if (kind === 'lineItem') {
+    const values = [node?.id, node?.title].map(compactText).filter(Boolean);
+    for (const value of values) {
+      candidates.add(`${taskId}.lineItems.${value}`);
+      candidates.add(`lineItems.${value}`);
+      candidates.add(`lineItem:${value}`);
+      candidates.add(value);
+    }
+  }
+  return [...candidates];
+}
+
+function matchesTemporalRef(nodeRef, candidates, taskId) {
+  const wanted = normalizeRef(nodeRef, taskId);
+  if (!wanted) return false;
+  return normalizeArray(candidates).some(candidate => normalizeRef(candidate, taskId) === wanted);
+}
+
+export function findTemporalNodeTarget(data, { taskId, nodeRef, now = new Date(), requirePastDate = false } = {}) {
+  const task = normalizeArray(data?.tasks).find(item => item?.id === taskId);
+  if (!task) return { ok: false, reason: `unknown taskId: ${taskId}` };
+  if (!compactText(nodeRef)) return { ok: false, reason: 'NODE_OBSOLETE requires nodeRef' };
+
+  const matches = [];
+  const pm = task.pmStatus || {};
+  for (const field of PM_TEMPORAL_FIELDS) {
+    for (const [index, entry] of normalizeArray(pm[field]).entries()) {
+      const refCandidates = temporalRefCandidates(task.id, 'pmStatus', field, entry);
+      if (!matchesTemporalRef(nodeRef, refCandidates, task.id)) continue;
+      matches.push({
+        kind: 'pmStatus',
+        taskId: task.id,
+        field,
+        index,
+        node: entry,
+        refCandidates,
+        label: `${task.id}.pmStatus.${field}:${nodeLabel(entry)}`
+      });
+    }
+  }
+
+  for (const [index, item] of normalizeArray(task.lineItems).entries()) {
+    const refCandidates = temporalRefCandidates(task.id, 'lineItem', null, item);
+    if (!matchesTemporalRef(nodeRef, refCandidates, task.id)) continue;
+    matches.push({
+      kind: 'lineItem',
+      taskId: task.id,
+      lineItemId: item.id,
+      index,
+      node: item,
+      refCandidates,
+      label: `${task.id}.lineItems.${item.id || nodeLabel(item)}`
+    });
+  }
+
+  if (!matches.length) return { ok: false, reason: `unknown nodeRef: ${nodeRef}` };
+  if (matches.length > 1) return { ok: false, reason: `ambiguous nodeRef: ${nodeRef}` };
+
+  const target = matches[0];
+  const pastDate = target.kind === 'pmStatus'
+    ? pmTemporalNodeHasPastDate(target.node, { now })
+    : lineItemTemporalNodeHasPastDate(target.node, { now });
+  if (requirePastDate && !pastDate) {
+    return { ok: false, reason: `nodeRef is not past-dated: ${nodeRef}` };
+  }
+  return { ok: true, task, target, pastDate };
+}
+
 function textKey(value) {
   return compactText(value).toLowerCase();
 }
@@ -167,7 +266,6 @@ function pmEntryMatches(stale, incoming) {
 }
 
 function collectStaleNodes(data, { now = new Date() } = {}) {
-  const today = todayUtc(now);
   const stale = [];
   for (const task of normalizeArray(data.tasks)) {
     if (!isProject(task)) continue;
@@ -181,25 +279,33 @@ function collectStaleNodes(data, { now = new Date() } = {}) {
           field,
           id: entry.id || null,
           text: entry.text || '',
+          node: entry,
+          refCandidates: temporalRefCandidates(task.id, 'pmStatus', field, entry),
           label: `${task.id}.pmStatus.${field}:${nodeLabel(entry)}`
         });
       }
     }
 
     for (const item of normalizeArray(task.lineItems)) {
-      if (!isUnconfirmed(item)) continue;
-      if (String(item.resolutionStatus || '').toLowerCase() === 'resolved') continue;
-      const hasPastDate = LINEITEM_TEXT_FIELDS.some(field => hasPastDateValue(item[field], today));
-      if (!hasPastDate) continue;
+      if (!isStaleLineItemTemporalNode(item, { now })) continue;
       stale.push({
         kind: 'lineItem',
         taskId: task.id,
         lineItemId: item.id,
+        node: item,
+        refCandidates: temporalRefCandidates(task.id, 'lineItem', null, item),
         label: `${task.id}.lineItems.${item.id || nodeLabel(item)}`
       });
     }
   }
   return stale;
+}
+
+function nodeObsoleteHandles(stale, marker) {
+  const payload = marker?.payload || {};
+  if (marker?.type !== 'NODE_OBSOLETE') return false;
+  if (payload.taskId !== stale.taskId || !compactText(payload.obsoleteReason)) return false;
+  return matchesTemporalRef(payload.nodeRef, stale.refCandidates, stale.taskId);
 }
 
 function projectUpdateHandles(stale, marker) {
@@ -220,6 +326,7 @@ function lineItemUpdateHandles(stale, marker) {
 }
 
 function markerHandlesStaleNode(stale, marker) {
+  if (nodeObsoleteHandles(stale, marker)) return true;
   if (stale.kind === 'pmStatus') return projectUpdateHandles(stale, marker);
   if (stale.kind === 'lineItem') return lineItemUpdateHandles(stale, marker);
   return false;

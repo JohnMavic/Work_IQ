@@ -8,6 +8,7 @@ import { buildAgencyArgs } from '../../brain/agency-cli.js';
 import { buildGatewayPrompt, filterMarkersThroughGateway } from '../../brain/reality-gateway.js';
 import { runTaskChatFastOnce } from '../../brain/task-chat.js';
 import { runBrainScanOnce } from '../../brain/scan-brain.js';
+import { applyMarkerBatch } from '../../brain/marker-applier.js';
 import { evaluateProcessingQualityGate } from '../../brain/processing-ledger.js';
 import { migrateToV5, writeJsonFileAtomic } from '../../brain/tasks-v5.js';
 import { runReverifyTasks } from '../../scripts/reverify-tasks.mjs';
@@ -161,7 +162,12 @@ test('Batch 9 scan skill, gateway, and learnings require WorkIQ-index attachment
   assert.match(skill, /targeted WorkIQ\/M365 Copilot index/);
   assert.match(skill, /list all attachments of this thread with filenames/);
   assert.match(skill, /Batch atomicity is limited to intrinsically related markers/);
+  assert.match(skill, /NODE_OBSOLETE/);
+  assert.match(skill, /Temporal bookings must always be emitted/);
   assert.match(skill, /yes\(workiq-index\)/);
+  assert.match(skill, /failed\(content-not-indexed\)/);
+  assert.match(skill, /retry[\s\S]*exactly once/i);
+  assert.match(skill, /attachment not indexed yet — re-probe next scan/);
   assert.match(skill, /External Write Guardrail/);
   assert.match(skill, /warning at 40 tool starts/);
   assert.match(skill, /150 tool starts/);
@@ -174,6 +180,9 @@ test('Batch 9 scan skill, gateway, and learnings require WorkIQ-index attachment
   assert.match(gateway, /available evidence used instead of ignored/);
   assert.match(gateway, /yes\(workiq-index\)/);
   assert.match(gateway, /PDF, DOCX, XLSX/);
+  assert.match(gateway, /NODE_OBSOLETE is a narrow stale-date disposition/);
+  assert.match(gateway, /not a completion claim/);
+  assert.match(gateway, /failed\(content-not-indexed\)/);
   assert.match(gateway, /External write actions are forbidden/);
 });
 
@@ -288,6 +297,218 @@ test('Batch 9 attachment ledger gate requires handled disposition and blocks unh
   failedWithReason[0].payload.processingLedger[0].attachmentsHandled = 'failed(encrypted PDF)';
   const failedGate = evaluateProcessingQualityGate(failedWithReason);
   assert.equal(failedGate.ok, true);
+});
+
+test('Batch 9H NODE_OBSOLETE validates and applies only a stale node disposition', () => {
+  const data = migrateToV5({
+    version: 5,
+    tasks: [{
+      id: 'proj-b9h-node',
+      taskType: 'project',
+      title: 'Node obsolete project',
+      status: 'new',
+      sourceRefs: [{ id: 'src-old-node', date: '2026-06-20T08:00:00.000Z', link: 'https://example.test/old-node' }],
+      pmStatus: {
+        current: 'Current state remains open.',
+        planned: [{
+          id: 'plan-av-go-live',
+          text: 'AV Go-Live target 1 Jul 2026 for commissioned rooms',
+          date: '2026-07-01',
+          evidenceRefIds: ['src-old-node'],
+          confidence: 'medium',
+          state: 'unconfirmed'
+        }],
+        userActions: [],
+        problems: [],
+        risks: [],
+        waitingOn: [{
+          id: 'wait-open',
+          text: 'Waiting for later sign-off.',
+          confidence: 'medium',
+          state: 'confirmed'
+        }],
+        confidence: 'medium'
+      },
+      lineItems: []
+    }]
+  });
+  const result = applyMarkerBatch(data, [markerObj('NODE_OBSOLETE', {
+    taskId: 'proj-b9h-node',
+    nodeRef: 'pmStatus.planned:plan-av-go-live',
+    obsoleteReason: 'target date passed without completion evidence — needs re-plan'
+  })], {
+    auditLogFile: null,
+    now: new Date('2026-07-08T08:00:00.000Z')
+  });
+  const project = result.data.tasks[0];
+
+  assert.equal(result.applied, 1);
+  assert.equal(project.pmStatus.planned[0].state, 'obsolete');
+  assert.equal(project.pmStatus.planned[0].obsoleteReason, 'target date passed without completion evidence — needs re-plan');
+  assert.equal(project.pmStatus.waitingOn.length, 1);
+  assert.equal(project.history.at(-1).type, 'node-obsolete');
+
+  const future = applyMarkerBatch(data, [markerObj('NODE_OBSOLETE', {
+    taskId: 'proj-b9h-node',
+    nodeRef: 'wait-open',
+    obsoleteReason: 'Should be rejected because this node has no past date.'
+  })], {
+    auditLogFile: null,
+    now: new Date('2026-07-08T08:00:00.000Z')
+  });
+  assert.equal(future.applied, 0);
+  assert.match(future.dropped[0].reason, /not past-dated/);
+});
+
+test('Batch 9H NODE_OBSOLETE passes narrow gateway handling and satisfies temporal gate', async () => {
+  const dir = resetTmp('node-obsolete-temporal');
+  const tasksFile = writeFixture(dir, {
+    version: 5,
+    reviewQueue: [],
+    tasks: [{
+      id: 'proj-b9h-temporal',
+      taskType: 'project',
+      title: 'Temporal node project',
+      status: 'new',
+      sourceRefs: [{ id: 'src-old', type: 'email', title: 'Old target', date: '2026-06-20T08:00:00.000Z', link: 'https://example.test/old' }],
+      pmStatus: {
+        current: 'Still waiting for later work.',
+        planned: [{
+          id: 'plan-av-go-live',
+          text: 'AV Go-Live target 1 Jul 2026 for commissioned rooms',
+          date: '2026-07-01',
+          evidenceRefIds: ['src-old'],
+          confidence: 'medium',
+          state: 'unconfirmed'
+        }],
+        userActions: [],
+        problems: [],
+        risks: [],
+        waitingOn: [],
+        confidence: 'medium'
+      },
+      lineItems: []
+    }]
+  });
+  const markers = [
+    markerObj('NODE_OBSOLETE', {
+      taskId: 'proj-b9h-temporal',
+      nodeRef: 'pmStatus.planned:plan-av-go-live',
+      obsoleteReason: 'target date passed without completion evidence — needs re-plan'
+    })
+  ];
+  const filtered = filterMarkersThroughGateway(markers, approveAll(markers));
+  assert.equal(filtered.held.length, 0);
+
+  const output = [
+    marker('NODE_OBSOLETE', {
+      taskId: 'proj-b9h-temporal',
+      nodeRef: 'pmStatus.planned:plan-av-go-live',
+      obsoleteReason: 'target date passed without completion evidence — needs re-plan'
+    }),
+    marker('SCAN_DONE', { runId: 'b9h-node-obsolete', outcome: 'success', workIqCalls: 0 })
+  ].join('\n');
+  const result = await runBrainScanOnce({ input: {}, emit() {} }, {
+    tasksFile,
+    brainWorkDir: path.join(dir, 'brain-work'),
+    runId: 'b9h-node-obsolete',
+    now: new Date('2026-07-08T08:00:00.000Z'),
+    _runBrain: async () => ({ ok: true, assistantText: output, counters: { workIqCalls: 0 } }),
+    _runGateway: async ({ markers }) => approveAll(markers),
+    _writeJsonFileAtomic: (file, data) => writeJsonFileAtomic(file, data, { maxBackups: 0 })
+  });
+  const saved = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+
+  assert.equal(result.outcome, 'success');
+  assert.equal(result.temporalGate.ok, true);
+  assert.equal(saved.tasks[0].pmStatus.planned[0].state, 'obsolete');
+  assert.equal(saved.reviewQueue.length, 0);
+});
+
+test('Batch 9H content-not-indexed attachment retry holds cursor until third attempt', () => {
+  const data = migrateToV5({
+    version: 5,
+    reviewQueue: [],
+    tasks: [{
+      id: 'proj-b9h-attachment-retry',
+      taskType: 'project',
+      title: 'Attachment retry project',
+      status: 'new',
+      sourceRefs: [{ id: 'src-attach-body', type: 'email', date: '2026-07-08T10:00:00.000Z', link: 'https://example.test/attach-body' }],
+      processing: {
+        cursorDate: '2026-07-07T00:00:00.000Z',
+        lookbackDays: 14,
+        threads: { 'thread-attach': { lastProcessedMessageDate: '2026-07-07T00:00:00.000Z' } },
+        ledger: []
+      },
+      pmStatus: {
+        current: 'Original current state.',
+        planned: [],
+        userActions: [],
+        problems: [],
+        risks: [],
+        waitingOn: [],
+        confidence: 'medium'
+      },
+      lineItems: [{
+        id: 'li-attach',
+        title: 'Attachment-backed line',
+        status: 'open',
+        currentState: 'Attachment pending.',
+        evidenceRefIds: ['src-attach-body'],
+        state: 'confirmed'
+      }]
+    }]
+  });
+  const retryMarker = markerObj('LINEITEM_UPDATE', {
+    taskId: 'proj-b9h-attachment-retry',
+    lineItemId: 'li-attach',
+    patch: {
+      currentState: 'Message body checked; attachment content is not indexed yet.',
+      confidence: 'medium'
+    },
+    evidenceRefIds: ['src-attach-body'],
+    processingLedger: [{
+      itemRef: { type: 'email', id: 'msg-attach' },
+      threadRef: 'thread-attach',
+      date: '2026-07-08T10:00:00.000Z',
+      disposition: 'updates-node',
+      nodeRefs: ['li-attach'],
+      hasAttachments: true,
+      attachmentCount: 1,
+      attachmentsHandled: 'failed(content-not-indexed)',
+      quote: 'Please see the attached deck.',
+      reason: 'WorkIQ returned content-not-indexed after the required alternate attachment query.'
+    }]
+  });
+
+  const first = applyMarkerBatch(data, [retryMarker], {
+    auditLogFile: null,
+    now: new Date('2026-07-08T10:30:00.000Z')
+  }).data;
+  const firstProcessing = first.tasks[0].processing;
+  assert.equal(firstProcessing.cursorDate, '2026-07-07T00:00:00.000Z');
+  assert.equal(firstProcessing.threads['thread-attach'].lastProcessedMessageDate, '2026-07-07T00:00:00.000Z');
+  assert.equal(firstProcessing.ledger[0].attachmentIndexAttempts, 1);
+  assert.equal(firstProcessing.ledger[0].reprobeNextScan, true);
+  assert.match(first.reviewQueue[0].question, /attachment not indexed yet — re-probe next scan/);
+
+  const second = applyMarkerBatch(first, [retryMarker], {
+    auditLogFile: null,
+    now: new Date('2026-07-08T11:30:00.000Z')
+  }).data;
+  assert.equal(second.tasks[0].processing.cursorDate, '2026-07-07T00:00:00.000Z');
+  assert.equal(second.tasks[0].processing.ledger[0].attachmentIndexAttempts, 2);
+
+  const third = applyMarkerBatch(second, [retryMarker], {
+    auditLogFile: null,
+    now: new Date('2026-07-08T12:30:00.000Z')
+  }).data;
+  assert.equal(third.tasks[0].processing.cursorDate, '2026-07-08T10:00:00.000Z');
+  assert.equal(third.tasks[0].processing.threads['thread-attach'].lastProcessedMessageDate, '2026-07-08T10:00:00.000Z');
+  assert.equal(third.tasks[0].processing.ledger[0].attachmentIndexAttempts, 3);
+  assert.equal(third.tasks[0].processing.ledger[0].reprobeNextScan, false);
+  assert.equal(third.reviewQueue.length, 1);
 });
 
 test('Batch 9F granular quality gate applies complete mutations and holds only ledgerless marker', async () => {

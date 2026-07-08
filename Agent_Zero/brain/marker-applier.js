@@ -15,10 +15,14 @@ import {
   validateFactSheetSectionPatches
 } from './factsheet.js';
 import {
+  extractProcessingLedgerFromPayload,
+  hasContentNotIndexedAttachmentFailure,
+  itemRefKey,
   mergeProcessing,
   validateProcessingPayload
 } from './processing-ledger.js';
 import {
+  findTemporalNodeTarget,
   PM_TEMPORAL_FIELDS,
   isStalePmTemporalNode
 } from './temporal-pass.js';
@@ -513,6 +517,35 @@ function validateMarker(marker, data, sourceRefIndex, { now = new Date() } = {})
       return { ok: true, capConfidence: false };
     }
 
+    case 'NODE_OBSOLETE': {
+      if (!payload.taskId || !taskById(data, payload.taskId)) return { ok: false, reason: `unknown taskId: ${payload.taskId}` };
+      if (payload.sourceRefs !== undefined || payload.sourceRef !== undefined) {
+        return { ok: false, reason: 'NODE_OBSOLETE may not introduce sourceRefs' };
+      }
+      if (typeof payload.nodeRef !== 'string' || !payload.nodeRef.trim()) {
+        return { ok: false, reason: 'NODE_OBSOLETE requires nodeRef' };
+      }
+      if (typeof payload.obsoleteReason !== 'string' || !payload.obsoleteReason.trim()) {
+        return { ok: false, reason: 'NODE_OBSOLETE requires obsoleteReason' };
+      }
+      const target = findTemporalNodeTarget(data, {
+        taskId: payload.taskId,
+        nodeRef: payload.nodeRef,
+        now,
+        requirePastDate: true
+      });
+      if (!target.ok) return { ok: false, reason: target.reason };
+      if (payload.evidenceRefIds !== undefined && !Array.isArray(payload.evidenceRefIds)) {
+        return { ok: false, reason: 'NODE_OBSOLETE evidenceRefIds must be an array' };
+      }
+      if (normalizeArray(payload.evidenceRefIds).length > 0) {
+        const evidence = evaluateEvidence(payload.evidenceRefIds, sourceRefIndex);
+        if (!evidence.ok) return { ok: false, reason: evidence.reason };
+        return { ok: true, capConfidence: evidence.capConfidence };
+      }
+      return { ok: true, capConfidence: false };
+    }
+
     case 'TASK_NEW': {
       if (!payload.title || typeof payload.title !== 'string') return { ok: false, reason: 'TASK_NEW requires title' };
       if (!payload.sourceRef || typeof payload.sourceRef !== 'object') return { ok: false, reason: 'TASK_NEW requires sourceRef' };
@@ -741,6 +774,34 @@ function syncConflictProblems(task, now) {
   }
 }
 
+function addAttachmentIndexRetryReviewHints(data, task, payload, { now }) {
+  const ledger = extractProcessingLedgerFromPayload(payload);
+  if (!ledger.some(hasContentNotIndexedAttachmentFailure)) return;
+
+  data.reviewQueue = normalizeArray(data.reviewQueue);
+  const existingQuestions = new Set(data.reviewQueue.map(item => item?.question).filter(Boolean));
+  const persistedLedger = normalizeArray(task.processing?.ledger);
+
+  for (const item of ledger) {
+    if (!hasContentNotIndexedAttachmentFailure(item)) continue;
+    const key = itemRefKey(item.itemRef);
+    const persisted = persistedLedger.find(entry => itemRefKey(entry.itemRef) === key);
+    const attempts = Number(persisted?.attachmentIndexAttempts || 1);
+    if (attempts >= 3) continue;
+    const thread = item.threadRef ? ` (${item.threadRef})` : '';
+    const question = `attachment not indexed yet — re-probe next scan: ${key || 'unknown attachment item'}${thread}`;
+    if (existingQuestions.has(question)) continue;
+    existingQuestions.add(question);
+    data.reviewQueue.push({
+      kind: 'other',
+      ref: task.id,
+      question,
+      confidence: 'low',
+      createdAt: nowIso(now)
+    });
+  }
+}
+
 function actionResolutionKey(entry) {
   return String(entry?.id || entry?.text || '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
@@ -880,6 +941,7 @@ function applyProjectNew(data, payload, context) {
   };
   syncConflictProblems(task, context.now);
   data.tasks.push(task);
+  addAttachmentIndexRetryReviewHints(data, task, payload, context);
   archiveSuperseded(data, task.supersedesTaskIds, projectId, context.now);
 }
 
@@ -911,6 +973,7 @@ function applyProjectUpdate(data, payload, context) {
   }
   task.supersedesTaskIds = [...new Set([...normalizeArray(task.supersedesTaskIds), ...normalizeArray(payload.supersedesTaskIds)])];
   task.processing = mergeProcessing(task.processing, payload, { now: context.now });
+  addAttachmentIndexRetryReviewHints(data, task, payload, context);
   task.updatedAt = nowIso(context.now);
   task.brainState = { ...V5_BRAIN_STATE_DEFAULTS, ...(task.brainState || {}) };
   task.brainState.lastScanRunId = context.runId;
@@ -923,6 +986,7 @@ function applyFactSheetUpdate(data, payload, context) {
   const task = taskById(data, payload.taskId);
   task.factSheet = applyFactSheetSectionPatches(task.factSheet, payload.sectionPatches, context);
   task.processing = mergeProcessing(task.processing, payload, { now: context.now });
+  addAttachmentIndexRetryReviewHints(data, task, payload, context);
   task.updatedAt = nowIso(context.now);
   task.brainState = { ...V5_BRAIN_STATE_DEFAULTS, ...(task.brainState || {}) };
   task.brainState.lastScanRunId = context.runId;
@@ -934,6 +998,7 @@ function applyLineItemNew(data, payload, context) {
   task.lineItems = normalizeArray(task.lineItems);
   task.lineItems.push(normalizeLineItem(payload.lineItem, context));
   task.processing = mergeProcessing(task.processing, payload, { now: context.now });
+  addAttachmentIndexRetryReviewHints(data, task, payload, context);
   syncConflictProblems(task, context.now);
   task.updatedAt = nowIso(context.now);
 }
@@ -949,8 +1014,50 @@ function applyLineItemUpdate(data, payload, context) {
     lineItem.evidenceRefIds = [...new Set([...normalizeArray(lineItem.evidenceRefIds), ...payload.evidenceRefIds])];
   }
   task.processing = mergeProcessing(task.processing, payload, { now: context.now });
+  addAttachmentIndexRetryReviewHints(data, task, payload, context);
   syncConflictProblems(task, context.now);
   task.updatedAt = nowIso(context.now);
+}
+
+function applyNodeObsolete(data, payload, context) {
+  const found = findTemporalNodeTarget(data, {
+    taskId: payload.taskId,
+    nodeRef: payload.nodeRef,
+    now: context.now,
+    requirePastDate: true
+  });
+  if (!found.ok) return;
+  const { task, target } = found;
+  const node = target.node;
+  const ts = nowIso(context.now);
+
+  node.state = 'obsolete';
+  node.obsoleteReason = String(payload.obsoleteReason || '').trim();
+  node.updatedAt = ts;
+  if (target.kind === 'lineItem') {
+    node.resolutionStatus = 'obsolete';
+  }
+  if (Array.isArray(payload.evidenceRefIds) && payload.evidenceRefIds.length) {
+    node.evidenceRefIds = [...new Set([...normalizeArray(node.evidenceRefIds), ...payload.evidenceRefIds])];
+  }
+  if (payload.evidence !== undefined) {
+    node.obsoleteEvidence = payload.evidence;
+  }
+  delete node.needsReview;
+  delete node.reviewReason;
+
+  task.history = normalizeArray(task.history);
+  task.history.push({
+    timestamp: ts,
+    type: 'node-obsolete',
+    text: `Marked obsolete: ${nodeLabel(node)}`,
+    nodeRef: payload.nodeRef,
+    obsoleteReason: node.obsoleteReason
+  });
+  task.updatedAt = ts;
+  task.brainState = { ...V5_BRAIN_STATE_DEFAULTS, ...(task.brainState || {}) };
+  task.brainState.lastScanRunId = context.runId;
+  syncConflictProblems(task, context.now);
 }
 
 function applyTaskNew(data, payload, context) {
@@ -1069,6 +1176,7 @@ function applyValidMarker(data, marker, context) {
     case 'FACTSHEET_UPDATE': return applyFactSheetUpdate(data, marker.payload, context);
     case 'LINEITEM_NEW': return applyLineItemNew(data, marker.payload, context);
     case 'LINEITEM_UPDATE': return applyLineItemUpdate(data, marker.payload, context);
+    case 'NODE_OBSOLETE': return applyNodeObsolete(data, marker.payload, context);
     case 'TASK_NEW': return applyTaskNew(data, marker.payload, context);
     case 'TASK_UPDATE': return applyTaskUpdate(data, marker.payload, context);
     case 'LEARNING': return applyLearning(data, marker.payload, context);

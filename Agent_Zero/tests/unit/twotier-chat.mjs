@@ -364,8 +364,13 @@ test('TWOTIER stage 2 posts answer before async gateway markers and keeps focuse
   assert.match(captured.prompt, /only then answer or emit markers/);
   assert.match(captured.prompt, /PDF, DOCX, XLSX/);
   assert.match(captured.prompt, /After attachment content capture, explicitly list all dates, milestones, scope items, quantities, port counts, and names/);
+  assert.match(captured.prompt, /content-not-indexed or empty indexed content/);
+  assert.match(captured.prompt, /retry exactly once with an alternative formulation/);
+  assert.match(captured.prompt, /attachment not indexed yet — re-probe next scan/);
   assert.match(captured.prompt, /Temporal pass is mandatory/);
+  assert.match(captured.prompt, /standalone NODE_OBSOLETE marker/);
   assert.match(captured.prompt, /target date passed without completion evidence — needs re-plan/);
+  assert.match(captured.prompt, /never bundled into PROJECT_UPDATE\.pmStatus or LINEITEM_UPDATE/);
   assert.match(captured.prompt, /Use retain for review only when evidence is genuinely contradictory/);
   assert.equal(gatewayCalls, 0);
   assert.equal(result.conversationId, conversationId);

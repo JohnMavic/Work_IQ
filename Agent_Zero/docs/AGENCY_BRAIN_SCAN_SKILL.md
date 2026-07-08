@@ -203,6 +203,12 @@ Mandatory per-message attachment protocol:
   every relevant attachment file by filename: summarize the attachment, list all
   dates/milestones/scope items, or ask for the specific facts needed by the project
   decision. Prefer the exact subject, sender, date, and attachment filename.
+- If WorkIQ returns `content-not-indexed` or no indexed content for an attachment, retry
+  exactly once with an alternative formulation, for example switching from filename to
+  thread+sender+date or from thread+date to exact filename. If the retry is still empty,
+  set `attachmentsHandled:"failed(content-not-indexed)"`, emit or rely on the automatic
+  reviewQueue note `attachment not indexed yet — re-probe next scan`, and do not assert
+  attachment-only facts.
 - After attachment content capture, explicitly list all dates, milestones, scope
   items, quantities, port counts, and names from that attachment. Do not summarize or
   collapse the list. If a thread has multiple attachments, perform this extraction
@@ -221,6 +227,9 @@ Mandatory per-message attachment protocol:
   or "attachment" unless the attachment content was actually surfaced.
 - If a message has attachments and the read fails, emit `NEEDS_REVIEW` when project
   state may depend on the attachment, and use `failed(<reason>)` in the ledger.
+- For `failed(content-not-indexed)`, the server keeps the message eligible for the next
+  scan until the attachment is harvested or three scans have attempted it. Do not mark
+  the item `already-processed` while `reprobeNextScan` remains true.
 - Graph or other attachment-byte retrieval is an optional future path, not required for
   the current protocol and not implemented here. Mail MCPs provide message bodies only,
   not attachment bytes. If any UI/byte fallback would require changing external state
@@ -243,11 +252,12 @@ Omitting the stale node from a replacement `pmStatus` is also silent removal and
 valid; preserve it with an explicit obsolete/superseded/confirmed state.
 
 If a planned target date has already passed and you have no completion or execution
-evidence, the honest default is to emit a marker that marks that node obsolete or
-superseded with `obsoleteReason:"target date passed without completion evidence —
-needs re-plan"`. This is not a claim that the work completed. Use "retain for review"
-only when evidence is genuinely contradictory, not merely because the calendar date
-has passed.
+evidence, the honest default is to emit a standalone `NODE_OBSOLETE` marker with
+`obsoleteReason:"target date passed without completion evidence — needs re-plan"`.
+This is not a claim that the work completed. Temporal bookings must always be emitted
+as their own `NODE_OBSOLETE` marker, never bundled into `PROJECT_UPDATE.pmStatus` or
+`LINEITEM_UPDATE`. Use "retain for review" only when evidence is genuinely
+contradictory, not merely because the calendar date has passed.
 
 ## Evidence Rules
 
@@ -312,6 +322,7 @@ markers in code fences.
 [FACTSHEET_UPDATE] {"taskId":"task-...","sectionPatches":{"overview":[{"op":"add","text":"English fact","date":"2026-07-06","evidenceRefIds":["src-..."],"confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}],"peopleRoles":[{"op":"add","person":"...","role":"...","organization":"...","location":"...","country":"...","contact":"...","evidenceRefIds":["src-..."],"confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}]},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["fs-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}]}
 [LINEITEM_NEW] {"taskId":"task-...","lineItem":{"id":"li-...","title":"...","category":"action","status":"open","owner":"Alex","userActionRequired":false,"userAction":"...","currentState":"...","plannedNext":null,"dueAt":null,"waitingOn":null,"problem":null,"risk":null,"confidence":"medium","evidenceRefIds":["src-..."],"sourceTaskIds":[],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open","askQuote":{"text":"...","from":"...","date":"...","threadRef":"conversation-id"},"threadCheck":{"coverage":"complete","addressedTo":"Alex","messageCount":12,"lastMessageDate":"...","checkedThroughMessageDate":"..."}},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":["li-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}]}
 [LINEITEM_UPDATE] {"taskId":"task-...","lineItemId":"li-...","patch":{"status":"waiting","currentState":"...","confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["li-..."],"attachmentsHandled":"failed(DLP blocked attachment read)","quote":"short verbatim quote","reason":"why this disposition is correct"}],"evidenceRefIds":["src-..."]}
+[NODE_OBSOLETE] {"taskId":"task-...","nodeRef":"pmStatus.planned:<id-or-text>|pmStatus.waitingOn:<id-or-text>|li-...","obsoleteReason":"target date passed without completion evidence — needs re-plan","evidenceRefIds":["src-..."]}
 [TASK_NEW] {"title":"...","summary":"...","sourceRef":{"id":"src-...","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","evidenceText":"short factual summary"},"status":"new|on-radar|needs-attention"}
 [TASK_UPDATE] {"taskId":"task-...","patch":{"status":"in-progress","summary":"...","confidence":"medium"},"sourceRefs":[{"id":"src-...","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","evidenceText":"short factual summary"}],"evidenceRefIds":["src-..."]}
 [LEARNING] {"text":"Reusable principle, pattern, or stable general fact.","category":"principle|pattern|fact","evidence":"why this learning is generally valid"}
@@ -330,7 +341,8 @@ markers in code fences.
   use explicit `null` to say a previously marked action is open again.
 - Do not emit visible actions without the Batch 7 action-gate proof fields.
 - Do not emit a project mutation without processing ledger dispositions for every
-  surfaced item behind that mutation.
+  surfaced item behind that mutation. `NODE_OBSOLETE` is the only exception because it
+  may book a past-date disposition from the existing stale node itself.
 - Do not emit any processing ledger disposition without `attachmentsHandled`.
 - Do not finish a scan while stale past-date `planned`, `waitingOn`, or line-item
   nodes remain `state:"unconfirmed"` unless you explicitly mark or confirm them.
