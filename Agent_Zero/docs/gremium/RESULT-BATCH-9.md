@@ -1,44 +1,48 @@
-BATCH9C: BLOCKED OWA-CDP reached the real thread but no PDF/deck bytes were retrieved; further UI attempts stopped after OWA changed read/unread state
+BATCH9D: OK WorkIQ attachment-index proof: Microsoft Seestrasse - August Works.pdf contains "Planned PIS - August 31st" / 31 Aug 2026 and scope Full office recabling; Cable room optimisation; Security System renewal; AV life cycle renewal
 
-Batch 9C implementation completed the reusable attachment route but did not produce
-the requested live PIS proof.
+Batch 9D corrected the Batch 9C attachment conclusion. The live evidence shows that
+WorkIQ can surface attachment contents through the M365 Copilot index when asked a
+targeted attachment question. It does not provide attachment bytes.
+
+Live proof:
+
+- Runner: headless `agency copilot` through the repo `runBrain` wrapper.
+- Counters: exit 0, 1 tool start, 1 WorkIQ call, duration about 69 s.
+- Question asked to WorkIQ:
+  `Summarize the attached deck/PDF of Laith Skeik's email from 6 Jul 2026 in the thread "Confirmation: Temporary Workspace Setup at Seestrasse" about the Seestrasse August closure. List all dates, milestones, and scope items it contains. Specifically include whether the attachment contains a PIS date of 31 Aug 2026 and the scope list. Mention the as-of timestamp/date of your WorkIQ answer if available.`
+- Answer excerpt:
+  `Attachment identified as "Microsoft Seestrasse - August Works.pdf" (last modified 7 Jul 2026). Dates/milestones: Office closed 17 Aug 2026 - 28 Aug 2026; Workstations Move 17-18 Aug; Security Renewal, Recabling, AV Renewal, Cable Room Optimization during closure window; Planned PIS - 31 Aug 2026 ("Planned PIS - August 31st"). Scope: Full office recabling; Cable room optimisation; Security System renewal; AV life cycle renewal. Temporary workstations set up in the storage room. As-of: search result retrieved 8 Jul 2026.`
 
 Implemented:
 
-- Added `brain/tools/owa-attachment.ps1`.
-- The helper validates `RunId`, requires `BrainWorkDir` to resolve to `brain-work`,
-  and restricts downloads to `brain-work/attachments/<runId>/`.
-- It launches a dedicated Edge debugging instance with a disposable
-  `brain-work/owa-profiles/<runId>/` profile and cleans up only that process/profile.
-- It searches OWA by subject/date/sender, can use `-MessageUrl`, writes
-  `manifest.json`, and extracts PDF text through local `pdftotext` when a PDF is
-  downloaded.
-- It includes an OWA same-session REST fallback, but the live probe returned 401 for
-  `outlook.office.com/api/v2.0/me/messages/...`.
-- Added `docs/OWA_ATTACHMENT_FETCH.md`, Scan-skill protocol text, and Brain Learnings
-  for the OWA attachment fallback and the OWA auto-mark-read caveat.
-- Discovery protocol now says: try mail/Teams attachment APIs first; then OWA-CDP;
-  set `attachmentsHandled:"yes"` only after reading attachment content; otherwise use
-  `failed(<reason>)`.
-
-Live probe against the real Laith Skeik thread:
-
-- Target: `Confirmation: Temporary Workspace Setup at Seestrasse`, Laith Skeik,
-  2026-07-06 18:45.
-- OWA-CDP successfully reached Outlook with the isolated Edge profile and opened the
-  real conversation.
-- Visible evidence confirmed the real thread context: Belinda's 2026-07-07 reply
-  quotes Laith's 2026-07-06 18:45 message saying he put out a deck for the August
-  office-closure communication.
-- The OWA UI exposed a conversation paperclip, but no visible PDF/PPTX/DOCX/XLSX
-  attachment tile or download control appeared for the opened view.
-- OWA REST fallback from the same browser session returned 401 for the message lookup,
-  so attachment bytes were not retrieved.
-- No PDF text was extracted and no PIS date was proven.
-- The inbox unread counter changed during OWA opening, so further UI attempts were
-  stopped to preserve the read-only safety requirement.
+- Corrected Brain Learnings: WorkIQ surfaces attachment CONTENTS via the M365 Copilot
+  index; ask targeted questions about the attachment, do not expect bytes, and state the
+  as-of/index-lag caveat.
+- Updated the scan discovery protocol: messages with attachments now require a targeted
+  WorkIQ attachment-content probe first. Success uses
+  `attachmentsHandled:"yes(workiq-index)"` with cited attachment facts; failure uses
+  `attachmentsHandled:"failed(<reason>)"`.
+- Updated the deterministic ledger validator and Reality Gateway prompt for
+  `yes(workiq-index)`. Plain `yes` remains valid only for direct read-only byte/content
+  paths that actually read the attachment.
+- Removed `owaAttachmentHelper` from the scan bootstrap so normal scans no longer route
+  to OWA-CDP by default.
+- Updated OWA helper docs: retained as legacy diagnostic byte fallback only. Graph or
+  other byte retrieval is documented as an optional future path and was not built.
+- Updated Task Chat and Deep Verification prompts to use the same WorkIQ-index
+  attachment rule.
+- Updated Batch 9 tests for the new `attachmentsHandled` values and added guard coverage
+  that the false WorkIQ/Graph learning is gone.
 
 Tests:
 
 - `node --test tests/unit/batch9.mjs` -> 8/8 passing.
 - `npm test` -> 146/146 passing.
+
+Safety:
+
+- Ran `WHO-IS-AGENT-ZERO.bat` before process work. It reported two `server.js`
+  instances and no Agent Zero WorkIQ child; no STOP/START or broad process kill was
+  performed.
+- The live proof used only short-lived Agency child processes. Existing Agent Zero
+  server processes, `tasks.json`, and user sessions were not touched.
