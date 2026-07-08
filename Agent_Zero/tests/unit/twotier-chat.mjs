@@ -358,7 +358,10 @@ test('TWOTIER stage 2 posts answer before async gateway markers and keeps focuse
   assert.match(captured.prompt, /Portal\/CDP\/browser\/shell patterns/);
   assert.match(captured.prompt, /Verify exactly:\n1\. Check approval 123 in MyApprovals\n2\. Confirm whether the approval is still pending/);
   assert.match(captured.prompt, /priority hint, not a limit/);
-  assert.match(captured.prompt, /PDF, DOCX, and XLSX/);
+  assert.match(captured.prompt, /Mandatory M365 workflow/);
+  assert.match(captured.prompt, /only then answer or emit markers/);
+  assert.match(captured.prompt, /PDF, DOCX, XLSX/);
+  assert.match(captured.prompt, /Temporal pass is mandatory/);
   assert.equal(gatewayCalls, 0);
   assert.equal(result.conversationId, conversationId);
   assert.equal(historyBeforeGateway.agentExecution.deepVerification.status, 'completed');
@@ -378,6 +381,290 @@ test('TWOTIER stage 2 posts answer before async gateway markers and keeps focuse
   const historyAfterGateway = savedAfterGateway.tasks[0].history[0];
   assert.equal(historyAfterGateway.agentExecution.deepVerification.markerProcessingStatus, 'completed');
   assert.equal(historyAfterGateway.agentFollowups[0].markersHeld, 0);
+});
+
+test('BATCH9E chat deep attachment gate holds M365 updates when attachment handling is missing', async () => {
+  const dir = resetTmp('batch9e-chat-attachment-gate');
+  const conversationId = 'conv-b9e-attach';
+  const tasksFile = writeFixture(dir, {
+    version: 5,
+    reviewQueue: [],
+    tasks: [{
+      id: 'proj-chat-attachment',
+      taskType: 'project',
+      title: 'Attachment project',
+      status: 'new',
+      sourceRefs: [{ id: 'src-existing', type: 'email', title: 'Existing source', date: '2026-07-06T08:00:00.000Z' }],
+      processing: { cursorDate: '2026-07-06T00:00:00.000Z', lookbackDays: 14, threads: {}, ledger: [] },
+      pmStatus: {
+        current: 'Original PM state.',
+        planned: [],
+        userActions: [],
+        problems: [],
+        risks: [],
+        waitingOn: [],
+        confidence: 'medium'
+      },
+      history: [{
+        timestamp: '2026-07-08T08:00:00.000Z',
+        conversationId,
+        type: 'update',
+        text: 'Search the inbox for updates.',
+        agentResponse: 'Original state from project state, last verified 2026-07-06T08:00:00.000Z.\nDeep verification against Microsoft 365 started — I will update this conversation.',
+        agentExecution: {
+          confidence: 'medium',
+          method: 'agency-task-chat-fast-v1',
+          deepVerification: {
+            required: true,
+            status: 'running',
+            system: 'Microsoft 365',
+            question: 'Search the inbox for updates.',
+            verifyExactly: ['Search Outlook for updates and inspect attachments'],
+            conversationId,
+            startedAt: '2026-07-08T08:00:00.000Z'
+          }
+        }
+      }]
+    }]
+  });
+
+  const output = [
+    'Deep verification found an update, but the deck was not read.',
+    marker('PROJECT_UPDATE', {
+      taskId: 'proj-chat-attachment',
+      sourceRefs: [{
+        id: 'src-attach-mail',
+        type: 'email',
+        title: 'Message with attached deck',
+        date: '2026-07-08T08:30:00.000Z',
+        link: 'https://outlook.office.com/mail/id/msg-attach',
+        evidenceText: 'The message body references an attached deck.'
+      }],
+      pmStatus: {
+        current: 'Updated from unread attached deck.',
+        planned: [],
+        userActions: [],
+        problems: [],
+        risks: [],
+        waitingOn: [],
+        confidence: 'medium'
+      },
+      processingLedger: [{
+        itemRef: { type: 'email', id: 'msg-attach' },
+        threadRef: 'thread-attach',
+        date: '2026-07-08T08:30:00.000Z',
+        disposition: 'updates-node',
+        nodeRefs: ['pmStatus'],
+        attachmentsHandled: 'none',
+        quote: 'Please see the attached deck.',
+        reason: 'The message body points to the deck but no attachment query was made.'
+      }],
+      evidenceRefIds: ['src-attach-mail']
+    }),
+    marker('SCAN_DONE', {
+      runId: 'b9e-chat-attachment',
+      outcome: 'success',
+      workIqCalls: 1,
+      processingQuality: {
+        required: true,
+        enumeratedItems: [{
+          itemRef: { type: 'email', id: 'msg-attach' },
+          threadRef: 'thread-attach',
+          hasAttachments: true,
+          attachmentCount: 1
+        }],
+        threadCounts: [{ threadRef: 'thread-attach', count: 1 }]
+      }
+    })
+  ].join('\n');
+
+  const result = await runTaskChatDeepVerifyOnce({
+    id: 'job-b9e-attach',
+    taskId: 'proj-chat-attachment',
+    input: {
+      text: 'Search the inbox for updates.',
+      conversationId,
+      stageOneAnswer: 'Original state.',
+      deepVerification: {
+        required: true,
+        system: 'Microsoft 365',
+        question: 'Search the inbox for updates.',
+        verifyExactly: ['Search Outlook for updates and inspect attachments']
+      }
+    },
+    emit() {}
+  }, {
+    tasksFile,
+    brainWorkDir: path.join(dir, 'brain-work'),
+    runId: 'b9e-chat-attachment',
+    now: new Date('2026-07-08T08:45:00.000Z'),
+    _runBrain: async () => ({ ok: true, assistantText: output, counters: { workIqCalls: 1 } }),
+    _runGateway: async (options) => approveAllGateway(options),
+    _writeJsonFileAtomic: (file, data) => writeJsonFileAtomic(file, data, { maxBackups: 0 })
+  });
+
+  const markerResult = await result.markerApplyPromise;
+  const saved = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+  const task = saved.tasks[0];
+  const followup = task.history[0].agentFollowups[0];
+
+  assert.equal(markerResult.ok, false);
+  assert.match(markerResult.qualityGate.reason, /attachmentsHandled/);
+  assert.equal(task.pmStatus.current, 'Original PM state.');
+  assert.equal(task.processing.ledger.length, 0);
+  assert.match(saved.reviewQueue[0].question, /processing-ledger quality gate/);
+  assert.equal(followup.markerProcessingStatus, 'held');
+  assert.equal(followup.markersApplied, 0);
+});
+
+test('BATCH9E chat deep temporal gate requires stale planned and line-item cleanup', async () => {
+  const dir = resetTmp('batch9e-chat-temporal-gate');
+  const conversationId = 'conv-b9e-temporal';
+  const tasksFile = writeFixture(dir, {
+    version: 5,
+    reviewQueue: [],
+    tasks: [{
+      id: 'proj-chat-temporal',
+      taskType: 'project',
+      title: 'Temporal chat project',
+      status: 'new',
+      sourceRefs: [{ id: 'src-old', type: 'email', title: 'Old AV target', date: '2026-06-20T08:00:00.000Z' }],
+      processing: { cursorDate: '2026-07-06T00:00:00.000Z', lookbackDays: 14, threads: {}, ledger: [] },
+      pmStatus: {
+        current: 'Original current state.',
+        planned: [{
+          id: 'plan-av-go-live',
+          text: 'AV Go-Live target 1 Jul 2026 for commissioned rooms',
+          date: '2026-07-01',
+          evidenceRefIds: ['src-old'],
+          confidence: 'medium',
+          state: 'unconfirmed'
+        }],
+        userActions: [],
+        problems: [],
+        risks: [],
+        waitingOn: [],
+        confidence: 'medium'
+      },
+      lineItems: [{
+        id: 'li-see-av-commissioning',
+        title: 'AV commissioning',
+        category: 'workstream',
+        status: 'open',
+        currentState: 'AV sign-off requested toward a 1 Jul 2026 go-live.',
+        evidenceRefIds: ['src-old'],
+        state: 'unconfirmed'
+      }],
+      history: [{
+        timestamp: '2026-07-08T09:00:00.000Z',
+        conversationId,
+        type: 'update',
+        text: 'Search the inbox for updates.',
+        agentResponse: 'Original state from project state, last verified 2026-06-20T08:00:00.000Z.\nDeep verification against Microsoft 365 started — I will update this conversation.',
+        agentExecution: {
+          confidence: 'medium',
+          method: 'agency-task-chat-fast-v1',
+          deepVerification: {
+            required: true,
+            status: 'running',
+            system: 'Microsoft 365',
+            question: 'Search the inbox for updates.',
+            verifyExactly: ['Search Outlook for updates'],
+            conversationId,
+            startedAt: '2026-07-08T09:00:00.000Z'
+          }
+        }
+      }]
+    }]
+  });
+
+  const output = [
+    'Deep verification found a new mail but did not reconcile the stale AV date.',
+    marker('PROJECT_UPDATE', {
+      taskId: 'proj-chat-temporal',
+      sourceRefs: [{
+        id: 'src-fresh-mail',
+        type: 'email',
+        title: 'Fresh update',
+        date: '2026-07-08T09:15:00.000Z',
+        link: 'https://outlook.office.com/mail/id/msg-fresh',
+        evidenceText: 'A fresh message was surfaced.'
+      }],
+      pmStatus: {
+        current: 'Fresh mail surfaced.',
+        planned: [],
+        userActions: [],
+        problems: [],
+        risks: [],
+        waitingOn: [],
+        confidence: 'medium'
+      },
+      processingLedger: [{
+        itemRef: { type: 'email', id: 'msg-fresh' },
+        threadRef: 'thread-fresh',
+        date: '2026-07-08T09:15:00.000Z',
+        disposition: 'updates-node',
+        nodeRefs: ['pmStatus'],
+        attachmentsHandled: 'none',
+        quote: 'Here is the latest update.',
+        reason: 'The message updates the project current state.'
+      }],
+      evidenceRefIds: ['src-fresh-mail']
+    }),
+    marker('SCAN_DONE', {
+      runId: 'b9e-chat-temporal',
+      outcome: 'success',
+      workIqCalls: 1,
+      processingQuality: {
+        required: true,
+        enumeratedItems: [{
+          itemRef: { type: 'email', id: 'msg-fresh' },
+          threadRef: 'thread-fresh',
+          hasAttachments: false
+        }],
+        threadCounts: [{ threadRef: 'thread-fresh', count: 1 }]
+      }
+    })
+  ].join('\n');
+
+  const result = await runTaskChatDeepVerifyOnce({
+    id: 'job-b9e-temporal',
+    taskId: 'proj-chat-temporal',
+    input: {
+      text: 'Search the inbox for updates.',
+      conversationId,
+      stageOneAnswer: 'Original state.',
+      deepVerification: {
+        required: true,
+        system: 'Microsoft 365',
+        question: 'Search the inbox for updates.',
+        verifyExactly: ['Search Outlook for updates']
+      }
+    },
+    emit() {}
+  }, {
+    tasksFile,
+    brainWorkDir: path.join(dir, 'brain-work'),
+    runId: 'b9e-chat-temporal',
+    now: new Date('2026-07-08T09:30:00.000Z'),
+    _runBrain: async () => ({ ok: true, assistantText: output, counters: { workIqCalls: 1 } }),
+    _runGateway: async (options) => approveAllGateway(options),
+    _writeJsonFileAtomic: (file, data) => writeJsonFileAtomic(file, data, { maxBackups: 0 })
+  });
+
+  const markerResult = await result.markerApplyPromise;
+  const saved = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+  const task = saved.tasks[0];
+  const followup = task.history[0].agentFollowups[0];
+
+  assert.equal(markerResult.ok, false);
+  assert.match(markerResult.temporalGate.reason, /temporal pass missing/);
+  assert.equal(task.pmStatus.current, 'Original current state.');
+  assert.equal(task.pmStatus.planned[0].state, 'unconfirmed');
+  assert.equal(task.lineItems[0].state, 'unconfirmed');
+  assert.match(saved.reviewQueue[0].question, /temporal pass gate/);
+  assert.equal(followup.markerProcessingStatus, 'held');
+  assert.equal(followup.markersApplied, 0);
 });
 
 test('TWOTIER stage 2 hard cap posts partial result with open verification items', async () => {
@@ -486,4 +773,5 @@ test('TWOTIER UI renders deep verification status without composer blocking', ()
   assert.match(html, /deep-verify-status/);
   assert.match(html, /ev\.kind !== 'deep_verify'/);
   assert.match(html, /payload\.blocksTask === false/);
+  assert.match(html, /marker_apply_held/);
 });

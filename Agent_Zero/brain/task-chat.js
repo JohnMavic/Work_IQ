@@ -8,6 +8,8 @@ import { normalizeFactSheet, renderFactSheetMarkdown } from './factsheet.js';
 import { parseMarkers, MARKER_REGEX } from './marker-parser.js';
 import { applyMarkerBatch } from './marker-applier.js';
 import { filterMarkersThroughGateway, runRealityGateway } from './reality-gateway.js';
+import { evaluateProcessingQualityGate } from './processing-ledger.js';
+import { evaluateTemporalPassGate } from './temporal-pass.js';
 import { migrateToV5, writeJsonFileAtomic } from './tasks-v5.js';
 import { BRAIN_RUN_CLASS } from './brain-scheduler.js';
 import { renderBrainLearningsBlock } from './learnings.js';
@@ -31,6 +33,7 @@ export const DEFAULT_TASK_CHAT_DEEP_TIMEOUT_MS = 25 * 60 * 1000;
 export const DEFAULT_TASK_CHAT_DEEP_WORKIQ_LIMIT = 150;
 export const DEFAULT_TASKS_FILE = path.join(REPO_ROOT, 'tasks.json');
 export const DEEP_VERIFY_PREFIX = 'DEEP_VERIFY';
+const LEDGER_MUTATION_TYPES = new Set(['PROJECT_NEW', 'PROJECT_UPDATE', 'FACTSHEET_UPDATE', 'LINEITEM_NEW', 'LINEITEM_UPDATE']);
 
 function normalizeArray(value) {
   return Array.isArray(value) ? value : [];
@@ -470,14 +473,14 @@ export function buildTaskChatFastPrompt({
 }
 
 const CHAT_MARKER_GRAMMAR = [
-  '[PROJECT_UPDATE] {"taskId":"task-...","summary":"...","pmStatus":{"current":"...","planned":[],"userActions":[],"problems":[],"risks":[],"waitingOn":[],"confidence":"medium"},"sourceRefs":[],"evidenceRefIds":["src-..."]}',
-  '[FACTSHEET_UPDATE] {"taskId":"task-...","sectionPatches":{"overview":[{"op":"add","text":"English fact","evidenceRefIds":["src-..."],"confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}]}}',
-  '[LINEITEM_NEW] {"taskId":"task-...","lineItem":{"id":"li-...","title":"...","category":"action","status":"open","owner":"user","userActionRequired":true,"userAction":"...","currentState":"...","confidence":"medium","evidenceRefIds":["src-..."],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open","askQuote":{"text":"...","from":"...","date":"...","threadRef":"conversation-id"},"threadCheck":{"coverage":"complete","addressedTo":"user","messageCount":1,"lastMessageDate":"...","checkedThroughMessageDate":"..."}}}',
-  '[LINEITEM_UPDATE] {"taskId":"task-...","lineItemId":"li-...","patch":{"status":"waiting","currentState":"...","confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."},"evidenceRefIds":["src-..."]}',
+  '[PROJECT_UPDATE] {"taskId":"task-...","summary":"...","pmStatus":{"current":"...","planned":[],"userActions":[],"problems":[],"risks":[],"waitingOn":[],"confidence":"medium"},"sourceRefs":[],"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["li-..."],"attachmentsHandled":"none|yes|yes(workiq-index)|failed(<reason>)","quote":"short verbatim quote","reason":"why this disposition is correct"}],"evidenceRefIds":["src-..."]}',
+  '[FACTSHEET_UPDATE] {"taskId":"task-...","sectionPatches":{"overview":[{"op":"add","text":"English fact","evidenceRefIds":["src-..."],"confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}]},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["fs-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}]}',
+  '[LINEITEM_NEW] {"taskId":"task-...","lineItem":{"id":"li-...","title":"...","category":"action","status":"open","owner":"user","userActionRequired":true,"userAction":"...","currentState":"...","confidence":"medium","evidenceRefIds":["src-..."],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open","askQuote":{"text":"...","from":"...","date":"...","threadRef":"conversation-id"},"threadCheck":{"coverage":"complete","addressedTo":"user","messageCount":1,"lastMessageDate":"...","checkedThroughMessageDate":"..."}},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":["li-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}]}',
+  '[LINEITEM_UPDATE] {"taskId":"task-...","lineItemId":"li-...","patch":{"status":"waiting","currentState":"...","confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["li-..."],"attachmentsHandled":"failed(<reason>)","quote":"short verbatim quote","reason":"why this disposition is correct"}],"evidenceRefIds":["src-..."]}',
   '[TASK_UPDATE] {"taskId":"task-...","patch":{"status":"in-progress","summary":"...","confidence":"medium"},"sourceRefs":[{"id":"src-...","type":"email|teams|manual","title":"...","date":"...","link":null,"evidenceText":"short factual summary"}],"evidenceRefIds":["src-..."]}',
   '[LEARNING] {"text":"Reusable principle, pattern, or stable general fact.","category":"principle|pattern|fact","evidence":"why this learning is generally valid"}',
   '[NEEDS_REVIEW] {"kind":"assignment|status|other","ref":"taskId|lineItemId|null","question":"...","confidence":"low"}',
-  '[SCAN_DONE] {"runId":"...","outcome":"success|partial","workIqCalls":0,"notes":"..."}'
+  '[SCAN_DONE] {"runId":"...","outcome":"success|partial","workIqCalls":0,"processingQuality":{"required":true,"enumeratedItems":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","hasAttachments":false}],"threadCounts":[{"threadRef":"conversation-id","count":1}]},"notes":"..."}'
 ].join('\n');
 
 export function buildTaskChatPrompt({ stateFileName, factSheetFiles, userPrompt, attachments, taskId, runId, learningsBlock = renderBrainLearningsBlock().markdown }) {
@@ -591,7 +594,12 @@ export function buildTaskChatDeepVerifyPrompt({
     'Deep-verification contract:',
     '- Treat the focus list above as a priority hint, not a limit. If the user asked to search for updates, discover all relevant new communications for this task.',
     '- For update-search requests, start from task.processing.cursorDate and task.processing.threads when present, use the lookback window, and enumerate newly surfaced mail/Teams items before deciding that nothing changed.',
-    '- Prefer mail and Teams MCPs for discovery. Read full message bodies and use targeted WorkIQ attachment-content questions for relevant attachments, especially PDF, DOCX, and XLSX files. Attachments are mandatory evidence when present; mark attachment ledger items yes(workiq-index) only when concrete attachment-derived facts are returned, otherwise failed(<reason>).',
+    '- Prefer mail and Teams MCPs for discovery.',
+    '- Mandatory M365 workflow for update-search requests: first enumerate surfaced mail/Teams items, then read full message bodies, then ask targeted WorkIQ attachment-content questions for every relevant PDF, DOCX, XLSX, deck, or other source attachment, and only then answer or emit markers.',
+    '- Do not answer or emit task-state markers from a message that has relevant attachments until the attachment step is complete. If WorkIQ returns concrete attachment-derived facts, use attachmentsHandled:"yes(workiq-index)"; if direct read-only bytes/content were actually read, use "yes"; if the attachment cannot be read, use "failed(<reason>)" and do not assert attachment-only facts.',
+    '- For every enumerated or processed M365 item, include a processingLedger disposition on the relevant marker with itemRef, threadRef, date, disposition, nodeRefs, attachmentsHandled, quote, and reason.',
+    '- The final SCAN_DONE for M365 update-search runs must include processingQuality.required:true with every enumerated item and per-thread counts. For enumerated items with attachments, set hasAttachments:true or attachmentCount. A message with attachments and ledger attachmentsHandled:"none" will be held.',
+    '- Temporal pass is mandatory before final output: review task.pmStatus.planned, task.pmStatus.waitingOn, and lineItems for unconfirmed dates before today. For each stale node, either confirm it with fresh evidence or mark it obsolete/superseded with evidence and an explicit reason. Do not silently omit stale pmStatus entries from a replacement pmStatus.',
     '- The runner allows the full 25-minute deep window. It warns at 40 tool starts and emergency-stops at 150 tool starts only to prevent loops.',
     '- If the cap is near or reached, answer with what is already verified, what was checked, and which items remain open. Do not assert unsupported state.',
     '- Portal/CDP/browser/shell patterns from Brain Learnings are allowed in this background stage.',
@@ -1042,6 +1050,76 @@ function deriveChatConfidence({ markersParsed, markersApplied, markersHeld, mark
   return 'medium';
 }
 
+function isM365DeepVerification(deepVerification = {}, userPrompt = '') {
+  const text = [
+    deepVerification?.system,
+    deepVerification?.reason,
+    deepVerification?.question,
+    ...normalizeVerifyExactly(deepVerification?.verifyExactly, deepVerification?.question || userPrompt),
+    userPrompt
+  ].map(value => String(value || '')).join(' ').toLowerCase();
+  return /\b(microsoft 365|m365|workiq|inbox|mailbox|outlook|e-?mail|email|teams?|message|thread|attachment|pdf|docx|xlsx|scan|search|lookup|suche|durchsuch)\b/i.test(text);
+}
+
+function isLedgerMutationMarker(marker) {
+  return LEDGER_MUTATION_TYPES.has(marker?.type);
+}
+
+function markerHasProcessingLedger(marker) {
+  const payload = marker?.payload || {};
+  return normalizeArray(payload.processingLedger).length > 0
+    || normalizeArray(payload.processing?.ledger).length > 0;
+}
+
+function scanDoneProcessingQuality(markers) {
+  return normalizeArray(markers).find(marker => marker?.type === 'SCAN_DONE')?.payload?.processingQuality || null;
+}
+
+function evaluateTaskChatProcessingQualityGate(markers, {
+  deepVerification = {},
+  userPrompt = ''
+} = {}) {
+  const qualityGate = evaluateProcessingQualityGate(markers);
+  if (!qualityGate.ok) return qualityGate;
+
+  const projectMutations = normalizeArray(markers).filter(isLedgerMutationMarker);
+  if (!projectMutations.length || !isM365DeepVerification(deepVerification, userPrompt)) return qualityGate;
+
+  const processingQuality = scanDoneProcessingQuality(markers);
+  const hasRequiredProcessingQuality = Boolean(processingQuality?.required);
+  const hasEnumeratedItems = normalizeArray(processingQuality?.enumeratedItems).length > 0;
+  const hasLedger = projectMutations.some(markerHasProcessingLedger);
+  if (!hasRequiredProcessingQuality || !hasEnumeratedItems || !hasLedger) {
+    return {
+      ok: false,
+      reason: 'Microsoft 365 deep verification with task mutations requires SCAN_DONE.processingQuality.required, enumeratedItems, and processingLedger dispositions with attachmentsHandled.',
+      ledgerItems: qualityGate.ledgerItems || [],
+      ledgerCount: qualityGate.ledgerCount || 0,
+      skipped: Boolean(qualityGate.skipped)
+    };
+  }
+
+  return qualityGate;
+}
+
+function taskScopedData(data, taskId) {
+  return {
+    ...data,
+    tasks: normalizeArray(data?.tasks).filter(task => task?.id === taskId)
+  };
+}
+
+function addTaskChatGateReviewHint(data, { taskId, now, gateName, reason }) {
+  data.reviewQueue = normalizeArray(data.reviewQueue);
+  data.reviewQueue.push({
+    kind: 'other',
+    ref: taskId,
+    question: `Task chat deep verification was held by the ${gateName}: ${reason}`,
+    confidence: 'low',
+    createdAt: nowIso(now)
+  });
+}
+
 async function applyDeepVerificationMarkersAfterAnswer({
   tasksFile,
   taskId,
@@ -1051,6 +1129,8 @@ async function applyDeepVerificationMarkersAfterAnswer({
   now,
   runId,
   job,
+  userPrompt,
+  deepVerification,
   _readJsonFile,
   _writeJsonFileAtomic,
   _runGateway,
@@ -1085,6 +1165,134 @@ async function applyDeepVerificationMarkersAfterAnswer({
       runClass: BRAIN_RUN_CLASS.BACKGROUND
     });
     gatewayFilter = filterMarkersThroughGateway(scoped.markers, gatewayResult);
+
+    const qualityGate = evaluateTaskChatProcessingQualityGate(gatewayFilter.markers, {
+      deepVerification,
+      userPrompt
+    });
+    if (!qualityGate.ok) {
+      addTaskChatGateReviewHint(latestData, {
+        taskId,
+        now,
+        gateName: 'Batch 7 processing-ledger quality gate',
+        reason: qualityGate.reason
+      });
+      updateDeepVerificationMarkerStatus(latestData, taskId, {
+        conversationId,
+        now,
+        jobId: job?.id || null,
+        runId,
+        markersApplied: 0,
+        markersHeld: parsedMarkers.length,
+        markersDropped: 0,
+        markerProcessingStatus: 'held',
+        error: qualityGate.reason,
+        gateway: {
+          approvedMarkers: gatewayFilter.approved.length,
+          heldMarkers: gatewayFilter.held.length,
+          parsed: gatewayFilter.gatewayParsed,
+          parseError: gatewayFilter.gatewayParseError,
+          qualityGate: {
+            ok: false,
+            reason: qualityGate.reason,
+            ledgerItems: qualityGate.ledgerCount
+          }
+        }
+      });
+      _writeJsonFileAtomic(tasksFile, latestData);
+      job?.emit?.('job.progress', {
+        phase: 'marker_apply_held',
+        activePhase: 'marker_apply_held',
+        agentPhase: 'completed',
+        stage: 'deep_verify',
+        blocksTask: false,
+        conversationId,
+        statusText: 'Task updates held for review.',
+        markersApplied: 0,
+        markersHeld: parsedMarkers.length,
+        reason: qualityGate.reason
+      });
+      return {
+        ok: false,
+        error: qualityGate.reason,
+        scoped,
+        gatewayFilter,
+        qualityGate: {
+          ok: false,
+          reason: qualityGate.reason,
+          ledgerItems: qualityGate.ledgerCount
+        }
+      };
+    }
+
+    const temporalGate = evaluateTemporalPassGate(taskScopedData(latestData, taskId), gatewayFilter.markers, { now });
+    if (!temporalGate.ok) {
+      addTaskChatGateReviewHint(latestData, {
+        taskId,
+        now,
+        gateName: 'Batch 9 temporal pass gate',
+        reason: temporalGate.reason
+      });
+      updateDeepVerificationMarkerStatus(latestData, taskId, {
+        conversationId,
+        now,
+        jobId: job?.id || null,
+        runId,
+        markersApplied: 0,
+        markersHeld: parsedMarkers.length,
+        markersDropped: 0,
+        markerProcessingStatus: 'held',
+        error: temporalGate.reason,
+        gateway: {
+          approvedMarkers: gatewayFilter.approved.length,
+          heldMarkers: gatewayFilter.held.length,
+          parsed: gatewayFilter.gatewayParsed,
+          parseError: gatewayFilter.gatewayParseError,
+          qualityGate: {
+            ok: true,
+            skipped: Boolean(qualityGate.skipped),
+            ledgerItems: qualityGate.ledgerCount
+          },
+          temporalGate: {
+            ok: false,
+            reason: temporalGate.reason,
+            staleNodes: temporalGate.staleNodes.length,
+            addressed: temporalGate.addressed.length
+          }
+        }
+      });
+      _writeJsonFileAtomic(tasksFile, latestData);
+      job?.emit?.('job.progress', {
+        phase: 'marker_apply_held',
+        activePhase: 'marker_apply_held',
+        agentPhase: 'completed',
+        stage: 'deep_verify',
+        blocksTask: false,
+        conversationId,
+        statusText: 'Task updates held for review.',
+        markersApplied: 0,
+        markersHeld: parsedMarkers.length,
+        reason: temporalGate.reason
+      });
+      return {
+        ok: false,
+        error: temporalGate.reason,
+        scoped,
+        gatewayFilter,
+        qualityGate: {
+          ok: true,
+          skipped: Boolean(qualityGate.skipped),
+          ledgerItems: qualityGate.ledgerCount
+        },
+        temporalGate: {
+          ok: false,
+          reason: temporalGate.reason,
+          staleNodes: temporalGate.staleNodes.length,
+          addressed: temporalGate.addressed.length
+        }
+      };
+    }
+
     applyResult = _applyMarkerBatch(latestData, gatewayFilter.markers, {
       now,
       runId,
@@ -1103,7 +1311,17 @@ async function applyDeepVerificationMarkersAfterAnswer({
         approvedMarkers: gatewayFilter.approved.length,
         heldMarkers: gatewayFilter.held.length,
         parsed: gatewayFilter.gatewayParsed,
-        parseError: gatewayFilter.gatewayParseError
+        parseError: gatewayFilter.gatewayParseError,
+        qualityGate: {
+          ok: true,
+          skipped: Boolean(qualityGate.skipped),
+          ledgerItems: qualityGate.ledgerCount
+        },
+        temporalGate: {
+          ok: true,
+          staleNodes: temporalGate.staleNodes.length,
+          addressed: temporalGate.addressed.length
+        }
       }
     });
     _writeJsonFileAtomic(tasksFile, applyResult.data);
@@ -1122,7 +1340,9 @@ async function applyDeepVerificationMarkersAfterAnswer({
       ok: true,
       scoped,
       gatewayFilter,
-      applyResult
+      applyResult,
+      qualityGate,
+      temporalGate
     };
   } catch (err) {
     try {
@@ -1521,6 +1741,8 @@ export async function runTaskChatDeepVerifyOnce(job, {
             now,
             runId,
             job,
+            userPrompt,
+            deepVerification,
             _readJsonFile,
             _writeJsonFileAtomic,
             _runGateway,

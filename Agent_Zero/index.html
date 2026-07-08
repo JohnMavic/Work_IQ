@@ -5208,7 +5208,7 @@
       if (ev.type === 'job.progress') {
         updateDeepVerificationLiveStatus(taskId, ev.payload || {});
         const phase = ev.payload && ev.payload.phase;
-        if (phase === 'answer_posted' || phase === 'marker_apply_done' || phase === 'marker_apply_failed') {
+        if (phase === 'answer_posted' || phase === 'marker_apply_done' || phase === 'marker_apply_held' || phase === 'marker_apply_failed') {
           if (typeof refreshSingleTask === 'function') refreshSingleTask(taskId);
         }
       }
