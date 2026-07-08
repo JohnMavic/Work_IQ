@@ -1,25 +1,25 @@
-BATCH9E: OK
+BATCH9F: OK
 
-Implemented the loop-fix for AUDIT9 FAIL a,d in the Chat Deep Verify path.
+Implemented Loop-Fix 9F for AUDIT9 FAIL a,c,d.
 
 Changes:
 
-- Chat Deep Verify now runs accepted task mutation markers through the same processing-ledger quality gate used by scans before applying markers.
-- Microsoft 365 deep verification with task mutations is held unless it provides `SCAN_DONE.processingQuality.required`, enumerated items, and `processingLedger` dispositions with `attachmentsHandled`.
-- Messages enumerated with attachments are rejected when their ledger disposition leaves `attachmentsHandled:"none"` instead of `yes`, `yes(workiq-index)`, or `failed(<reason>)`.
-- Chat Deep Verify now runs `evaluateTemporalPassGate` before marker apply, scoped to the current task. Stale unconfirmed `pmStatus.planned`, `pmStatus.waitingOn`, and line-item dates must be freshly confirmed or explicitly marked obsolete/superseded.
-- The deep-verification prompt now makes attachment probing a mandatory workflow step before answering or emitting markers, and explicitly requires the temporal pass.
-- Deep marker gate holds write a reviewQueue entry and mark the follow-up marker processing as `held`; no task-state mutation is applied.
-- The UI refreshes on the new `marker_apply_held` progress event.
+- The processing-ledger quality gate is now granular. It holds only mutation markers whose own source items lack a valid disposition or attachment handling. Complete independent markers still apply.
+- New-project batch atomicity is documented and enforced only inside related `PROJECT_NEW` plus its own `LINEITEM_NEW` group, not across unrelated markers in the same run.
+- Scan and Chat Deep Verify evaluate the temporal pass after the granular quality filter, even when quality issues exist. A complete stale-date supersession marker can now pass and apply while an unrelated ledgerless marker is held.
+- Ledgerless enumerated items now create reviewQueue entries with the quality-gate reason instead of holding the whole batch.
+- Deep verification and scan skill prompts now require attachment filename enumeration first: `list all attachments of this thread with filenames`, then targeted per-file WorkIQ attachment queries and per-file ledger disposition.
+- Prompt self-check now forbids marker emission until every enumerated item and attachment filename has a matching disposition.
 
 Tests:
 
-- `node --test tests/unit/twotier-chat.mjs` -> 11/11 passing.
-- `node --test tests/unit/batch9.mjs` -> 8/8 passing.
-- `npm test` -> 148/148 passing.
+- Granular quality hold fixture: 3 complete mutations applied, 1 ledgerless mutation held, reviewQueue reason written.
+- Temporal independence fixture: stale AV 1 Jul cleanup applied while an unrelated quality-held marker stayed unapplied.
+- Attachment enumeration prompt string asserts cover the scan skill and Chat Deep Verify prompt.
+- `npm test` -> 150/150 passing.
 
 Safety:
 
 - No STOP/START scripts.
 - No broad process kills.
-- No running Agent Zero instances touched.
+- No running Agent Zero process touched.
