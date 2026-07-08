@@ -1,25 +1,25 @@
-BATCH9F: OK
+BATCH9G: OK
 
-Implemented Loop-Fix 9F for AUDIT9 FAIL a,c,d.
+Implemented Loop-Fix 9G for AUDIT9 FAIL a,d after the 9F re-audit.
 
 Changes:
 
-- The processing-ledger quality gate is now granular. It holds only mutation markers whose own source items lack a valid disposition or attachment handling. Complete independent markers still apply.
-- New-project batch atomicity is documented and enforced only inside related `PROJECT_NEW` plus its own `LINEITEM_NEW` group, not across unrelated markers in the same run.
-- Scan and Chat Deep Verify evaluate the temporal pass after the granular quality filter, even when quality issues exist. A complete stale-date supersession marker can now pass and apply while an unrelated ledgerless marker is held.
-- Ledgerless enumerated items now create reviewQueue entries with the quality-gate reason instead of holding the whole batch.
-- Deep verification and scan skill prompts now require attachment filename enumeration first: `list all attachments of this thread with filenames`, then targeted per-file WorkIQ attachment queries and per-file ledger disposition.
-- Prompt self-check now forbids marker emission until every enumerated item and attachment filename has a matching disposition.
+- Temporal gate is now granular in scan and task-chat deep verification paths. Approved markers are applied even when unrelated stale nodes remain unreconciled.
+- Unaddressed stale nodes now create automatic reviewQueue entries with `stale date unreconciled: <node>` instead of holding the whole marker batch.
+- Temporal result telemetry now separates real held markers from review items (`heldMarkers` vs `reviewItems`).
+- `PROJECT_UPDATE.pmStatus` preserves omitted stale `planned` / `waitingOn` nodes with `needsReview` so granular application cannot silently delete them.
+- Deep verification and Agency Brain prompts now make passed planned dates obsolete/superseded by default when no completion evidence exists, using `obsoleteReason:"target date passed without completion evidence — needs re-plan"`.
+- Attachment prompts now require full extraction after each content capture: all dates, milestones, scope items, quantities, port counts, and names, separately per attachment filename.
 
 Tests:
 
-- Granular quality hold fixture: 3 complete mutations applied, 1 ledgerless mutation held, reviewQueue reason written.
-- Temporal independence fixture: stale AV 1 Jul cleanup applied while an unrelated quality-held marker stayed unapplied.
-- Attachment enumeration prompt string asserts cover the scan skill and Chat Deep Verify prompt.
+- Temporal granular chat fixture: 2 valid markers applied, 3 stale reviewQueue entries written, 0 held markers, no `marker_apply_held`.
+- Scan temporal fixture updated to verify stale reviews do not hold approved markers.
+- Prompt string asserts cover the obsolete default and attachment extraction checklist.
 - `npm test` -> 150/150 passing.
 
 Safety:
 
 - No STOP/START scripts.
 - No broad process kills.
-- No running Agent Zero process touched.
+- No Agent Zero or WorkIQ process touched.

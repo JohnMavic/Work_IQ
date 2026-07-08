@@ -203,6 +203,10 @@ Mandatory per-message attachment protocol:
   every relevant attachment file by filename: summarize the attachment, list all
   dates/milestones/scope items, or ask for the specific facts needed by the project
   decision. Prefer the exact subject, sender, date, and attachment filename.
+- After attachment content capture, explicitly list all dates, milestones, scope
+  items, quantities, port counts, and names from that attachment. Do not summarize or
+  collapse the list. If a thread has multiple attachments, perform this extraction
+  separately for each attachment filename.
 - Record ledger disposition per attachment file in the ledger item's `attachments`
   array when filenames are known, so every enumerated attachment has an explicit
   handled/failed/no-change trail.
@@ -237,6 +241,13 @@ unconfirmed node, either:
 Never leave a past-date `planned`, `waitingOn`, or line-item date silently unchanged.
 Omitting the stale node from a replacement `pmStatus` is also silent removal and is not
 valid; preserve it with an explicit obsolete/superseded/confirmed state.
+
+If a planned target date has already passed and you have no completion or execution
+evidence, the honest default is to emit a marker that marks that node obsolete or
+superseded with `obsoleteReason:"target date passed without completion evidence —
+needs re-plan"`. This is not a claim that the work completed. Use "retain for review"
+only when evidence is genuinely contradictory, not merely because the calendar date
+has passed.
 
 ## Evidence Rules
 
@@ -349,6 +360,8 @@ Before finishing, verify:
   message with attachments use `yes(workiq-index)`, `yes`, or `failed(<reason>)`?
 - Did I enumerate every thread attachment by filename first, then query each relevant
   attachment file by name?
+- After each attachment content capture, did I explicitly extract every date,
+  milestone, scope item, quantity, port count, and name from each attachment separately?
 - Before emitting markers, does every enumerated item and attachment filename have a
   matching ledger disposition?
 - Did I run the temporal pass and resolve every unconfirmed past-date planned,
