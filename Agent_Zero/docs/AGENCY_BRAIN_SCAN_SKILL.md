@@ -163,9 +163,15 @@ encrypted, corrupt, or unreadable. Include attachment metadata in enumerated ite
 when present, for example `hasAttachments:true`, `attachmentCount`, or attachment names.
 Include count probes in
 `SCAN_DONE.processingQuality`: `{required:true, enumeratedItems:[...],
-threadCounts:[{threadRef,count}]}`. The server will hold the entire scan as partial if
-any enumerated item lacks a valid disposition, if a message with attachments is marked
-`attachmentsHandled:"none"`, or if a thread count does not match the ledger.
+threadCounts:[{threadRef,count}]}`. The server applies the processing-ledger quality
+gate granularly: it holds only mutation markers whose own source items lack valid
+ledger dispositions, have invalid attachment handling, or belong to the same new-project
+atomic group as a held marker. Markers with complete proof trails can still apply.
+Batch atomicity is limited to intrinsically related markers, such as `PROJECT_NEW` plus
+its own `LINEITEM_NEW` markers for the same newly created project; it does not span
+independent updates in the same run. Ledger-less enumerated items that cannot be mapped
+to a specific mutation marker become reviewQueue items with the quality-gate reason
+instead of holding the whole scan.
 
 Each truth-tree node you emit or change must carry:
 
@@ -192,10 +198,14 @@ pattern, file-type quirk, or stable general evidence rule.
 
 Mandatory per-message attachment protocol:
 - List attachment signals or metadata before summarizing the message disposition.
-- Ask WorkIQ a targeted attachment-content question for every relevant attachment:
-  summarize the attachment, list all dates/milestones/scope items, or ask for the
-  specific facts needed by the project decision. Prefer the exact subject, sender, date,
-  and attachment type/name when known.
+- First ask WorkIQ: `list all attachments of this thread with filenames`.
+- After filenames are enumerated, ask WorkIQ a targeted attachment-content question for
+  every relevant attachment file by filename: summarize the attachment, list all
+  dates/milestones/scope items, or ask for the specific facts needed by the project
+  decision. Prefer the exact subject, sender, date, and attachment filename.
+- Record ledger disposition per attachment file in the ledger item's `attachments`
+  array when filenames are known, so every enumerated attachment has an explicit
+  handled/failed/no-change trail.
 - Treat concrete WorkIQ facts from that targeted attachment probe as attachment-content
   evidence from the M365 Copilot index. Cite at least one attachment-derived fact when
   the attachment changes or confirms project reality, and include the WorkIQ retrieved
@@ -337,6 +347,10 @@ Before finishing, verify:
 - Did I use available evidence instead of ignoring it, including relevant attachments?
 - Did every surfaced message disposition include `attachmentsHandled`, and did every
   message with attachments use `yes(workiq-index)`, `yes`, or `failed(<reason>)`?
+- Did I enumerate every thread attachment by filename first, then query each relevant
+  attachment file by name?
+- Before emitting markers, does every enumerated item and attachment filename have a
+  matching ledger disposition?
 - Did I run the temporal pass and resolve every unconfirmed past-date planned,
   waiting, or line-item node?
 - Did any date-only evidence use confidence `medium` or `low`?

@@ -7,7 +7,7 @@ import { parseMarkers } from './marker-parser.js';
 import { applyMarkerBatch } from './marker-applier.js';
 import { renderScanState } from './render-scan-state.js';
 import { filterMarkersThroughGateway, runRealityGateway } from './reality-gateway.js';
-import { evaluateProcessingQualityGate } from './processing-ledger.js';
+import { filterMarkersByProcessingQualityGate } from './processing-ledger.js';
 import { evaluateTemporalPassGate } from './temporal-pass.js';
 import { migrateToV5, V5_BRAIN_DEFAULTS, writeJsonFileAtomic } from './tasks-v5.js';
 import { BRAIN_RUN_CLASS } from './brain-scheduler.js';
@@ -26,6 +26,10 @@ function readJsonFile(filePath) {
 
 function nowIso(now) {
   return now instanceof Date ? now.toISOString() : String(now || new Date().toISOString());
+}
+
+function normalizeArray(value) {
+  return Array.isArray(value) ? value : [];
 }
 
 export function normalizeScanDays(value) {
@@ -134,10 +138,23 @@ function addQualityGateReviewHint(data, { now, reason }) {
   data.reviewQueue.push({
     kind: 'other',
     ref: null,
-    question: `Agency brain scan was held by the Batch 7 processing-ledger quality gate: ${reason}`,
+    question: `Agency brain scan was partially held by the Batch 7 processing-ledger quality gate: ${reason}`,
     confidence: 'low',
     createdAt: nowIso(now)
   });
+}
+
+function addQualityGateReviewHints(data, { now, qualityGate }) {
+  const reasons = [
+    ...normalizeArray(qualityGate?.held).map(item => item.reason),
+    ...normalizeArray(qualityGate?.reviewReasons).map(item => item.reason)
+  ].filter(Boolean);
+  const seen = new Set();
+  for (const reason of reasons) {
+    if (seen.has(reason)) continue;
+    seen.add(reason);
+    addQualityGateReviewHint(data, { now, reason });
+  }
 }
 
 function addTemporalPassReviewHint(data, { now, reason }) {
@@ -308,59 +325,13 @@ export async function runBrainScanOnce(job, {
   await setPhase(job, 'brain_apply', { scanDays }, onPersistJob);
 
   const scanDone = scanDonePayload(parsed.markers);
-  const qualityGate = evaluateProcessingQualityGate(gatewayFilter.markers);
-  if (!qualityGate.ok) {
-    const afterData = structuredClone(beforeData);
-    const workIqCalls = scanDone?.workIqCalls ?? brainResult.counters?.workIqCalls ?? 0;
-    const runIdForTelemetry = scanDone?.runId || runId;
-    addQualityGateReviewHint(afterData, { now, reason: qualityGate.reason });
-    setBrainTelemetry(afterData, {
-      runId: runIdForTelemetry,
-      outcome: 'partial',
-      premiumRequests,
-      workIqCalls,
-      now
-    });
-    _writeJsonFileAtomic(tasksFile, afterData);
-    const result = {
-      outcome: 'partial',
-      runId: runIdForTelemetry,
-      newProjects: 0,
-      updatedProjects: 0,
-      newSingleTasks: 0,
-      workIqCalls,
-      premiumRequests,
-      droppedMarkers: [],
-      appliedMarkers: 0,
-      gateway: {
-        ok: Boolean(gatewayResult.ok),
-        approvedMarkers: gatewayFilter.approved.length,
-        heldMarkers: gatewayFilter.held.length,
-        parsed: gatewayFilter.gatewayParsed,
-        parseError: gatewayFilter.gatewayParseError,
-        retryCount: gatewayResult.retryCount || 0,
-        firstParseError: gatewayResult.firstParseError || null
-      },
-      qualityGate: {
-        ok: false,
-        reason: qualityGate.reason,
-        ledgerItems: qualityGate.ledgerCount
-      },
-      parseErrors: parsed.errors,
-      salvaged: Boolean(brainResult.salvaged),
-      scanDone: Boolean(scanDone)
-    };
-    if (job) job.result = result;
-    job?.emit?.('job.phase_done', { phase: 'brain_apply', ...result });
-    await persistJob(job, onPersistJob);
-    return result;
-  }
-
-  const temporalGate = evaluateTemporalPassGate(beforeData, gatewayFilter.markers, { now });
+  const qualityGate = filterMarkersByProcessingQualityGate(gatewayFilter.markers);
+  const temporalGate = evaluateTemporalPassGate(beforeData, qualityGate.markers, { now });
   if (!temporalGate.ok) {
     const afterData = structuredClone(beforeData);
     const workIqCalls = scanDone?.workIqCalls ?? brainResult.counters?.workIqCalls ?? 0;
     const runIdForTelemetry = scanDone?.runId || runId;
+    addQualityGateReviewHints(afterData, { now, qualityGate });
     addTemporalPassReviewHint(afterData, { now, reason: temporalGate.reason });
     setBrainTelemetry(afterData, {
       runId: runIdForTelemetry,
@@ -390,9 +361,12 @@ export async function runBrainScanOnce(job, {
         firstParseError: gatewayResult.firstParseError || null
       },
       qualityGate: {
-        ok: true,
+        ok: qualityGate.ok,
+        reason: qualityGate.reason,
         skipped: Boolean(qualityGate.skipped),
-        ledgerItems: qualityGate.ledgerCount
+        ledgerItems: qualityGate.ledgerCount,
+        heldMarkers: qualityGate.held.length,
+        reviewItems: qualityGate.reviewReasons.length
       },
       temporalGate: {
         ok: false,
@@ -409,13 +383,14 @@ export async function runBrainScanOnce(job, {
     await persistJob(job, onPersistJob);
     return result;
   }
-  const applyResult = _applyMarkerBatch(beforeData, gatewayFilter.markers, {
+  const applyResult = _applyMarkerBatch(beforeData, qualityGate.markers, {
     now,
     runId,
     auditLogFile: null
   });
   const afterData = applyResult.data;
-  const partial = brainResult.salvaged || !scanDone || scanDone.outcome === 'partial';
+  addQualityGateReviewHints(afterData, { now, qualityGate });
+  const partial = brainResult.salvaged || !scanDone || scanDone.outcome === 'partial' || !qualityGate.ok;
   const outcome = partial ? 'partial' : 'success';
   const workIqCalls = scanDone?.workIqCalls ?? brainResult.counters?.workIqCalls ?? 0;
   const runIdForTelemetry = scanDone?.runId || runId;
@@ -442,6 +417,7 @@ export async function runBrainScanOnce(job, {
     premiumRequests,
     droppedMarkers: applyResult.dropped,
     appliedMarkers: applyResult.applied,
+    heldMarkers: gatewayFilter.held.length + qualityGate.held.length + qualityGate.reviewReasons.length,
     gateway: {
       ok: Boolean(gatewayResult.ok),
       approvedMarkers: gatewayFilter.approved.length,
@@ -452,9 +428,12 @@ export async function runBrainScanOnce(job, {
       firstParseError: gatewayResult.firstParseError || null
     },
     qualityGate: {
-      ok: true,
+      ok: qualityGate.ok,
+      reason: qualityGate.reason,
       skipped: Boolean(qualityGate.skipped),
-      ledgerItems: qualityGate.ledgerCount
+      ledgerItems: qualityGate.ledgerCount,
+      heldMarkers: qualityGate.held.length,
+      reviewItems: qualityGate.reviewReasons.length
     },
     temporalGate: {
       ok: true,

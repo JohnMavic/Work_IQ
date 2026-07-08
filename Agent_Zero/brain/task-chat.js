@@ -8,7 +8,7 @@ import { normalizeFactSheet, renderFactSheetMarkdown } from './factsheet.js';
 import { parseMarkers, MARKER_REGEX } from './marker-parser.js';
 import { applyMarkerBatch } from './marker-applier.js';
 import { filterMarkersThroughGateway, runRealityGateway } from './reality-gateway.js';
-import { evaluateProcessingQualityGate } from './processing-ledger.js';
+import { filterMarkersByProcessingQualityGate } from './processing-ledger.js';
 import { evaluateTemporalPassGate } from './temporal-pass.js';
 import { migrateToV5, writeJsonFileAtomic } from './tasks-v5.js';
 import { BRAIN_RUN_CLASS } from './brain-scheduler.js';
@@ -595,10 +595,11 @@ export function buildTaskChatDeepVerifyPrompt({
     '- Treat the focus list above as a priority hint, not a limit. If the user asked to search for updates, discover all relevant new communications for this task.',
     '- For update-search requests, start from task.processing.cursorDate and task.processing.threads when present, use the lookback window, and enumerate newly surfaced mail/Teams items before deciding that nothing changed.',
     '- Prefer mail and Teams MCPs for discovery.',
-    '- Mandatory M365 workflow for update-search requests: first enumerate surfaced mail/Teams items, then read full message bodies, then ask targeted WorkIQ attachment-content questions for every relevant PDF, DOCX, XLSX, deck, or other source attachment, and only then answer or emit markers.',
+    '- Mandatory M365 workflow for update-search requests: first enumerate surfaced mail/Teams items, then read full message bodies, then for each surfaced thread ask WorkIQ exactly: "list all attachments of this thread with filenames". After attachment filenames are enumerated, ask a targeted WorkIQ attachment-content question for every PDF, DOCX, XLSX, deck, or other source attachment file by filename, and only then answer or emit markers.',
     '- Do not answer or emit task-state markers from a message that has relevant attachments until the attachment step is complete. If WorkIQ returns concrete attachment-derived facts, use attachmentsHandled:"yes(workiq-index)"; if direct read-only bytes/content were actually read, use "yes"; if the attachment cannot be read, use "failed(<reason>)" and do not assert attachment-only facts.',
-    '- For every enumerated or processed M365 item, include a processingLedger disposition on the relevant marker with itemRef, threadRef, date, disposition, nodeRefs, attachmentsHandled, quote, and reason.',
-    '- The final SCAN_DONE for M365 update-search runs must include processingQuality.required:true with every enumerated item and per-thread counts. For enumerated items with attachments, set hasAttachments:true or attachmentCount. A message with attachments and ledger attachmentsHandled:"none" will be held.',
+    '- For every enumerated or processed M365 item, include a processingLedger disposition on the relevant marker with itemRef, threadRef, date, disposition, nodeRefs, attachmentsHandled, quote, and reason. If attachments are enumerated, include each attachment filename and per-file disposition in the ledger item attachments array.',
+    '- The final SCAN_DONE for M365 update-search runs must include processingQuality.required:true with every enumerated item and per-thread counts. For enumerated items with attachments, set hasAttachments:true or attachmentCount and attachment filenames. A message with attachments and ledger attachmentsHandled:"none" will be held.',
+    '- Enumeration congruence self-check before any marker emission: every enumerated mail/Teams item and every enumerated attachment filename must have a matching ledger disposition. If any item or attachment file lacks a disposition, do not emit task-state mutation markers for that source; emit NEEDS_REVIEW or a no-change/failed ledger disposition instead.',
     '- Temporal pass is mandatory before final output: review task.pmStatus.planned, task.pmStatus.waitingOn, and lineItems for unconfirmed dates before today. For each stale node, either confirm it with fresh evidence or mark it obsolete/superseded with evidence and an explicit reason. Do not silently omit stale pmStatus entries from a replacement pmStatus.',
     '- The runner allows the full 25-minute deep window. It warns at 40 tool starts and emergency-stops at 150 tool starts only to prevent loops.',
     '- If the cap is near or reached, answer with what is already verified, what was checked, and which items remain open. Do not assert unsupported state.',
@@ -1075,12 +1076,37 @@ function scanDoneProcessingQuality(markers) {
   return normalizeArray(markers).find(marker => marker?.type === 'SCAN_DONE')?.payload?.processingQuality || null;
 }
 
+function holdTaskChatMutationMarkers(qualityGate, markers, reason) {
+  const heldIndexes = new Set(normalizeArray(qualityGate.held).map(item => item.index));
+  const extraHeld = [];
+  normalizeArray(markers).forEach((marker, index) => {
+    if (!isLedgerMutationMarker(marker) || heldIndexes.has(index)) return;
+    extraHeld.push({
+      index,
+      marker,
+      reason,
+      reasons: [reason],
+      source: 'task-chat-m365-quality'
+    });
+    heldIndexes.add(index);
+  });
+  const held = [...normalizeArray(qualityGate.held), ...extraHeld].sort((a, b) => a.index - b.index);
+  const approved = normalizeArray(markers).filter((_, index) => !heldIndexes.has(index));
+  return {
+    ...qualityGate,
+    ok: false,
+    reason: qualityGate.reason || reason,
+    markers: approved,
+    approved,
+    held
+  };
+}
+
 function evaluateTaskChatProcessingQualityGate(markers, {
   deepVerification = {},
   userPrompt = ''
 } = {}) {
-  const qualityGate = evaluateProcessingQualityGate(markers);
-  if (!qualityGate.ok) return qualityGate;
+  const qualityGate = filterMarkersByProcessingQualityGate(markers);
 
   const projectMutations = normalizeArray(markers).filter(isLedgerMutationMarker);
   if (!projectMutations.length || !isM365DeepVerification(deepVerification, userPrompt)) return qualityGate;
@@ -1090,13 +1116,11 @@ function evaluateTaskChatProcessingQualityGate(markers, {
   const hasEnumeratedItems = normalizeArray(processingQuality?.enumeratedItems).length > 0;
   const hasLedger = projectMutations.some(markerHasProcessingLedger);
   if (!hasRequiredProcessingQuality || !hasEnumeratedItems || !hasLedger) {
-    return {
-      ok: false,
-      reason: 'Microsoft 365 deep verification with task mutations requires SCAN_DONE.processingQuality.required, enumeratedItems, and processingLedger dispositions with attachmentsHandled.',
-      ledgerItems: qualityGate.ledgerItems || [],
-      ledgerCount: qualityGate.ledgerCount || 0,
-      skipped: Boolean(qualityGate.skipped)
-    };
+    return holdTaskChatMutationMarkers(
+      qualityGate,
+      markers,
+      'Microsoft 365 deep verification with task mutations requires SCAN_DONE.processingQuality.required, enumeratedItems, and processingLedger dispositions with attachmentsHandled.'
+    );
   }
 
   return qualityGate;
@@ -1114,10 +1138,28 @@ function addTaskChatGateReviewHint(data, { taskId, now, gateName, reason }) {
   data.reviewQueue.push({
     kind: 'other',
     ref: taskId,
-    question: `Task chat deep verification was held by the ${gateName}: ${reason}`,
+    question: `Task chat deep verification was partially held by the ${gateName}: ${reason}`,
     confidence: 'low',
     createdAt: nowIso(now)
   });
+}
+
+function addTaskChatQualityGateReviewHints(data, { taskId, now, qualityGate }) {
+  const reasons = [
+    ...normalizeArray(qualityGate?.held).map(item => item.reason),
+    ...normalizeArray(qualityGate?.reviewReasons).map(item => item.reason)
+  ].filter(Boolean);
+  const seen = new Set();
+  for (const reason of reasons) {
+    if (seen.has(reason)) continue;
+    seen.add(reason);
+    addTaskChatGateReviewHint(data, {
+      taskId,
+      now,
+      gateName: 'Batch 7 processing-ledger quality gate',
+      reason
+    });
+  }
 }
 
 async function applyDeepVerificationMarkersAfterAnswer({
@@ -1170,63 +1212,10 @@ async function applyDeepVerificationMarkersAfterAnswer({
       deepVerification,
       userPrompt
     });
-    if (!qualityGate.ok) {
-      addTaskChatGateReviewHint(latestData, {
-        taskId,
-        now,
-        gateName: 'Batch 7 processing-ledger quality gate',
-        reason: qualityGate.reason
-      });
-      updateDeepVerificationMarkerStatus(latestData, taskId, {
-        conversationId,
-        now,
-        jobId: job?.id || null,
-        runId,
-        markersApplied: 0,
-        markersHeld: parsedMarkers.length,
-        markersDropped: 0,
-        markerProcessingStatus: 'held',
-        error: qualityGate.reason,
-        gateway: {
-          approvedMarkers: gatewayFilter.approved.length,
-          heldMarkers: gatewayFilter.held.length,
-          parsed: gatewayFilter.gatewayParsed,
-          parseError: gatewayFilter.gatewayParseError,
-          qualityGate: {
-            ok: false,
-            reason: qualityGate.reason,
-            ledgerItems: qualityGate.ledgerCount
-          }
-        }
-      });
-      _writeJsonFileAtomic(tasksFile, latestData);
-      job?.emit?.('job.progress', {
-        phase: 'marker_apply_held',
-        activePhase: 'marker_apply_held',
-        agentPhase: 'completed',
-        stage: 'deep_verify',
-        blocksTask: false,
-        conversationId,
-        statusText: 'Task updates held for review.',
-        markersApplied: 0,
-        markersHeld: parsedMarkers.length,
-        reason: qualityGate.reason
-      });
-      return {
-        ok: false,
-        error: qualityGate.reason,
-        scoped,
-        gatewayFilter,
-        qualityGate: {
-          ok: false,
-          reason: qualityGate.reason,
-          ledgerItems: qualityGate.ledgerCount
-        }
-      };
-    }
 
-    const temporalGate = evaluateTemporalPassGate(taskScopedData(latestData, taskId), gatewayFilter.markers, { now });
+    const temporalGate = evaluateTemporalPassGate(taskScopedData(latestData, taskId), qualityGate.markers, { now });
     if (!temporalGate.ok) {
+      addTaskChatQualityGateReviewHints(latestData, { taskId, now, qualityGate });
       addTaskChatGateReviewHint(latestData, {
         taskId,
         now,
@@ -1249,9 +1238,12 @@ async function applyDeepVerificationMarkersAfterAnswer({
           parsed: gatewayFilter.gatewayParsed,
           parseError: gatewayFilter.gatewayParseError,
           qualityGate: {
-            ok: true,
+            ok: qualityGate.ok,
+            reason: qualityGate.reason,
             skipped: Boolean(qualityGate.skipped),
-            ledgerItems: qualityGate.ledgerCount
+            ledgerItems: qualityGate.ledgerCount,
+            heldMarkers: qualityGate.held.length,
+            reviewItems: qualityGate.reviewReasons.length
           },
           temporalGate: {
             ok: false,
@@ -1280,9 +1272,12 @@ async function applyDeepVerificationMarkersAfterAnswer({
         scoped,
         gatewayFilter,
         qualityGate: {
-          ok: true,
+          ok: qualityGate.ok,
+          reason: qualityGate.reason,
           skipped: Boolean(qualityGate.skipped),
-          ledgerItems: qualityGate.ledgerCount
+          ledgerItems: qualityGate.ledgerCount,
+          heldMarkers: qualityGate.held.length,
+          reviewItems: qualityGate.reviewReasons.length
         },
         temporalGate: {
           ok: false,
@@ -1293,29 +1288,36 @@ async function applyDeepVerificationMarkersAfterAnswer({
       };
     }
 
-    applyResult = _applyMarkerBatch(latestData, gatewayFilter.markers, {
+    applyResult = _applyMarkerBatch(latestData, qualityGate.markers, {
       now,
       runId,
       auditLogFile: null
     });
+    addTaskChatQualityGateReviewHints(applyResult.data, { taskId, now, qualityGate });
+    const qualityHeldCount = qualityGate.held.length + qualityGate.reviewReasons.length;
+    const markerProcessingStatus = qualityHeldCount ? 'partial' : 'completed';
     updateDeepVerificationMarkerStatus(applyResult.data, taskId, {
       conversationId,
       now: new Date(),
       jobId: job?.id || null,
       runId,
       markersApplied: applyResult.applied,
-      markersHeld: gatewayFilter.held.length + scoped.held.length,
+      markersHeld: gatewayFilter.held.length + scoped.held.length + qualityHeldCount,
       markersDropped: applyResult.dropped.length,
-      markerProcessingStatus: 'completed',
+      markerProcessingStatus,
+      error: qualityGate.ok ? null : qualityGate.reason,
       gateway: {
         approvedMarkers: gatewayFilter.approved.length,
         heldMarkers: gatewayFilter.held.length,
         parsed: gatewayFilter.gatewayParsed,
         parseError: gatewayFilter.gatewayParseError,
         qualityGate: {
-          ok: true,
+          ok: qualityGate.ok,
+          reason: qualityGate.reason,
           skipped: Boolean(qualityGate.skipped),
-          ledgerItems: qualityGate.ledgerCount
+          ledgerItems: qualityGate.ledgerCount,
+          heldMarkers: qualityGate.held.length,
+          reviewItems: qualityGate.reviewReasons.length
         },
         temporalGate: {
           ok: true,
@@ -1332,12 +1334,13 @@ async function applyDeepVerificationMarkersAfterAnswer({
       stage: 'deep_verify',
       blocksTask: false,
       conversationId,
-      statusText: 'Task updates applied.',
+      statusText: qualityHeldCount ? 'Task updates partially applied.' : 'Task updates applied.',
       markersApplied: applyResult.applied,
-      markersHeld: gatewayFilter.held.length + scoped.held.length
+      markersHeld: gatewayFilter.held.length + scoped.held.length + qualityHeldCount
     });
     return {
-      ok: true,
+      ok: qualityGate.ok,
+      partial: !qualityGate.ok,
       scoped,
       gatewayFilter,
       applyResult,
