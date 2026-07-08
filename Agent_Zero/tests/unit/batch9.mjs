@@ -572,8 +572,8 @@ test('Batch 9F temporal pass still applies complete stale cleanup when unrelated
   assert.match(saved.reviewQueue[0].question, /missing ledger disposition for enumerated item teams:msg-unrelated-ledgerless/);
 });
 
-test('Batch 9 temporal pass blocks stale unconfirmed planned and line item dates before apply', async () => {
-  const dir = resetTmp('temporal-pass-block');
+test('Batch 9 temporal pass queues stale reviews without holding approved markers', async () => {
+  const dir = resetTmp('temporal-pass-granular');
   const tasksFile = writeFixture(dir, {
     version: 5,
     tasks: [{
@@ -611,14 +611,14 @@ test('Batch 9 temporal pass blocks stale unconfirmed planned and line item dates
   });
 
   const output = marker('SCAN_DONE', {
-    runId: 'temporal-pass-block',
+    runId: 'temporal-pass-granular',
     outcome: 'success',
     workIqCalls: 0
   });
   const result = await runBrainScanOnce({ input: {}, emit() {} }, {
     tasksFile,
     brainWorkDir: path.join(dir, 'brain-work'),
-    runId: 'temporal-pass-block',
+    runId: 'temporal-pass-granular',
     now: new Date('2026-07-07T08:00:00.000Z'),
     _runBrain: async () => ({ ok: true, assistantText: output, counters: { workIqCalls: 0 } }),
     _runGateway: async ({ markers }) => approveAll(markers),
@@ -628,8 +628,12 @@ test('Batch 9 temporal pass blocks stale unconfirmed planned and line item dates
 
   assert.equal(result.outcome, 'partial');
   assert.equal(result.temporalGate.ok, false);
+  assert.equal(result.appliedMarkers, 1);
+  assert.equal(result.heldMarkers, 0);
+  assert.equal(result.reviewItems, 2);
   assert.equal(saved.tasks[0].pmStatus.planned[0].state, 'unconfirmed');
-  assert.match(saved.reviewQueue[0].question, /temporal pass gate/);
+  assert.equal(saved.reviewQueue.length, 2);
+  assert.ok(saved.reviewQueue.every(item => /stale date unreconciled:/.test(item.question)));
 });
 
 test('Batch 9 temporal pass allows explicit obsolete stale-node cleanup with evidence', async () => {

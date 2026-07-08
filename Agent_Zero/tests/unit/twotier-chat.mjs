@@ -363,7 +363,10 @@ test('TWOTIER stage 2 posts answer before async gateway markers and keeps focuse
   assert.match(captured.prompt, /every enumerated mail\/Teams item and every enumerated attachment filename must have a matching ledger disposition/);
   assert.match(captured.prompt, /only then answer or emit markers/);
   assert.match(captured.prompt, /PDF, DOCX, XLSX/);
+  assert.match(captured.prompt, /After attachment content capture, explicitly list all dates, milestones, scope items, quantities, port counts, and names/);
   assert.match(captured.prompt, /Temporal pass is mandatory/);
+  assert.match(captured.prompt, /target date passed without completion evidence — needs re-plan/);
+  assert.match(captured.prompt, /Use retain for review only when evidence is genuinely contradictory/);
   assert.equal(gatewayCalls, 0);
   assert.equal(result.conversationId, conversationId);
   assert.equal(historyBeforeGateway.agentExecution.deepVerification.status, 'completed');
@@ -520,8 +523,8 @@ test('BATCH9E chat deep attachment gate holds M365 updates when attachment handl
   assert.equal(followup.markersHeld, 1);
 });
 
-test('BATCH9E chat deep temporal gate requires stale planned and line-item cleanup', async () => {
-  const dir = resetTmp('batch9e-chat-temporal-gate');
+test('BATCH9G chat deep temporal gate applies valid markers and queues stale reviews', async () => {
+  const dir = resetTmp('batch9g-chat-temporal-granular');
   const conversationId = 'conv-b9e-temporal';
   const tasksFile = writeFixture(dir, {
     version: 5,
@@ -546,7 +549,14 @@ test('BATCH9E chat deep temporal gate requires stale planned and line-item clean
         userActions: [],
         problems: [],
         risks: [],
-        waitingOn: [],
+        waitingOn: [{
+          id: 'wait-av-signoff',
+          text: 'Waiting for AV sign-off by 1 Jul 2026.',
+          date: '2026-07-01',
+          evidenceRefIds: ['src-old'],
+          confidence: 'medium',
+          state: 'unconfirmed'
+        }],
         confidence: 'medium'
       },
       lineItems: [{
@@ -630,6 +640,7 @@ test('BATCH9E chat deep temporal gate requires stale planned and line-item clean
     })
   ].join('\n');
 
+  const events = [];
   const result = await runTaskChatDeepVerifyOnce({
     id: 'job-b9e-temporal',
     taskId: 'proj-chat-temporal',
@@ -644,7 +655,9 @@ test('BATCH9E chat deep temporal gate requires stale planned and line-item clean
         verifyExactly: ['Search Outlook for updates']
       }
     },
-    emit() {}
+    emit(type, payload) {
+      events.push({ type, payload });
+    }
   }, {
     tasksFile,
     brainWorkDir: path.join(dir, 'brain-work'),
@@ -662,12 +675,23 @@ test('BATCH9E chat deep temporal gate requires stale planned and line-item clean
 
   assert.equal(markerResult.ok, false);
   assert.match(markerResult.temporalGate.reason, /temporal pass missing/);
-  assert.equal(task.pmStatus.current, 'Original current state.');
+  assert.equal(markerResult.temporalGate.reviewReasons.length, 3);
+  assert.equal(markerResult.temporalGate.held.length, 0);
+  assert.equal(markerResult.applyResult.applied, 2);
+  assert.equal(task.pmStatus.current, 'Fresh mail surfaced.');
   assert.equal(task.pmStatus.planned[0].state, 'unconfirmed');
+  assert.equal(task.pmStatus.planned[0].needsReview, true);
+  assert.equal(task.pmStatus.waitingOn[0].state, 'unconfirmed');
+  assert.equal(task.pmStatus.waitingOn[0].needsReview, true);
   assert.equal(task.lineItems[0].state, 'unconfirmed');
-  assert.match(saved.reviewQueue[0].question, /temporal pass gate/);
-  assert.equal(followup.markerProcessingStatus, 'held');
-  assert.equal(followup.markersApplied, 0);
+  assert.equal(saved.reviewQueue.length, 3);
+  assert.ok(saved.reviewQueue.every(item => /stale date unreconciled:/.test(item.question)));
+  assert.equal(followup.markerProcessingStatus, 'partial');
+  assert.equal(followup.markersApplied, 2);
+  assert.equal(followup.markersHeld, 0);
+  assert.equal(followup.gateway.temporalGate.reviewItems, 3);
+  assert.equal(followup.gateway.temporalGate.heldMarkers, 0);
+  assert.equal(events.some(ev => ev.payload?.phase === 'marker_apply_held'), false);
 });
 
 test('TWOTIER stage 2 hard cap posts partial result with open verification items', async () => {

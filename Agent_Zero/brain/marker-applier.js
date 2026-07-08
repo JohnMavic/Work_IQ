@@ -19,6 +19,10 @@ import {
   validateProcessingPayload
 } from './processing-ledger.js';
 import {
+  PM_TEMPORAL_FIELDS,
+  isStalePmTemporalNode
+} from './temporal-pass.js';
+import {
   isActionLikeLineItem,
   normalizeNodeFields,
   validateActionGateForVisibleAction,
@@ -795,6 +799,35 @@ function preserveUnresolvedOmittedActions(existingPmStatus, incomingPmStatus, pa
   return { pmStatus: result, historyEvents };
 }
 
+function pmTemporalKey(entry) {
+  return String(entry?.id || entry?.text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function preserveOmittedStaleTemporalNodes(existingPmStatus, incomingPmStatus, { now }) {
+  const result = normalizePmStatusUserActions(incomingPmStatus);
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return result;
+
+  const existing = normalizePmStatusUserActions(existingPmStatus) || {};
+  for (const field of PM_TEMPORAL_FIELDS) {
+    const incoming = normalizeArray(result[field]);
+    const incomingKeys = new Set(incoming.map(pmTemporalKey).filter(Boolean));
+    const additions = [];
+    for (const entry of normalizeArray(existing[field])) {
+      const key = pmTemporalKey(entry);
+      if (!key || incomingKeys.has(key)) continue;
+      if (!isStalePmTemporalNode(entry, { now })) continue;
+      additions.push({
+        ...entry,
+        needsReview: true,
+        reviewReason: 'Batch 9 kept this stale date because the update omitted it without obsolete, superseded, or fresh-confirmed evidence.'
+      });
+    }
+    if (additions.length) result[field] = [...incoming, ...additions];
+  }
+
+  return result;
+}
+
 function applyProjectNew(data, payload, context) {
   const ts = nowIso(context.now);
   const sourceRefs = normalizeArray(payload.sourceRefs).map(ref => normalizeSourceRef(ref, context));
@@ -862,7 +895,8 @@ function applyProjectUpdate(data, payload, context) {
       evidenceRefIds: payload.evidenceRefIds,
       rawIncomingPmStatus: payload.pmStatus
     });
-    const preserved = preserveUnresolvedOmittedActions(task.pmStatus, merged.pmStatus, payload, { now: context.now });
+    const temporalPmStatus = preserveOmittedStaleTemporalNodes(task.pmStatus, merged.pmStatus, { now: context.now });
+    const preserved = preserveUnresolvedOmittedActions(task.pmStatus, temporalPmStatus, payload, { now: context.now });
     task.pmStatus = preserved.pmStatus;
     const historyEvents = [...merged.historyEvents, ...preserved.historyEvents];
     if (historyEvents.length) {

@@ -9,7 +9,7 @@ import { parseMarkers, MARKER_REGEX } from './marker-parser.js';
 import { applyMarkerBatch } from './marker-applier.js';
 import { filterMarkersThroughGateway, runRealityGateway } from './reality-gateway.js';
 import { filterMarkersByProcessingQualityGate } from './processing-ledger.js';
-import { evaluateTemporalPassGate } from './temporal-pass.js';
+import { filterMarkersByTemporalPassGate } from './temporal-pass.js';
 import { migrateToV5, writeJsonFileAtomic } from './tasks-v5.js';
 import { BRAIN_RUN_CLASS } from './brain-scheduler.js';
 import { renderBrainLearningsBlock } from './learnings.js';
@@ -596,11 +596,12 @@ export function buildTaskChatDeepVerifyPrompt({
     '- For update-search requests, start from task.processing.cursorDate and task.processing.threads when present, use the lookback window, and enumerate newly surfaced mail/Teams items before deciding that nothing changed.',
     '- Prefer mail and Teams MCPs for discovery.',
     '- Mandatory M365 workflow for update-search requests: first enumerate surfaced mail/Teams items, then read full message bodies, then for each surfaced thread ask WorkIQ exactly: "list all attachments of this thread with filenames". After attachment filenames are enumerated, ask a targeted WorkIQ attachment-content question for every PDF, DOCX, XLSX, deck, or other source attachment file by filename, and only then answer or emit markers.',
+    '- After attachment content capture, explicitly list all dates, milestones, scope items, quantities, port counts, and names from that attachment. Do not summarize or collapse the list. If the thread has multiple attachments, perform this extraction separately for each attachment filename.',
     '- Do not answer or emit task-state markers from a message that has relevant attachments until the attachment step is complete. If WorkIQ returns concrete attachment-derived facts, use attachmentsHandled:"yes(workiq-index)"; if direct read-only bytes/content were actually read, use "yes"; if the attachment cannot be read, use "failed(<reason>)" and do not assert attachment-only facts.',
     '- For every enumerated or processed M365 item, include a processingLedger disposition on the relevant marker with itemRef, threadRef, date, disposition, nodeRefs, attachmentsHandled, quote, and reason. If attachments are enumerated, include each attachment filename and per-file disposition in the ledger item attachments array.',
     '- The final SCAN_DONE for M365 update-search runs must include processingQuality.required:true with every enumerated item and per-thread counts. For enumerated items with attachments, set hasAttachments:true or attachmentCount and attachment filenames. A message with attachments and ledger attachmentsHandled:"none" will be held.',
     '- Enumeration congruence self-check before any marker emission: every enumerated mail/Teams item and every enumerated attachment filename must have a matching ledger disposition. If any item or attachment file lacks a disposition, do not emit task-state mutation markers for that source; emit NEEDS_REVIEW or a no-change/failed ledger disposition instead.',
-    '- Temporal pass is mandatory before final output: review task.pmStatus.planned, task.pmStatus.waitingOn, and lineItems for unconfirmed dates before today. For each stale node, either confirm it with fresh evidence or mark it obsolete/superseded with evidence and an explicit reason. Do not silently omit stale pmStatus entries from a replacement pmStatus.',
+    '- Temporal pass is mandatory before final output: review task.pmStatus.planned, task.pmStatus.waitingOn, and lineItems for unconfirmed dates before today. For each stale node, either confirm it with fresh evidence or mark it obsolete/superseded with evidence and an explicit reason. If a planned target date has passed and there is no completion evidence, mark it obsolete/superseded with obsoleteReason:"target date passed without completion evidence — needs re-plan"; this is not a claim of completion. Use retain for review only when evidence is genuinely contradictory. Do not silently omit stale pmStatus entries from a replacement pmStatus.',
     '- The runner allows the full 25-minute deep window. It warns at 40 tool starts and emergency-stops at 150 tool starts only to prevent loops.',
     '- If the cap is near or reached, answer with what is already verified, what was checked, and which items remain open. Do not assert unsupported state.',
     '- Portal/CDP/browser/shell patterns from Brain Learnings are allowed in this background stage.',
@@ -1162,6 +1163,23 @@ function addTaskChatQualityGateReviewHints(data, { taskId, now, qualityGate }) {
   }
 }
 
+function addTaskChatTemporalGateReviewHints(data, { taskId, now, temporalGate }) {
+  data.reviewQueue = normalizeArray(data.reviewQueue);
+  const seen = new Set();
+  for (const item of normalizeArray(temporalGate?.reviewReasons)) {
+    const reason = item?.reason;
+    if (!reason || seen.has(reason)) continue;
+    seen.add(reason);
+    data.reviewQueue.push({
+      kind: 'other',
+      ref: item.ref || taskId,
+      question: reason,
+      confidence: 'low',
+      createdAt: nowIso(now)
+    });
+  }
+}
+
 async function applyDeepVerificationMarkersAfterAnswer({
   tasksFile,
   taskId,
@@ -1213,99 +1231,29 @@ async function applyDeepVerificationMarkersAfterAnswer({
       userPrompt
     });
 
-    const temporalGate = evaluateTemporalPassGate(taskScopedData(latestData, taskId), qualityGate.markers, { now });
-    if (!temporalGate.ok) {
-      addTaskChatQualityGateReviewHints(latestData, { taskId, now, qualityGate });
-      addTaskChatGateReviewHint(latestData, {
-        taskId,
-        now,
-        gateName: 'Batch 9 temporal pass gate',
-        reason: temporalGate.reason
-      });
-      updateDeepVerificationMarkerStatus(latestData, taskId, {
-        conversationId,
-        now,
-        jobId: job?.id || null,
-        runId,
-        markersApplied: 0,
-        markersHeld: parsedMarkers.length,
-        markersDropped: 0,
-        markerProcessingStatus: 'held',
-        error: temporalGate.reason,
-        gateway: {
-          approvedMarkers: gatewayFilter.approved.length,
-          heldMarkers: gatewayFilter.held.length,
-          parsed: gatewayFilter.gatewayParsed,
-          parseError: gatewayFilter.gatewayParseError,
-          qualityGate: {
-            ok: qualityGate.ok,
-            reason: qualityGate.reason,
-            skipped: Boolean(qualityGate.skipped),
-            ledgerItems: qualityGate.ledgerCount,
-            heldMarkers: qualityGate.held.length,
-            reviewItems: qualityGate.reviewReasons.length
-          },
-          temporalGate: {
-            ok: false,
-            reason: temporalGate.reason,
-            staleNodes: temporalGate.staleNodes.length,
-            addressed: temporalGate.addressed.length
-          }
-        }
-      });
-      _writeJsonFileAtomic(tasksFile, latestData);
-      job?.emit?.('job.progress', {
-        phase: 'marker_apply_held',
-        activePhase: 'marker_apply_held',
-        agentPhase: 'completed',
-        stage: 'deep_verify',
-        blocksTask: false,
-        conversationId,
-        statusText: 'Task updates held for review.',
-        markersApplied: 0,
-        markersHeld: parsedMarkers.length,
-        reason: temporalGate.reason
-      });
-      return {
-        ok: false,
-        error: temporalGate.reason,
-        scoped,
-        gatewayFilter,
-        qualityGate: {
-          ok: qualityGate.ok,
-          reason: qualityGate.reason,
-          skipped: Boolean(qualityGate.skipped),
-          ledgerItems: qualityGate.ledgerCount,
-          heldMarkers: qualityGate.held.length,
-          reviewItems: qualityGate.reviewReasons.length
-        },
-        temporalGate: {
-          ok: false,
-          reason: temporalGate.reason,
-          staleNodes: temporalGate.staleNodes.length,
-          addressed: temporalGate.addressed.length
-        }
-      };
-    }
+    const temporalGate = filterMarkersByTemporalPassGate(taskScopedData(latestData, taskId), qualityGate.markers, { now });
 
-    applyResult = _applyMarkerBatch(latestData, qualityGate.markers, {
+    applyResult = _applyMarkerBatch(latestData, temporalGate.markers, {
       now,
       runId,
       auditLogFile: null
     });
     addTaskChatQualityGateReviewHints(applyResult.data, { taskId, now, qualityGate });
-    const qualityHeldCount = qualityGate.held.length + qualityGate.reviewReasons.length;
-    const markerProcessingStatus = qualityHeldCount ? 'partial' : 'completed';
+    addTaskChatTemporalGateReviewHints(applyResult.data, { taskId, now, temporalGate });
+    const heldMarkerCount = qualityGate.held.length + temporalGate.held.length;
+    const reviewItemCount = qualityGate.reviewReasons.length + temporalGate.reviewReasons.length;
+    const markerProcessingStatus = heldMarkerCount || reviewItemCount ? 'partial' : 'completed';
+    const processingError = qualityGate.ok && temporalGate.ok ? null : qualityGate.reason || temporalGate.reason;
     updateDeepVerificationMarkerStatus(applyResult.data, taskId, {
       conversationId,
       now: new Date(),
       jobId: job?.id || null,
       runId,
       markersApplied: applyResult.applied,
-      markersHeld: gatewayFilter.held.length + scoped.held.length + qualityHeldCount,
+      markersHeld: gatewayFilter.held.length + scoped.held.length + heldMarkerCount,
       markersDropped: applyResult.dropped.length,
       markerProcessingStatus,
-      error: qualityGate.ok ? null : qualityGate.reason,
+      error: processingError,
       gateway: {
         approvedMarkers: gatewayFilter.approved.length,
         heldMarkers: gatewayFilter.held.length,
@@ -1320,9 +1268,12 @@ async function applyDeepVerificationMarkersAfterAnswer({
           reviewItems: qualityGate.reviewReasons.length
         },
         temporalGate: {
-          ok: true,
+          ok: temporalGate.ok,
+          reason: temporalGate.reason,
           staleNodes: temporalGate.staleNodes.length,
-          addressed: temporalGate.addressed.length
+          addressed: temporalGate.addressed.length,
+          heldMarkers: temporalGate.held.length,
+          reviewItems: temporalGate.reviewReasons.length
         }
       }
     });
@@ -1334,13 +1285,13 @@ async function applyDeepVerificationMarkersAfterAnswer({
       stage: 'deep_verify',
       blocksTask: false,
       conversationId,
-      statusText: qualityHeldCount ? 'Task updates partially applied.' : 'Task updates applied.',
+      statusText: markerProcessingStatus === 'partial' ? 'Task updates partially applied.' : 'Task updates applied.',
       markersApplied: applyResult.applied,
-      markersHeld: gatewayFilter.held.length + scoped.held.length + qualityHeldCount
+      markersHeld: gatewayFilter.held.length + scoped.held.length + heldMarkerCount
     });
     return {
-      ok: qualityGate.ok,
-      partial: !qualityGate.ok,
+      ok: qualityGate.ok && temporalGate.ok,
+      partial: markerProcessingStatus === 'partial',
       scoped,
       gatewayFilter,
       applyResult,

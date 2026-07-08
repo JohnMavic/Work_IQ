@@ -1,4 +1,4 @@
-const PM_TEMPORAL_FIELDS = ['planned', 'waitingOn'];
+export const PM_TEMPORAL_FIELDS = ['planned', 'waitingOn'];
 const LINEITEM_TEXT_FIELDS = ['dueAt', 'referencedDate', 'plannedNext', 'waitingOn', 'currentState'];
 
 const MONTHS = new Map(Object.entries({
@@ -112,6 +112,12 @@ function isUnconfirmed(node) {
   return String(node?.state || 'unconfirmed').toLowerCase() === 'unconfirmed';
 }
 
+export function isStalePmTemporalNode(node, { now = new Date() } = {}) {
+  const today = todayUtc(now);
+  return isUnconfirmed(node)
+    && hasPastDateValue(node?.date || node?.dueAt || node?.targetDate || node?.referencedDate || node?.text, today);
+}
+
 function isProject(task) {
   return task?.taskType === 'project' && !task.archived && !task.supersededBy;
 }
@@ -168,8 +174,7 @@ function collectStaleNodes(data, { now = new Date() } = {}) {
     const pm = task.pmStatus || {};
     for (const field of PM_TEMPORAL_FIELDS) {
       for (const entry of normalizeArray(pm[field])) {
-        if (!isUnconfirmed(entry)) continue;
-        if (!hasPastDateValue(entry.date || entry.dueAt || entry.targetDate || entry.referencedDate || entry.text, today)) continue;
+        if (!isStalePmTemporalNode(entry, { now })) continue;
         stale.push({
           kind: 'pmStatus',
           taskId: task.id,
@@ -245,3 +250,28 @@ export function evaluateTemporalPassGate(data, markers = [], { now = new Date() 
   return { ok: true, reason: null, staleNodes, addressed, missing: [] };
 }
 
+function staleReviewReason(stale) {
+  return `stale date unreconciled: ${stale.label}`;
+}
+
+export function filterMarkersByTemporalPassGate(data, markers = [], { now = new Date() } = {}) {
+  const inputMarkers = normalizeArray(markers);
+  const gate = evaluateTemporalPassGate(data, inputMarkers, { now });
+  const reviewReasons = normalizeArray(gate.missing).map(stale => ({
+    reason: staleReviewReason(stale),
+    source: 'temporal-pass',
+    ref: stale.kind === 'lineItem' ? stale.lineItemId : stale.taskId,
+    staleNode: stale
+  }));
+
+  return {
+    ...gate,
+    ok: reviewReasons.length === 0,
+    reason: gate.reason,
+    markers: inputMarkers,
+    approved: inputMarkers,
+    held: [],
+    reviewReasons,
+    skipped: gate.staleNodes.length === 0
+  };
+}
