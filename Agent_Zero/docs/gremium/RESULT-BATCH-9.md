@@ -1,25 +1,29 @@
-BATCH9G: OK
+BATCH9H: OK
 
-Implemented Loop-Fix 9G for AUDIT9 FAIL a,d after the 9F re-audit.
+Implemented Loop-Fix 9H for AUDIT9 FINAL-3 FAIL a,d.
 
 Changes:
 
-- Temporal gate is now granular in scan and task-chat deep verification paths. Approved markers are applied even when unrelated stale nodes remain unreconciled.
-- Unaddressed stale nodes now create automatic reviewQueue entries with `stale date unreconciled: <node>` instead of holding the whole marker batch.
-- Temporal result telemetry now separates real held markers from review items (`heldMarkers` vs `reviewItems`).
-- `PROJECT_UPDATE.pmStatus` preserves omitted stale `planned` / `waitingOn` nodes with `needsReview` so granular application cannot silently delete them.
-- Deep verification and Agency Brain prompts now make passed planned dates obsolete/superseded by default when no completion evidence exists, using `obsoleteReason:"target date passed without completion evidence — needs re-plan"`.
-- Attachment prompts now require full extraction after each content capture: all dates, milestones, scope items, quantities, port counts, and names, separately per attachment filename.
+- Added the standalone `NODE_OBSOLETE` marker for stale `pmStatus.planned`, `pmStatus.waitingOn`, and `lineItems`.
+- `NODE_OBSOLETE` validates task/node existence, a past date, and `obsoleteReason`; evidence is optional.
+- The applier now books only the node obsolete state and reason. It does not replace `pmStatus`, does not touch unrelated `waitingOn`, and does not assert completion.
+- Temporal gate recognizes `NODE_OBSOLETE` as addressing stale nodes.
+- Task-chat scope, embedded marker grammar, Agency scan skill, and gateway prompt document that temporal bookings must be standalone `NODE_OBSOLETE`, never bundled into `PROJECT_UPDATE`.
+- Gateway prompt now treats `NODE_OBSOLETE` as a narrow stale-date disposition, not a completion claim.
+- Attachment protocol now requires one alternate WorkIQ retry for `content-not-indexed`.
+- `failed(content-not-indexed)` ledger entries get `attachmentIndexAttempts`, `reprobeNextScan`, and an automatic reviewQueue note: `attachment not indexed yet — re-probe next scan`.
+- Processing cursor/thread cursor no longer advances over `failed(content-not-indexed)` attachment items until content is harvested or three scans have attempted it.
 
 Tests:
 
-- Temporal granular chat fixture: 2 valid markers applied, 3 stale reviewQueue entries written, 0 held markers, no `marker_apply_held`.
-- Scan temporal fixture updated to verify stale reviews do not hold approved markers.
-- Prompt string asserts cover the obsolete default and attachment extraction checklist.
-- `npm test` -> 150/150 passing.
+- `NODE_OBSOLETE` validator/applier fixture.
+- `NODE_OBSOLETE` gateway narrow-handling and temporal-gate fixture.
+- `failed(content-not-indexed)` retry/cursor fixture.
+- Prompt string asserts for `NODE_OBSOLETE`, standalone temporal bookings, content-not-indexed retry, and re-probe review note.
+- `npm test` -> 153/153 passing.
 
 Safety:
 
 - No STOP/START scripts.
-- No broad process kills.
-- No Agent Zero or WorkIQ process touched.
+- No process cleanup or process kills.
+- Existing uncommitted `AUDIT-BATCH-9.md` and `STATE.md` user/audit changes were not edited.
