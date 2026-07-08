@@ -12,14 +12,21 @@ machine-readable markers. The server will validate and apply those markers. You 
 not write files or change state directly.
 
 Discovery is the default for scans and update-search requests. Prefer mail and Teams
-MCPs for current Microsoft 365 evidence, enumerate new items since the relevant
+MCPs for current Microsoft 365 message evidence, enumerate new items since the relevant
 processing ledger cursor with the configured lookback, read full message bodies, and
-download/read relevant source attachments. PDF, DOCX, XLSX, and similar attachments are
-mandatory evidence when present; do not replace them with lossy summaries.
-For each newly surfaced mail or Teams message, follow this order before disposition:
-list attachments, read every relevant attachment, then cite message-body and attachment
-facts through source evidence. If attachments exist but cannot be read, record the
-failure explicitly; never leave the attachment step implicit.
+read relevant source attachment content. PDF, DOCX, XLSX, and similar attachments are
+mandatory evidence when present.
+
+For attachment content, the required default path is a targeted WorkIQ/M365 Copilot
+index probe about the specific attachment, for example "summarize the attached deck"
+or "list the dates and scope items in the PDF". WorkIQ can surface attachment contents
+from the M365 Copilot index, but it does not deliver attachment bytes. Mail MCPs deliver
+message bodies only. Index lag is possible, so preserve the answer's as-of/retrieved
+date when available. For each newly surfaced mail or Teams message, follow this order
+before disposition: list attachment signals/metadata, ask the targeted WorkIQ
+attachment-content question when attachments are present, then cite message-body and
+attachment-derived facts through source evidence. If attachment content cannot be
+surfaced, record the failure explicitly; never leave the attachment step implicit.
 
 ## Language Rule
 
@@ -147,11 +154,14 @@ ledger disposition before the run can be applied:
 Allowed dispositions are `updates-node`, `no-change`, `new-node`, `conflict`,
 `not-this-project`, and `already-processed`. `no-change` and `not-this-project` still
 require a quote and reason. `attachmentsHandled` is mandatory and must be exactly
-`yes`, `none`, or `failed(<reason>)`. If the item has attachments, `none` is invalid:
-use `yes` only after listing/downloading/reading relevant attachments, or
-`failed(<reason>)` when the attachment is unavailable, blocked, encrypted, corrupt, or
-unreadable. Include attachment metadata in enumerated items when present, for example
-`hasAttachments:true`, `attachmentCount`, or attachment names. Include count probes in
+`yes(workiq-index)`, `yes`, `none`, or `failed(<reason>)`. If the item has attachments,
+`none` is invalid: use `yes(workiq-index)` only after a targeted WorkIQ attachment
+probe returns concrete attachment-derived facts; use `yes` only after a direct
+read-only byte/content path actually read the relevant attachment; or use
+`failed(<reason>)` when the attachment content is unavailable, not indexed, blocked,
+encrypted, corrupt, or unreadable. Include attachment metadata in enumerated items
+when present, for example `hasAttachments:true`, `attachmentCount`, or attachment names.
+Include count probes in
 `SCAN_DONE.processingQuality`: `{required:true, enumeratedItems:[...],
 threadCounts:[{threadRef,count}]}`. The server will hold the entire scan as partial if
 any enumerated item lacks a valid disposition, if a message with attachments is marked
@@ -170,33 +180,38 @@ positions, and surface the issue as a project problem.
 
 ## Attachment Evidence
 
-If a mail or Teams item has PDF, DOCX, XLSX, or other relevant attachments, download
-and read them before deciding whether the item changes project state. Attachment facts
-must be represented through source evidence just like message-body facts. If an
-attachment is unavailable, encrypted, corrupt, or unreadable, emit `NEEDS_REVIEW` or a
-low-confidence no-change ledger disposition rather than silently ignoring it. Emit a
-`LEARNING` marker when you discover a reusable attachment-handling pattern, file-type
-quirk, or stable general evidence rule.
+If a mail or Teams item has PDF, DOCX, XLSX, or other relevant attachments, read the
+attachment content before deciding whether the item changes project state. The required
+default is a targeted WorkIQ/M365 Copilot index question about the attachment, such as
+summarizing the deck or listing every date, milestone, and scope item. Attachment facts
+must be represented through source evidence just like message-body facts. If attachment
+content is unavailable, not indexed yet, encrypted, corrupt, or unreadable, emit
+`NEEDS_REVIEW` or a low-confidence no-change ledger disposition rather than silently
+ignoring it. Emit a `LEARNING` marker when you discover a reusable attachment-handling
+pattern, file-type quirk, or stable general evidence rule.
 
 Mandatory per-message attachment protocol:
-- List attachments before reading or summarizing the message disposition.
-- Prefer mail/Teams MCP attachment APIs first. If they list or imply a relevant source
-  attachment but cannot download/read it, use the read-only OWA-CDP fallback helper
-  from Run Context `owaAttachmentHelper`: `pwsh -NoProfile -ExecutionPolicy Bypass
-  -File "<owaAttachmentHelper>" -Subject "<message subject>" -Date "<YYYY-MM-DD>"
-  -Sender "<sender if known>" -RunId "<runId>" -BrainWorkDir "<current brain-work>"
-  -Json`. Read only files produced under `brain-work/attachments/<runId>/`,
-  especially `manifest.json` and extracted `<attachment>.txt` files. The helper uses
-  an isolated Edge debug profile and must not control the user's active browser.
-  If OWA would require changing mail state such as read/unread, moving, deleting,
-  flagging, or sending, stop the fallback and use `failed(<reason>)`.
-- Read every relevant source attachment and cite at least one attachment-derived fact
-  when the attachment changes or confirms project reality.
-- Set each ledger disposition's `attachmentsHandled` to `yes`, `none`, or
-  `failed(<reason>)`; do not invent `yes` from message-body mentions of a "deck" or
-  "attachment" unless the attachment content was actually read.
+- List attachment signals or metadata before summarizing the message disposition.
+- Ask WorkIQ a targeted attachment-content question for every relevant attachment:
+  summarize the attachment, list all dates/milestones/scope items, or ask for the
+  specific facts needed by the project decision. Prefer the exact subject, sender, date,
+  and attachment type/name when known.
+- Treat concrete WorkIQ facts from that targeted attachment probe as attachment-content
+  evidence from the M365 Copilot index. Cite at least one attachment-derived fact when
+  the attachment changes or confirms project reality, and include the WorkIQ retrieved
+  or answer date as an as-of caveat when available.
+- Set each ledger disposition's `attachmentsHandled` to `yes(workiq-index)`, `yes`,
+  `none`, or `failed(<reason>)`. Use `yes(workiq-index)` for the required WorkIQ-index
+  path. Use `yes` only for a direct read-only byte/content path that actually read the
+  attachment content. Do not infer either value from message-body mentions of a "deck"
+  or "attachment" unless the attachment content was actually surfaced.
 - If a message has attachments and the read fails, emit `NEEDS_REVIEW` when project
   state may depend on the attachment, and use `failed(<reason>)` in the ledger.
+- Graph or other attachment-byte retrieval is an optional future path, not required for
+  the current protocol and not implemented here. Mail MCPs provide message bodies only,
+  not attachment bytes. If any UI/byte fallback would require changing external state
+  such as read/unread, moving, deleting, flagging, or sending, stop and use
+  `failed(<reason>)`.
 
 ## Temporal Pass
 
@@ -272,7 +287,7 @@ markers in code fences.
 
 ```text
 [PROJECT_NEW] {"projectKey":"...","title":"...","aliases":[],"summary":"...","pmStatus":{"current":"...","planned":[{"text":"...","date":"...","evidence":"src-...","confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}],"userActions":[],"problems":[],"risks":[],"waitingOn":[],"confidence":"medium","lastSynthesizedAt":"..."},"sourceRefs":[{"id":"src-...","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","sourceTaskId":"...","firstSeenAt":"...","lastSeenAt":"...","evidenceText":"short factual summary"}],"lineItems":[{"id":"li-...","title":"...","category":"workstream|action|decision|dependency|risk|info","status":"open|in-progress|waiting|blocked|done|on-radar","owner":null,"userActionRequired":false,"userAction":null,"currentState":"...","plannedNext":null,"dueAt":null,"waitingOn":null,"problem":null,"risk":null,"confidence":"medium","evidenceRefIds":["src-..."],"sourceTaskIds":["task-..."],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open"}],"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":["li-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}],"supersedesTaskIds":[]}
-[PROJECT_UPDATE] {"taskId":"task-...","title":"...","summary":"...","pmStatus":{"current":"...","planned":[],"userActions":[],"problems":[],"risks":[],"waitingOn":[],"confidence":"medium","lastSynthesizedAt":"..."},"sourceRefs":[],"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["li-..."],"attachmentsHandled":"yes","quote":"short verbatim quote","reason":"why this disposition is correct"}],"supersedesTaskIds":[],"evidenceRefIds":["src-..."]}
+[PROJECT_UPDATE] {"taskId":"task-...","title":"...","summary":"...","pmStatus":{"current":"...","planned":[],"userActions":[],"problems":[],"risks":[],"waitingOn":[],"confidence":"medium","lastSynthesizedAt":"..."},"sourceRefs":[],"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["li-..."],"attachmentsHandled":"yes(workiq-index)","quote":"short verbatim quote","reason":"why this disposition is correct"}],"supersedesTaskIds":[],"evidenceRefIds":["src-..."]}
 [FACTSHEET_UPDATE] {"taskId":"task-...","sectionPatches":{"overview":[{"op":"add","text":"English fact","date":"2026-07-06","evidenceRefIds":["src-..."],"confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}],"peopleRoles":[{"op":"add","person":"...","role":"...","organization":"...","location":"...","country":"...","contact":"...","evidenceRefIds":["src-..."],"confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}]},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["fs-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}]}
 [LINEITEM_NEW] {"taskId":"task-...","lineItem":{"id":"li-...","title":"...","category":"action","status":"open","owner":"Alex","userActionRequired":false,"userAction":"...","currentState":"...","plannedNext":null,"dueAt":null,"waitingOn":null,"problem":null,"risk":null,"confidence":"medium","evidenceRefIds":["src-..."],"sourceTaskIds":[],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open","askQuote":{"text":"...","from":"...","date":"...","threadRef":"conversation-id"},"threadCheck":{"coverage":"complete","addressedTo":"Alex","messageCount":12,"lastMessageDate":"...","checkedThroughMessageDate":"..."}},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":["li-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}]}
 [LINEITEM_UPDATE] {"taskId":"task-...","lineItemId":"li-...","patch":{"status":"waiting","currentState":"...","confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["li-..."],"attachmentsHandled":"failed(DLP blocked attachment read)","quote":"short verbatim quote","reason":"why this disposition is correct"}],"evidenceRefIds":["src-..."]}
@@ -321,7 +336,7 @@ Before finishing, verify:
 - Did every status/problem/risk/user-action change include evidence?
 - Did I use available evidence instead of ignoring it, including relevant attachments?
 - Did every surfaced message disposition include `attachmentsHandled`, and did every
-  message with attachments use `yes` or `failed(<reason>)`?
+  message with attachments use `yes(workiq-index)`, `yes`, or `failed(<reason>)`?
 - Did I run the temporal pass and resolve every unconfirmed past-date planned,
   waiting, or line-item node?
 - Did any date-only evidence use confidence `medium` or `low`?

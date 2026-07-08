@@ -1,7 +1,27 @@
 # OWA Attachment Fetch Helper
 
-`brain/tools/owa-attachment.ps1` is the read-only fallback when mail/Teams MCPs expose
-that a message has source attachments but cannot download or read them.
+Batch 9D changed the required attachment discovery protocol. The default path is now a
+targeted WorkIQ/M365 Copilot index question about the attachment content. WorkIQ can
+surface attachment contents as indexed facts, but it does not deliver attachment bytes.
+Mail MCPs deliver message bodies only. Index lag is possible, so record the WorkIQ
+answer's retrieved/as-of date when available.
+
+`brain/tools/owa-attachment.ps1` is retained as a legacy diagnostic byte helper. It is
+not the required discovery path.
+
+## Current Discovery Protocol
+
+1. List attachment signals or metadata for the message.
+2. Ask WorkIQ targeted questions about the specific attachment, such as "summarize the
+   attached deck/PDF" or "list all dates, milestones, and scope items".
+3. If WorkIQ returns concrete attachment-derived facts, cite those facts and set
+   `attachmentsHandled:"yes(workiq-index)"`.
+4. If WorkIQ cannot identify or summarize the attachment content, set
+   `attachmentsHandled:"failed(<reason>)"` and emit review when task state may depend
+   on the attachment.
+5. Direct Graph or other attachment-byte retrieval remains an optional future path and
+   is not implemented here. If a future read-only byte path actually reads attachment
+   content, use `attachmentsHandled:"yes"` and cite file-derived facts.
 
 ## Safety Model
 
@@ -17,11 +37,14 @@ that a message has source attachments but cannot download or read them.
 
 ## Usage
 
+Use this helper only for an explicit, safe byte-retrieval diagnostic. Do not use it as
+the normal scan protocol.
+
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\brain\tools\owa-attachment.ps1 `
-  -Subject "Confirmation: Temporary Workspace Setup at Seestrasse" `
+  -Subject "Project attachment message subject" `
   -Date "2026-07-06" `
-  -Sender "Laith Skeik" `
+  -Sender "Sender Name" `
   -RunId "scan-<runId>" `
   -Json
 ```
@@ -43,14 +66,3 @@ read from `outlook.office.com/api/v2.0` using the isolated Edge session. If OWA 
 `attachmentsHandled:"yes"` from a paperclip or body text mentioning a deck.
 
 `-ValidateOnly -Json` performs argument and path validation without starting Edge.
-
-## Discovery Protocol
-
-1. Prefer mail/Teams MCP attachment APIs.
-2. If those APIs cannot download/read an attachment that may affect task state, run
-   the OWA helper with the message subject, date, sender if known, and the current
-   scan `runId`.
-3. Read `manifest.json` and the extracted text files from `brain-work/attachments/<runId>/`.
-4. Set `attachmentsHandled:"yes"` only after the relevant attachment content was read.
-5. Set `attachmentsHandled:"failed(<reason>)"` and emit `NEEDS_REVIEW` when the helper
-   cannot find, download, or extract the attachment.

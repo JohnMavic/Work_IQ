@@ -36,13 +36,18 @@ Text: When two sources appear to conflict on a binary status (resolved vs blocke
 
 ## 2026-07-07 principle: attachments-are-source-evidence
 Category: principle
-Evidence: Batch 9 Entfesselung directive requires discovery to read available attachments instead of relying on lossy message summaries.
-Text: For mail or Teams discovery, relevant attachments such as PDF, DOCX, and XLSX files are source evidence. Download and read them before changing task state; if an attachment cannot be read, surface the gap instead of silently ignoring it.
+Evidence: Batch 9D corrected the attachment protocol after a live WorkIQ probe returned PDF/deck facts from the M365 Copilot index.
+Text: For mail or Teams discovery, relevant attachments such as PDF, DOCX, and XLSX files are source evidence. Ask targeted WorkIQ questions about the attachment content before changing task state; if content cannot be surfaced, surface the gap instead of silently ignoring it.
 
-## 2026-07-07 pattern: owa-cdp-attachment-fallback
+## 2026-07-08 fact: workiq-index-surfaces-attachment-contents
+Category: fact
+Evidence: Batch 9D live WorkIQ probe returned attachment-only milestone and scope facts from an indexed deck/PDF.
+Text: WorkIQ surfaces attachment CONTENTS via the M365 Copilot index — ask targeted questions about the attachment (summarize/list facts). It does not deliver attachment bytes; mail-MCP delivers bodies only. Index lag possible — state the as-of caveat.
+
+## 2026-07-07 pattern: owa-cdp-attachment-byte-fallback
 Category: pattern
-Evidence: Batch 9C implementation of a reusable read-only OWA attachment route after mail, WorkIQ, and Graph paths did not provide attachment contents.
-Text: When mail or Teams MCPs expose a relevant source attachment but cannot download or read it, use the OWA-CDP fallback only after the direct APIs fail: start a dedicated Edge debug instance with a disposable profile, search OWA by subject/date/sender, download read-only into brain-work/attachments for the current run, extract document text, and close only the browser process/profile opened by that helper.
+Evidence: Batch 9C built and tested an OWA-CDP byte helper, but Batch 9D superseded it as the default because WorkIQ can surface attachment contents through the M365 Copilot index and OWA UI navigation may mutate read state.
+Text: OWA-CDP attachment byte retrieval is a legacy diagnostic fallback, not the discovery default. Prefer targeted WorkIQ attachment-content probes; use UI or byte-download fallbacks only when explicitly needed, read-only, and safe, and record failure instead of continuing if the path would mutate mail state.
 
 ## 2026-07-07 fact: owa-can-auto-mark-read
 Category: fact

@@ -145,9 +145,10 @@ test('Batch 9 task chat state injects pmStatus, lineItems, processing cursor, fa
   assert.match(capturedPrompt, /## Brain Learnings/);
 });
 
-test('Batch 9 scan skill, gateway, and learnings require attachment evidence and document write guardrail', () => {
+test('Batch 9 scan skill, gateway, and learnings require WorkIQ-index attachment evidence and document write guardrail', () => {
   const skill = fs.readFileSync(path.join(repoRoot, 'docs', 'AGENCY_BRAIN_SCAN_SKILL.md'), 'utf8');
   const learnings = fs.readFileSync(path.join(repoRoot, 'brain-learnings.md'), 'utf8');
+  const attachmentDoc = fs.readFileSync(path.join(repoRoot, 'docs', 'OWA_ATTACHMENT_FETCH.md'), 'utf8');
   const gateway = buildGatewayPrompt({
     stateFile: path.join(repoRoot, 'tests', 'unit', 'batch9-state.md'),
     factSheetFiles: ['factsheet-b9.md'],
@@ -157,15 +158,19 @@ test('Batch 9 scan skill, gateway, and learnings require attachment evidence and
 
   assert.match(skill, /Discovery is the default/);
   assert.match(skill, /PDF, DOCX, XLSX/);
-  assert.match(skill, /owaAttachmentHelper/);
+  assert.match(skill, /targeted WorkIQ\/M365 Copilot index/);
+  assert.match(skill, /yes\(workiq-index\)/);
   assert.match(skill, /External Write Guardrail/);
   assert.match(skill, /warning at 40 tool starts/);
   assert.match(skill, /150 tool starts/);
-  assert.match(fs.readFileSync(path.join(repoRoot, 'brain', 'scan-brain.js'), 'utf8'), /owaAttachmentHelper:/);
-  assert.match(fs.readFileSync(path.join(repoRoot, 'docs', 'OWA_ATTACHMENT_FETCH.md'), 'utf8'), /brain-work\/attachments\/<runId>/);
+  assert.doesNotMatch(fs.readFileSync(path.join(repoRoot, 'brain', 'scan-brain.js'), 'utf8'), /owaAttachmentHelper:/);
+  assert.match(attachmentDoc, /yes\(workiq-index\)/);
+  assert.match(attachmentDoc, /optional future path/);
   assert.match(learnings, /attachments-are-source-evidence/);
-  assert.match(learnings, /owa-cdp-attachment-fallback/);
+  assert.match(learnings, /workiq-index-surfaces-attachment-contents/);
+  assert.doesNotMatch(learnings, /WorkIQ, and Graph paths did not provide attachment contents/);
   assert.match(gateway, /available evidence used instead of ignored/);
+  assert.match(gateway, /yes\(workiq-index\)/);
   assert.match(gateway, /PDF, DOCX, XLSX/);
   assert.match(gateway, /External write actions are forbidden/);
 });
@@ -268,9 +273,14 @@ test('Batch 9 attachment ledger gate requires handled disposition and blocks unh
   assert.match(unhandledGate.reason, /attachmentsHandled/);
 
   const handled = structuredClone(unhandled);
-  handled[0].payload.processingLedger[0].attachmentsHandled = 'yes';
+  handled[0].payload.processingLedger[0].attachmentsHandled = 'yes(workiq-index)';
   const handledGate = evaluateProcessingQualityGate(handled);
   assert.equal(handledGate.ok, true);
+
+  const directBytesHandled = structuredClone(unhandled);
+  directBytesHandled[0].payload.processingLedger[0].attachmentsHandled = 'yes';
+  const directBytesGate = evaluateProcessingQualityGate(directBytesHandled);
+  assert.equal(directBytesGate.ok, true);
 
   const failedWithReason = structuredClone(unhandled);
   failedWithReason[0].payload.processingLedger[0].attachmentsHandled = 'failed(encrypted PDF)';

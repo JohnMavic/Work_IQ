@@ -71,7 +71,6 @@ function buildBootstrapPrompt({ skillText, stateFile, scanDays, runId }) {
     `- runId: ${runId}`,
     `- scanDays: ${scanDays}`,
     `- stateFile: ./${stateFileName}`,
-    `- owaAttachmentHelper: ${DEFAULT_OWA_ATTACHMENT_HELPER}`,
     '',
     `Read ./${stateFileName} from the current working directory before making any WorkIQ calls.`,
     'Use the marker grammar from the skill exactly. Emit final markers as physical lines.'

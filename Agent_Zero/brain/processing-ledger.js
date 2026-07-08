@@ -21,9 +21,14 @@ function isFailedAttachmentDisposition(value) {
   return /^failed\(.+\)$/i.test(compactText(value));
 }
 
+function isHandledAttachmentDisposition(value) {
+  const text = compactText(value).toLowerCase();
+  return text === 'yes' || text === 'yes(workiq-index)';
+}
+
 function isValidAttachmentDisposition(value) {
   const text = compactText(value).toLowerCase();
-  return text === 'yes' || text === 'none' || isFailedAttachmentDisposition(text);
+  return isHandledAttachmentDisposition(text) || text === 'none' || isFailedAttachmentDisposition(text);
 }
 
 function hasAttachmentSignal(item = {}) {
@@ -36,7 +41,7 @@ function hasAttachmentSignal(item = {}) {
 
 function attachmentDispositionHandlesPresentAttachments(value) {
   const text = compactText(value).toLowerCase();
-  return text === 'yes' || isFailedAttachmentDisposition(text);
+  return isHandledAttachmentDisposition(text) || isFailedAttachmentDisposition(text);
 }
 
 function parseTime(value) {
@@ -68,10 +73,10 @@ export function validateLedgerItem(item, pathName = 'processing.ledger[]') {
   }
   if (!Array.isArray(item.nodeRefs)) return `${pathName}.nodeRefs must be an array`;
   if (!isValidAttachmentDisposition(item.attachmentsHandled)) {
-    return `${pathName}.attachmentsHandled must be yes, none, or failed(<reason>)`;
+    return `${pathName}.attachmentsHandled must be yes(workiq-index), yes, none, or failed(<reason>)`;
   }
   if (hasAttachmentSignal(item) && !attachmentDispositionHandlesPresentAttachments(item.attachmentsHandled)) {
-    return `${pathName}.attachmentsHandled must be yes or failed(<reason>) when attachments are present`;
+    return `${pathName}.attachmentsHandled must be yes(workiq-index), yes, or failed(<reason>) when attachments are present`;
   }
   if (!compactText(item.quote)) return `${pathName}.quote is required`;
   if (!compactText(item.reason)) return `${pathName}.reason is required`;
@@ -252,7 +257,7 @@ export function evaluateProcessingQualityGate(markers = []) {
     if (enumeratedAttachmentKeys.has(key) && !attachmentDispositionHandlesPresentAttachments(item.attachmentsHandled)) {
       return {
         ok: false,
-        reason: `ledger disposition for ${key} has attachments but attachmentsHandled is not yes or failed(<reason>)`,
+        reason: `ledger disposition for ${key} has attachments but attachmentsHandled is not yes(workiq-index), yes, or failed(<reason>)`,
         ledgerItems: normalizedLedger,
         ledgerCount: normalizedLedger.length
       };
