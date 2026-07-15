@@ -108,6 +108,38 @@ test('valid marker batch creates a project task with sourceRefs and lineItems', 
   assert.equal(result.data.brain.lastOutcome, 'success');
 });
 
+test('same-batch PROJECT_NEW followed by LINEITEM_NEW validates against created project', () => {
+  const dir = resetTmp('same-batch-project-line');
+  const text = [
+    marker('PROJECT_NEW', {
+      taskId: 'proj-same-batch',
+      projectKey: 'same-batch',
+      title: 'Same batch project',
+      sourceRefs: [{ id: 'src-same-batch', type: 'email', date: '2026-07-05T09:00:00.000Z' }],
+      lineItems: []
+    }),
+    marker('LINEITEM_NEW', {
+      taskId: 'proj-same-batch',
+      lineItem: {
+        id: 'li-same-batch',
+        title: 'Created after project marker',
+        status: 'new',
+        evidenceRefIds: ['src-same-batch']
+      }
+    })
+  ].join('\n');
+
+  const result = applyMarkerBatch(baseData(), parseMarkers(text).markers, {
+    auditLogFile: path.join(dir, 'audit.jsonl'),
+    now: new Date('2026-07-05T10:00:00.000Z'),
+    runId: 'same-batch'
+  });
+
+  assert.equal(result.dropped.length, 0);
+  assert.equal(result.applied, 2);
+  assert.equal(result.data.tasks.find(task => task.id === 'proj-same-batch').lineItems[0].id, 'li-same-batch');
+});
+
 test('unknown task reference is dropped and audited', () => {
   const dir = resetTmp('unknown-reference');
   const { markers } = parseMarkers(marker('LINEITEM_NEW', {

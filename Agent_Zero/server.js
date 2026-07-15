@@ -1381,20 +1381,6 @@ function phase3Log(message, data) {
   } catch {}
 }
 
-function extractKeywords(title) {
-  const stopWords = new Set([
-    'the','a','an','is','are','was','were','be','been','have','has','had',
-    'do','does','did','will','would','could','should','may','might','must',
-    'to','of','in','for','on','with','at','by','from','as','into','through',
-    'and','but','or','nor','if','not','no','your','my','me','i','you','we',
-    'they','he','she','it','this','that','these','those','pending','approval'
-  ]);
-  return title
-    .split(/[\s|,;:–—]+/)
-    .map(w => w.replace(/[^a-zA-Z0-9#]/g, ''))
-    .filter(w => w.length > 1 && !stopWords.has(w.toLowerCase()));
-}
-
 // --- Schema Migration ---
 
 function migrateTasks() {
@@ -1797,10 +1783,6 @@ function unregisterActiveJob(job) {
     }
   }
 }
-
-// Expose to future phases (Phase γ.B runner will be wired here).
-// eslint-disable-next-line no-unused-vars
-const __gammaA = { Job, jobs, jobsByTask, activeJobByTask, idempotencyMap, sseBroker, registerJob, unregisterActiveJob, persistJobSnapshot, hashBody, checkIdempotency, storeIdempotency };
 
 // ============================================================================
 // Phase γ.A.2 — Global (non-task-bound) job registry (v4.0.0-rc.1)
@@ -3423,8 +3405,6 @@ app.post('/api/tasks/:id/check-update', withTaskQueue(async (req, res) => {
 
     // Save original values before potential modification
     const originalTitle = task.title;
-    const originalSummary = task.summary || '';
-
     let outcome;
     const updated = await safeWriteTasks((data) => {
       const t = data.tasks.find(t => t.id === id);
@@ -5013,20 +4993,6 @@ async function detectExistingInstance() {
     return info ? { ...info, via: 'portscan' } : null;
   }));
   return results.find((r) => r) || null;
-}
-
-function writeLockFile() {
-  try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf-8'));
-    fs.writeFileSync(LOCK_FILE, JSON.stringify({
-      pid: process.pid,
-      port: PORT,
-      startedAt: new Date().toISOString(),
-      version: pkg.version
-    }, null, 2));
-  } catch (e) {
-    console.warn(`[LOCK] Could not write lock file: ${e.message}`);
-  }
 }
 
 // v4.1.1 — ATOMIC lockfile acquire. The OS guarantees that only one process

@@ -92,9 +92,34 @@ Rules:
 - Not updating an existing project when new evidence clearly belongs there is wrong.
 - Create a new project only for a genuinely separate undertaking.
 - One signal can create or update at most one project.
+- Compare every candidate against the Canonical Identity Index before searching. An
+  exact project key, normalized title, alias, conversation id, or immutable source id
+  is authoritative identity evidence; never emit a second top-level record for it.
+- Retain any newly observed title, project-key spelling, or alias on the matched
+  project so later scans can resolve the same identity deterministically.
+- Treat location plus undertaking as the project boundary. Procurement, cabling,
+  approvals, scheduling, incidents, and stakeholder follow-ups are line items when
+  they serve that same undertaking.
 - If ownership or granularity is uncertain, emit `NEEDS_REVIEW` instead of merging.
 - A single standalone action remains a single task when it is not part of a broader
   undertaking.
+
+## Executive Brief Contract
+
+The user should understand the project without rereading the source stream. Keep the
+top layer short and decision-oriented:
+
+- `summary`: at most 420 characters; purpose, current outcome, and the most important
+  change only. Do not repeat source-by-source chronology.
+- `pmStatus.current`: at most 520 characters; present truth and its as-of date.
+- Every line item must have `priority:"critical|high|medium|low"` and one bounded
+  `currentState`. Put next step, owner, due date, waiting dependency, problem, and risk
+  in their typed fields instead of repeating them in prose.
+- Critical means immediate material impact or overdue blocker; high means a user
+  action, near-term blocker, or material risk; medium means active planned work; low
+  means informational/on-radar work.
+- Do not duplicate the same fact across summary, PM arrays, line items, and Fact Sheet.
+  Summary is the brief, line items are workstream truth, Fact Sheet is deep evidence.
 
 ## Mandatory Assignment Checklist
 
@@ -227,9 +252,13 @@ Mandatory per-message attachment protocol:
   or "attachment" unless the attachment content was actually surfaced.
 - If a message has attachments and the read fails, emit `NEEDS_REVIEW` when project
   state may depend on the attachment, and use `failed(<reason>)` in the ledger.
-- For `failed(content-not-indexed)`, the server keeps the message eligible for the next
-  scan until the attachment is harvested or three scans have attempted it. Do not mark
-  the item `already-processed` while `reprobeNextScan` remains true.
+- For `failed(content-not-indexed)`, the server keeps the message eligible on the next
+  scans and counts at most one attempt per source item per scan batch. After three
+  immediate attempts it schedules a cooldown-based `reprobeAfter`
+  instead of treating the attachment as permanently unavailable. When that time is
+  due, probe again even though the old attempt failed. A fresh success supersedes the
+  old operational failure. Do not mark the item `already-processed` while
+  `reprobeNextScan` remains true or a scheduled re-probe is due.
 - Graph or other attachment-byte retrieval is an optional future path, not required for
   the current protocol and not implemented here. Mail MCPs provide message bodies only,
   not attachment bytes. If any UI/byte fallback would require changing external state
@@ -317,15 +346,15 @@ Emit one marker per physical line. JSON must be single-line valid JSON. Do not w
 markers in code fences.
 
 ```text
-[PROJECT_NEW] {"projectKey":"...","title":"...","aliases":[],"summary":"...","pmStatus":{"current":"...","planned":[{"text":"...","date":"...","evidence":"src-...","confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}],"userActions":[],"problems":[],"risks":[],"waitingOn":[],"confidence":"medium","lastSynthesizedAt":"..."},"sourceRefs":[{"id":"src-...","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","sourceTaskId":"...","firstSeenAt":"...","lastSeenAt":"...","evidenceText":"short factual summary"}],"lineItems":[{"id":"li-...","title":"...","category":"workstream|action|decision|dependency|risk|info","status":"open|in-progress|waiting|blocked|done|on-radar","owner":null,"userActionRequired":false,"userAction":null,"currentState":"...","plannedNext":null,"dueAt":null,"waitingOn":null,"problem":null,"risk":null,"confidence":"medium","evidenceRefIds":["src-..."],"sourceTaskIds":["task-..."],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open"}],"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":["li-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}],"supersedesTaskIds":[]}
-[PROJECT_UPDATE] {"taskId":"task-...","title":"...","summary":"...","pmStatus":{"current":"...","planned":[],"userActions":[],"problems":[],"risks":[],"waitingOn":[],"confidence":"medium","lastSynthesizedAt":"..."},"sourceRefs":[],"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["li-..."],"attachmentsHandled":"yes(workiq-index)","quote":"short verbatim quote","reason":"why this disposition is correct"}],"supersedesTaskIds":[],"evidenceRefIds":["src-..."]}
+[PROJECT_NEW] {"projectKey":"...","title":"...","aliases":[],"summary":"max 420 characters","pmStatus":{"current":"max 520 characters","planned":[{"text":"...","date":"...","evidence":"src-...","confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}],"userActions":[],"problems":[],"risks":[],"waitingOn":[],"confidence":"medium","lastSynthesizedAt":"..."},"sourceRefs":[{"id":"src-...","itemId":"immutable item id","conversationId":"immutable conversation id","threadRef":"immutable thread id","internetMessageId":"optional RFC message id","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","sourceTaskId":"...","firstSeenAt":"...","lastSeenAt":"...","evidenceText":"short factual summary"}],"lineItems":[{"id":"li-...","title":"...","category":"workstream|action|decision|dependency|risk|info","priority":"critical|high|medium|low","status":"open|in-progress|waiting|blocked|done|on-radar","owner":null,"userActionRequired":false,"userAction":null,"currentState":"...","plannedNext":null,"dueAt":null,"waitingOn":null,"problem":null,"risk":null,"confidence":"medium","evidenceRefIds":["src-..."],"sourceTaskIds":["task-..."],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open"}],"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":["li-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}],"supersedesTaskIds":[]}
+[PROJECT_UPDATE] {"taskId":"task-...","title":"...","projectAliases":["new stable alias"],"summary":"...","pmStatus":{"current":"...","planned":[],"userActions":[],"problems":[],"risks":[],"waitingOn":[],"confidence":"medium","lastSynthesizedAt":"..."},"sourceRefs":[],"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["li-..."],"attachmentsHandled":"yes(workiq-index)","quote":"short verbatim quote","reason":"why this disposition is correct"}],"supersedesTaskIds":[],"evidenceRefIds":["src-..."]}
 [FACTSHEET_UPDATE] {"taskId":"task-...","sectionPatches":{"overview":[{"op":"add","text":"English fact","date":"2026-07-06","evidenceRefIds":["src-..."],"confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}],"peopleRoles":[{"op":"add","person":"...","role":"...","organization":"...","location":"...","country":"...","contact":"...","evidenceRefIds":["src-..."],"confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}]},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["fs-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}]}
-[LINEITEM_NEW] {"taskId":"task-...","lineItem":{"id":"li-...","title":"...","category":"action","status":"open","owner":"Alex","userActionRequired":false,"userAction":"...","currentState":"...","plannedNext":null,"dueAt":null,"waitingOn":null,"problem":null,"risk":null,"confidence":"medium","evidenceRefIds":["src-..."],"sourceTaskIds":[],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open","askQuote":{"text":"...","from":"...","date":"...","threadRef":"conversation-id"},"threadCheck":{"coverage":"complete","addressedTo":"Alex","messageCount":12,"lastMessageDate":"...","checkedThroughMessageDate":"..."}},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":["li-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}]}
+[LINEITEM_NEW] {"taskId":"task-...","sourceRefs":[],"lineItem":{"id":"li-...","title":"...","category":"action","priority":"critical|high|medium|low","status":"open","owner":"Alex","userActionRequired":false,"userAction":"...","currentState":"...","plannedNext":null,"dueAt":null,"waitingOn":null,"problem":null,"risk":null,"confidence":"medium","evidenceRefIds":["src-..."],"sourceTaskIds":[],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open","askQuote":{"text":"...","from":"...","date":"...","threadRef":"conversation-id"},"threadCheck":{"coverage":"complete","addressedTo":"Alex","messageCount":12,"lastMessageDate":"...","checkedThroughMessageDate":"..."}},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":["li-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}]}
 [LINEITEM_UPDATE] {"taskId":"task-...","lineItemId":"li-...","patch":{"status":"waiting","currentState":"...","confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["li-..."],"attachmentsHandled":"failed(DLP blocked attachment read)","quote":"short verbatim quote","reason":"why this disposition is correct"}],"evidenceRefIds":["src-..."]}
 [NODE_OBSOLETE] {"taskId":"task-...","nodeRef":"pmStatus.planned:<id-or-text>|pmStatus.waitingOn:<id-or-text>|li-...","obsoleteReason":"target date passed without completion evidence — needs re-plan","evidenceRefIds":["src-..."]}
-[TASK_NEW] {"title":"...","summary":"...","sourceRef":{"id":"src-...","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","evidenceText":"short factual summary"},"status":"new|on-radar|needs-attention"}
+[TASK_NEW] {"title":"...","summary":"...","sourceRef":{"id":"src-...","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","evidenceText":"short factual summary"},"status":"new|on-radar|needs-attention","processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":[],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this is genuinely standalone"}]}
 [TASK_UPDATE] {"taskId":"task-...","patch":{"status":"in-progress","summary":"...","confidence":"medium"},"sourceRefs":[{"id":"src-...","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","evidenceText":"short factual summary"}],"evidenceRefIds":["src-..."]}
-[LEARNING] {"text":"Reusable principle, pattern, or stable general fact.","category":"principle|pattern|fact","evidence":"why this learning is generally valid"}
+[LEARNING] {"text":"Reusable principle, pattern, or stable general fact.","category":"principle|pattern|fact","evidence":"why this learning is valid","scope":"global|project:<projectKey>|tool:<tool>","tags":["..."],"volatility":"stable_policy|versioned_tool|environment_dependent|ephemeral","outcome":"success|failed|contradicted|reverified","observedAt":"ISO timestamp"}
 [NEEDS_REVIEW] {"kind":"assignment|status|other","ref":"taskId|lineItemId|null","question":"...","confidence":"low"}
 [SCAN_DONE] {"runId":"...","outcome":"success|partial","newProjects":0,"updatedProjects":0,"newSingleTasks":0,"archivedTasks":0,"workIqCalls":0,"processingQuality":{"required":true,"enumeratedItems":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id"}],"threadCounts":[{"threadRef":"conversation-id","count":1}]},"notes":"..."}
 ```
@@ -359,6 +388,9 @@ markers in code fences.
 - If you detect a contradiction or project/country/location/organization mismatch,
   emit `NEEDS_REVIEW` instead of narrating around it.
 - If no useful updates are found, still emit `SCAN_DONE` with outcome `success`.
+- `SCAN_DONE.outcome:"success"` advances the global discovery watermark only when no
+  identity, gateway, quality, temporal, or marker-application hold/drop makes the
+  effective batch partial. Task-scoped chat never advances this watermark.
 
 ## Self-Check Before Final Output
 

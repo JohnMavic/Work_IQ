@@ -355,6 +355,7 @@ test('scan result reports applied diff counts instead of SCAN_DONE intent when g
   const dir = resetTmp('gateway-held-counts');
   const tasksFile = writeFixture(dir, {
     version: 5,
+    lastScan: '2026-07-04T07:00:00.000Z',
     tasks: [{
       id: 'proj-held-counts',
       title: 'Held counts project',
@@ -395,6 +396,97 @@ test('scan result reports applied diff counts instead of SCAN_DONE intent when g
   assert.equal(result.newProjects, 0);
   assert.equal(result.newSingleTasks, 0);
   assert.equal(result.gateway.heldMarkers, 1);
+  assert.equal(result.outcome, 'partial');
+  assert.equal(saved.lastScan, '2026-07-04T07:00:00.000Z');
   assert.equal(project.summary, 'Original summary');
   assert.equal(project.sourceRefs.some(ref => ref.id === 'src-held-new'), false);
+});
+
+test('applier-dropped mutation makes the scan partial and preserves discovery anchor', async () => {
+  const dir = resetTmp('applier-dropped-watermark');
+  const tasksFile = writeFixture(dir, {
+    version: 5,
+    lastScan: '2026-07-03T07:00:00.000Z',
+    tasks: []
+  });
+  const output = [
+    marker('PROJECT_UPDATE', { taskId: 'missing-project', summary: 'Must be dropped.' }),
+    marker('SCAN_DONE', { runId: 'run-dropped-watermark', outcome: 'success', workIqCalls: 0 })
+  ].join('\n');
+
+  const result = await runBrainScanOnce(makeJob(), {
+    tasksFile,
+    brainWorkDir: path.join(dir, 'brain-work'),
+    runId: 'run-dropped-watermark',
+    now: new Date('2026-07-05T10:00:00.000Z'),
+    _runBrain: fakeBrain(output),
+    _runGateway: fakeGatewayApproveAll
+  });
+  const saved = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+
+  assert.equal(result.outcome, 'partial');
+  assert.equal(result.droppedMarkers.length, 1);
+  assert.equal(saved.lastScan, '2026-07-03T07:00:00.000Z');
+});
+
+test('project identity preflight attaches an exact-alias TASK_NEW to the existing project', async () => {
+  const dir = resetTmp('identity-auto-attach');
+  const tasksFile = writeFixture(dir, {
+    version: 5,
+    tasks: [{
+      id: 'proj-phoenix',
+      taskType: 'project',
+      projectKey: 'PHOENIX-MIGRATION',
+      projectAliases: ['Project Phoenix'],
+      title: 'Phoenix Migration',
+      status: 'in-progress',
+      sourceRefs: [],
+      lineItems: []
+    }]
+  });
+  const output = [
+    marker('TASK_NEW', {
+      taskId: 'single-phoenix-handoff',
+      title: 'Prepare Project Phoenix handoff',
+      summary: 'Send the final handoff package.',
+      sourceRef: {
+        type: 'email',
+        itemId: 'mail-phoenix-handoff',
+        conversationId: 'conv-phoenix-handoff',
+        date: '2026-07-15T08:00:00.000Z',
+        link: 'https://example.test/phoenix/handoff'
+      },
+      processingLedger: [{
+        itemRef: { type: 'email', id: 'mail-phoenix-handoff' },
+        threadRef: 'conv-phoenix-handoff',
+        date: '2026-07-15T08:00:00.000Z',
+        disposition: 'new-node',
+        nodeRefs: [],
+        attachmentsHandled: 'none',
+        quote: 'Please send the final handoff package.',
+        reason: 'This is a new workstream in the existing project.'
+      }]
+    }),
+    marker('SCAN_DONE', { runId: 'identity-auto-attach', outcome: 'success', workIqCalls: 1 })
+  ].join('\n');
+
+  const result = await runBrainScanOnce(makeJob(), {
+    tasksFile,
+    brainWorkDir: path.join(dir, 'brain-work'),
+    runId: 'identity-auto-attach',
+    now: new Date('2026-07-15T09:00:00.000Z'),
+    _runBrain: fakeBrain(output, { workIqCalls: 1 }),
+    _runGateway: fakeGatewayApproveAll
+  });
+  const saved = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+  const project = saved.tasks.find(task => task.id === 'proj-phoenix');
+
+  assert.equal(saved.tasks.length, 1);
+  assert.equal(project.lineItems.length, 1);
+  assert.equal(project.lineItems[0].title, 'Prepare Project Phoenix handoff');
+  assert.equal(project.sourceRefs[0].itemId, 'mail-phoenix-handoff');
+  assert.equal(project.brainState.lastEvidenceAt, '2026-07-15T08:00:00.000Z');
+  assert.equal(project.brainState.lastScanRunId, 'identity-auto-attach');
+  assert.equal(result.newSingleTasks, 0);
+  assert.equal(result.identity.autoAttached, 1);
 });

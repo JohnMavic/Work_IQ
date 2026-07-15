@@ -301,6 +301,41 @@ test('D task chat markers go through gateway and cross-task marker is held', asy
   assert.equal(saved.tasks.find(task => task.id === 'task-a').brainState.needsReview, true);
 });
 
+test('D task chat SCAN_DONE does not advance global scan telemetry', async () => {
+  const dir = resetTmp('task-chat-scan-watermark');
+  const tasksFile = writeFixture(dir, {
+    version: 5,
+    lastScan: '2026-07-01T08:00:00.000Z',
+    brain: { lastRunId: 'global-scan', lastRunAt: '2026-07-01T08:00:00.000Z', lastOutcome: 'success' },
+    tasks: [{
+      id: 'task-a',
+      taskType: 'single',
+      title: 'Task A',
+      status: 'new',
+      sourceRefs: [],
+      history: []
+    }]
+  });
+  const output = [
+    'The task state was checked.',
+    marker('SCAN_DONE', { runId: 'task-chat-run', outcome: 'success', workIqCalls: 1 })
+  ].join('\n');
+
+  await runTaskChatOnce({ id: 'job-chat-scan', taskId: 'task-a', input: { text: 'Check this task' }, emit() {} }, {
+    tasksFile,
+    brainWorkDir: path.join(dir, 'brain-work'),
+    runId: 'task-chat-run',
+    _runBrain: async () => ({ ok: true, assistantText: output, counters: { workIqCalls: 1 } }),
+    _runGateway: approveAllGateway,
+    _writeJsonFileAtomic: (file, data) => writeJsonFileAtomic(file, data, { maxBackups: 0 })
+  });
+  const saved = JSON.parse(fs.readFileSync(tasksFile, 'utf8'));
+
+  assert.equal(saved.lastScan, '2026-07-01T08:00:00.000Z');
+  assert.equal(saved.brain.lastRunId, 'global-scan');
+  assert.equal(saved.brain.lastOutcome, 'success');
+});
+
 test('D task chat pure answer skips reality gateway spawn', async () => {
   const dir = resetTmp('task-chat-no-marker-gateway-skip');
   const tasksFile = writeFixture(dir, {

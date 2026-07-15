@@ -499,9 +499,9 @@ export function buildGatewayPrompt({ stateFile, factSheetFiles = [], markers, ru
   ].join('\n');
 }
 
-function buildGatewayRetryPrompt({ stateFile, factSheetFiles = [], markers, runId, parseError }) {
+function buildGatewayRetryPrompt({ stateFile, factSheetFiles = [], markers, runId, parseError, learningsBlock }) {
   return [
-    buildGatewayPrompt({ stateFile, factSheetFiles, markers, runId }),
+    buildGatewayPrompt({ stateFile, factSheetFiles, markers, runId, learningsBlock }),
     '',
     '# Retry Constraint',
     `The previous gateway response could not be parsed (${parseError || 'unknown parse error'}).`,
@@ -537,6 +537,7 @@ export async function runRealityGateway({
   brainWorkDir = BRAIN_WORK_DIR,
   runId = `gateway-${Date.now()}`,
   runClass = BRAIN_RUN_CLASS.BACKGROUND,
+  learningsBlock,
   onSchedulerUpdate = null,
   _runBrain = runBrain
 } = {}) {
@@ -544,7 +545,7 @@ export async function runRealityGateway({
     return { ok: false, error: `missing stateFile: ${stateFile || '(none)'}` };
   }
 
-  const prompt = buildGatewayPrompt({ stateFile, factSheetFiles, markers, runId });
+  const prompt = buildGatewayPrompt({ stateFile, factSheetFiles, markers, runId, learningsBlock });
   const firstResult = await _runBrain({
     prompt,
     brainWorkDir,
@@ -565,7 +566,8 @@ export async function runRealityGateway({
     factSheetFiles,
     markers,
     runId,
-    parseError: firstParse.error
+    parseError: firstParse.error,
+    learningsBlock
   });
   const retryResult = await _runBrain({
     prompt: retryPrompt,

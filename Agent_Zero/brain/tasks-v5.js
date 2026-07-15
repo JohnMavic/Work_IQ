@@ -230,7 +230,7 @@ export function migrateToV5(input) {
     if (migrated.pmStatus === undefined) migrated.pmStatus = null;
     if (migrated.pmStatus) migrated.pmStatus = normalizePmStatusTreeNodes(normalizePmStatusUserActions(migrated.pmStatus));
     migrated.factSheet = normalizeFactSheet(migrated.factSheet, { now: migrated.updatedAt || null });
-    if (migrated.taskType === 'project') migrated.processing = normalizeProcessing(migrated.processing);
+    if (migrated.taskType === 'project' || migrated.processing) migrated.processing = normalizeProcessing(migrated.processing);
     migrated.brainState = normalizeBrainState(migrated.brainState);
     return migrated;
   });

@@ -28,6 +28,10 @@ function isArchived(task) {
   return Boolean(task.archived || task.supersededBy);
 }
 
+function isCompleted(task) {
+  return ['done', 'completed', 'closed', 'obsolete', 'superseded'].includes(String(task?.status || '').toLowerCase());
+}
+
 function isProject(task) {
   return task.taskType === 'project';
 }
@@ -36,10 +40,73 @@ function isSingle(task) {
   return !isProject(task);
 }
 
+function compactIdentity(value) {
+  return String(value || '')
+    .normalize('NFKD')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase();
+}
+
+function sourceFingerprints(task) {
+  const values = [];
+  for (const ref of normalizeArray(task?.sourceRefs)) {
+    const raw = ref?.conversationId || ref?.threadRef || ref?.internetMessageId || ref?.itemId || ref?.id;
+    if (raw) values.push(compactIdentity(raw));
+  }
+  return [...new Set(values.filter(Boolean))].slice(0, 4);
+}
+
+function lineItemPriorityScore(item, now) {
+  const explicit = { critical: 0, high: 10, medium: 20, low: 30 }[String(item?.priority || '').toLowerCase()] ?? 20;
+  const status = String(item?.status || '').toLowerCase();
+  const due = Date.parse(item?.dueAt || '');
+  const nowMs = Date.parse(now || '') || Date.now();
+  let score = explicit;
+  if (status === 'blocked') score -= 20;
+  if (item?.userActionRequired) score -= 12;
+  if (item?.problem) score -= 8;
+  if (item?.risk) score -= 6;
+  if (Number.isFinite(due) && due < nowMs && !['done', 'closed', 'obsolete', 'superseded'].includes(status)) score -= 15;
+  if (['done', 'closed', 'obsolete', 'superseded'].includes(status)) score += 100;
+  return score;
+}
+
+function renderIdentityIndex(tasks, lines) {
+  lines.push('## Canonical Identity Index (assignment authority)');
+  if (!tasks.length) {
+    lines.push('- none');
+    return;
+  }
+  for (const task of tasks) {
+    const aliases = normalizeArray(task.projectAliases).map(compactIdentity).filter(Boolean);
+    const identities = [...new Set([
+      compactIdentity(task.projectKey),
+      compactIdentity(task.title),
+      ...aliases
+    ].filter(Boolean))];
+    const refs = sourceFingerprints(task);
+    const brief = truncate(task.summary || task.pmStatus?.current || '', 120);
+    lines.push(`- ${task.id} | type=${isProject(task) ? 'project' : 'single'} | status=${task.status || 'new'} | identities=${identities.join(',') || 'none'} | sourceFingerprints=${refs.join(',') || 'none'}${brief ? ` | brief=${brief}` : ''}`);
+  }
+  lines.push('Use this complete index before creating any PROJECT_NEW or TASK_NEW marker. Exact identity collisions must update/attach; ambiguous collisions require NEEDS_REVIEW.');
+}
+
 function safeFilePart(value) {
   return String(value || 'task')
     .replace(/[^a-zA-Z0-9_.-]/g, '-')
     .slice(0, 80) || 'task';
+}
+
+function learningContextForData(data) {
+  const projects = normalizeArray(data?.tasks)
+    .filter(task => !isArchived(task) && isProject(task) && !isCompleted(task))
+    .map(task => ({
+      projectTitle: task.title,
+      projectKey: task.projectKey,
+      projectAliases: normalizeArray(task.projectAliases)
+    }));
+  return { projects, tools: ['Agency', 'WorkIQ'] };
 }
 
 function latestEvidenceForLineItem(task, lineItem) {
@@ -56,7 +123,7 @@ function latestEvidenceForLineItem(task, lineItem) {
   return parts.join(' | ');
 }
 
-function projectProcessingSummary(task) {
+function projectProcessingSummary(task, now) {
   const processing = task?.processing && typeof task.processing === 'object' ? task.processing : {};
   const ledger = normalizeArray(processing.ledger);
   const threads = processing.threads && typeof processing.threads === 'object' && !Array.isArray(processing.threads)
@@ -74,6 +141,20 @@ function projectProcessingSummary(task) {
       return `${threadRef}:${last || 'none'}`;
     });
     parts.push(`threadCursor=${renderedThreads.join(',')}${threads.length > renderedThreads.length ? ',...' : ''}`);
+  }
+  const nowMs = Date.parse(now || '') || Date.now();
+  const dueReprobes = ledger.filter(item => {
+    if (!/^failed\(\s*content-not-indexed\s*\)$/i.test(String(item?.attachmentsHandled || '').trim())) return false;
+    if (item.reprobeNextScan) return true;
+    const due = Date.parse(item.reprobeAfter || '');
+    return Number.isFinite(due) && due <= nowMs;
+  });
+  if (dueReprobes.length) {
+    const refs = dueReprobes.slice(0, 3).map(item => {
+      const ref = item.itemRef || {};
+      return `${ref.type || 'm365'}:${ref.id || ref.itemId || ref.messageId || '?'}@${item.threadRef || '?'}`;
+    });
+    parts.push(`attachmentReprobesDue=${dueReprobes.length}:${refs.join(',')}`);
   }
   return parts.join(' | ');
 }
@@ -217,8 +298,10 @@ function buildMarkdown(data, options) {
   } = options;
 
   const tasks = normalizeArray(data.tasks);
-  const openProjects = tasks.filter(task => !isArchived(task) && isProject(task));
-  const openSingles = tasks.filter(task => !isArchived(task) && isSingle(task));
+  const activeTasks = tasks.filter(task => !isArchived(task) && !isCompleted(task));
+  const identityTasks = activeTasks.filter(isProject);
+  const openProjects = activeTasks.filter(isProject);
+  const openSingles = activeTasks.filter(isSingle);
   const archivedIds = tasks.filter(isArchived).map(task => task.id);
   const lines = [];
 
@@ -228,10 +311,13 @@ function buildMarkdown(data, options) {
   lines.push(`Last scan anchor: ${data.lastScan || 'none'}`);
   lines.push(`Open projects: ${openProjects.length}`);
   lines.push(`Open single tasks: ${openSingles.length}`);
-  lines.push(`Archived/superseded IDs: ${archivedIds.length ? archivedIds.join(', ') : 'none'}`);
+  const archivedSample = archivedIds.slice(0, 10);
+  lines.push(`Archived/superseded IDs: ${archivedSample.length ? archivedSample.join(', ') : 'none'}${archivedIds.length > archivedSample.length ? ` (+${archivedIds.length - archivedSample.length} more)` : ''}`);
   lines.push('');
   lines.push('Read referenced spill files from the current working directory only when needed.');
   lines.push('For any candidate project assignment or update, read that project factSheet REQUIRED spill first.');
+  lines.push('');
+  renderIdentityIndex(identityTasks, lines);
   lines.push('');
   if (learningsBlock) {
     lines.push(learningsBlock.trimEnd());
@@ -242,21 +328,23 @@ function buildMarkdown(data, options) {
   if (!openProjects.length) lines.push('- none');
   for (const task of openProjects) {
     lines.push(`- [${task.id}] ${truncate(task.title, 160)} | status=${task.status || 'new'} | key=${task.projectKey || 'n/a'}`);
-    lines.push(`  processing: ${projectProcessingSummary(task)}`);
+    lines.push(`  processing: ${projectProcessingSummary(task, now)}`);
     renderSourceRefs(task, lines);
     renderFactSheet(task, lines, { brainWorkDir, runId, spillFiles, factSheetFiles, writeFiles });
     if (task.summary && summaryChars > 0) lines.push(`  summary: ${truncate(task.summary, summaryChars)}`);
     if (includePmStatus) renderPmStatus(task, lines, { brainWorkDir, runId, spillFiles, writeFiles, pmStatusMode });
     const spill = renderHistorySpill(task, { brainWorkDir, runId, historySpillBytes, spillFiles, writeFiles });
     if (spill) lines.push(`  history spill: ${spill}`);
-    const allLineItems = normalizeArray(task.lineItems);
+    const allLineItems = normalizeArray(task.lineItems)
+      .slice()
+      .sort((a, b) => lineItemPriorityScore(a, now) - lineItemPriorityScore(b, now));
     const lineItems = allLineItems.slice(0, lineItemLimit);
     if (!lineItems.length) lines.push('  lineItems: none');
     for (const item of lineItems) {
       const treeState = item.state ? ` | treeState=${item.state}` : '';
       const thread = item.threadRef ? ` | threadRef=${truncate(item.threadRef, 80)}` : '';
       const resolution = item.resolutionStatus ? ` | resolution=${item.resolutionStatus}` : '';
-      lines.push(`  - (${item.id}) ${truncate(item.title, 120)} | status=${item.status || 'open'}${treeState}${thread}${resolution} | state=${truncate(item.currentState || '', 100)} | evidence=${latestEvidenceForLineItem(task, item)}`);
+      lines.push(`  - (${item.id}) ${truncate(item.title, 120)} | priority=${item.priority || 'medium'} | status=${item.status || 'open'}${treeState}${thread}${resolution} | state=${truncate(item.currentState || '', 100)} | evidence=${latestEvidenceForLineItem(task, item)}`);
     }
     renderHiddenLineItems(task, allLineItems.slice(lineItems.length), lines, { brainWorkDir, runId, spillFiles, writeFiles });
   }
@@ -299,9 +387,14 @@ export function renderScanState(inputData, {
   const data = migrateToV5(inputData);
   const resolvedBrainWorkDir = writeFiles ? prepareBrainWorkDir(brainWorkDir) : brainWorkDir;
   if (writeFiles) fs.mkdirSync(resolvedBrainWorkDir, { recursive: true });
+  const curatedLearningOptions = learningsFile ? {} : {
+    context: learningContextForData(data),
+    now
+  };
   let learnings = renderBrainLearningsBlock({
     filePath: learningsFile,
-    maxBytes: learningsMaxBytes
+    maxBytes: learningsMaxBytes,
+    ...curatedLearningOptions
   });
 
   const attempts = [
@@ -342,7 +435,8 @@ export function renderScanState(inputData, {
     if (targetLearningBytes < learnings.bytes) {
       learnings = renderBrainLearningsBlock({
         filePath: learningsFile,
-        maxBytes: targetLearningBytes
+        maxBytes: targetLearningBytes,
+        ...curatedLearningOptions
       });
       runRenderAttempts();
     }
@@ -362,6 +456,7 @@ export function renderScanState(inputData, {
     learningsBytes: learnings.bytes,
     learningsTruncated: learnings.truncated,
     learningsWarning: learnings.warning,
+    learningsMarkdown: learnings.markdown,
     openTaskIds: normalizeArray(data.tasks).filter(task => !isArchived(task)).map(task => task.id),
     archivedTaskIds: normalizeArray(data.tasks).filter(isArchived).map(task => task.id)
   };

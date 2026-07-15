@@ -39,6 +39,18 @@ function normalizeArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function taskLearningBlock(task, now) {
+  return renderBrainLearningsBlock({
+    context: {
+      projectTitle: task?.title,
+      projectKey: task?.projectKey,
+      projectAliases: normalizeArray(task?.projectAliases),
+      tools: ['Agency', 'WorkIQ']
+    },
+    now
+  }).markdown;
+}
+
 function nowIso(now) {
   return now instanceof Date ? now.toISOString() : String(now || new Date().toISOString());
 }
@@ -475,7 +487,7 @@ export function buildTaskChatFastPrompt({
 const CHAT_MARKER_GRAMMAR = [
   '[PROJECT_UPDATE] {"taskId":"task-...","summary":"...","pmStatus":{"current":"...","planned":[],"userActions":[],"problems":[],"risks":[],"waitingOn":[],"confidence":"medium"},"sourceRefs":[],"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["li-..."],"attachmentsHandled":"none|yes|yes(workiq-index)|failed(<reason>)","quote":"short verbatim quote","reason":"why this disposition is correct"}],"evidenceRefIds":["src-..."]}',
   '[FACTSHEET_UPDATE] {"taskId":"task-...","sectionPatches":{"overview":[{"op":"add","text":"English fact","evidenceRefIds":["src-..."],"confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}]},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["fs-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}]}',
-  '[LINEITEM_NEW] {"taskId":"task-...","lineItem":{"id":"li-...","title":"...","category":"action","status":"open","owner":"user","userActionRequired":true,"userAction":"...","currentState":"...","confidence":"medium","evidenceRefIds":["src-..."],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open","askQuote":{"text":"...","from":"...","date":"...","threadRef":"conversation-id"},"threadCheck":{"coverage":"complete","addressedTo":"user","messageCount":1,"lastMessageDate":"...","checkedThroughMessageDate":"..."}},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":["li-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}]}',
+  '[LINEITEM_NEW] {"taskId":"task-...","lineItem":{"id":"li-...","title":"...","category":"action","priority":"critical|high|medium|low","status":"open","owner":"user","userActionRequired":true,"userAction":"...","currentState":"...","plannedNext":null,"dueAt":null,"waitingOn":null,"problem":null,"risk":null,"confidence":"medium","evidenceRefIds":["src-..."],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open","askQuote":{"text":"...","from":"...","date":"...","threadRef":"conversation-id"},"threadCheck":{"coverage":"complete","addressedTo":"user","messageCount":1,"lastMessageDate":"...","checkedThroughMessageDate":"..."}},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":["li-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}]}',
   '[LINEITEM_UPDATE] {"taskId":"task-...","lineItemId":"li-...","patch":{"status":"waiting","currentState":"...","confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["li-..."],"attachmentsHandled":"failed(<reason>)","quote":"short verbatim quote","reason":"why this disposition is correct"}],"evidenceRefIds":["src-..."]}',
   '[NODE_OBSOLETE] {"taskId":"task-...","nodeRef":"pmStatus.planned:<id-or-text>|pmStatus.waitingOn:<id-or-text>|li-...","obsoleteReason":"target date passed without completion evidence — needs re-plan","evidenceRefIds":["src-..."]}',
   '[TASK_UPDATE] {"taskId":"task-...","patch":{"status":"in-progress","summary":"...","confidence":"medium"},"sourceRefs":[{"id":"src-...","type":"email|teams|manual","title":"...","date":"...","link":null,"evidenceText":"short factual summary"}],"evidenceRefIds":["src-..."]}',
@@ -595,6 +607,7 @@ export function buildTaskChatDeepVerifyPrompt({
     '',
     'Deep-verification contract:',
     '- Treat the focus list above as a priority hint, not a limit. If the user asked to search for updates, discover all relevant new communications for this task.',
+    '- Keep project summary at most 420 characters and pmStatus.current at most 520 characters. Put owner, next step, due date, waiting dependency, problem, risk, and critical|high|medium|low priority in typed line-item fields instead of duplicating chronology.',
     '- For update-search requests, start from task.processing.cursorDate and task.processing.threads when present, use the lookback window, and enumerate newly surfaced mail/Teams items before deciding that nothing changed.',
     '- Prefer mail and Teams MCPs for discovery.',
     '- Mandatory M365 workflow for update-search requests: first enumerate surfaced mail/Teams items, then read full message bodies, then for each surfaced thread ask WorkIQ exactly: "list all attachments of this thread with filenames". After attachment filenames are enumerated, ask a targeted WorkIQ attachment-content question for every PDF, DOCX, XLSX, deck, or other source attachment file by filename. If WorkIQ returns content-not-indexed or empty indexed content, retry exactly once with an alternative formulation such as exact filename versus thread+sender+date, and only then answer or emit markers.',
@@ -1194,6 +1207,7 @@ async function applyDeepVerificationMarkersAfterAnswer({
   job,
   userPrompt,
   deepVerification,
+  learningsBlock,
   _readJsonFile,
   _writeJsonFileAtomic,
   _runGateway,
@@ -1223,6 +1237,7 @@ async function applyDeepVerificationMarkersAfterAnswer({
       stateFile: state.stateFile,
       factSheetFiles: state.factSheetFiles,
       markers: scoped.markers,
+      learningsBlock,
       brainWorkDir: state.brainWorkDir,
       runId,
       runClass: BRAIN_RUN_CLASS.BACKGROUND
@@ -1239,7 +1254,9 @@ async function applyDeepVerificationMarkersAfterAnswer({
     applyResult = _applyMarkerBatch(latestData, temporalGate.markers, {
       now,
       runId,
-      auditLogFile: null
+      auditLogFile: null,
+      advanceScanWatermark: false,
+      recordScanTelemetry: false
     });
     addTaskChatQualityGateReviewHints(applyResult.data, { taskId, now, qualityGate });
     addTaskChatTemporalGateReviewHints(applyResult.data, { taskId, now, temporalGate });
@@ -1361,13 +1378,15 @@ export async function runTaskChatFastOnce(job, {
   });
 
   const state = writeTaskChatState({ data: beforeData, task, taskId, userPrompt, attachments, brainWorkDir, runId, now });
+  const learningsBlock = taskLearningBlock(task, now);
   const prompt = buildTaskChatFastPrompt({
     stateFileName: state.stateFileName,
     factSheetFiles: state.factSheetFiles,
     userPrompt,
     attachments,
     taskId,
-    runId
+    runId,
+    learningsBlock
   });
 
   setJobPhase(job, 'brain_run', { taskId, agentPhase: 'thinking', stage: 'fast' });
@@ -1563,6 +1582,7 @@ export async function runTaskChatDeepVerifyOnce(job, {
   });
 
   const state = writeTaskChatState({ data: promptData, task: promptTask, taskId, userPrompt, attachments, brainWorkDir, runId, now });
+  const learningsBlock = taskLearningBlock(promptTask, now);
   const prompt = buildTaskChatDeepVerifyPrompt({
     stateFileName: state.stateFileName,
     factSheetFiles: state.factSheetFiles,
@@ -1571,7 +1591,8 @@ export async function runTaskChatDeepVerifyOnce(job, {
     deepVerification,
     attachments,
     taskId,
-    runId
+    runId,
+    learningsBlock
   });
 
   const verifyExactly = normalizeVerifyExactly(deepVerification.verifyExactly, deepVerification.question || userPrompt);
@@ -1700,6 +1721,7 @@ export async function runTaskChatDeepVerifyOnce(job, {
             job,
             userPrompt,
             deepVerification,
+            learningsBlock,
             _readJsonFile,
             _writeJsonFileAtomic,
             _runGateway,
@@ -1774,13 +1796,15 @@ export async function runTaskChatOnce(job, {
   });
 
   const state = writeTaskChatState({ data: beforeData, task, taskId, userPrompt, attachments, brainWorkDir, runId, now });
+  const learningsBlock = taskLearningBlock(task, now);
   const prompt = buildTaskChatPrompt({
     stateFileName: state.stateFileName,
     factSheetFiles: state.factSheetFiles,
     userPrompt,
     attachments,
     taskId,
-    runId
+    runId,
+    learningsBlock
   });
 
   setJobPhase(job, 'brain_run', { taskId, agentPhase: 'thinking' });
@@ -1820,6 +1844,7 @@ export async function runTaskChatOnce(job, {
       stateFile: state.stateFile,
       factSheetFiles: state.factSheetFiles,
       markers: scoped.markers,
+      learningsBlock,
       brainWorkDir: state.brainWorkDir,
       runId,
       runClass: BRAIN_RUN_CLASS.INTERACTIVE,
@@ -1829,7 +1854,9 @@ export async function runTaskChatOnce(job, {
     applyResult = _applyMarkerBatch(beforeData, gatewayFilter.markers, {
       now,
       runId,
-      auditLogFile: null
+      auditLogFile: null,
+      advanceScanWatermark: false,
+      recordScanTelemetry: false
     });
     afterData = applyResult.data;
   }

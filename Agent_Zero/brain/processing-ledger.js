@@ -13,7 +13,8 @@ export const PROCESSING_LEDGER_MARKER_TYPES = new Set([
   'PROJECT_UPDATE',
   'LINEITEM_NEW',
   'LINEITEM_UPDATE',
-  'FACTSHEET_UPDATE'
+  'FACTSHEET_UPDATE',
+  'TASK_NEW'
 ]);
 
 function normalizeArray(value) {
@@ -161,13 +162,23 @@ function attachmentIndexAttempts(existingItem) {
   return hasContentNotIndexedAttachmentFailure(existingItem) ? 1 : 0;
 }
 
-function annotateAttachmentIndexRetry(item, existingItem) {
+function annotateAttachmentIndexRetry(item, existingItem, {
+  now = new Date(),
+  countAttempt = true
+} = {}) {
   if (!hasContentNotIndexedAttachmentFailure(item)) return item;
-  const attempts = Math.min(3, attachmentIndexAttempts(existingItem) + 1);
+  const existingAttempts = attachmentIndexAttempts(existingItem);
+  const attempts = countAttempt ? existingAttempts + 1 : Math.max(1, existingAttempts);
+  const cooldownDays = attempts < 3 ? 0 : Math.min(30, 7 * (2 ** Math.min(2, attempts - 3)));
+  const nowMs = now instanceof Date ? now.getTime() : Date.parse(now);
+  const reprobeAfter = cooldownDays > 0 && Number.isFinite(nowMs)
+    ? new Date(nowMs + cooldownDays * 24 * 60 * 60 * 1000).toISOString()
+    : null;
   return {
     ...item,
     attachmentIndexAttempts: attempts,
     reprobeNextScan: attempts < 3,
+    reprobeAfter,
     attachmentRetryReason: 'content-not-indexed'
   };
 }
@@ -317,7 +328,10 @@ export function normalizeProcessing(value = {}) {
   };
 }
 
-export function mergeProcessing(existing, payload = {}, { now = new Date() } = {}) {
+export function mergeProcessing(existing, payload = {}, {
+  now = new Date(),
+  attachmentRetryKeys = null
+} = {}) {
   const merged = normalizeProcessing(existing);
   const priorCursorDate = merged.cursorDate;
   const incoming = payload.processing && typeof payload.processing === 'object' && !Array.isArray(payload.processing)
@@ -331,7 +345,12 @@ export function mergeProcessing(existing, payload = {}, { now = new Date() } = {
   const byKey = new Map(merged.ledger.map(item => [itemRefKey(item.itemRef), item]));
   const newItems = extractProcessingLedgerFromPayload(payload).map(item => {
     const normalized = normalizeLedgerItem(item, { now });
-    return annotateAttachmentIndexRetry(normalized, byKey.get(itemRefKey(normalized.itemRef)));
+    const key = itemRefKey(normalized.itemRef);
+    const isRetryFailure = hasContentNotIndexedAttachmentFailure(normalized);
+    const countAttempt = !isRetryFailure || !(attachmentRetryKeys instanceof Set) || !attachmentRetryKeys.has(key);
+    const annotated = annotateAttachmentIndexRetry(normalized, byKey.get(key), { now, countAttempt });
+    if (isRetryFailure && attachmentRetryKeys instanceof Set && key) attachmentRetryKeys.add(key);
+    return annotated;
   });
   const cursorEligibleDates = [];
   const blockedThreadDates = new Map();

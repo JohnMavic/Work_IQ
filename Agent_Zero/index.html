@@ -319,6 +319,17 @@
     .user-action-indicator { color: #fecaca; background: rgba(239,68,68,0.16); border: 1px solid rgba(239,68,68,0.35); border-radius: 4px; padding: 2px 6px; }
     .superseded-badge { color: #d1d5db; background: rgba(107,114,128,0.16); border-color: rgba(107,114,128,0.28); }
     .archive-toggle.active { border-color: rgba(96,165,250,0.55); color: #bfdbfe; }
+    .priority-badge, .trust-indicator {
+      display: inline-flex; align-items: center; gap: 4px;
+      border: 1px solid transparent; border-radius: 999px;
+      padding: 2px 7px; font-size: 0.68rem; font-weight: 700;
+      line-height: 1.3; text-transform: uppercase; letter-spacing: 0.03em;
+      white-space: nowrap;
+    }
+    .priority-critical { color: #fecaca; background: rgba(220,38,38,0.17); border-color: rgba(248,113,113,0.38); }
+    .priority-high { color: #fed7aa; background: rgba(234,88,12,0.15); border-color: rgba(251,146,60,0.34); }
+    .priority-medium { color: #bfdbfe; background: rgba(37,99,235,0.14); border-color: rgba(96,165,250,0.3); }
+    .priority-low { color: #cbd5e1; background: rgba(100,116,139,0.12); border-color: rgba(148,163,184,0.24); }
 
     /* --- Task Detail View (right panel) --- */
     .task-detail-view {
@@ -336,6 +347,7 @@
       overflow-y: auto;
       padding: 16px 20px 28px;
     }
+    .task-detail-content > [data-slot]:empty { display: none; }
     .task-detail-content::-webkit-scrollbar,
     .task-chat-history::-webkit-scrollbar { width: 4px; }
     .task-detail-content::-webkit-scrollbar-track,
@@ -412,9 +424,74 @@
       font-size: 0.82rem;
     }
     .superseded-hint button { margin-left: 8px; }
+    .executive-brief {
+      border: 1px solid #29334a; border-radius: 8px;
+      padding: 12px; background: linear-gradient(145deg, rgba(20,28,49,0.96), rgba(12,17,31,0.94));
+      box-shadow: inset 3px 0 0 #3b82f6;
+    }
+    .executive-brief-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 10px; margin-bottom: 8px;
+    }
+    .executive-brief h2 { margin: 0; color: #f8fafc; font-size: 0.92rem; font-weight: 700; }
+    .executive-brief-eyebrow {
+      color: #60a5fa; font-size: 0.66rem; font-weight: 750;
+      text-transform: uppercase; letter-spacing: 0.09em;
+    }
+    .executive-brief-badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+    .trust-verified { color: #bbf7d0; background: rgba(34,197,94,0.12); border-color: rgba(34,197,94,0.3); }
+    .trust-evidence { color: #fde68a; background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.3); }
+    .trust-unknown { color: #cbd5e1; background: rgba(100,116,139,0.12); border-color: rgba(148,163,184,0.24); }
+    .executive-summary-copy {
+      position: relative; color: #dbe4f0; font-size: 0.84rem;
+      line-height: 1.48; overflow: hidden; overflow-wrap: anywhere;
+    }
+    .executive-summary-copy.capped:not(.expanded) { max-height: 7.4em; }
+    .executive-summary-copy.capped:not(.expanded)::after {
+      content: ''; position: absolute; left: 0; right: 0; bottom: 0;
+      height: 1.8em; pointer-events: none;
+      background: linear-gradient(transparent, rgba(15,22,39,0.98));
+    }
+    .executive-summary-copy h1, .executive-summary-copy h2, .executive-summary-copy h3,
+    .executive-summary-copy h4 { margin: 0.35em 0; color: #e2e8f0; font-size: 1em; }
+    .executive-summary-copy p { margin: 0.35em 0; }
+    .executive-summary-copy ul, .executive-summary-copy ol { margin: 0.35em 0; padding-left: 1.25em; }
+    .executive-summary-toggle {
+      border: 0; background: transparent; color: #93c5fd; cursor: pointer;
+      font: inherit; font-size: 0.72rem; padding: 4px 0 0; text-decoration: underline;
+      text-decoration-color: rgba(147,197,253,0.45); text-underline-offset: 2px;
+    }
+    .executive-brief-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 7px; margin-top: 10px;
+    }
+    .brief-metric {
+      min-width: 0; padding: 8px; border: 1px solid rgba(148,163,184,0.16);
+      border-radius: 6px; background: rgba(15,23,42,0.44);
+    }
+    .brief-metric.blockers { border-color: rgba(239,68,68,0.26); }
+    .brief-metric.user-actions { border-color: rgba(251,146,60,0.28); }
+    .brief-metric.risks { border-color: rgba(245,158,11,0.25); }
+    .brief-metric h3 {
+      display: flex; justify-content: space-between; gap: 6px;
+      margin: 0 0 5px; color: #e2e8f0; font-size: 0.73rem; font-weight: 700;
+    }
+    .brief-count { color: #94a3b8; font-variant-numeric: tabular-nums; }
+    .brief-metric ul { margin: 0; padding-left: 15px; color: #cbd5e1; font-size: 0.75rem; line-height: 1.38; }
+    .brief-metric li + li { margin-top: 3px; }
+    .brief-more { color: #64748b; font-size: 0.68rem; margin-top: 4px; }
+    .brief-milestone { color: #dbeafe; font-size: 0.77rem; line-height: 1.4; overflow-wrap: anywhere; }
+    .brief-milestone-date { color: #93c5fd; font-weight: 700; }
+    .brief-milestone.overdue .brief-milestone-date { color: #fca5a5; }
     .pm-panel, .lineitems-panel {
       border-top: 1px solid #1e2233;
       padding-top: 12px;
+    }
+    .pm-panel > details, .lineitems-panel > details {
+      border: 1px solid #22283a; border-radius: 6px; background: rgba(15,23,42,0.35);
+    }
+    .pm-panel > details > summary, .lineitems-panel > details > summary {
+      cursor: pointer; padding: 8px 10px; color: #e2e8f0; font-size: 0.84rem;
     }
     .factsheet-panel {
       border-top: 1px solid #1e2233;
@@ -454,6 +531,7 @@
     }
     .pm-grid {
       display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px;
+      padding: 0 10px 10px;
     }
     .pm-section {
       border: 1px solid #22283a; border-radius: 6px; padding: 8px;
@@ -512,13 +590,26 @@
     .lineitems-panel summary { cursor: pointer; padding: 8px 10px; color: #e2e8f0; font-size: 0.84rem; }
     .lineitem-table { display: flex; flex-direction: column; border-top: 1px solid #22283a; }
     .lineitem-row {
-      display: grid; grid-template-columns: minmax(150px, 1fr) auto; gap: 8px;
+      display: grid; grid-template-columns: minmax(180px, 1fr) minmax(120px, auto); gap: 8px 12px;
       padding: 9px 10px; border-top: 1px solid rgba(148,163,184,0.12);
     }
     .lineitem-row:first-child { border-top: none; }
     .lineitem-title { color: #e5e7eb; font-size: 0.84rem; overflow-wrap: anywhere; }
     .lineitem-state { color: #94a3b8; font-size: 0.76rem; margin-top: 3px; overflow-wrap: anywhere; }
     .lineitem-meta { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-content: start; }
+    .lineitem-fields {
+      grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 5px 10px; margin: 0; padding-top: 7px; border-top: 1px solid rgba(148,163,184,0.1);
+    }
+    .lineitem-field { min-width: 0; font-size: 0.75rem; line-height: 1.38; overflow-wrap: anywhere; }
+    .lineitem-field dt { display: inline; color: #64748b; font-weight: 700; }
+    .lineitem-field dt::after { content: ': '; }
+    .lineitem-field dd { display: inline; margin: 0; color: #cbd5e1; }
+    .lineitem-field.problem dd { color: #fecaca; }
+    .lineitem-field.risk dd { color: #fde68a; }
+    .completed-lineitems { margin: 0; border: 0 !important; border-radius: 0 !important; background: transparent !important; }
+    .completed-lineitems > summary { color: #94a3b8 !important; border-top: 1px solid rgba(148,163,184,0.14); }
+    .completed-lineitems .lineitem-row { opacity: 0.72; }
     .status-chip {
       border-radius: 4px; padding: 2px 6px; font-size: 0.7rem;
       background: rgba(148,163,184,0.13); color: #cbd5e1; border: 1px solid rgba(148,163,184,0.2);
@@ -527,6 +618,7 @@
     .owner-chip.user { color: #e0f2fe; border-color: rgba(14,165,233,0.32); background: rgba(14,165,233,0.14); font-weight: 700; }
     .status-chip.blocked { color: #fecaca; background: rgba(239,68,68,0.13); border-color: rgba(239,68,68,0.28); }
     .status-chip.done { color: #bbf7d0; background: rgba(34,197,94,0.12); border-color: rgba(34,197,94,0.25); }
+    .status-chip.overdue { color: #fecaca; background: rgba(239,68,68,0.13); border-color: rgba(239,68,68,0.28); }
     .user-actions-section { border-color: rgba(239,68,68,0.32); background: rgba(127,29,29,0.12); }
     .user-action-entry.done { opacity: 0.82; }
     .user-action-check { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; align-items: start; cursor: pointer; }
@@ -1403,6 +1495,56 @@
     .merge-suggestion .btn-keep-separate:hover { color: #e2e8f0; border-color: #94a3b8 !important; }
     @keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
+    .legacy-only-control[hidden] { display: none !important; }
+    :where(button, a, input, textarea, select, summary, [tabindex]):focus-visible {
+      outline: 2px solid #93c5fd;
+      outline-offset: 2px;
+    }
+
+    @media (max-width: 840px) {
+      body { height: auto; min-height: 100vh; overflow: auto; }
+      header { padding: 10px 14px; }
+      .app-layout { display: flex; flex-direction: column; overflow: visible; }
+      .resize-handle { display: none; }
+      .sidebar-left {
+        min-width: 0; padding: 10px 14px; flex-direction: row; flex-wrap: wrap;
+        overflow: visible; border-bottom: 1px solid #1e2233;
+      }
+      .sidebar-left .btn { width: auto; flex: 1 1 132px; text-align: center; }
+      .panel-middle { max-height: 42vh; padding: 10px 14px; border-bottom: 1px solid #1e2233; }
+      .panel-right { min-height: 58vh; overflow: visible; }
+      .task-detail-content { overflow: visible; padding: 14px 14px 24px; }
+      .task-chat-dock { position: static; padding: 10px 14px 14px; box-shadow: none; }
+      .executive-brief-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .pm-grid { grid-template-columns: 1fr; }
+      .notification-stack, .notification { left: 12px; right: 12px; max-width: none; }
+    }
+
+    @media (max-width: 520px) {
+      header h1 { font-size: 1.15rem; }
+      header .slogan { display: block; margin: 3px 0 0; }
+      .filter-bar { gap: 4px; }
+      .filter-bar .btn { padding: 4px 7px; }
+      .task-count { width: 100%; margin-left: 0; }
+      .executive-brief-header { flex-direction: column; }
+      .executive-brief-badges { justify-content: flex-start; }
+      .executive-brief-grid { grid-template-columns: 1fr; }
+      .lineitem-row { grid-template-columns: 1fr; }
+      .lineitem-meta { justify-content: flex-start; }
+      .lineitem-fields { grid-template-columns: 1fr; }
+      .factsheet-panel summary { align-items: flex-start; }
+      .task-chat-history { max-height: 28vh; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
   </style>
 </head>
 <body>
@@ -1475,8 +1617,8 @@
     <div class="sidebar-left">
       <button class="btn btn-scan" id="btnScan" onclick="triggerScan()" title="Scans your Outlook emails and Teams messages for new action items, enriches them with AI summaries, and checks for updates.">📡 Generate Action Items<span class="btn-sub">Scan Outlook &amp; Teams</span></button>
       <button class="btn btn-add-task" id="btnAddTask" onclick="showAddTaskModal()" title="Manually create a new action item. You can optionally assign an AI search question to find related information in your emails and Teams chats.">＋ Add Action Item</button>
-      <button class="btn btn-find-duplicates" id="btnFindDuplicates" onclick="triggerFindDuplicates()" title="AI analyzes all your action items and suggests merging those that cover the same topic. You decide for each suggestion.">🔗 Find Duplicates</button>
-      <button class="btn btn-merge-tasks" id="btnMergeTasks" onclick="toggleMergeMode()" title="Select two or more action items to merge into one. All source links, notes, and history are preserved.">🔗 Merge Tasks</button>
+      <button class="btn btn-find-duplicates legacy-only-control" id="btnFindDuplicates" onclick="triggerFindDuplicates()" title="AI analyzes all your action items and suggests merging those that cover the same topic. You decide for each suggestion.">🔗 Find Duplicates</button>
+      <button class="btn btn-merge-tasks legacy-only-control" id="btnMergeTasks" onclick="toggleMergeMode()" title="Select two or more action items to merge into one. All source links, notes, and history are preserved.">🔗 Merge Tasks</button>
       <div class="task-search-wrapper" id="searchWrapper">
         <button class="btn btn-search-tasks" onclick="toggleTaskSearch()" title="Filter and search through your existing action items by title, summary, sender, or source.">🔍 Search</button>
         <input type="text" class="task-search-input" id="taskSearchInput" placeholder="Search tasks..." oninput="onTaskSearch(this.value)" onkeydown="onSearchKeydown(event)">
@@ -1565,17 +1707,46 @@
   let selectedTaskId = localStorage.getItem('selectedTaskId') || null;
   let mergeMode = false;
   const selectedForMerge = new Set();
+  let serverScanEngine = null;
 
   // --- Server Health Check ---
+
+  function updateScanEngineControls() {
+    const agencyMode = serverScanEngine === 'agency';
+    document.body.dataset.scanEngine = serverScanEngine || 'unknown';
+    const controls = [
+      { element: document.getElementById('btnFindDuplicates'), busy: Boolean(activeConsolidateJob) },
+      { element: document.getElementById('btnMergeTasks'), busy: Boolean(activeMergeJob) }
+    ];
+    controls.forEach(({ element, busy }) => {
+      if (!element) return;
+      if (!element.dataset.legacyTitle) element.dataset.legacyTitle = element.title;
+      element.hidden = agencyMode;
+      element.setAttribute('aria-hidden', agencyMode ? 'true' : 'false');
+      element.disabled = agencyMode || !serverOnline || busy;
+      element.title = agencyMode
+        ? 'Available only when AGENT_ZERO_SCAN_ENGINE=legacy'
+        : element.dataset.legacyTitle;
+    });
+  }
 
   async function checkServerHealth() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3000);
     try {
+      const healthRequest = fetch('/api/health', { signal: controller.signal }).catch(() => null);
       const res = await fetch('/api/tasks', { signal: controller.signal });
       if (res.ok) {
         setServerStatus(true);
         const data = await res.json();
+        const healthRes = await healthRequest;
+        if (healthRes?.ok) {
+          const health = await healthRes.json();
+          if (health.scanEngine === 'agency' || health.scanEngine === 'legacy') {
+            serverScanEngine = health.scanEngine;
+          }
+        }
+        updateScanEngineControls();
         tasks = data.tasks || [];
         rootReviewQueue = data.reviewQueue || [];
         updateLastScan(data.lastScan);
@@ -1665,6 +1836,7 @@
       btnAddTask.disabled = !online;
       btnAddTask.title = online ? '' : 'Server unreachable';
     }
+    updateScanEngineControls();
 
     if (online && reconnectTimer) {
       clearInterval(reconnectTimer);
@@ -2088,6 +2260,7 @@
   // v4.0.1 — Find Duplicates runs as a server-side job (kind='consolidate').
   // This button only kicks off the job; job.completed via SSE drives the UI.
   async function triggerFindDuplicates() {
+    if (serverScanEngine === 'agency') return;
     if (activeConsolidateJob) {
       showNotification('Duplicate search already running — please wait.', 'info');
       return;
@@ -2135,6 +2308,7 @@
     btn.disabled = false;
     btn.textContent = btn.dataset.origText || '🔗 Find Duplicates';
     delete btn.dataset.origText;
+    updateScanEngineControls();
   }
 
   // v4.0.1 — SSE handler for consolidate jobs.
@@ -2176,6 +2350,7 @@
   // --- Merge Mode ---
 
   function toggleMergeMode() {
+    if (serverScanEngine === 'agency') return;
     mergeMode = !mergeMode;
     const btn = document.getElementById('btnMergeTasks');
     const taskList = document.getElementById('taskList');
@@ -2561,17 +2736,15 @@
       btn.textContent = counts[f] ? `${labels[f]} ${counts[f]}` : labels[f];
     });
 
-    // Sort: priority order, then by date (newest first)
-    const statusOrder = { 'needs-attention': 0, 'updated': 1, 'new': 2, 'escalated': 3, 'in-progress': 4, 'on-radar': 5, 'paused': 6, 'done': 7 };
+    // Sort by derived urgency, then projects, due date, legacy status, and stable recency/title ties.
+    const priorityNow = Date.now();
     const sorted = [...visibleTasks].sort((a, b) => {
       // Pinned task always first
       if (pinnedTaskId) {
         if (a.id === pinnedTaskId) return -1;
         if (b.id === pinnedTaskId) return 1;
       }
-      const so = (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9);
-      if (so !== 0) return so;
-      return (parseDateMs(b.createdAt) || 0) - (parseDateMs(a.createdAt) || 0);
+      return compareTaskPriority(a, b, priorityNow);
     });
 
     const filtered = currentFilter === 'all' ? sorted : sorted.filter(t => t.status === currentFilter);
@@ -2729,6 +2902,170 @@
     return d ? d.getTime() : null;
   }
 
+  const DERIVED_PRIORITY_ORDER = Object.freeze({ critical: 0, high: 1, medium: 2, low: 3 });
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  function isInactiveProjectNode(node) {
+    if (!node) return true;
+    const terminal = new Set(['done', 'completed', 'complete', 'closed', 'cancelled', 'canceled', 'obsolete', 'resolved']);
+    return terminal.has(String(node.status || '').toLowerCase())
+      || terminal.has(String(node.state || '').toLowerCase())
+      || terminal.has(String(node.resolutionStatus || '').toLowerCase())
+      || Boolean(node.obsoleteReason || node.removedAt);
+  }
+
+  function isReviewOnlyProjectNode(node) {
+    if (!node || isInactiveProjectNode(node)) return false;
+    const state = String(node.state || '').toLowerCase();
+    return node.needsReview === true || state === 'unconfirmed' || state === 'disputed';
+  }
+
+  function isTrustedProjectNode(node) {
+    return Boolean(node) && !isInactiveProjectNode(node) && !isReviewOnlyProjectNode(node);
+  }
+
+  function localDayStartMs(nowMs = Date.now()) {
+    const day = new Date(nowMs);
+    day.setHours(0, 0, 0, 0);
+    return day.getTime();
+  }
+
+  function priorityFromSignals(signals) {
+    if (signals.inactive) return 'low';
+    if (signals.blocked || signals.overdue) return 'critical';
+    if (signals.userAction || signals.risk || signals.dueSoon) return 'high';
+    if (signals.dueUpcoming || signals.active) return 'medium';
+    return 'low';
+  }
+
+  function deriveLineItemPriority(item, nowMs = Date.now()) {
+    const dueMs = parseDateMs(item?.dueAt);
+    const startMs = localDayStartMs(nowMs);
+    const daysUntilDue = dueMs === null ? null : (dueMs - startMs) / DAY_MS;
+    const status = String(item?.status || '').toLowerCase();
+    const owner = String(item?.owner || '').toLowerCase();
+    const derived = priorityFromSignals({
+      inactive: isInactiveProjectNode(item),
+      blocked: status === 'blocked' || Boolean(item?.problem),
+      overdue: dueMs !== null && dueMs < startMs,
+      userAction: Boolean(item?.userActionRequired || item?.userAction || owner === 'user' || owner === 'you'),
+      risk: Boolean(item?.risk),
+      dueSoon: daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 7,
+      dueUpcoming: daysUntilDue !== null && daysUntilDue > 7 && daysUntilDue <= 30,
+      active: !isInactiveProjectNode(item)
+    });
+    const explicit = Object.hasOwn(DERIVED_PRIORITY_ORDER, String(item?.priority || '').toLowerCase())
+      ? String(item.priority).toLowerCase()
+      : 'low';
+    const priority = mostUrgentPriority([explicit, derived]);
+    return isReviewOnlyProjectNode(item) && priority === 'critical' ? 'high' : priority;
+  }
+
+  function activeProjectDueDates(task, nowMs = Date.now()) {
+    const startMs = localDayStartMs(nowMs);
+    const commitmentDates = ['userActions', 'waitingOn']
+      .flatMap(field => activePmEntries(task, field))
+      .filter(isTrustedProjectNode)
+      .filter(entry => !entry.userMarkedDoneAt)
+      .map(entry => parseDateMs(entry.date))
+      .filter(value => value !== null);
+    const futureMilestones = activePmEntries(task, 'planned')
+      .filter(isTrustedProjectNode)
+      .map(entry => parseDateMs(entry.date))
+      .filter(value => value !== null && value >= startMs);
+    const lineDates = asArray(task?.lineItems)
+      .filter(isTrustedProjectNode)
+      .map(item => parseDateMs(item.dueAt))
+      .filter(value => value !== null);
+    return [...commitmentDates, ...futureMilestones, ...lineDates];
+  }
+
+  function mostUrgentPriority(values) {
+    return values.reduce((best, value) =>
+      (DERIVED_PRIORITY_ORDER[value] ?? DERIVED_PRIORITY_ORDER.low) < (DERIVED_PRIORITY_ORDER[best] ?? DERIVED_PRIORITY_ORDER.low)
+        ? value
+        : best, 'low');
+  }
+
+  function deriveProjectPriority(task, nowMs = Date.now()) {
+    if (!task || isArchivedTask(task) || task.status === 'done') return 'low';
+    const startMs = localDayStartMs(nowMs);
+    const dates = activeProjectDueDates(task, nowMs);
+    const daysUntilNext = dates.length ? (Math.min(...dates) - startMs) / DAY_MS : null;
+    const lines = asArray(task.lineItems).filter(item => !isInactiveProjectNode(item));
+    const trustedLines = lines.filter(isTrustedProjectNode);
+    const linePriority = mostUrgentPriority(lines.map(item => deriveLineItemPriority(item, nowMs)));
+    const status = String(task.status || '').toLowerCase();
+    const ownPriority = priorityFromSignals({
+      inactive: false,
+      blocked: ['blocked', 'needs-attention', 'escalated'].includes(status)
+        || trustedLines.some(item => item.status === 'blocked' || item.problem),
+      overdue: dates.some(value => value < startMs),
+      userAction: activePmEntries(task, 'userActions').some(entry => isTrustedProjectNode(entry) && !entry.userMarkedDoneAt)
+        || trustedLines.some(item => item.userActionRequired || item.userAction),
+      risk: activePmEntries(task, 'risks').some(isTrustedProjectNode) || trustedLines.some(item => item.risk),
+      dueSoon: daysUntilNext !== null && daysUntilNext >= 0 && daysUntilNext <= 7,
+      dueUpcoming: daysUntilNext !== null && daysUntilNext > 7 && daysUntilNext <= 30,
+      active: true
+    });
+    return mostUrgentPriority([ownPriority, linePriority]);
+  }
+
+  function deriveTaskPriority(task, nowMs = Date.now()) {
+    if (hasStructuredTaskLayout(task)) return deriveProjectPriority(task, nowMs);
+    if (!task || isArchivedTask(task) || task.status === 'done') return 'low';
+    const dueMs = parseDateMs(task.dueAt);
+    const startMs = localDayStartMs(nowMs);
+    const daysUntilDue = dueMs === null ? null : (dueMs - startMs) / DAY_MS;
+    const status = String(task.status || '').toLowerCase();
+    return priorityFromSignals({
+      inactive: false,
+      blocked: ['blocked', 'needs-attention', 'escalated'].includes(status) || Boolean(task.problem),
+      overdue: dueMs !== null && dueMs < startMs,
+      userAction: Boolean(task.userActionRequired || task.userAction),
+      risk: Boolean(task.risk),
+      dueSoon: daysUntilDue !== null && daysUntilDue >= 0 && daysUntilDue <= 7,
+      dueUpcoming: daysUntilDue !== null && daysUntilDue > 7 && daysUntilDue <= 30,
+      active: ['new', 'updated', 'in-progress'].includes(status)
+    });
+  }
+
+  function earliestTaskDueMs(task) {
+    const dates = hasStructuredTaskLayout(task) ? activeProjectDueDates(task) : [parseDateMs(task?.dueAt)];
+    const valid = dates.filter(value => value !== null);
+    return valid.length ? Math.min(...valid) : Number.POSITIVE_INFINITY;
+  }
+
+  function compareTaskPriority(a, b, nowMs = Date.now()) {
+    const priorityDiff = DERIVED_PRIORITY_ORDER[deriveTaskPriority(a, nowMs)] - DERIVED_PRIORITY_ORDER[deriveTaskPriority(b, nowMs)];
+    if (priorityDiff !== 0) return priorityDiff;
+    const projectDiff = Number(isProjectTask(b)) - Number(isProjectTask(a));
+    if (projectDiff !== 0) return projectDiff;
+    const dueA = earliestTaskDueMs(a);
+    const dueB = earliestTaskDueMs(b);
+    if (dueA !== dueB) return dueA - dueB;
+    const statusOrder = { 'needs-attention': 0, escalated: 1, updated: 2, new: 3, 'in-progress': 4, 'on-radar': 5, paused: 6, done: 7 };
+    const statusDiff = (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9);
+    if (statusDiff !== 0) return statusDiff;
+    const dateDiff = (parseDateMs(b.updatedAt || b.createdAt) || 0) - (parseDateMs(a.updatedAt || a.createdAt) || 0);
+    if (dateDiff !== 0) return dateDiff;
+    return String(a.title || a.id || '').localeCompare(String(b.title || b.id || ''));
+  }
+
+  function compareLineItemPriority(a, b, nowMs = Date.now()) {
+    const priorityDiff = DERIVED_PRIORITY_ORDER[deriveLineItemPriority(a, nowMs)] - DERIVED_PRIORITY_ORDER[deriveLineItemPriority(b, nowMs)];
+    if (priorityDiff !== 0) return priorityDiff;
+    const dueA = parseDateMs(a?.dueAt) ?? Number.POSITIVE_INFINITY;
+    const dueB = parseDateMs(b?.dueAt) ?? Number.POSITIVE_INFINITY;
+    if (dueA !== dueB) return dueA - dueB;
+    return String(a?.title || a?.id || '').localeCompare(String(b?.title || b?.id || ''));
+  }
+
+  function priorityBadge(priority) {
+    const value = Object.hasOwn(DERIVED_PRIORITY_ORDER, priority) ? priority : 'low';
+    return `<span class="priority-badge priority-${value}" title="Derived from blockers, overdue dates, user actions, risks, and due dates">${escHtml(value)}</span>`;
+  }
+
   function formatSourceDate(value) {
     const d = parseDateValue(value);
     if (!d) return '';
@@ -2772,14 +3109,15 @@
 
   function projectStats(task) {
     const items = asArray(task.lineItems);
-    const open = items.filter(item => !['done', 'completed'].includes(item.status)).length;
-    const blocked = items.filter(item => item.status === 'blocked' || item.problem).length;
-    const userActions = asArray(task.pmStatus?.userActions).filter(entry => {
-      if (typeof entry === 'string') return entry.trim();
-      return entry && entry.text && !entry.userMarkedDoneAt;
-    }).length;
+    const activeItems = items.filter(item => !isInactiveProjectNode(item));
+    const open = activeItems.length;
+    const blocked = activeItems.filter(item => item.status === 'blocked' || item.problem).length;
+    const pmActions = activePmEntries(task, 'userActions').filter(entry => !entry.userMarkedDoneAt);
+    const lineActions = activeItems.filter(item => item.userActionRequired || item.userAction);
+    const userActions = pmActions.filter(isTrustedProjectNode).length + lineActions.filter(isTrustedProjectNode).length;
+    const actionsToVerify = pmActions.filter(isReviewOnlyProjectNode).length + lineActions.filter(isReviewOnlyProjectNode).length;
     const conflicts = openConflictCount(task);
-    return { total: items.length, open, blocked, userActions, conflicts };
+    return { total: items.length, open, blocked, userActions, actionsToVerify, conflicts };
   }
 
   function truthTreeNodes(task) {
@@ -2873,7 +3211,14 @@
   }
 
   function renderSourceRefsList(task) {
-    const refs = sortedSourceRefs(task);
+    const seenRefs = new Set();
+    const refs = sortedSourceRefs(task).filter(ref => {
+      const key = sourceRefHref(ref)?.toLowerCase()
+        || (ref?.id ? `id:${String(ref.id).toLowerCase()}` : `label:${sourceRefLabel(ref).toLowerCase()}`);
+      if (seenRefs.has(key)) return false;
+      seenRefs.add(key);
+      return true;
+    });
     const seenHrefs = new Set(refs.map(ref => sourceRefHref(ref)).filter(Boolean));
     const extraRefs = asArray(task.additionalLinks)
       .map((entry, index) => {
@@ -2900,9 +3245,8 @@
         : `<span class="source-ref-unlinked" title="${escHtml(title)}">${escHtml(label)}</span>`;
       return `<div class="source-ref-item">${body}</div>`;
     }).join('');
-    const open = allRefs.length > 8 ? '' : ' open';
     return `<div class="source-list">
-      <details${open}>
+      <details>
         <summary>Sources (${allRefs.length})</summary>
         <div class="source-list-items">${rows}</div>
       </details>
@@ -2955,12 +3299,13 @@
 
   function renderFactSheetPanel(task) {
     const sheet = normalizedFactSheet(task);
-    const total = FACTSHEET_SECTIONS.reduce((sum, [id]) => sum + sheet.sections[id].length, 0);
-    if (!total && !hasStructuredTaskLayout(task)) return '';
-    const sections = FACTSHEET_SECTIONS.map(([id, title]) => {
+    const hasCanonicalSources = sortedSourceRefs(task).length > 0;
+    const visibleSections = FACTSHEET_SECTIONS.filter(([id]) =>
+      sheet.sections[id].length > 0 && !(id === 'sources' && hasCanonicalSources));
+    if (!visibleSections.length) return '';
+    const sections = visibleSections.map(([id, title]) => {
       const entries = sheet.sections[id];
-      const body = entries.length
-        ? entries.map(entry => {
+      const body = entries.map(entry => {
             const date = formatSourceDate(entry.date);
             const evidence = renderFactSheetEvidence(task, entry);
             const meta = [
@@ -2972,14 +3317,13 @@
               <div>${escHtml(factSheetEntryText(entry))}</div>
               ${meta ? `<div class="factsheet-entry-meta">${meta}</div>` : ''}
             </div>`;
-          }).join('')
-        : '<div class="factsheet-empty">No facts captured.</div>';
+          }).join('');
       return `<section class="factsheet-section"><h4>${escHtml(title)}</h4>${body}</section>`;
     }).join('');
     const exportHref = `/api/tasks/${encodeURIComponent(task.id)}/factsheet.html`;
     const updated = sheet.updatedAt ? ` · ${formatSourceDate(sheet.updatedAt)}` : '';
     return `<div class="factsheet-panel">
-      <details open>
+      <details>
         <summary><span>Fact Sheet${updated}</span><a class="factsheet-export" href="${escHtml(exportHref)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Export HTML ↗</a></summary>
         <div class="factsheet-sections">${sections}</div>
       </details>
@@ -3007,7 +3351,17 @@
       userMarkedDoneAt: value.userMarkedDoneAt || null,
       reopenedUserMarkedDoneAt: value.reopenedUserMarkedDoneAt || null,
       reopenedEvidenceRefIds: asArray(value.reopenedEvidenceRefIds),
-      confidence: value.confidence || fallbackConfidence || 'low'
+      confidence: value.confidence || fallbackConfidence || 'low',
+      state: value.state || null,
+      status: value.status || null,
+      resolutionStatus: value.resolutionStatus || null,
+      needsReview: value.needsReview === true,
+      reviewReason: value.reviewReason || null,
+      obsoleteReason: value.obsoleteReason || null,
+      lastVerifiedMessageDate: value.lastVerifiedMessageDate || null,
+      lastConfirmedByMessageDate: value.lastConfirmedByMessageDate || null,
+      threadCheck: value.threadCheck || null,
+      sources: asArray(value.sources)
     };
   }
 
@@ -3018,6 +3372,158 @@
       return current ? [current] : [];
     }
     return asArray(pm[field]).map(entry => pmEntryFromValue(entry, pm.confidence)).filter(Boolean);
+  }
+
+  function activePmEntries(task, field) {
+    return pmEntries(task, field).filter(entry => !isInactiveProjectNode(entry));
+  }
+
+  function uniqueBriefTexts(values) {
+    const seen = new Set();
+    return values.map(value => String(value || '').trim()).filter(value => {
+      if (!value) return false;
+      const key = value.toLocaleLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  function nextProjectMilestone(task, nowMs = Date.now()) {
+    const candidates = [
+      ...activePmEntries(task, 'planned').map(entry => ({ text: entry.text, dateMs: parseDateMs(entry.date) })),
+      ...asArray(task.lineItems)
+        .filter(item => !isInactiveProjectNode(item))
+        .map(item => ({ text: item.plannedNext || item.title, dateMs: parseDateMs(item.dueAt) }))
+    ].filter(entry => entry.text && entry.dateMs !== null);
+    if (!candidates.length) return null;
+    const startMs = localDayStartMs(nowMs);
+    const future = candidates.filter(entry => entry.dateMs >= startMs).sort((a, b) => a.dateMs - b.dateMs);
+    if (future.length) return { ...future[0], overdue: false };
+    const overdue = candidates.sort((a, b) => b.dateMs - a.dateMs)[0];
+    return { ...overdue, overdue: true };
+  }
+
+  function projectBriefData(task, nowMs = Date.now()) {
+    const lines = asArray(task.lineItems).filter(item => !isInactiveProjectNode(item));
+    const trustedLines = lines.filter(isTrustedProjectNode);
+    const pmUserActions = activePmEntries(task, 'userActions').filter(entry => !entry.userMarkedDoneAt);
+    const userActions = uniqueBriefTexts([
+      ...pmUserActions.filter(isTrustedProjectNode).map(entry => entry.text),
+      ...trustedLines.filter(item => item.userActionRequired || item.userAction).map(item => item.userAction || item.title)
+    ]);
+    const blockers = uniqueBriefTexts([
+      ...activePmEntries(task, 'problems').filter(isTrustedProjectNode).map(entry => entry.text),
+      ...trustedLines.filter(item => item.status === 'blocked' || item.problem).map(item => item.problem || item.title)
+    ]);
+    const risks = uniqueBriefTexts([
+      ...activePmEntries(task, 'risks').filter(isTrustedProjectNode).map(entry => entry.text),
+      ...trustedLines.filter(item => item.risk).map(item => item.risk)
+    ]);
+    const waiting = uniqueBriefTexts([
+      ...activePmEntries(task, 'waitingOn').filter(isTrustedProjectNode).map(entry => entry.text),
+      ...trustedLines.filter(item => item.waitingOn || item.status === 'waiting').map(item => item.waitingOn || item.title)
+    ]);
+    const signalsToVerify = uniqueBriefTexts([
+      ...pmUserActions.filter(isReviewOnlyProjectNode).map(entry => `Action: ${entry.text}`),
+      ...activePmEntries(task, 'problems').filter(isReviewOnlyProjectNode).map(entry => `Blocker: ${entry.text}`),
+      ...activePmEntries(task, 'risks').filter(isReviewOnlyProjectNode).map(entry => `Risk: ${entry.text}`),
+      ...activePmEntries(task, 'waitingOn').filter(isReviewOnlyProjectNode).map(entry => `Waiting: ${entry.text}`),
+      ...lines.filter(isReviewOnlyProjectNode).map(item => `Subtopic: ${item.title || item.currentState || item.id}`)
+    ]);
+    return { userActions, blockers, risks, waiting, signalsToVerify, milestone: nextProjectMilestone(task, nowMs) };
+  }
+
+  function projectEvidenceTrust(task, nowMs = Date.now()) {
+    const pmNodes = ['planned', 'userActions', 'problems', 'risks', 'waitingOn']
+      .flatMap(field => asArray(task?.pmStatus?.[field]));
+    const nodes = [...pmNodes, ...asArray(task?.lineItems)].filter(node => node && typeof node === 'object');
+    const verifiedDates = nodes.flatMap(node => {
+      if (String(node.threadCheck?.coverage || '').toLowerCase() !== 'complete') return [];
+      return [node.threadCheck?.checkedThroughMessageDate, node.lastVerifiedMessageDate];
+    }).map(parseDateMs).filter(value => value !== null);
+    const evidenceDates = [
+      ...sortedSourceRefs(task).map(ref => parseDateMs(sourceRefDate(ref))),
+      ...nodes.flatMap(node => [
+        parseDateMs(node.lastConfirmedByMessageDate),
+        parseDateMs(node.lastVerifiedMessageDate)
+      ])
+    ].filter(value => value !== null);
+    const verifiedMs = verifiedDates.length ? Math.max(...verifiedDates) : null;
+    const evidenceMs = evidenceDates.length ? Math.max(...evidenceDates) : null;
+    const freshestMs = Math.max(verifiedMs ?? 0, evidenceMs ?? 0) || null;
+    if (freshestMs === null) {
+      return { level: 'unknown', freshness: 'unknown', label: 'No dated evidence', title: 'No dated source or verification evidence is available.' };
+    }
+    const ageDays = Math.max(0, Math.floor((nowMs - freshestMs) / DAY_MS));
+    const freshness = ageDays <= 7 ? 'fresh' : (ageDays <= 30 ? 'recent' : 'stale');
+    const verificationCoversEvidence = verifiedMs !== null && (evidenceMs === null || verifiedMs >= evidenceMs - DAY_MS);
+    const level = verificationCoversEvidence ? 'verified' : 'evidence';
+    const label = verificationCoversEvidence ? `Thread-verified · ${freshness}` : `Evidence only · ${freshness}`;
+    const date = formatSourceDate(freshestMs);
+    const title = verificationCoversEvidence
+      ? `Latest message evidence is covered by thread verification${date ? ` through ${date}` : ''}; this does not imply system-of-record verification.`
+      : `Evidence is newer than explicit verification${date ? ` (${date})` : ''}.`;
+    return { level, freshness, label, title, verifiedMs, evidenceMs };
+  }
+
+  function renderBriefMetric(label, entries, className) {
+    if (!entries.length) return '';
+    const top = entries.slice(0, 2).map(entry => `<li>${escHtml(entry)}</li>`).join('');
+    const more = entries.length > 2 ? `<div class="brief-more">+${entries.length - 2} more in project detail</div>` : '';
+    return `<section class="brief-metric ${className}">
+      <h3><span>${escHtml(label)}</span><span class="brief-count">${entries.length}</span></h3>
+      <ul>${top}</ul>${more}
+    </section>`;
+  }
+
+  function renderExecutiveBrief(task) {
+    if (!isProjectTask(task) || !hasStructuredTaskLayout(task)) return '';
+    const priority = deriveProjectPriority(task);
+    const trust = projectEvidenceTrust(task);
+    const brief = projectBriefData(task);
+    const summaryNeedsToggle = String(task.summary || '').length > 260 || String(task.summary || '').split(/\r?\n/).length > 4;
+    const summaryId = `executive-summary-${task.id}`;
+    const summary = task.summary
+      ? `<div class="executive-summary-copy${summaryNeedsToggle ? ' capped' : ''}" id="${escHtml(summaryId)}">${renderMarkdown(task.summary)}</div>
+         ${summaryNeedsToggle ? `<button type="button" class="executive-summary-toggle" aria-expanded="false" aria-controls="${escHtml(summaryId)}" onclick="toggleExecutiveSummary(this)">Show full summary</button>` : ''}`
+      : '';
+    const milestone = brief.milestone
+      ? `<section class="brief-metric milestone">
+          <h3><span>${brief.milestone.overdue ? 'Latest overdue milestone' : 'Next milestone'}</span></h3>
+          <div class="brief-milestone${brief.milestone.overdue ? ' overdue' : ''}">
+            <span class="brief-milestone-date">${escHtml(formatSourceDate(brief.milestone.dateMs))}</span>
+            · ${escHtml(brief.milestone.text)}
+          </div>
+        </section>`
+      : '';
+    const metrics = [
+      renderBriefMetric('Your actions', brief.userActions, 'user-actions'),
+      renderBriefMetric('Blockers', brief.blockers, 'blockers'),
+      renderBriefMetric('Risks', brief.risks, 'risks'),
+      renderBriefMetric('Waiting on', brief.waiting, 'waiting'),
+      renderBriefMetric('Signals to verify', brief.signalsToVerify, 'review-signals'),
+      milestone
+    ].filter(Boolean).join('');
+    return `<section class="executive-brief" aria-labelledby="executive-brief-title">
+      <div class="executive-brief-header">
+        <div><div class="executive-brief-eyebrow">Project first</div><h2 id="executive-brief-title">Executive Brief</h2></div>
+        <div class="executive-brief-badges">
+          ${priorityBadge(priority)}
+          <span class="trust-indicator trust-${trust.level}" title="${escHtml(trust.title)}">${escHtml(trust.label)}</span>
+        </div>
+      </div>
+      ${summary}
+      ${metrics ? `<div class="executive-brief-grid">${metrics}</div>` : ''}
+    </section>`;
+  }
+
+  function toggleExecutiveSummary(button) {
+    const summary = button?.previousElementSibling;
+    if (!summary?.classList.contains('executive-summary-copy')) return;
+    const expanded = summary.classList.toggle('expanded');
+    button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    button.textContent = expanded ? 'Show less' : 'Show full summary';
   }
 
   function ownerChip(owner) {
@@ -3041,8 +3547,10 @@
   }
 
   function renderPmUserActions(task, label) {
-    const entries = pmEntries(task, 'userActions');
-    const active = entries.filter(entry => !entry.userMarkedDoneAt);
+    const entries = pmEntries(task, 'userActions').filter(entry => !isInactiveProjectNode(entry));
+    if (!entries.length) return '';
+    const active = entries.filter(entry => !entry.userMarkedDoneAt && isTrustedProjectNode(entry));
+    const review = entries.filter(entry => !entry.userMarkedDoneAt && isReviewOnlyProjectNode(entry));
     const done = entries.filter(entry => entry.userMarkedDoneAt);
     const renderEntry = (entry, checked) => {
       const evidenceIds = entry.evidenceRefIds.length ? entry.evidenceRefIds : (entry.evidence ? [entry.evidence] : []);
@@ -3059,18 +3567,21 @@
         <div class="pm-entry-meta">${ownerChip(entry.owner || 'user')}${date}${evidence}${confidenceBadge(entry.confidence)}${userMarkedDoneBadge(entry)}</div>
       </div>`;
     };
-    const activeBody = active.length ? active.map(entry => renderEntry(entry, false)).join('') : '<div class="pm-empty">-</div>';
+    const activeBody = active.length ? active.map(entry => renderEntry(entry, false)).join('') : '';
+    const reviewBody = review.length
+      ? `<h5>Actions to verify</h5>${review.map(entry => renderEntry(entry, false)).join('')}`
+      : '';
     const doneBody = done.length
       ? `<details class="done-user-actions"><summary>Marked done by you (${done.length})</summary>${done.map(entry => renderEntry(entry, true)).join('')}</details>`
       : '';
-    return `<section class="pm-section user-actions-section"><h4>${label}</h4>${activeBody}${doneBody}</section>`;
+    return `<section class="pm-section user-actions-section"><h4>${label}</h4>${activeBody}${reviewBody}${doneBody}</section>`;
   }
 
   function renderPmSection(task, field, label) {
     if (field === 'userActions') return renderPmUserActions(task, label);
-    const entries = pmEntries(task, field);
-    const body = entries.length
-      ? entries.map(entry => {
+    const entries = activePmEntries(task, field);
+    if (!entries.length) return '';
+    const body = entries.map(entry => {
           const evidenceIds = entry.evidenceRefIds?.length ? entry.evidenceRefIds : (entry.evidence ? [entry.evidence] : []);
           const evidence = evidenceIds.map(id => renderEvidenceLink(task, id)).filter(Boolean).join('');
           const entryDate = formatSourceDate(entry.date);
@@ -3079,8 +3590,7 @@
             <div>${escHtml(entry.text)}</div>
             <div class="pm-entry-meta">${ownerChip(entry.owner)}${date}${evidence}${confidenceBadge(entry.confidence)}</div>
           </div>`;
-        }).join('')
-      : '<div class="pm-empty">-</div>';
+        }).join('');
     return `<section class="pm-section"><h4>${label}</h4>${body}</section>`;
   }
 
@@ -3089,16 +3599,20 @@
     const review = taskNeedsReview(task)
       ? `<span class="review-badge" title="${escHtml(task.brainState?.reviewReason || 'Needs review')}">Needs review</span>`
       : '';
+    const sections = [
+      renderPmSection(task, 'current', 'Status today'),
+      renderPmSection(task, 'planned', 'Planned'),
+      renderPmSection(task, 'userActions', 'Your action required'),
+      renderPmSection(task, 'problems', 'Problems'),
+      renderPmSection(task, 'risks', 'Risks'),
+      renderPmSection(task, 'waitingOn', 'Waiting on')
+    ].filter(Boolean).join('');
+    if (!sections) return '';
     return `<div class="pm-panel">
-      <div class="pm-heading">PM View ${review}</div>
-      <div class="pm-grid">
-        ${renderPmSection(task, 'current', 'Status today')}
-        ${renderPmSection(task, 'planned', 'Planned')}
-        ${renderPmSection(task, 'userActions', 'Your action required')}
-        ${renderPmSection(task, 'problems', 'Problems')}
-        ${renderPmSection(task, 'risks', 'Risks')}
-        ${renderPmSection(task, 'waitingOn', 'Waiting on')}
-      </div>
+      <details>
+        <summary>Project Detail ${review}</summary>
+        <div class="pm-grid">${sections}</div>
+      </details>
     </div>`;
   }
 
@@ -3108,34 +3622,61 @@
     return renderEvidenceLink(task, refId) || '';
   }
 
+  function renderLineItemFields(item) {
+    const fields = [
+      ['Current', item.currentState, 'current'],
+      ['Next', item.plannedNext, 'next'],
+      ['Problem', item.problem, 'problem'],
+      ['Risk', item.risk, 'risk'],
+      ['Waiting on', item.waitingOn, 'waiting']
+    ].filter(([, value]) => value !== null && value !== undefined && String(value).trim());
+    if (!fields.length) return '';
+    return `<dl class="lineitem-fields">${fields.map(([label, value, className]) =>
+      `<div class="lineitem-field ${className}"><dt>${escHtml(label)}</dt><dd>${escHtml(value)}</dd></div>`
+    ).join('')}</dl>`;
+  }
+
+  function renderLineItemRow(task, item, nowMs = Date.now()) {
+    const status = item.status || 'open';
+    const inactive = isInactiveProjectNode(item);
+    const chipClass = status === 'blocked' ? ' blocked' : (inactive ? ' done' : '');
+    const owner = ownerChip(item.owner || 'Unassigned');
+    const dueMs = parseDateMs(item.dueAt);
+    const dueDate = formatSourceDate(item.dueAt);
+    const overdue = !inactive && dueMs !== null && dueMs < localDayStartMs(nowMs);
+    const due = `<span class="status-chip${overdue ? ' overdue' : ''}">Due: ${dueDate ? escHtml(dueDate) : 'Not set'}</span>`;
+    const evidence = latestLineItemEvidence(task, item);
+    const review = item.needsReview ? '<span class="review-badge">Needs review</span>' : '';
+    return `<div class="lineitem-row">
+      <div><div class="lineitem-title">${escHtml(item.title || 'Untitled line item')}</div></div>
+      <div class="lineitem-meta">
+        ${priorityBadge(deriveLineItemPriority(item, nowMs))}
+        <span class="status-chip${chipClass}">${escHtml(status)}</span>
+        ${owner}${due}${evidence}${review}
+      </div>
+      ${renderLineItemFields(item)}
+    </div>`;
+  }
+
   function renderProjectLineItems(task) {
     if (!hasStructuredTaskLayout(task)) return '';
     const items = asArray(task.lineItems);
-    const rows = items.length
-      ? items.map(item => {
-          const status = item.status || 'open';
-          const chipClass = status === 'blocked' ? ' blocked' : (status === 'done' ? ' done' : '');
-          const owner = item.owner ? ownerChip(item.owner) : '';
-          const dueDate = formatSourceDate(item.dueAt);
-          const due = dueDate ? `<span class="status-chip">${escHtml(dueDate)}</span>` : '';
-          const evidence = latestLineItemEvidence(task, item);
-          const review = item.needsReview ? '<span class="review-badge">Needs review</span>' : '';
-          return `<div class="lineitem-row">
-            <div>
-              <div class="lineitem-title">${escHtml(item.title || 'Untitled line item')}</div>
-              ${item.currentState ? `<div class="lineitem-state">${escHtml(item.currentState)}</div>` : ''}
-            </div>
-            <div class="lineitem-meta">
-              <span class="status-chip${chipClass}">${escHtml(status)}</span>
-              ${owner}${due}${evidence}${review}
-            </div>
-          </div>`;
-        }).join('')
-      : '<div class="lineitem-row"><div class="lineitem-state">No line items</div></div>';
+    if (!items.length) return '';
+    const nowMs = Date.now();
+    const active = items.filter(item => !isInactiveProjectNode(item)).sort((a, b) => compareLineItemPriority(a, b, nowMs));
+    const completed = items.filter(isInactiveProjectNode).sort((a, b) => compareLineItemPriority(a, b, nowMs));
+    const activeRows = active.map(item => renderLineItemRow(task, item, nowMs)).join('');
+    const completedRows = completed.length
+      ? `<details class="completed-lineitems">
+          <summary>Completed / obsolete (${completed.length})</summary>
+          ${completed.map(item => renderLineItemRow(task, item, nowMs)).join('')}
+        </details>`
+      : '';
+    const countText = `${active.length} active${completed.length ? ` · ${completed.length} completed / obsolete` : ''}`;
     return `<div class="lineitems-panel">
       <details open>
-        <summary>Line Items (${items.length})</summary>
-        <div class="lineitem-table">${rows}</div>
+        <summary>Line Items (${countText})</summary>
+        <div class="lineitem-table">${activeRows}${completedRows}</div>
       </details>
     </div>`;
   }
@@ -3156,8 +3697,10 @@
     if (hasStructuredTaskLayout(task)) {
       const stats = projectStats(task);
       badges.push(`<span class="project-badge">${isProjectTask(task) ? 'Project' : 'Structured'}</span>`);
+      badges.push(priorityBadge(deriveTaskPriority(task)));
       badges.push(`<span class="lineitem-count">${stats.open} open${stats.blocked ? ` · ${stats.blocked} blocked` : ''}</span>`);
       if (stats.userActions) badges.push('<span class="user-action-indicator">Your action required</span>');
+      else if (stats.actionsToVerify) badges.push('<span class="review-badge">Action to verify</span>');
       if (stats.conflicts) badges.push(`<span class="conflict-badge">${stats.conflicts} conflict${stats.conflicts !== 1 ? 's' : ''}</span>`);
     }
     if (taskNeedsReview(task)) badges.push('<span class="review-badge">Needs review</span>');
@@ -3315,7 +3858,7 @@
       <div class="task-detail-view${isFrozen ? ' frozen' : ''}${isChatBusy ? ' composer-busy' : ''}" data-task-id="${task.id}">
         <div class="task-detail-content">
           <div class="detail-header" data-slot="header">${headerInner}</div>
-          <div data-slot="sourceRefs">${renderSourceRefsList(task)}</div>
+          <div data-slot="project-brief">${renderExecutiveBrief(task)}</div>
           <div data-slot="summary">${summaryHtml}</div>
           <div data-slot="ambiguity">${ambiguityHtml}</div>
           <div data-slot="conflicts">${renderConflictPanel(task)}</div>
@@ -3324,6 +3867,7 @@
           <div data-slot="project-pm">${renderProjectPm(task)}</div>
           <div data-slot="project-lineitems">${renderProjectLineItems(task)}</div>
           <div data-slot="factsheet">${renderFactSheetPanel(task)}</div>
+          <div data-slot="sourceRefs">${renderSourceRefsList(task)}</div>
           <div data-slot="details">${renderDetails(conversations, systemEvents, task.id)}</div>
         </div>
         <div class="task-chat-dock">
@@ -4473,7 +5017,6 @@
 
     const r = scanReport;
     const startTime = r.startedAt ? formatDate(r.startedAt) : '—';
-    const endTime = r.completedAt ? formatDate(r.completedAt) : (r.aborted ? 'Aborted' : 'In progress...');
     const totalMs = r.completedAt && r.startedAt ? new Date(r.completedAt) - new Date(r.startedAt) : null;
     const totalTime = totalMs ? `${(totalMs / 1000).toFixed(0)}s` : '—';
 
@@ -4584,15 +5127,6 @@
     if (taskId === selectedTaskId) {
       const task = tasks.find(t => t.id === taskId);
       if (task) paintTaskDetail(task);
-    }
-  }
-
-  // Update the live status text on a frozen task card (no re-render needed)
-  function updateFrozenStatus(taskId, statusText) {
-    const card = document.getElementById('card-' + taskId);
-    if (card) {
-      const badge = card.querySelector('.frozen-badge');
-      if (badge) badge.textContent = statusText;
     }
   }
 

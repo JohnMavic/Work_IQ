@@ -247,8 +247,6 @@ The agent uses a two-phase approach:
 - Timeout: 300 seconds
 - **User veto** (`POST /api/tasks/:id/correct/resolve`): absolute override right — user can always force their correction regardless of evidence
 
-**Deterministic fallback:** If AI analysis fails, `extractKeywords()` generates a search plan from the task title (stop-word removal), with default time window from task date to today.
-
 ### 4.10 Auto-Cleanup
 
 - Done tasks older than a configurable retention period are **permanently deleted** from `tasks.json`

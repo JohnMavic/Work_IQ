@@ -205,6 +205,15 @@ function entryFromPatch(patch, { now, idFactory }) {
   }, { defaultState: patch.state || 'confirmed' });
 }
 
+function semanticEntryKey(entry) {
+  return entryText(entry)
+    .normalize('NFKD')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function applyFactSheetSectionPatches(factSheet, sectionPatches, {
   now = new Date(),
   idFactory = defaultIdFactory
@@ -218,7 +227,21 @@ export function applyFactSheetSectionPatches(factSheet, sectionPatches, {
     const entries = sheet.sections[patch.section];
 
     if (op === 'add') {
-      entries.push(entryFromPatch(patch, { now, idFactory }));
+      const incoming = entryFromPatch(patch, { now, idFactory });
+      const key = semanticEntryKey(incoming);
+      const duplicate = key
+        ? entries.find(entry => !entry.removedAt && semanticEntryKey(entry) === key)
+        : null;
+      if (duplicate) {
+        duplicate.evidenceRefIds = [...new Set([
+          ...normalizeArray(duplicate.evidenceRefIds),
+          ...normalizeArray(incoming.evidenceRefIds)
+        ])];
+        duplicate.updatedAt = ts;
+        duplicate.confidence = incoming.confidence || duplicate.confidence;
+      } else {
+        entries.push(incoming);
+      }
       continue;
     }
 

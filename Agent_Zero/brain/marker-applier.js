@@ -48,6 +48,10 @@ const __dirname = path.dirname(__filename);
 const DEFAULT_AUDIT_LOG = path.join(__dirname, '..', 'logs', 'brain-audit.jsonl');
 
 const PM_LIST_FIELDS = ['planned', 'userActions', 'problems', 'risks', 'waitingOn'];
+const PRIORITIES = new Set(['critical', 'high', 'medium', 'low']);
+const PROJECT_SUMMARY_MAX_CHARS = 420;
+const PM_CURRENT_MAX_CHARS = 520;
+const LINE_ITEM_STATE_MAX_CHARS = 700;
 const STATUS_PATCH_FIELDS = new Set([
   'status',
   'currentState',
@@ -70,6 +74,7 @@ const TASK_UPDATE_PATCH_FIELDS = new Set([
 const LINEITEM_UPDATE_PATCH_FIELDS = new Set([
   'title',
   'category',
+  'priority',
   'status',
   'owner',
   'userActionRequired',
@@ -122,6 +127,17 @@ function appendAudit(auditLogFile, entry) {
 
 function normalizeArray(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function compactBrief(value, maxChars) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, Math.max(0, maxChars - 3)).trimEnd()}...`;
+}
+
+function normalizePriority(value, fallback = 'medium') {
+  const normalized = String(value || '').trim().toLowerCase();
+  return PRIORITIES.has(normalized) ? normalized : fallback;
 }
 
 function taskById(data, taskId) {
@@ -599,6 +615,10 @@ function normalizeSourceRef(ref, { now, idFactory }) {
     from: ref.from ?? null,
     date: ref.date ?? null,
     link: ref.link ?? null,
+    itemId: ref.itemId ?? null,
+    conversationId: ref.conversationId ?? null,
+    threadRef: ref.threadRef ?? null,
+    internetMessageId: ref.internetMessageId ?? null,
     sourceTaskId: ref.sourceTaskId ?? null,
     firstSeenAt: ref.firstSeenAt || ts,
     lastSeenAt: ref.lastSeenAt || ref.date || ts,
@@ -608,15 +628,16 @@ function normalizeSourceRef(ref, { now, idFactory }) {
 
 function normalizeLineItem(item, { now, idFactory }) {
   const ts = nowIso(now);
-  return normalizeNodeFields({
+  const normalized = normalizeNodeFields({
     id: item.id || idFactory('li'),
     title: item.title || 'Untitled line item',
     category: item.category || 'action',
+    priority: normalizePriority(item.priority),
     status: item.status || 'open',
     owner: item.owner ?? null,
     userActionRequired: Boolean(item.userActionRequired),
     userAction: item.userAction ?? null,
-    currentState: item.currentState || '',
+    currentState: compactBrief(item.currentState, LINE_ITEM_STATE_MAX_CHARS),
     plannedNext: item.plannedNext ?? null,
     dueAt: item.dueAt ?? null,
     waitingOn: item.waitingOn ?? null,
@@ -629,13 +650,16 @@ function normalizeLineItem(item, { now, idFactory }) {
     updatedAt: item.updatedAt || ts,
     ...item
   });
+  normalized.priority = normalizePriority(normalized.priority);
+  normalized.currentState = compactBrief(normalized.currentState, LINE_ITEM_STATE_MAX_CHARS);
+  return normalized;
 }
 
 function normalizePmStatus(pmStatus, now) {
   if (!pmStatus) return null;
   const ts = nowIso(now);
   const result = normalizePmStatusUserActions({
-    current: pmStatus.current || '',
+    current: compactBrief(pmStatus.current, PM_CURRENT_MAX_CHARS),
     confidence: pmStatus.confidence || 'low',
     lastSynthesizedAt: pmStatus.lastSynthesizedAt || ts
   });
@@ -900,7 +924,7 @@ function applyProjectNew(data, payload, context) {
     projectKey: payload.projectKey || slugify(payload.title),
     projectAliases: normalizeArray(payload.aliases),
     title: payload.title,
-    summary: payload.summary || '',
+    summary: compactBrief(payload.summary, PROJECT_SUMMARY_MAX_CHARS),
     source: 'brain',
     from: firstFrom(sourceRefs),
     date: firstDate(sourceRefs),
@@ -932,7 +956,10 @@ function applyProjectNew(data, payload, context) {
     factSheet: normalizeFactSheet(payload.factSheet, { now: context.now }),
     sourceRefs,
     lineItems: normalizeArray(payload.lineItems).map(item => normalizeLineItem(item, context)),
-    processing: mergeProcessing(null, payload, { now: context.now }),
+    processing: mergeProcessing(null, payload, {
+      now: context.now,
+      attachmentRetryKeys: context.attachmentRetryKeys
+    }),
     brainState: {
       ...V5_BRAIN_STATE_DEFAULTS,
       lastScanRunId: context.runId,
@@ -949,7 +976,12 @@ function applyProjectUpdate(data, payload, context) {
   const task = taskById(data, payload.taskId);
   const additions = normalizeArray(payload.sourceRefs).map(ref => normalizeSourceRef(ref, context));
   if (payload.title) task.title = payload.title;
-  if (payload.summary !== undefined) task.summary = payload.summary;
+  task.projectAliases = [...new Set([
+    ...normalizeArray(task.projectAliases),
+    ...normalizeArray(payload.projectAliases),
+    ...normalizeArray(payload.aliases)
+  ].map(value => String(value || '').trim()).filter(Boolean))];
+  if (payload.summary !== undefined) task.summary = compactBrief(payload.summary, PROJECT_SUMMARY_MAX_CHARS);
   if (payload.pmStatus !== undefined) {
     const normalizedIncoming = normalizePmStatus(payload.pmStatus, context.now);
     const merged = mergeUserActionCarryForward(task.pmStatus, normalizedIncoming, {
@@ -972,7 +1004,10 @@ function applyProjectUpdate(data, payload, context) {
     task.link = task.link || firstLink(additions);
   }
   task.supersedesTaskIds = [...new Set([...normalizeArray(task.supersedesTaskIds), ...normalizeArray(payload.supersedesTaskIds)])];
-  task.processing = mergeProcessing(task.processing, payload, { now: context.now });
+  task.processing = mergeProcessing(task.processing, payload, {
+    now: context.now,
+    attachmentRetryKeys: context.attachmentRetryKeys
+  });
   addAttachmentIndexRetryReviewHints(data, task, payload, context);
   task.updatedAt = nowIso(context.now);
   task.brainState = { ...V5_BRAIN_STATE_DEFAULTS, ...(task.brainState || {}) };
@@ -985,7 +1020,10 @@ function applyProjectUpdate(data, payload, context) {
 function applyFactSheetUpdate(data, payload, context) {
   const task = taskById(data, payload.taskId);
   task.factSheet = applyFactSheetSectionPatches(task.factSheet, payload.sectionPatches, context);
-  task.processing = mergeProcessing(task.processing, payload, { now: context.now });
+  task.processing = mergeProcessing(task.processing, payload, {
+    now: context.now,
+    attachmentRetryKeys: context.attachmentRetryKeys
+  });
   addAttachmentIndexRetryReviewHints(data, task, payload, context);
   task.updatedAt = nowIso(context.now);
   task.brainState = { ...V5_BRAIN_STATE_DEFAULTS, ...(task.brainState || {}) };
@@ -995,12 +1033,24 @@ function applyFactSheetUpdate(data, payload, context) {
 
 function applyLineItemNew(data, payload, context) {
   const task = taskById(data, payload.taskId);
+  const additions = collectPayloadSourceRefs(payload).map(ref => normalizeSourceRef(ref, context));
+  if (additions.length) {
+    task.sourceRefs = mergeSourceRefs(task.sourceRefs, additions);
+    task.additionalLinks = normalizeArray(task.sourceRefs).map(ref => ref.link).filter(Boolean);
+    task.link = task.link || firstLink(additions);
+  }
   task.lineItems = normalizeArray(task.lineItems);
   task.lineItems.push(normalizeLineItem(payload.lineItem, context));
-  task.processing = mergeProcessing(task.processing, payload, { now: context.now });
+  task.processing = mergeProcessing(task.processing, payload, {
+    now: context.now,
+    attachmentRetryKeys: context.attachmentRetryKeys
+  });
   addAttachmentIndexRetryReviewHints(data, task, payload, context);
   syncConflictProblems(task, context.now);
   task.updatedAt = nowIso(context.now);
+  task.brainState = { ...V5_BRAIN_STATE_DEFAULTS, ...(task.brainState || {}) };
+  task.brainState.lastScanRunId = context.runId;
+  task.brainState.lastEvidenceAt = latestEvidenceAt(task.sourceRefs) || task.brainState.lastEvidenceAt;
 }
 
 function applyLineItemUpdate(data, payload, context) {
@@ -1009,14 +1059,22 @@ function applyLineItemUpdate(data, payload, context) {
   for (const field of LINEITEM_UPDATE_PATCH_FIELDS) {
     if (Object.hasOwn(payload.patch, field)) lineItem[field] = payload.patch[field];
   }
+  lineItem.priority = normalizePriority(lineItem.priority);
+  lineItem.currentState = compactBrief(lineItem.currentState, LINE_ITEM_STATE_MAX_CHARS);
   lineItem.updatedAt = nowIso(context.now);
   if (Array.isArray(payload.evidenceRefIds)) {
     lineItem.evidenceRefIds = [...new Set([...normalizeArray(lineItem.evidenceRefIds), ...payload.evidenceRefIds])];
   }
-  task.processing = mergeProcessing(task.processing, payload, { now: context.now });
+  task.processing = mergeProcessing(task.processing, payload, {
+    now: context.now,
+    attachmentRetryKeys: context.attachmentRetryKeys
+  });
   addAttachmentIndexRetryReviewHints(data, task, payload, context);
   syncConflictProblems(task, context.now);
   task.updatedAt = nowIso(context.now);
+  task.brainState = { ...V5_BRAIN_STATE_DEFAULTS, ...(task.brainState || {}) };
+  task.brainState.lastScanRunId = context.runId;
+  task.brainState.lastEvidenceAt = latestEvidenceAt(task.sourceRefs) || task.brainState.lastEvidenceAt;
 }
 
 function applyNodeObsolete(data, payload, context) {
@@ -1068,7 +1126,7 @@ function applyTaskNew(data, payload, context) {
     schemaVersion: 5,
     taskType: 'single',
     title: payload.title,
-    summary: payload.summary || '',
+    summary: compactBrief(payload.summary, PROJECT_SUMMARY_MAX_CHARS),
     source: sourceRef.type || 'brain',
     from: sourceRef.from,
     date: sourceRef.date,
@@ -1090,6 +1148,10 @@ function applyTaskNew(data, payload, context) {
     factSheet: normalizeFactSheet(payload.factSheet, { now: context.now }),
     sourceRefs: [sourceRef],
     lineItems: [],
+    processing: mergeProcessing(null, payload, {
+      now: context.now,
+      attachmentRetryKeys: context.attachmentRetryKeys
+    }),
     brainState: {
       ...V5_BRAIN_STATE_DEFAULTS,
       lastScanRunId: context.runId,
@@ -1102,6 +1164,9 @@ function applyTaskUpdate(data, payload, context) {
   const task = taskById(data, payload.taskId);
   for (const field of TASK_UPDATE_PATCH_FIELDS) {
     if (Object.hasOwn(payload.patch, field)) task[field] = payload.patch[field];
+  }
+  if (Object.hasOwn(payload.patch, 'summary')) {
+    task.summary = compactBrief(task.summary, PROJECT_SUMMARY_MAX_CHARS);
   }
   const additions = collectPayloadSourceRefs(payload).map(ref => normalizeSourceRef(ref, context));
   if (additions.length) {
@@ -1151,6 +1216,7 @@ function applyNeedsReview(data, payload, context) {
 }
 
 function applyScanDone(data, payload, context) {
+  if (context.recordScanTelemetry === false) return;
   data.brain = {
     ...V5_BRAIN_DEFAULTS,
     ...(data.brain || {}),
@@ -1160,6 +1226,9 @@ function applyScanDone(data, payload, context) {
     lastPremiumRequests: payload.premiumRequests ?? data.brain?.lastPremiumRequests ?? null,
     lastWorkIqCalls: payload.workIqCalls ?? data.brain?.lastWorkIqCalls ?? null
   };
+  if (context.advanceScanWatermark !== false && (payload.outcome || 'partial') === 'success') {
+    data.lastScan = nowIso(context.now);
+  }
 }
 
 function applyLearning(_data, payload, context) {
@@ -1191,10 +1260,22 @@ export function applyMarkerBatch(inputData, markers, {
   now = new Date(),
   runId = null,
   idFactory = defaultIdFactory,
-  learningFile = DEFAULT_LEARNINGS_FILE
+  learningFile = DEFAULT_LEARNINGS_FILE,
+  advanceScanWatermark = true,
+  recordScanTelemetry = true
 } = {}) {
   const original = migrateToV5(inputData);
   const sourceRefIndex = buildSourceRefIndex(original);
+  const data = clone(original);
+  const context = {
+    now,
+    runId,
+    idFactory,
+    learningFile,
+    advanceScanWatermark,
+    recordScanTelemetry,
+    attachmentRetryKeys: new Set()
+  };
 
   const valid = [];
   const dropped = [];
@@ -1220,7 +1301,7 @@ export function applyMarkerBatch(inputData, markers, {
     }
     const scopedSourceRefIndex = new Map(sourceRefIndex);
     addPayloadSourceRefs(scopedSourceRefIndex, candidate.payload);
-    const validation = validateMarker(candidate, original, scopedSourceRefIndex, { now });
+    const validation = validateMarker(candidate, data, scopedSourceRefIndex, { now });
     if (!validation.ok) {
       const drop = {
         timestamp: appliedAt,
@@ -1236,12 +1317,9 @@ export function applyMarkerBatch(inputData, markers, {
     }
     if (validation.capConfidence) capPayloadConfidence(candidate);
     valid.push(candidate);
+    applyValidMarker(data, candidate, context);
     addPayloadSourceRefs(sourceRefIndex, candidate.payload);
   }
-
-  const data = clone(original);
-  const context = { now, runId, idFactory, learningFile };
-  for (const marker of valid) applyValidMarker(data, marker, context);
 
   return {
     data,
