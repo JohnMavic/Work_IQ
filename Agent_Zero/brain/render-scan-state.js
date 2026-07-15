@@ -5,6 +5,12 @@ import { prepareBrainWorkDir } from './brain-runner.js';
 import { migrateToV5 } from './tasks-v5.js';
 import { FACTSHEET_SECTIONS, normalizeFactSheet, renderFactSheetMarkdown } from './factsheet.js';
 import { renderBrainLearningsBlock } from './learnings.js';
+import { normalizeRelevance, relevanceBand } from './relevance.js';
+import {
+  PM_TEMPORAL_FIELDS,
+  isStaleLineItemTemporalNode,
+  isStalePmTemporalNode
+} from './temporal-pass.js';
 
 export const DEFAULT_STATE_MAX_BYTES = 24 * 1024;
 export const DEFAULT_HISTORY_SPILL_BYTES = 1600;
@@ -57,7 +63,7 @@ function sourceFingerprints(task) {
   return [...new Set(values.filter(Boolean))].slice(0, 4);
 }
 
-function lineItemPriorityScore(item, now) {
+function legacyLineItemPriorityScore(item, now) {
   const explicit = { critical: 0, high: 10, medium: 20, low: 30 }[String(item?.priority || '').toLowerCase()] ?? 20;
   const status = String(item?.status || '').toLowerCase();
   const due = Date.parse(item?.dueAt || '');
@@ -70,6 +76,24 @@ function lineItemPriorityScore(item, now) {
   if (Number.isFinite(due) && due < nowMs && !['done', 'closed', 'obsolete', 'superseded'].includes(status)) score -= 15;
   if (['done', 'closed', 'obsolete', 'superseded'].includes(status)) score += 100;
   return score;
+}
+
+function compareLineItemRelevance(a, b, now) {
+  const aCompleted = isCompleted(a);
+  const bCompleted = isCompleted(b);
+  if (aCompleted !== bCompleted) return aCompleted ? 1 : -1;
+
+  const aRelevance = normalizeRelevance(a?.relevance);
+  const bRelevance = normalizeRelevance(b?.relevance);
+  if (aRelevance && bRelevance && aRelevance.score !== bRelevance.score) {
+    return bRelevance.score - aRelevance.score;
+  }
+  if (aRelevance && !bRelevance) return -1;
+  if (!aRelevance && bRelevance) return 1;
+
+  const legacyDelta = legacyLineItemPriorityScore(a, now) - legacyLineItemPriorityScore(b, now);
+  if (legacyDelta !== 0) return legacyDelta;
+  return 0;
 }
 
 function renderIdentityIndex(tasks, lines) {
@@ -111,7 +135,11 @@ function learningContextForData(data) {
 
 function latestEvidenceForLineItem(task, lineItem) {
   const refs = normalizeArray(task.sourceRefs);
-  const evidenceRefs = normalizeArray(lineItem.evidenceRefIds)
+  const evidenceRefIds = [...new Set([
+    ...normalizeArray(lineItem.evidenceRefIds),
+    ...normalizeArray(normalizeRelevance(lineItem.relevance)?.evidenceRefIds)
+  ])];
+  const evidenceRefs = evidenceRefIds
     .map(id => refs.find(ref => ref.id === id))
     .filter(Boolean);
   const ref = evidenceRefs[0] || refs[0] || null;
@@ -185,6 +213,70 @@ function writeTextSpill({ brainWorkDir, filename, text, spillFiles, factSheetFil
   spillFiles.push(filename);
   if (factSheetFiles) factSheetFiles.push(filename);
   return filename;
+}
+
+function temporalReviewCandidates(openProjects, now) {
+  const candidates = [];
+  for (const task of openProjects) {
+    for (const field of PM_TEMPORAL_FIELDS) {
+      for (const entry of normalizeArray(task.pmStatus?.[field])) {
+        if (!isStalePmTemporalNode(entry, { now })) continue;
+        const identity = entry.id || entry.text;
+        candidates.push({
+          taskId: task.id,
+          kind: `pmStatus.${field}`,
+          nodeRef: `pmStatus.${field}:${identity}`,
+          text: entry.text || '',
+          date: entry.date || entry.dueAt || entry.targetDate || entry.referencedDate || null
+        });
+      }
+    }
+    for (const item of normalizeArray(task.lineItems)) {
+      if (!isStaleLineItemTemporalNode(item, { now })) continue;
+      candidates.push({
+        taskId: task.id,
+        kind: 'lineItem',
+        nodeRef: item.id || item.title,
+        lineItemId: item.id || null,
+        title: item.title || '',
+        dueAt: item.dueAt || null,
+        referencedDate: item.referencedDate || null,
+        plannedNext: item.plannedNext || null,
+        waitingOn: item.waitingOn || null,
+        currentState: item.currentState || null
+      });
+    }
+  }
+  return candidates;
+}
+
+function renderTemporalReview(openProjects, lines, {
+  brainWorkDir,
+  runId,
+  spillFiles,
+  writeFiles,
+  now
+}) {
+  const candidates = temporalReviewCandidates(openProjects, now);
+  lines.push('## Required Temporal Review');
+  if (!candidates.length) {
+    lines.push('- none');
+    return;
+  }
+  if (writeFiles) {
+    const filename = `temporal-review-${safeFilePart(runId)}.md`;
+    const spill = writeJsonSpill({
+      brainWorkDir,
+      filename,
+      title: '# REQUIRED stale unconfirmed nodes',
+      value: candidates,
+      spillFiles
+    });
+    lines.push(`- temporalReview REQUIRED spill: ${spill} (${candidates.length} node(s))`);
+  } else {
+    lines.push(`- candidates: ${JSON.stringify(candidates)}`);
+  }
+  lines.push('- Read and explicitly reconcile every candidate before SCAN_DONE.');
 }
 
 function renderFactSheet(task, lines, { brainWorkDir, runId, spillFiles, factSheetFiles, writeFiles }) {
@@ -324,6 +416,15 @@ function buildMarkdown(data, options) {
     lines.push('');
   }
 
+  renderTemporalReview(openProjects, lines, {
+    brainWorkDir,
+    runId,
+    spillFiles,
+    writeFiles,
+    now
+  });
+  lines.push('');
+
   lines.push('## Open Projects');
   if (!openProjects.length) lines.push('- none');
   for (const task of openProjects) {
@@ -337,14 +438,18 @@ function buildMarkdown(data, options) {
     if (spill) lines.push(`  history spill: ${spill}`);
     const allLineItems = normalizeArray(task.lineItems)
       .slice()
-      .sort((a, b) => lineItemPriorityScore(a, now) - lineItemPriorityScore(b, now));
+      .sort((a, b) => compareLineItemRelevance(a, b, now));
     const lineItems = allLineItems.slice(0, lineItemLimit);
     if (!lineItems.length) lines.push('  lineItems: none');
     for (const item of lineItems) {
       const treeState = item.state ? ` | treeState=${item.state}` : '';
       const thread = item.threadRef ? ` | threadRef=${truncate(item.threadRef, 80)}` : '';
       const resolution = item.resolutionStatus ? ` | resolution=${item.resolutionStatus}` : '';
-      lines.push(`  - (${item.id}) ${truncate(item.title, 120)} | priority=${item.priority || 'medium'} | status=${item.status || 'open'}${treeState}${thread}${resolution} | state=${truncate(item.currentState || '', 100)} | evidence=${latestEvidenceForLineItem(task, item)}`);
+      const relevance = normalizeRelevance(item.relevance);
+      const relevanceText = relevance
+        ? `${relevanceBand(relevance.score)}:${relevance.score} | why=${truncate(relevance.reason, 180)}`
+        : 'unranked';
+      lines.push(`  - (${item.id}) ${truncate(item.title, 120)} | relevance=${relevanceText} | legacyPriority=${item.priority || 'unset'} | status=${item.status || 'open'}${treeState}${thread}${resolution} | state=${truncate(item.currentState || '', 100)} | evidence=${latestEvidenceForLineItem(task, item)}`);
     }
     renderHiddenLineItems(task, allLineItems.slice(lineItems.length), lines, { brainWorkDir, runId, spillFiles, writeFiles });
   }

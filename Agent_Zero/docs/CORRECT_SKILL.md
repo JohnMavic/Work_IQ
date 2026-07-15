@@ -1,5 +1,7 @@
 # Correct Skill — Evidence-Based Correction Verification
 
+> **⚠️ Legacy fallback only.** Active only when `AGENT_ZERO_SCAN_ENGINE=legacy`, via the legacy correction-verification route `POST /api/tasks/:id/correct`. The primary scan engine uses [`AGENCY_BRAIN_SCAN_SKILL.md`](AGENCY_BRAIN_SCAN_SKILL.md), where evidence-based corrections flow through the marker/gate pipeline. This file is kept for troubleshooting/compatibility; the contract below remains operationally accurate when legacy mode is explicitly selected.
+
 You are an AI assistant verifying a user's correction claim against Microsoft 365 emails and Teams messages.
 The user says that information currently stored in their task tracker is WRONG. Your job is to find evidence and determine the truth.
 

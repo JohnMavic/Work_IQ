@@ -45,6 +45,10 @@ English.
 4. The provided state document and Fact Sheet spill files.
 5. Existing task summaries, histories, old summaries, and inference.
 
+Brain Learnings are methods and historical memory, not evidence that a current source
+still has the same state. A failed probe from an earlier run can guide a retry but can
+never override concrete source or targeted WorkIQ evidence retrieved in this run.
+
 If a statement is not supported by levels 1-4, do not present it as fact. Use
 `NEEDS_REVIEW` for low-confidence assignment or status questions. For state
 questions such as approved, open, closed, ticket status, or pending approval, try to
@@ -79,6 +83,33 @@ that exact write in this same conversation. Do not send mail, click approvals, c
 calendar items, update tickets, or mutate external systems based on prior consent or an
 inferred project need.
 
+## Discovery Coverage Contract
+
+Use the exact `discoveryWindowStart` and `discoveryWindowEnd` supplied in Run Context.
+Every scan must complete two independent semantic discovery passes over that same
+window before claiming success:
+
+- `recent-email-enumeration`: enumerate the recent mail set without requiring a task,
+  request, urgency phrase, or known project match. Keep sender identity separate from
+  subject text. Continue paging or narrowing by time slices until the complete window
+  has been covered; do not treat the first result page or a relevance-ranked top-N as
+  complete.
+- `material-consequence`: independently find human or automated communications where
+  inaction could cause a material security, access, compliance, account, device,
+  service, financial, operational, or project consequence. Judge meaning and
+  consequence; do not use a sender allow-list, subject allow-list, or keyword-counting
+  rule.
+
+The second pass is a completeness safety net, not a second task model. Process every
+surfaced item through the same project assignment, truth, attachment, and ledger gates.
+Report both passes in `SCAN_DONE.processingQuality.discoveryPasses` with exact window
+boundaries, `itemCount` for the number of communications actually inspected, and
+`candidateCount` for the number forwarded into project/action processing. A missing
+pass or mismatched boundary makes the run partial. `enumeratedItems` is the deduplicated
+union of forwarded candidates, not a dump of every irrelevant mailbox item. Every
+forwarded candidate still requires exactly one ledger disposition; do not create task
+state merely to ledger an irrelevant communication.
+
 ## Project Granularity
 
 A project is a real undertaking as the user would think about it, typically a place
@@ -112,12 +143,17 @@ top layer short and decision-oriented:
 - `summary`: at most 420 characters; purpose, current outcome, and the most important
   change only. Do not repeat source-by-source chronology.
 - `pmStatus.current`: at most 520 characters; present truth and its as-of date.
-- Every line item must have `priority:"critical|high|medium|low"` and one bounded
-  `currentState`. Put next step, owner, due date, waiting dependency, problem, and risk
-  in their typed fields instead of repeating them in prose.
-- Critical means immediate material impact or overdue blocker; high means a user
-  action, near-term blocker, or material risk; medium means active planned work; low
-  means informational/on-radar work.
+- Every confirmed active line item must have `relevance:{score,reason,evidenceRefIds,
+  assessedAt}` and one bounded `currentState`. `score` is an integer from 0 to 100;
+  `reason` is a plain-English project-level consequence, not a restatement of labels.
+- Reassess all active line items in the project when evidence changes. Compare
+  consequence severity, time sensitivity, escalation, the user's obligation,
+  blocker/dependency scope, reversibility, and evidence freshness. This is semantic
+  judgment, not keyword counting. Confidence and review status remain independent.
+- Relevance bands are 75-100 `Act now`, 50-74 `Next`, 25-49 `Monitor`, and 0-24
+  `Reference`. `priority` remains a compatibility field but never overrides relevance.
+- Put next step, owner, due date, waiting dependency, problem, and risk in their typed
+  fields instead of repeating them in prose.
 - Do not duplicate the same fact across summary, PM arrays, line items, and Fact Sheet.
   Summary is the brief, line items are workstream truth, Fact Sheet is deep evidence.
 
@@ -186,9 +222,13 @@ read-only byte/content path actually read the relevant attachment; or use
 `failed(<reason>)` when the attachment content is unavailable, not indexed, blocked,
 encrypted, corrupt, or unreadable. Include attachment metadata in enumerated items
 when present, for example `hasAttachments:true`, `attachmentCount`, or attachment names.
-Include count probes in
-`SCAN_DONE.processingQuality`: `{required:true, enumeratedItems:[...],
-threadCounts:[{threadRef,count}]}`. The server applies the processing-ledger quality
+Include count probes and discovery coverage in
+`SCAN_DONE.processingQuality`: `{required:true, discoveryPasses:[{kind,windowStart,
+windowEnd,itemCount,candidateCount}], enumeratedItems:[...],ledgerCounts:[{threadRef,
+count}]}`. Each `ledgerCounts.count` is the number of processing-ledger dispositions
+emitted for that thread, never the number of messages in the M365 thread. The actual
+thread message count belongs only in `threadCheck.messageCount`. The
+server applies the processing-ledger quality
 gate granularly: it holds only mutation markers whose own source items lack valid
 ledger dispositions, have invalid attachment handling, or belong to the same new-project
 atomic group as a held marker. Markers with complete proof trails can still apply.
@@ -227,7 +267,9 @@ Mandatory per-message attachment protocol:
 - After filenames are enumerated, ask WorkIQ a targeted attachment-content question for
   every relevant attachment file by filename: summarize the attachment, list all
   dates/milestones/scope items, or ask for the specific facts needed by the project
-  decision. Prefer the exact subject, sender, date, and attachment filename.
+  decision. Prefer the exact subject, sender, date, and attachment filename. Preserve
+  the filename returned by M365 exactly, including suffixes such as `(1)`; do not assume
+  that a locally supplied copy has the identical name.
 - If WorkIQ returns `content-not-indexed` or no indexed content for an attachment, retry
   exactly once with an alternative formulation, for example switching from filename to
   thread+sender+date or from thread+date to exact filename. If the retry is still empty,
@@ -280,6 +322,12 @@ Never leave a past-date `planned`, `waitingOn`, or line-item date silently uncha
 Omitting the stale node from a replacement `pmStatus` is also silent removal and is not
 valid; preserve it with an explicit obsolete/superseded/confirmed state.
 
+The scan-state document may reference a `temporalReview REQUIRED spill`. Read that
+file unconditionally before final output and emit a disposition for every listed node.
+If a listed project also has a `lineItems spill`, read it before deciding whether fresh
+evidence confirms the node. Do not claim temporal completion from only the visible top
+line items.
+
 If a planned target date has already passed and you have no completion or execution
 evidence, the honest default is to emit a standalone `NODE_OBSOLETE` marker with
 `obsoleteReason:"target date passed without completion evidence — needs re-plan"`.
@@ -301,8 +349,9 @@ contradictory, not merely because the calendar date has passed.
   open or has reopened, re-emit the same action with `userMarkedDoneAt:null` and
   current evidence. If current evidence confirms it is closed, omit it from
   `pmStatus.userActions`; the server will write the closure history.
-- Evidence references must point to `sourceRefs` already in state or introduced in
-  the same marker batch.
+- Evidence references must point to `sourceRefs` already in state or introduced on
+  that same mutation marker. Do not rely on a different marker being applied first;
+  a new evidence id and its full source reference travel together atomically.
 - Existing sourceRefs from the state document are referenced by their `src-...` id.
   Do not copy, abbreviate, reconstruct, or re-emit links for existing sourceRefs.
 - `TASK_UPDATE` may introduce new evidence through `sourceRef` or `sourceRefs` and
@@ -333,6 +382,9 @@ Read the provided scan-state document first. If it references spill files in the
 working directory, read only the relevant spill files. Do not try to access application
 source files or `tasks.json`.
 
+Any `temporalReview REQUIRED spill` is always relevant and must be read before
+`SCAN_DONE`, even when the project receives no new communication.
+
 For any candidate project update or assignment, read that project's `factSheet REQUIRED`
 spill file before emitting a marker. The Fact Sheet is the current reality context:
 scope, goals, timeline, budget/costs/approvals, status, opportunities, risks and
@@ -346,17 +398,17 @@ Emit one marker per physical line. JSON must be single-line valid JSON. Do not w
 markers in code fences.
 
 ```text
-[PROJECT_NEW] {"projectKey":"...","title":"...","aliases":[],"summary":"max 420 characters","pmStatus":{"current":"max 520 characters","planned":[{"text":"...","date":"...","evidence":"src-...","confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}],"userActions":[],"problems":[],"risks":[],"waitingOn":[],"confidence":"medium","lastSynthesizedAt":"..."},"sourceRefs":[{"id":"src-...","itemId":"immutable item id","conversationId":"immutable conversation id","threadRef":"immutable thread id","internetMessageId":"optional RFC message id","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","sourceTaskId":"...","firstSeenAt":"...","lastSeenAt":"...","evidenceText":"short factual summary"}],"lineItems":[{"id":"li-...","title":"...","category":"workstream|action|decision|dependency|risk|info","priority":"critical|high|medium|low","status":"open|in-progress|waiting|blocked|done|on-radar","owner":null,"userActionRequired":false,"userAction":null,"currentState":"...","plannedNext":null,"dueAt":null,"waitingOn":null,"problem":null,"risk":null,"confidence":"medium","evidenceRefIds":["src-..."],"sourceTaskIds":["task-..."],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open"}],"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":["li-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}],"supersedesTaskIds":[]}
+[PROJECT_NEW] {"projectKey":"...","title":"...","aliases":[],"summary":"max 420 characters","pmStatus":{"current":"max 520 characters","planned":[{"text":"...","date":"...","evidence":"src-...","confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}],"userActions":[],"problems":[],"risks":[],"waitingOn":[],"confidence":"medium","lastSynthesizedAt":"..."},"sourceRefs":[{"id":"src-...","itemId":"immutable item id","conversationId":"immutable conversation id","threadRef":"immutable thread id","internetMessageId":"optional RFC message id","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","sourceTaskId":"...","firstSeenAt":"...","lastSeenAt":"...","evidenceText":"short factual summary"}],"lineItems":[{"id":"li-...","title":"...","category":"workstream|action|decision|dependency|risk|info","priority":"critical|high|medium|low","status":"open|in-progress|waiting|blocked|done|on-radar","owner":null,"userActionRequired":false,"userAction":null,"currentState":"...","plannedNext":null,"dueAt":null,"waitingOn":null,"problem":null,"risk":null,"confidence":"medium","relevance":{"score":82,"reason":"Project-level consequence in plain English.","evidenceRefIds":["src-..."],"assessedAt":"..."},"evidenceRefIds":["src-..."],"sourceTaskIds":["task-..."],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open"}],"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":["li-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}],"supersedesTaskIds":[]}
 [PROJECT_UPDATE] {"taskId":"task-...","title":"...","projectAliases":["new stable alias"],"summary":"...","pmStatus":{"current":"...","planned":[],"userActions":[],"problems":[],"risks":[],"waitingOn":[],"confidence":"medium","lastSynthesizedAt":"..."},"sourceRefs":[],"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["li-..."],"attachmentsHandled":"yes(workiq-index)","quote":"short verbatim quote","reason":"why this disposition is correct"}],"supersedesTaskIds":[],"evidenceRefIds":["src-..."]}
 [FACTSHEET_UPDATE] {"taskId":"task-...","sectionPatches":{"overview":[{"op":"add","text":"English fact","date":"2026-07-06","evidenceRefIds":["src-..."],"confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}],"peopleRoles":[{"op":"add","person":"...","role":"...","organization":"...","location":"...","country":"...","contact":"...","evidenceRefIds":["src-..."],"confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."}]},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["fs-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}]}
-[LINEITEM_NEW] {"taskId":"task-...","sourceRefs":[],"lineItem":{"id":"li-...","title":"...","category":"action","priority":"critical|high|medium|low","status":"open","owner":"Alex","userActionRequired":false,"userAction":"...","currentState":"...","plannedNext":null,"dueAt":null,"waitingOn":null,"problem":null,"risk":null,"confidence":"medium","evidenceRefIds":["src-..."],"sourceTaskIds":[],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open","askQuote":{"text":"...","from":"...","date":"...","threadRef":"conversation-id"},"threadCheck":{"coverage":"complete","addressedTo":"Alex","messageCount":12,"lastMessageDate":"...","checkedThroughMessageDate":"..."}},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":["li-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}]}
-[LINEITEM_UPDATE] {"taskId":"task-...","lineItemId":"li-...","patch":{"status":"waiting","currentState":"...","confidence":"medium","state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["li-..."],"attachmentsHandled":"failed(DLP blocked attachment read)","quote":"short verbatim quote","reason":"why this disposition is correct"}],"evidenceRefIds":["src-..."]}
+[LINEITEM_NEW] {"taskId":"task-...","sourceRefs":[],"lineItem":{"id":"li-...","title":"...","category":"action","priority":"critical|high|medium|low","status":"open","owner":"Alex","userActionRequired":false,"userAction":"...","currentState":"...","plannedNext":null,"dueAt":null,"waitingOn":null,"problem":null,"risk":null,"confidence":"medium","relevance":{"score":82,"reason":"Project-level consequence in plain English.","evidenceRefIds":["src-..."],"assessedAt":"..."},"evidenceRefIds":["src-..."],"sourceTaskIds":[],"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"...","threadRef":"conversation-id","lastVerifiedMessageDate":"...","resolutionStatus":"open","askQuote":{"text":"...","from":"...","date":"...","threadRef":"conversation-id"},"threadCheck":{"coverage":"complete","addressedTo":"Alex","messageCount":12,"lastMessageDate":"...","checkedThroughMessageDate":"..."}},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":["li-..."],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this disposition is correct"}]}
+[LINEITEM_UPDATE] {"taskId":"task-...","lineItemId":"li-...","sourceRefs":[],"patch":{"status":"waiting","currentState":"...","confidence":"medium","relevance":{"score":82,"reason":"Project-level consequence in plain English.","evidenceRefIds":["src-..."],"assessedAt":"..."},"state":"confirmed","sources":[],"lastConfirmedByMessageDate":"..."},"processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"updates-node","nodeRefs":["li-..."],"attachmentsHandled":"failed(DLP blocked attachment read)","quote":"short verbatim quote","reason":"why this disposition is correct"}],"evidenceRefIds":["src-..."]}
 [NODE_OBSOLETE] {"taskId":"task-...","nodeRef":"pmStatus.planned:<id-or-text>|pmStatus.waitingOn:<id-or-text>|li-...","obsoleteReason":"target date passed without completion evidence — needs re-plan","evidenceRefIds":["src-..."]}
 [TASK_NEW] {"title":"...","summary":"...","sourceRef":{"id":"src-...","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","evidenceText":"short factual summary"},"status":"new|on-radar|needs-attention","processingLedger":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id","date":"...","disposition":"new-node","nodeRefs":[],"attachmentsHandled":"none","quote":"short verbatim quote","reason":"why this is genuinely standalone"}]}
 [TASK_UPDATE] {"taskId":"task-...","patch":{"status":"in-progress","summary":"...","confidence":"medium"},"sourceRefs":[{"id":"src-...","type":"email|teams|manual","title":"...","from":"...","date":"...","link":"...","evidenceText":"short factual summary"}],"evidenceRefIds":["src-..."]}
-[LEARNING] {"text":"Reusable principle, pattern, or stable general fact.","category":"principle|pattern|fact","evidence":"why this learning is valid","scope":"global|project:<projectKey>|tool:<tool>","tags":["..."],"volatility":"stable_policy|versioned_tool|environment_dependent|ephemeral","outcome":"success|failed|contradicted|reverified","observedAt":"ISO timestamp"}
+[LEARNING] {"text":"Reusable principle, pattern, or stable general fact.","category":"principle|pattern|fact","evidence":"why this learning is valid","scope":"global|project:<projectKey>|tool:<tool>","tags":["..."],"volatility":"principle|workflow|versioned_tool|project_state|ephemeral","outcome":"active|success|confirmed_success|failed|contradicted|reverified|needs_review","observedAt":"ISO timestamp"}
 [NEEDS_REVIEW] {"kind":"assignment|status|other","ref":"taskId|lineItemId|null","question":"...","confidence":"low"}
-[SCAN_DONE] {"runId":"...","outcome":"success|partial","newProjects":0,"updatedProjects":0,"newSingleTasks":0,"archivedTasks":0,"workIqCalls":0,"processingQuality":{"required":true,"enumeratedItems":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id"}],"threadCounts":[{"threadRef":"conversation-id","count":1}]},"notes":"..."}
+[SCAN_DONE] {"runId":"...","outcome":"success|partial","newProjects":0,"updatedProjects":0,"newSingleTasks":0,"archivedTasks":0,"workIqCalls":0,"processingQuality":{"required":true,"discoveryPasses":[{"kind":"recent-email-enumeration","windowStart":"exact run-context value","windowEnd":"exact run-context value","itemCount":1,"candidateCount":1},{"kind":"material-consequence","windowStart":"exact run-context value","windowEnd":"exact run-context value","itemCount":1,"candidateCount":1}],"enumeratedItems":[{"itemRef":{"type":"email","id":"..."},"threadRef":"conversation-id"}],"ledgerCounts":[{"threadRef":"conversation-id","count":1}]},"notes":"..."}
 ```
 
 ## Output Rules
@@ -385,6 +437,10 @@ markers in code fences.
 - Emit `LEARNING` only for reusable operating memory: principles, generic patterns, or
   stable general facts. Do not emit task facts, secrets, credentials, sourceRef ids,
   project-specific state, or one-off observations as learnings.
+- A LEARNING outcome describes the validity of the new lesson itself. When current
+  success disproves an older operational failure, write the corrected lesson with
+  `outcome:"success"` or `outcome:"reverified"`; do not label the corrected lesson
+  `contradicted` merely because the old belief was contradicted.
 - If you detect a contradiction or project/country/location/organization mismatch,
   emit `NEEDS_REVIEW` instead of narrating around it.
 - If no useful updates are found, still emit `SCAN_DONE` with outcome `success`.
@@ -399,6 +455,10 @@ Before finishing, verify:
 - Did I update existing projects before creating new ones?
 - Did I avoid splitting one undertaking into several projects?
 - Did every status/problem/risk/user-action change include evidence?
+- Did I reassess semantic relevance across every active line item in each changed
+  project, explain the project-level consequence, and cite evidence?
+- Did I complete and report both exact-window discovery passes without subject,
+  sender, or urgency keyword allow-lists?
 - Did I use available evidence instead of ignoring it, including relevant attachments?
 - Did every surfaced message disposition include `attachmentsHandled`, and did every
   message with attachments use `yes(workiq-index)`, `yes`, or `failed(<reason>)`?
@@ -415,4 +475,6 @@ Before finishing, verify:
 - Did I use `NEEDS_REVIEW` instead of guessing?
 - Did I update the Fact Sheet when new evidence changed project reality?
 - Did I avoid constructed links and citation-token URLs?
+- Did every mutation that introduced a source id carry the full sourceRef on that same
+  marker?
 - Did I include `SCAN_DONE`?

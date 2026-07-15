@@ -2,7 +2,7 @@
 setlocal EnableDelayedExpansion
 
 :: ============================================================
-:: Agent Zero - Smart Server Startup (v4.1.0)
+:: Agent Zero - Smart Server Startup (v5.1.0)
 ::
 :: Goal: ALWAYS end up with EXACTLY ONE clean Agent Zero process.
 :: NEVER touches node processes from other projects.

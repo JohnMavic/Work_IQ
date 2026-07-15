@@ -37,6 +37,7 @@ import {
   mergeUserActionCarryForward,
   normalizePmStatusUserActions
 } from './user-actions.js';
+import { normalizeRelevance, requiresSemanticRelevance, validateRelevance } from './relevance.js';
 import {
   DEFAULT_LEARNINGS_FILE,
   appendBrainLearning,
@@ -61,6 +62,9 @@ const STATUS_PATCH_FIELDS = new Set([
   'problem',
   'risk',
   'waitingOn',
+  'relevance',
+  'needsReview',
+  'reviewReason',
   'doneAt'
 ]);
 const TASK_UPDATE_PATCH_FIELDS = new Set([
@@ -104,7 +108,10 @@ const LINEITEM_UPDATE_PATCH_FIELDS = new Set([
   'conflict',
   'supersededByMessageDate',
   'supersededReason',
-  'obsoleteReason'
+  'obsoleteReason',
+  'relevance',
+  'needsReview',
+  'reviewReason'
 ]);
 
 function clone(value) {
@@ -417,6 +424,10 @@ function evaluateEvidence(evidenceRefIds, sourceRefIndex) {
   };
 }
 
+function isDeferredEvidenceReason(reason) {
+  return /^unknown evidenceRefId(?::|s entry:)/.test(String(reason || ''));
+}
+
 function capConfidence(value) {
   return value === 'high' ? 'medium' : value;
 }
@@ -450,6 +461,22 @@ function validateLineItemEvidence(lineItem, sourceRefIndex) {
   return evidence;
 }
 
+function lineItemRequiresRelevance(lineItem) {
+  const state = String(lineItem?.state || 'confirmed').toLowerCase();
+  return requiresSemanticRelevance(lineItem) && state !== 'unconfirmed' && lineItem?.needsReview !== true;
+}
+
+function validateLineItemRelevance(lineItem, sourceRefIndex, pathName) {
+  if (!lineItem?.relevance) {
+    return lineItemRequiresRelevance(lineItem)
+      ? { ok: false, reason: `${pathName}.relevance is required for confirmed active line items` }
+      : { ok: true, capConfidence: false };
+  }
+  const relevanceError = validateRelevance(lineItem.relevance, `${pathName}.relevance`);
+  if (relevanceError) return { ok: false, reason: relevanceError };
+  return evaluateEvidence(lineItem.relevance.evidenceRefIds, sourceRefIndex);
+}
+
 function validateMarker(marker, data, sourceRefIndex, { now = new Date() } = {}) {
   const payload = marker.payload || {};
   const processingError = validateProcessingPayload(payload, marker.type);
@@ -474,6 +501,9 @@ function validateMarker(marker, data, sourceRefIndex, { now = new Date() } = {})
         const evidence = validateLineItemEvidence(item, sourceRefIndex);
         if (!evidence.ok) return { ok: false, reason: evidence.reason };
         capConfidenceResult = capConfidenceResult || evidence.capConfidence;
+        const relevance = validateLineItemRelevance(item, sourceRefIndex, `PROJECT_NEW.lineItems[${index}]`);
+        if (!relevance.ok) return { ok: false, reason: relevance.reason };
+        capConfidenceResult = capConfidenceResult || relevance.capConfidence;
       }
       return { ok: true, capConfidence: capConfidenceResult };
     }
@@ -510,7 +540,9 @@ function validateMarker(marker, data, sourceRefIndex, { now = new Date() } = {})
       if (actionError) return { ok: false, reason: actionError };
       const evidence = validateLineItemEvidence(payload.lineItem, sourceRefIndex);
       if (!evidence.ok) return { ok: false, reason: evidence.reason };
-      return { ok: true, capConfidence: evidence.capConfidence };
+      const relevance = validateLineItemRelevance(payload.lineItem, sourceRefIndex, 'LINEITEM_NEW.lineItem');
+      if (!relevance.ok) return { ok: false, reason: relevance.reason };
+      return { ok: true, capConfidence: evidence.capConfidence || relevance.capConfidence };
     }
 
     case 'LINEITEM_UPDATE': {
@@ -525,6 +557,10 @@ function validateMarker(marker, data, sourceRefIndex, { now = new Date() } = {})
       const nextLine = { ...existingLine, ...payload.patch };
       const actionError = validateLineItemActionGate(nextLine, { now, pathName: 'LINEITEM_UPDATE.patch' });
       if (actionError) return { ok: false, reason: actionError };
+      if (Object.hasOwn(payload.patch, 'relevance')) {
+        const relevance = validateLineItemRelevance(nextLine, sourceRefIndex, 'LINEITEM_UPDATE.patch');
+        if (!relevance.ok) return { ok: false, reason: relevance.reason };
+      }
       if (patchNeedsEvidence(payload.patch)) {
         const evidence = evaluateEvidence(payload.evidenceRefIds, sourceRefIndex);
         if (!evidence.ok) return { ok: false, reason: evidence.reason };
@@ -644,6 +680,7 @@ function normalizeLineItem(item, { now, idFactory }) {
     problem: item.problem ?? null,
     risk: item.risk ?? null,
     confidence: item.confidence || 'low',
+    relevance: normalizeRelevance(item.relevance),
     evidenceRefIds: normalizeArray(item.evidenceRefIds),
     sourceTaskIds: normalizeArray(item.sourceTaskIds),
     createdAt: item.createdAt || ts,
@@ -651,6 +688,7 @@ function normalizeLineItem(item, { now, idFactory }) {
     ...item
   });
   normalized.priority = normalizePriority(normalized.priority);
+  normalized.relevance = normalizeRelevance(normalized.relevance);
   normalized.currentState = compactBrief(normalized.currentState, LINE_ITEM_STATE_MAX_CHARS);
   return normalized;
 }
@@ -679,6 +717,15 @@ function mergeSourceRefs(existing, additions) {
     else byId.set(ref.id, ref);
   }
   return [...byId.values()];
+}
+
+function mergePayloadSourceRefsIntoTask(task, payload, context) {
+  const additions = collectPayloadSourceRefs(payload).map(ref => normalizeSourceRef(ref, context));
+  if (!additions.length) return [];
+  task.sourceRefs = mergeSourceRefs(task.sourceRefs, additions);
+  task.additionalLinks = normalizeArray(task.sourceRefs).map(ref => ref.link).filter(Boolean);
+  task.link = task.link || firstLink(additions);
+  return additions;
 }
 
 function latestEvidenceAt(sourceRefs) {
@@ -811,9 +858,24 @@ function addAttachmentIndexRetryReviewHints(data, task, payload, { now }) {
     const key = itemRefKey(item.itemRef);
     const persisted = persistedLedger.find(entry => itemRefKey(entry.itemRef) === key);
     const attempts = Number(persisted?.attachmentIndexAttempts || 1);
-    if (attempts >= 3) continue;
     const thread = item.threadRef ? ` (${item.threadRef})` : '';
-    const question = `attachment not indexed yet — re-probe next scan: ${key || 'unknown attachment item'}${thread}`;
+    const nextAttempt = persisted?.reprobeAfter
+      ? `; scheduled retry ${String(persisted.reprobeAfter).slice(0, 10)}`
+      : '; retry remains required';
+    const question = attempts >= 3
+      ? `source coverage incomplete — attachment content is still unavailable: ${key || 'unknown attachment item'}${thread}${nextAttempt}`
+      : `attachment not indexed yet — re-probe next scan: ${key || 'unknown attachment item'}${thread}`;
+    const priorIndex = data.reviewQueue.findIndex(entry => {
+      if (entry?.ref !== task.id || !key) return false;
+      const prior = String(entry?.question || '');
+      return prior.includes(key)
+        && (prior.startsWith('attachment not indexed yet') || prior.startsWith('source coverage incomplete'));
+    });
+    if (priorIndex >= 0) {
+      data.reviewQueue[priorIndex] = { ...data.reviewQueue[priorIndex], question };
+      existingQuestions.add(question);
+      continue;
+    }
     if (existingQuestions.has(question)) continue;
     existingQuestions.add(question);
     data.reviewQueue.push({
@@ -1019,6 +1081,7 @@ function applyProjectUpdate(data, payload, context) {
 
 function applyFactSheetUpdate(data, payload, context) {
   const task = taskById(data, payload.taskId);
+  mergePayloadSourceRefsIntoTask(task, payload, context);
   task.factSheet = applyFactSheetSectionPatches(task.factSheet, payload.sectionPatches, context);
   task.processing = mergeProcessing(task.processing, payload, {
     now: context.now,
@@ -1033,12 +1096,7 @@ function applyFactSheetUpdate(data, payload, context) {
 
 function applyLineItemNew(data, payload, context) {
   const task = taskById(data, payload.taskId);
-  const additions = collectPayloadSourceRefs(payload).map(ref => normalizeSourceRef(ref, context));
-  if (additions.length) {
-    task.sourceRefs = mergeSourceRefs(task.sourceRefs, additions);
-    task.additionalLinks = normalizeArray(task.sourceRefs).map(ref => ref.link).filter(Boolean);
-    task.link = task.link || firstLink(additions);
-  }
+  mergePayloadSourceRefsIntoTask(task, payload, context);
   task.lineItems = normalizeArray(task.lineItems);
   task.lineItems.push(normalizeLineItem(payload.lineItem, context));
   task.processing = mergeProcessing(task.processing, payload, {
@@ -1055,11 +1113,13 @@ function applyLineItemNew(data, payload, context) {
 
 function applyLineItemUpdate(data, payload, context) {
   const task = taskById(data, payload.taskId);
+  mergePayloadSourceRefsIntoTask(task, payload, context);
   const lineItem = normalizeArray(task.lineItems).find(item => item.id === payload.lineItemId);
   for (const field of LINEITEM_UPDATE_PATCH_FIELDS) {
     if (Object.hasOwn(payload.patch, field)) lineItem[field] = payload.patch[field];
   }
   lineItem.priority = normalizePriority(lineItem.priority);
+  lineItem.relevance = normalizeRelevance(lineItem.relevance);
   lineItem.currentState = compactBrief(lineItem.currentState, LINE_ITEM_STATE_MAX_CHARS);
   lineItem.updatedAt = nowIso(context.now);
   if (Array.isArray(payload.evidenceRefIds)) {
@@ -1279,7 +1339,33 @@ export function applyMarkerBatch(inputData, markers, {
 
   const valid = [];
   const dropped = [];
+  const deferredEvidence = [];
   const appliedAt = nowIso(now);
+
+  const recordDrop = (marker, reason) => {
+    const drop = {
+      timestamp: appliedAt,
+      action: 'drop',
+      type: marker.type,
+      reason,
+      line: marker.line ?? null,
+      raw: marker.raw ?? null
+    };
+    dropped.push(drop);
+    appendAudit(auditLogFile, drop);
+  };
+
+  const validateAndApply = (candidate, marker) => {
+    const scopedSourceRefIndex = new Map(sourceRefIndex);
+    addPayloadSourceRefs(scopedSourceRefIndex, candidate.payload);
+    const validation = validateMarker(candidate, data, scopedSourceRefIndex, { now });
+    if (!validation.ok) return validation;
+    if (validation.capConfidence) capPayloadConfidence(candidate);
+    valid.push(candidate);
+    applyValidMarker(data, candidate, context);
+    addPayloadSourceRefs(sourceRefIndex, candidate.payload);
+    return validation;
+  };
 
   for (const marker of markers) {
     const candidate = clone(marker);
@@ -1287,38 +1373,39 @@ export function applyMarkerBatch(inputData, markers, {
     scrubFabricatedSourceText(candidate.payload, { auditLogFile, appliedAt, marker, pathParts: ['payload'] });
     const introducedSourceRefsError = validateIntroducedSourceRefs(candidate.payload);
     if (introducedSourceRefsError) {
-      const drop = {
-        timestamp: appliedAt,
-        action: 'drop',
-        type: marker.type,
-        reason: introducedSourceRefsError,
-        line: marker.line ?? null,
-        raw: marker.raw ?? null
-      };
-      dropped.push(drop);
-      appendAudit(auditLogFile, drop);
+      recordDrop(marker, introducedSourceRefsError);
       continue;
     }
-    const scopedSourceRefIndex = new Map(sourceRefIndex);
-    addPayloadSourceRefs(scopedSourceRefIndex, candidate.payload);
-    const validation = validateMarker(candidate, data, scopedSourceRefIndex, { now });
+    const validation = validateAndApply(candidate, marker);
     if (!validation.ok) {
-      const drop = {
-        timestamp: appliedAt,
-        action: 'drop',
-        type: marker.type,
-        reason: validation.reason,
-        line: marker.line ?? null,
-        raw: marker.raw ?? null
-      };
-      dropped.push(drop);
-      appendAudit(auditLogFile, drop);
+      if (isDeferredEvidenceReason(validation.reason)) {
+        deferredEvidence.push({ candidate, marker, firstReason: validation.reason });
+      } else {
+        recordDrop(marker, validation.reason);
+      }
       continue;
     }
-    if (validation.capConfidence) capPayloadConfidence(candidate);
-    valid.push(candidate);
-    applyValidMarker(data, candidate, context);
-    addPayloadSourceRefs(sourceRefIndex, candidate.payload);
+  }
+
+  let pending = deferredEvidence;
+  while (pending.length) {
+    const next = [];
+    let appliedThisPass = 0;
+    for (const item of pending) {
+      const validation = validateAndApply(item.candidate, item.marker);
+      if (validation.ok) {
+        appliedThisPass++;
+      } else if (isDeferredEvidenceReason(validation.reason)) {
+        next.push({ ...item, lastReason: validation.reason });
+      } else {
+        recordDrop(item.marker, validation.reason);
+      }
+    }
+    if (appliedThisPass === 0) {
+      for (const item of next) recordDrop(item.marker, item.lastReason || item.firstReason);
+      break;
+    }
+    pending = next;
   }
 
   return {

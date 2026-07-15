@@ -250,6 +250,7 @@ export function buildMigrationPrompt({
     '- For every task absorbed into a project, include its id in supersedesTaskIds and in at least one lineItem.sourceTaskIds.',
     '- For legacy tasks with only a link, introduce a sourceRef in the PROJECT_NEW or PROJECT_UPDATE marker with sourceTaskId, title, date if known, and link.',
     '- Use stable taskId values for PROJECT_NEW and stable id values for lineItems whenever possible.',
+    '- Every confirmed active line item must include evidence-backed semantic relevance {score,reason,evidenceRefIds,assessedAt}, judged relative to the other active line items in that project. If legacy evidence is insufficient for an honest score, preserve the line as state:"unconfirmed" with needsReview:true instead of inventing relevance.',
     '- pmStatus.planned, pmStatus.userActions, pmStatus.problems, pmStatus.risks, and pmStatus.waitingOn must contain objects like {"text":"...","evidence":"src-...","confidence":"medium"}, never bare strings.',
     '- Before emitting PROJECT_NEW or PROJECT_UPDATE, verify every pmStatus list entry is an object with a text field.',
     '- NEEDS_REVIEW.kind must be exactly one of assignment, status, or other. Use assignment for grouping/ownership uncertainty.',

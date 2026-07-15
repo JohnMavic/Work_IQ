@@ -1,6 +1,6 @@
 # Agent Zero — Custom Agent Instructions
 
-> Version 5.0.0 · Agency Brain architecture for Microsoft 365 project-task scanning
+> Version 5.1.0 · Agency Brain architecture for Microsoft 365 project-task scanning
 
 Agent Zero now uses the Agency runner as its primary scan engine. The Express server
 starts scan jobs, renders the current task state into the `brain-work/` sandbox, and
@@ -63,7 +63,9 @@ long-lived WorkIQ process.
 - Project tasks use `taskType:"project"` plus `sourceRefs`, `lineItems`, `pmStatus`, `brainState`, archive/supersession fields, and normal task history.
 - Standalone actions remain `taskType:"single"`.
 - The agent may only change state through validated marker lines:
-  `PROJECT_NEW`, `PROJECT_UPDATE`, `LINEITEM_NEW`, `LINEITEM_UPDATE`, `TASK_NEW`, `TASK_UPDATE`, `LEARNING`, `NEEDS_REVIEW`, `SCAN_DONE`.
+  `PROJECT_NEW`, `PROJECT_UPDATE`, `FACTSHEET_UPDATE`, `LINEITEM_NEW`, `LINEITEM_UPDATE`,
+  `NODE_OBSOLETE`, `TASK_NEW`, `TASK_UPDATE`, `LEARNING`, `NEEDS_REVIEW`, `SCAN_DONE`
+  (the canonical set is `MARKER_TYPES` in `marker-parser.js`).
 - `marker-parser.js` ignores markers in code fences; `marker-applier.js` validates evidence references, allowed patch fields, confidence caps, and marker ordering before writing.
 
 ### Sandbox Model
@@ -72,12 +74,30 @@ long-lived WorkIQ process.
 - Cleanup is path-guarded: code refuses to clean directories whose basename is not `brain-work`.
 - `tasks.json` is updated once per successful marker batch through atomic writes and backup rotation.
 
+### Validation Pipeline
+
+Marker output passes through ordered gates before it can touch `tasks.json`
+(`runBrainScanOnce` in `scan-brain.js`):
+
+1. **Project identity gate** (`project-identity.js`) — resolves each candidate against the
+   canonical identity index so one undertaking never becomes two top-level records.
+2. **Bounded processing-quality correction** (`processing-quality-correction.js`) — a single,
+   optional, non-looping pass that repairs only provable processing-ledger omissions for items
+   the scan already enumerated. Budgets: timeout 8 min, WorkIQ hard limit 8, tool hard limit 24.
+3. **Reality Gateway** (`reality-gateway.js`) — deterministic marker checks plus an independent
+   verification pass; unapproved markers are held and converted to review items (fail-closed).
+4. **Final processing-quality gate + temporal pass** (`processing-ledger.js`, `temporal-pass.js`) —
+   enforce ledger completeness, attachment handling, discovery coverage, and stale-date resolution.
+5. **Atomic application** (`marker-applier.js`, `tasks-v5.js`) — validated markers are applied and
+   `tasks.json` is written via temp file + fsync + rename with `.1.bak`–`.3.bak` rotation.
+
 ### Safety Mechanisms
 - **Ambiguity handling:** Low-confidence ownership/status decisions become `NEEDS_REVIEW`.
 - **Temporal awareness:** The skill treats current WorkIQ evidence as stronger than historical summaries.
 - **Evidence enforcement:** Status, problem, risk, waiting, and user-action changes require source references.
-- **WorkIQ budget:** The runner counts explicit WorkIQ tool starts and kills the child when the hard limit is reached.
+- **WorkIQ budget:** The runner counts explicit WorkIQ tool starts, logs a warning at 40 tool starts, and emergency-stops the child at 150 tool starts to prevent loops.
 - **Hallucination prevention:** Unsupported facts must not be emitted as task state.
+- **Model request:** `agency-cli.js` requests `claude-opus-4.8` via `--model` and records it in brain telemetry. Actual honoring of the requested model is not independently established by the command-line flag alone.
 
 ---
 

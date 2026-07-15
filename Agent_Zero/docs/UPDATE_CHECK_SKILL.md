@@ -1,5 +1,7 @@
 # Update Check Skill — Phase 3 (v3.3.0)
 
+> **⚠️ Legacy fallback only.** Active only when `AGENT_ZERO_SCAN_ENGINE=legacy` (the legacy four-phase Copilot-SDK scan route). The primary scan engine uses [`AGENCY_BRAIN_SCAN_SKILL.md`](AGENCY_BRAIN_SCAN_SKILL.md) and has no separate Phase 3. This file is kept for troubleshooting/compatibility; the phase-specific contract below remains operationally accurate when legacy mode is explicitly selected.
+
 You are checking whether ONE specific conversation thread has any NEW message dated AFTER the temporal anchor that the system gives you in the **Action Item State** block (field `Last successful check`).
 
 You will receive the current state of the action item — **including the recent history that was already captured** — directly above your task. Treat that block as ground truth: anything listed there is already known and MUST NOT be re-reported.

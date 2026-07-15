@@ -46,7 +46,9 @@ export function validateNodeState(node, pathName = 'node') {
   if (node.state !== undefined && !NODE_STATES.has(node.state)) {
     return `${pathName}.state must be one of ${[...NODE_STATES].join(', ')}`;
   }
-  if (node.resolutionStatus !== undefined && !RESOLUTION_STATUSES.has(node.resolutionStatus)) {
+  if (node.resolutionStatus !== undefined
+      && node.resolutionStatus !== null
+      && !RESOLUTION_STATUSES.has(node.resolutionStatus)) {
     return `${pathName}.resolutionStatus must be open, resolved, or obsolete`;
   }
   if (node.state === 'disputed') {

@@ -43,7 +43,7 @@ function isValidAttachmentDisposition(value) {
   return isHandledAttachmentDisposition(text) || text === 'none' || isFailedAttachmentDisposition(text);
 }
 
-function hasAttachmentSignal(item = {}) {
+export function hasAttachmentSignal(item = {}) {
   if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
   if (item.hasAttachments === true) return true;
   if (Number(item.attachmentCount) > 0) return true;
@@ -137,7 +137,7 @@ function expandAtomicHolds(markers, heldByIndex) {
   }
 }
 
-function attachmentDispositionHandlesPresentAttachments(value) {
+export function attachmentDispositionHandlesPresentAttachments(value) {
   const text = compactText(value).toLowerCase();
   return isHandledAttachmentDisposition(text) || isFailedAttachmentDisposition(text);
 }
@@ -181,6 +181,24 @@ function annotateAttachmentIndexRetry(item, existingItem, {
     reprobeAfter,
     attachmentRetryReason: 'content-not-indexed'
   };
+}
+
+export function backfillAttachmentRetrySchedule(item) {
+  if (!item || typeof item !== 'object' || Array.isArray(item) || !hasContentNotIndexedAttachmentFailure(item)) {
+    return item;
+  }
+  const attempts = attachmentIndexAttempts(item);
+  const normalized = { ...item, attachmentIndexAttempts: attempts };
+  if (attempts < 3) {
+    if (normalized.reprobeNextScan === undefined) normalized.reprobeNextScan = true;
+    return normalized;
+  }
+  normalized.reprobeNextScan = false;
+  if (!normalized.reprobeAfter) {
+    const base = parseTime(normalized.processedAt || normalized.date);
+    if (base !== null) normalized.reprobeAfter = new Date(base + 7 * 24 * 60 * 60 * 1000).toISOString();
+  }
+  return normalized;
 }
 
 function shouldHoldCursorForAttachmentRetry(item) {
@@ -264,11 +282,26 @@ export function extractEnumeratedItemsFromPayload(payload = {}) {
   ];
 }
 
-export function extractThreadCountsFromPayload(payload = {}) {
+function extractLedgerCountsFromQuality(quality = {}) {
+  const canonical = normalizeArray(quality?.ledgerCounts);
+  return canonical.length ? canonical : normalizeArray(quality?.threadCounts);
+}
+
+export function extractLedgerCountsFromPayload(payload = {}) {
+  const canonical = [
+    ...normalizeArray(payload.processing?.ledgerCounts),
+    ...normalizeArray(payload.processingQuality?.ledgerCounts)
+  ];
+  if (canonical.length) return canonical;
   return [
     ...normalizeArray(payload.processing?.threadCounts),
     ...normalizeArray(payload.processingQuality?.threadCounts)
   ];
+}
+
+// Backward-compatible export for pre-v5.1 marker producers.
+export function extractThreadCountsFromPayload(payload = {}) {
+  return extractLedgerCountsFromPayload(payload);
 }
 
 export function validateProcessingPayload(payload = {}, pathName = 'payload') {
@@ -324,7 +357,7 @@ export function normalizeProcessing(value = {}) {
       ? Number(input.lookbackDays)
       : DEFAULT_PROCESSING_LOOKBACK_DAYS,
     threads,
-    ledger: normalizeArray(input.ledger)
+    ledger: normalizeArray(input.ledger).map(backfillAttachmentRetrySchedule)
   };
 }
 
@@ -401,15 +434,24 @@ export function mergeProcessing(existing, payload = {}, {
   return merged;
 }
 
-export function filterMarkersByProcessingQualityGate(markers = []) {
+export function filterMarkersByProcessingQualityGate(markers = [], {
+  requireDiscoveryCoverage = false,
+  requiredDiscoveryWindow = null,
+  requireAttachmentCoverage = false
+} = {}) {
   const inputMarkers = normalizeArray(markers);
   const projectEntries = inputMarkers
     .map((marker, index) => ({ marker, index }))
     .filter(entry => isProcessingLedgerMarker(entry.marker));
   const scanQuality = scanDoneProcessingQuality(inputMarkers);
-  const required = Boolean(scanQuality.required || projectEntries.some(entry => entry.marker.payload?.processingQuality?.required));
+  const required = Boolean(
+    scanQuality.required
+    || projectEntries.some(entry => entry.marker.payload?.processingQuality?.required)
+    || requireDiscoveryCoverage
+    || requireAttachmentCoverage
+  );
   const globalEnumerated = normalizeArray(scanQuality.enumeratedItems);
-  const globalThreadCounts = normalizeArray(scanQuality.threadCounts);
+  const globalThreadCounts = extractLedgerCountsFromQuality(scanQuality);
 
   const heldByIndex = new Map();
   const reviewReasons = [];
@@ -424,6 +466,31 @@ export function filterMarkersByProcessingQualityGate(markers = []) {
   const addReviewReason = (reason, details = {}) => {
     reviewReasons.push({ reason, ...details });
   };
+
+  if (requireDiscoveryCoverage) {
+    const passes = normalizeArray(scanQuality.discoveryPasses);
+    for (const kind of ['recent-email-enumeration', 'material-consequence']) {
+      const pass = passes.find(item => compactText(item?.kind) === kind);
+      if (!pass) {
+        addReviewReason(`missing required discovery coverage pass: ${kind}`, { source: 'scan_done' });
+        continue;
+      }
+      if (!Number.isInteger(Number(pass.itemCount)) || Number(pass.itemCount) < 0) {
+        addReviewReason(`discovery coverage pass ${kind} requires a non-negative itemCount`, { source: 'scan_done' });
+      }
+      if (!Number.isInteger(Number(pass.candidateCount)) || Number(pass.candidateCount) < 0) {
+        addReviewReason(`discovery coverage pass ${kind} requires a non-negative candidateCount`, { source: 'scan_done' });
+      } else if (Number(pass.candidateCount) > Number(pass.itemCount)) {
+        addReviewReason(`discovery coverage pass ${kind} candidateCount cannot exceed itemCount`, { source: 'scan_done' });
+      }
+      if (requiredDiscoveryWindow?.start && pass.windowStart !== requiredDiscoveryWindow.start) {
+        addReviewReason(`discovery coverage pass ${kind} used the wrong windowStart`, { source: 'scan_done' });
+      }
+      if (requiredDiscoveryWindow?.end && pass.windowEnd !== requiredDiscoveryWindow.end) {
+        addReviewReason(`discovery coverage pass ${kind} used the wrong windowEnd`, { source: 'scan_done' });
+      }
+    }
+  }
 
   for (const [index, item] of globalEnumerated.entries()) {
     const key = itemRefKey(item?.itemRef || item);
@@ -576,6 +643,16 @@ export function filterMarkersByProcessingQualityGate(markers = []) {
     }
   }
 
+  if (requireAttachmentCoverage) {
+    for (const item of normalizedLedger.filter(item => isFailedAttachmentDisposition(item.attachmentsHandled))) {
+      const key = itemRefKey(item.itemRef) || 'unknown attachment item';
+      addReviewReason(`source coverage incomplete for ${key}: ${item.attachmentsHandled}`, {
+        source: 'attachment-coverage',
+        key
+      });
+    }
+  }
+
   for (const count of markerThreadCountsByIndex.values()) {
     for (const item of count) {
       const markerLedger = markerLedgerByIndex.get(item.markerIndex) || [];
@@ -631,7 +708,7 @@ export function evaluateProcessingQualityGate(markers = []) {
   const required = Boolean(scanQuality.required || projectMarkers.some(marker => marker.payload?.processingQuality?.required));
   const ledger = [];
   const enumerated = normalizeArray(scanQuality.enumeratedItems);
-  const threadCounts = normalizeArray(scanQuality.threadCounts);
+  const threadCounts = extractLedgerCountsFromQuality(scanQuality);
 
   for (const marker of projectMarkers) {
     const payload = marker.payload || {};

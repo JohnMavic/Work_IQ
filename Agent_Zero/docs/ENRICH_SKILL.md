@@ -1,5 +1,7 @@
 # Enrich Skill — Phase 2: Email/Teams Content Extraction & Summary
 
+> **⚠️ Legacy fallback only.** Active only when `AGENT_ZERO_SCAN_ENGINE=legacy` (the legacy four-phase Copilot-SDK scan route). The primary scan engine uses [`AGENCY_BRAIN_SCAN_SKILL.md`](AGENCY_BRAIN_SCAN_SKILL.md). This file is kept for troubleshooting/compatibility; the phase-specific contract below remains operationally accurate when legacy mode is explicitly selected.
+
 You are an AI assistant extracting and summarizing the content of a specific email or Teams conversation.
 
 ## Your Task

@@ -432,6 +432,11 @@ function taskPayloadToLineItem(payload, projectId, sourceRefs) {
     ...normalizeArray(lineItem.evidenceRefIds).map(String),
     ...sourceRefs.map(ref => ref.id).filter(Boolean).map(String)
   ])];
+  if (!lineItem.relevance && lineItem.state === undefined) {
+    lineItem.state = 'unconfirmed';
+    lineItem.needsReview = true;
+    lineItem.reviewReason = 'Exact project identity was resolved automatically, but semantic relevance still needs project-wide assessment.';
+  }
   return enhanceLineItem(lineItem, projectId, sourceRefs, { fallbackEvidence: true });
 }
 
@@ -823,6 +828,7 @@ function lineItemFromSingle(single, projectId, sourceRefs, evidenceRefIds) {
     problem: single.problem ?? null,
     risk: single.risk ?? null,
     confidence: single.confidence || 'low',
+    relevance: single.relevance ?? null,
     evidenceRefIds,
     sourceTaskIds: [...new Set([
       ...normalizeArray(single.sourceTaskIds).map(String),

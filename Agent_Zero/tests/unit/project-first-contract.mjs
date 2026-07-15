@@ -34,6 +34,11 @@ test('project briefs are bounded and preserve stable source identity', () => {
       title: 'Resolve blocker',
       priority: 'HIGH',
       currentState: long,
+      relevance: {
+        score: 88,
+        reason: 'This blocker materially affects the site refresh outcome.',
+        evidenceRefIds: ['src-brief']
+      },
       evidenceRefIds: ['src-brief']
     }]
   })], { auditLogFile: null, now: new Date('2026-07-15T09:00:00.000Z') });

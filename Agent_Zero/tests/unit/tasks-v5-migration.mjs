@@ -89,6 +89,28 @@ test('migrateToV5 is idempotent', () => {
   assert.deepEqual(twice, once);
 });
 
+test('migrateToV5 quarantines unsupported legacy resolution statuses', () => {
+  const migrated = migrateToV5({
+    version: 5,
+    tasks: [{
+      id: 'project-legacy-resolution',
+      title: 'Legacy project',
+      taskType: 'project',
+      lineItems: [{
+        id: 'line-legacy-resolution',
+        title: 'Legacy line',
+        resolutionStatus: 'unverified'
+      }]
+    }]
+  });
+  const lineItem = migrated.tasks[0].lineItems[0];
+
+  assert.equal(lineItem.resolutionStatus, null);
+  assert.equal(lineItem.needsReview, true);
+  assert.match(lineItem.reviewReason, /fresh source verification/i);
+  assert.deepEqual(migrateToV5(migrated), migrated);
+});
+
 test('migrateToV5 does not lose existing task fields', () => {
   const migrated = migrateToV5(fixtureV4());
   const task1 = migrated.tasks.find(t => t.id === 'task-1');

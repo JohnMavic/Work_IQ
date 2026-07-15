@@ -85,6 +85,35 @@ test('project-specific Seestrasse learning is not injected into unrelated contex
   assert.ok(Buffer.byteLength(block.markdown, 'utf8') <= 1600);
 });
 
+test('legacy attachment-index failures are quarantined instead of overriding fresh evidence', t => {
+  const markdown = [
+    '# Brain Learnings',
+    '',
+    '## 2026-07-15 pattern: a-specific-email-pdf-attachment-can-remain-non-indexed-across-mu',
+    'Category: pattern',
+    "Evidence: The 'Seestrasse August Works Comms (1).pdf' deck was content-not-indexed on the prior scan and returned no indexed attachment content again on this scan's targeted WorkIQ probe.",
+    "Text: A specific email PDF attachment can remain non-indexed across multiple consecutive scans; once a deck has failed content-not-indexed on a prior scan, expect the same on later scans."
+  ].join('\n');
+  const parsed = parseBrainLearnings(markdown);
+
+  assert.equal(parsed.entries[0].volatility, 'ephemeral');
+  assert.equal(parsed.entries[0].outcome, 'failed');
+  assert.equal(parsed.entries[0].inferredLegacyMetadata, true);
+
+  const filePath = learningFile(t, markdown);
+  const curated = loadCuratedBrainLearnings({
+    filePath,
+    query: 'Seestrasse PDF attachment WorkIQ',
+    context: { projectTitles: ['Seestrasse office refurbishment'] },
+    now: new Date('2026-07-15T18:00:00.000Z')
+  });
+
+  assert.equal(curated.entries.length, 0);
+  assert.equal(curated.excludedEntries[0].excludedReason, 'failed');
+  assert.equal(curated.reprobeEntries.length, 0);
+  assert.doesNotMatch(curated.text, /expect the same on later scans/i);
+});
+
 test('tool-scoped learning is retrieved from explicit tool context', t => {
   const filePath = learningFile(t, [
     '# Brain Learnings',
@@ -298,6 +327,20 @@ test('append writes metadata, preserves existing bytes, deduplicates content, an
   const rejected = appendBrainLearning(secretPayload, { filePath });
   assert.equal(rejected.ok, false);
   assert.equal(fs.readFileSync(filePath, 'utf8'), afterAppend);
+});
+
+test('legacy volatility aliases normalize to canonical stored values', t => {
+  const filePath = learningFile(t, '# Brain Learnings\n');
+  const result = appendBrainLearning({
+    text: 'Re-check attachment indexing after the environment changes.',
+    category: 'pattern',
+    evidence: 'A current targeted probe returned different results.',
+    volatility: 'environment_dependent',
+    outcome: 'reverified'
+  }, { filePath, now: new Date('2026-07-15T19:00:00.000Z') });
+
+  assert.equal(result.ok, true);
+  assert.match(fs.readFileSync(filePath, 'utf8'), /^Volatility: versioned_tool$/m);
 });
 
 test('curated rendering enforces a hard UTF-8 byte budget', t => {

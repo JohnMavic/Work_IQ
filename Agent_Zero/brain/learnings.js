@@ -141,9 +141,16 @@ function defaultVolatility(category) {
   return 'project_state';
 }
 
-function normalizeVolatility(value, category = 'fact') {
+function normalizeVolatilityName(value) {
   const normalized = normalizeHashText(value).replace(/[\s-]+/g, '_');
   if (normalized === 'transient') return 'ephemeral';
+  if (normalized === 'stable_policy') return 'principle';
+  if (normalized === 'environment_dependent') return 'versioned_tool';
+  return normalized;
+}
+
+function normalizeVolatility(value, category = 'fact') {
+  const normalized = normalizeVolatilityName(value);
   if (LEARNING_VOLATILITIES.has(normalized)) return normalized;
   return defaultVolatility(category);
 }
@@ -298,6 +305,17 @@ function parseEntryFields(rawEntry) {
   return { heading, fields };
 }
 
+function inferLegacyAttachmentFailure({ fields, category, title, text, evidence }) {
+  if (category === 'principle' || fields.volatility || fields.outcome) return null;
+  const content = normalizeWhitespace(`${title} ${text} ${evidence}`);
+  const namesAttachment = /\b(?:attachment|deck|pdf)\b/i.test(content);
+  const recordsIndexFailure = /(?:content[- ]not[- ]indexed|non[- ]indexed|no indexed attachment content)/i.test(content);
+  const recordsPastRuns = /\b(?:prior|previous|earlier|this|consecutive|later)\b[^.]{0,120}\bscans?\b/i.test(content)
+    || /\bacross\b[^.]{0,80}\bscans?\b/i.test(content);
+  if (!namesAttachment || !recordsIndexFailure || !recordsPastRuns) return null;
+  return { volatility: 'ephemeral', outcome: 'failed' };
+}
+
 function parseLearningEntry(rawEntry, index) {
   const { heading, fields } = parseEntryFields(rawEntry);
   const headingMatch = heading.match(/^(\d{4}-\d{2}-\d{2})\s+(principle|pattern|fact):\s*(.*)$/i);
@@ -311,8 +329,15 @@ function parseLearningEntry(rawEntry, index) {
   const tags = normalizeTags(fields.tags);
   const scopeExplicit = Boolean(fields.scope);
   const scope = normalizeScope(fields.scope || 'global');
-  const volatility = normalizeVolatility(fields.volatility, category);
-  const outcome = normalizeOutcome(fields.outcome);
+  const inferredLegacyMetadata = inferLegacyAttachmentFailure({
+    fields,
+    category,
+    title,
+    text,
+    evidence: fields.evidence
+  });
+  const volatility = normalizeVolatility(fields.volatility || inferredLegacyMetadata?.volatility, category);
+  const outcome = normalizeOutcome(fields.outcome || inferredLegacyMetadata?.outcome);
   const observedAt = isoValue(fields.observedat, date);
   const cooldownDays = parseCooldownDays(fields.cooldowndays ?? fields.cooldown);
   const contentHash = computeLearningContentHash({ category, text, tags });
@@ -334,6 +359,7 @@ function parseLearningEntry(rawEntry, index) {
     outcome,
     observedAt,
     cooldownDays,
+    inferredLegacyMetadata: Boolean(inferredLegacyMetadata),
     raw: String(rawEntry || '').trimEnd(),
     metadata: { ...fields }
   };
@@ -813,8 +839,8 @@ export function validateLearningPayload(payload) {
 
   const volatilityValue = payloadValue(payload, 'volatility', 'Volatility');
   if (volatilityValue !== undefined) {
-    const normalized = normalizeHashText(volatilityValue).replace(/[\s-]+/g, '_');
-    if (normalized !== 'transient' && !LEARNING_VOLATILITIES.has(normalized)) {
+    const normalized = normalizeVolatilityName(volatilityValue);
+    if (!LEARNING_VOLATILITIES.has(normalized)) {
       return 'LEARNING volatility is invalid';
     }
   }

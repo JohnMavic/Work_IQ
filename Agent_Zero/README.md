@@ -1,6 +1,6 @@
 # Agent Zero
 
-> Version 5.0.0 · A personal AI-powered project-task tracker for Microsoft 365
+> Version 5.1.0 · A personal AI-powered project-task tracker for Microsoft 365
 >
 > _Built with AI, powered by curiosity._
 
@@ -136,14 +136,18 @@ Standalone actions remain `taskType: "single"` and keep the normal task fields.
 
 ## Marker Protocol
 
-The Agency Brain may only mutate state through physical marker lines:
+The Agency Brain may only mutate state through physical marker lines
+(`MARKER_TYPES` in `brain/marker-parser.js`):
 
 - `PROJECT_NEW`
 - `PROJECT_UPDATE`
+- `FACTSHEET_UPDATE`
 - `LINEITEM_NEW`
 - `LINEITEM_UPDATE`
+- `NODE_OBSOLETE`
 - `TASK_NEW`
 - `TASK_UPDATE`
+- `LEARNING`
 - `NEEDS_REVIEW`
 - `SCAN_DONE`
 
@@ -152,10 +156,15 @@ validates evidence references, allowed patch fields, confidence rules, and marke
 before any write. If the output has valid markers but no `SCAN_DONE`, the server applies
 the safe subset as a partial result and adds a review hint.
 
+Before markers reach `tasks.json` they pass ordered gates in `runBrainScanOnce`: a project
+identity gate, one bounded processing-quality correction pass, the Reality Gateway, and a
+final processing-quality + temporal pass. See `docs/ARCHITECTURE.md` for the full pipeline.
+
 ## Agency Runner Safeguards
 
 - `buildAgencyArgs()` pins model, effort, context, no-default-MCP behavior, and the
-  `brain-work/` add-dir.
+  `brain-work/` add-dir. The requested model is `claude-opus-4.8` via `--model`; actual
+  honoring of that model is not independently established by the flag alone.
 - `buildAgencyEnv()` removes `AGENCY_SESSION_ID` and `COPILOT_AGENT_SESSION_ID` from
   the child environment to prevent parent-session bleed.
 - `brain-runner.js` counts explicit WorkIQ tool starts and can kill the child when the
@@ -206,7 +215,7 @@ The script still restarts stale servers older than 24 hours.
 Agent_Zero/
 ├── server.js                    Express backend, job API, legacy route guards
 ├── index.html                   Single-file frontend
-├── package.json                 Dependencies and version 5.0.0
+├── package.json                 Dependencies and version 5.1.0
 ├── mcp.json                     Legacy SDK-only WorkIQ MCP config
 ├── tasks.json                   Local task storage (schema v5, gitignored)
 ├── AGENTS.md                    Agent behavior documentation

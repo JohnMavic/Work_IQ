@@ -4,6 +4,8 @@ import { COPILOT_MODEL } from './agency-cli.js';
 import { normalizeFactSheet } from './factsheet.js';
 import { normalizeProcessing } from './processing-ledger.js';
 import { normalizePmStatusUserActions } from './user-actions.js';
+import { normalizeRelevance } from './relevance.js';
+import { RESOLUTION_STATUSES } from './truth-tree.js';
 
 export const V5_BRAIN_DEFAULTS = {
   engine: 'agency',
@@ -175,24 +177,39 @@ function normalizeBrainState(value) {
   };
 }
 
+function normalizeLegacyResolutionStatus(value) {
+  const node = value && typeof value === 'object' && !Array.isArray(value) ? { ...value } : value;
+  if (!node || node.resolutionStatus === undefined || node.resolutionStatus === null) return node;
+  const resolutionStatus = String(node.resolutionStatus).trim().toLowerCase();
+  if (RESOLUTION_STATUSES.has(resolutionStatus)) {
+    node.resolutionStatus = resolutionStatus;
+    return node;
+  }
+  node.resolutionStatus = null;
+  node.needsReview = true;
+  node.reviewReason ||= 'Legacy resolution status requires fresh source verification.';
+  return node;
+}
+
 function normalizeLineItemNode(item) {
   if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
-  return {
+  return normalizeLegacyResolutionStatus({
     state: 'unconfirmed',
     sources: [],
     lastConfirmedByMessageDate: null,
-    ...item
-  };
+    ...item,
+    relevance: normalizeRelevance(item.relevance)
+  });
 }
 
 function normalizePmNodeEntry(entry) {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return entry;
-  return {
+  return normalizeLegacyResolutionStatus({
     state: 'unconfirmed',
     sources: [],
     lastConfirmedByMessageDate: null,
     ...entry
-  };
+  });
 }
 
 function normalizePmStatusTreeNodes(pmStatus) {

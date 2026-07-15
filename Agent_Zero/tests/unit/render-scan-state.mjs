@@ -276,6 +276,49 @@ test('renderScanState spills omitted line item ids so hidden items can be update
   assert.match(spillText, /li-15/);
 });
 
+test('renderScanState emits one required spill for every stale unconfirmed temporal node', () => {
+  const brainWorkDir = makeBrainWorkDir('temporal-review-spill');
+  const data = migrateToV5({
+    version: 5,
+    tasks: [{
+      ...singleTask('project-temporal', {
+        taskType: 'project',
+        projectKey: 'project-temporal',
+        pmStatus: {
+          current: 'Current state',
+          planned: [{ id: 'plan-old', text: 'Complete old milestone', date: '2026-07-01', state: 'unconfirmed' }],
+          userActions: [],
+          problems: [],
+          risks: [],
+          waitingOn: [],
+          confidence: 'medium'
+        },
+        lineItems: [{
+          id: 'li-old-date',
+          title: 'Old dated work',
+          status: 'open',
+          state: 'unconfirmed',
+          dueAt: '2026-07-02',
+          currentState: 'The old target date remains in the record.'
+        }]
+      })
+    }]
+  });
+
+  const result = renderScanState(data, {
+    brainWorkDir,
+    runId: 'temporal-run',
+    now: '2026-07-15T12:00:00.000Z'
+  });
+  const temporalSpill = result.spillFiles.find(name => name.startsWith('temporal-review-'));
+  const spillText = fs.readFileSync(path.join(brainWorkDir, temporalSpill), 'utf8');
+
+  assert.match(result.markdown, /temporalReview REQUIRED spill/);
+  assert.match(spillText, /pmStatus\.planned:plan-old/);
+  assert.match(spillText, /li-old-date/);
+  assert.match(result.markdown, /explicitly reconcile every candidate/i);
+});
+
 test('brain prompt and renderer do not encode project-specific verification facts', () => {
   const prompt = fs.readFileSync(promptFile, 'utf8');
   const result = renderScanState(migrateToV5({

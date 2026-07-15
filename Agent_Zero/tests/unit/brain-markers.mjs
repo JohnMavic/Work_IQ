@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { parseMarkers } from '../../brain/marker-parser.js';
 import { applyMarkerBatch } from '../../brain/marker-applier.js';
 import { migrateToV5 } from '../../brain/tasks-v5.js';
+import { deterministicMarkerIssue } from '../../brain/reality-gateway.js';
+import { requiresSemanticRelevance } from '../../brain/relevance.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -20,6 +22,10 @@ function resetTmp(name) {
 
 function marker(type, payload) {
   return `[${type}] ${JSON.stringify(payload)}`;
+}
+
+function relevance(evidenceRefId, score = 60) {
+  return { score, reason: 'Material to the project outcome.', evidenceRefIds: [evidenceRefId] };
 }
 
 function baseData() {
@@ -74,6 +80,7 @@ test('valid marker batch creates a project task with sourceRefs and lineItems', 
         status: 'in-progress',
         currentState: 'Cabling is underway',
         confidence: 'high',
+        relevance: relevance('src-1', 70),
         evidenceRefIds: ['src-1'],
         sourceTaskIds: ['old-1']
       }],
@@ -124,6 +131,7 @@ test('same-batch PROJECT_NEW followed by LINEITEM_NEW validates against created 
         id: 'li-same-batch',
         title: 'Created after project marker',
         status: 'new',
+        relevance: relevance('src-same-batch'),
         evidenceRefIds: ['src-same-batch']
       }
     })
@@ -138,6 +146,129 @@ test('same-batch PROJECT_NEW followed by LINEITEM_NEW validates against created 
   assert.equal(result.dropped.length, 0);
   assert.equal(result.applied, 2);
   assert.equal(result.data.tasks.find(task => task.id === 'proj-same-batch').lineItems[0].id, 'li-same-batch');
+});
+
+test('evidence-dependent markers retry after a later valid marker introduces the SourceRef', () => {
+  const dir = resetTmp('deferred-source-ref');
+  const data = migrateToV5({
+    version: 5,
+    tasks: [{
+      id: 'proj-deferred-source',
+      title: 'Deferred source project',
+      taskType: 'project',
+      sourceRefs: [],
+      lineItems: [{
+        id: 'li-deferred-source',
+        title: 'Existing workstream',
+        category: 'info',
+        status: 'on-radar',
+        state: 'unconfirmed',
+        evidenceRefIds: []
+      }]
+    }]
+  });
+  const text = [
+    marker('FACTSHEET_UPDATE', {
+      taskId: 'proj-deferred-source',
+      sectionPatches: {
+        overview: [{
+          op: 'add',
+          text: 'Fresh evidence updates the project overview.',
+          evidenceRefIds: ['src-introduced-later'],
+          confidence: 'medium',
+          state: 'confirmed',
+          sources: ['src-introduced-later'],
+          lastConfirmedByMessageDate: '2026-07-15'
+        }]
+      }
+    }),
+    marker('LINEITEM_UPDATE', {
+      taskId: 'proj-deferred-source',
+      lineItemId: 'li-deferred-source',
+      sourceRefs: [{
+        id: 'src-introduced-later',
+        type: 'email',
+        title: 'Fresh source',
+        date: '2026-07-15T10:00:00.000Z',
+        link: 'https://example.test/fresh-source'
+      }],
+      patch: {
+        status: 'in-progress',
+        state: 'confirmed',
+        currentState: 'Fresh evidence confirms active work.',
+        relevance: relevance('src-introduced-later')
+      },
+      evidenceRefIds: ['src-introduced-later']
+    })
+  ].join('\n');
+
+  const result = applyMarkerBatch(data, parseMarkers(text).markers, {
+    auditLogFile: path.join(dir, 'audit.jsonl')
+  });
+  const project = result.data.tasks[0];
+
+  assert.equal(result.applied, 2);
+  assert.equal(result.dropped.length, 0);
+  assert.equal(project.sourceRefs[0].id, 'src-introduced-later');
+  assert.equal(project.factSheet.sections.overview[0].text, 'Fresh evidence updates the project overview.');
+});
+
+test('confirmed active line items require evidence-backed semantic relevance', () => {
+  const { markers } = parseMarkers(marker('LINEITEM_NEW', {
+    taskId: 'proj-existing',
+    lineItem: {
+      id: 'li-unranked',
+      title: 'Unranked active item',
+      status: 'open',
+      evidenceRefIds: ['src-existing']
+    }
+  }));
+  const data = migrateToV5({
+    version: 5,
+    tasks: [{
+      id: 'proj-existing',
+      title: 'Existing project',
+      taskType: 'project',
+      sourceRefs: [{ id: 'src-existing', type: 'email', date: '2026-07-05T08:00:00.000Z' }],
+      lineItems: []
+    }]
+  });
+
+  const result = applyMarkerBatch(data, markers, { auditLogFile: null });
+
+  assert.equal(result.applied, 0);
+  assert.match(result.dropped[0].reason, /relevance is required/);
+});
+
+test('LINEITEM_UPDATE persists a same-marker sourceRef used by relevance', () => {
+  const data = migrateToV5({
+    version: 5,
+    tasks: [{
+      id: 'proj-relevance-update',
+      title: 'Relevance update project',
+      taskType: 'project',
+      sourceRefs: [{ id: 'src-old', type: 'email', date: '2026-07-04T08:00:00.000Z' }],
+      lineItems: [{ id: 'li-ranked', title: 'Ranked item', status: 'open', evidenceRefIds: ['src-old'] }]
+    }]
+  });
+  const { markers } = parseMarkers(marker('LINEITEM_UPDATE', {
+    taskId: 'proj-relevance-update',
+    lineItemId: 'li-ranked',
+    sourceRefs: [{ id: 'src-new', type: 'email', date: '2026-07-05T08:00:00.000Z', title: 'New evidence' }],
+    patch: {
+      currentState: 'New evidence makes this the project focus.',
+      relevance: relevance('src-new', 91)
+    },
+    evidenceRefIds: ['src-new']
+  }));
+
+  const result = applyMarkerBatch(data, markers, { auditLogFile: null });
+  const task = result.data.tasks[0];
+
+  assert.equal(result.applied, 1);
+  assert.equal(task.sourceRefs.some(ref => ref.id === 'src-new'), true);
+  assert.equal(task.lineItems[0].relevance.score, 91);
+  assert.deepEqual(task.lineItems[0].relevance.evidenceRefIds, ['src-new']);
 });
 
 test('unknown task reference is dropped and audited', () => {
@@ -298,6 +429,95 @@ test('LINEITEM_UPDATE patch whitelist protects line item identity and evidence l
   assert.deepEqual(lineItem.sourceTaskIds, ['source-task']);
 });
 
+test('LINEITEM_UPDATE can clear review state only with evidence', () => {
+  const dir = resetTmp('lineitem-update-review-state');
+  const data = migrateToV5({
+    version: 5,
+    tasks: [{
+      id: 'proj-review',
+      title: 'Project review',
+      taskType: 'project',
+      sourceRefs: [{ id: 'src-review', date: '2026-07-15T10:00:00.000Z', link: 'https://example.test/review' }],
+      lineItems: [{
+        id: 'li-review',
+        title: 'Review line',
+        status: 'open',
+        state: 'confirmed',
+        needsReview: true,
+        reviewReason: 'Earlier evidence was incomplete.',
+        evidenceRefIds: ['src-review']
+      }]
+    }]
+  });
+  const payload = {
+    taskId: 'proj-review',
+    lineItemId: 'li-review',
+    patch: { needsReview: false, reviewReason: null }
+  };
+
+  const missingEvidence = applyMarkerBatch(data, parseMarkers(marker('LINEITEM_UPDATE', payload)).markers, {
+    auditLogFile: path.join(dir, 'missing-audit.jsonl')
+  });
+  assert.equal(missingEvidence.applied, 0);
+  assert.match(missingEvidence.dropped[0].reason, /missing evidenceRefIds/);
+
+  const verified = applyMarkerBatch(data, parseMarkers(marker('LINEITEM_UPDATE', {
+    ...payload,
+    evidenceRefIds: ['src-review']
+  })).markers, {
+    auditLogFile: path.join(dir, 'verified-audit.jsonl')
+  });
+  assert.equal(verified.applied, 1);
+  assert.equal(verified.data.tasks[0].lineItems[0].needsReview, false);
+  assert.equal(verified.data.tasks[0].lineItems[0].reviewReason, null);
+});
+
+test('legacy unverified resolution status does not block an evidenced line-item update', () => {
+  const dir = resetTmp('lineitem-update-legacy-resolution');
+  const data = {
+    version: 5,
+    tasks: [{
+      id: 'proj-legacy-resolution',
+      title: 'Legacy project',
+      taskType: 'project',
+      sourceRefs: [{ id: 'src-current', date: '2026-07-15T10:00:00.000Z', link: 'https://example.test/current' }],
+      lineItems: [{
+        id: 'li-legacy-resolution',
+        title: 'Legacy informational line',
+        category: 'info',
+        status: 'on-radar',
+        state: 'unconfirmed',
+        resolutionStatus: 'unverified',
+        needsReview: true,
+        evidenceRefIds: ['src-current']
+      }]
+    }]
+  };
+  const { markers } = parseMarkers(marker('LINEITEM_UPDATE', {
+    taskId: 'proj-legacy-resolution',
+    lineItemId: 'li-legacy-resolution',
+    patch: {
+      status: 'in-progress',
+      state: 'confirmed',
+      currentState: 'Fresh evidence confirms the work is in progress.',
+      needsReview: false,
+      reviewReason: null
+    },
+    evidenceRefIds: ['src-current']
+  }));
+
+  const result = applyMarkerBatch(data, markers, {
+    auditLogFile: path.join(dir, 'audit.jsonl')
+  });
+  const lineItem = result.data.tasks[0].lineItems[0];
+
+  assert.equal(result.applied, 1);
+  assert.equal(result.dropped.length, 0);
+  assert.equal(lineItem.status, 'in-progress');
+  assert.equal(lineItem.resolutionStatus, null);
+  assert.equal(lineItem.needsReview, false);
+});
+
 test('invalid markers cannot seed evidence for later status updates', () => {
   const dir = resetTmp('validated-evidence-index');
   const text = [
@@ -396,6 +616,7 @@ test('superseded source tasks are archived but not deleted', () => {
       id: 'li-archive',
       title: 'Archive line',
       status: 'open',
+      relevance: relevance('src-archive'),
       evidenceRefIds: ['src-archive']
     }],
     supersedesTaskIds: ['old-1']
@@ -498,4 +719,110 @@ test('date-only evidence must resolve to an existing or same-batch SourceRef', (
   assert.equal(result.applied, 0);
   assert.equal(result.data.tasks.find(task => task.id === 'old-1').status, 'new');
   assert.match(result.dropped[0].reason, /unknown evidenceRefId/);
+});
+
+// --- P3 fix: shared semantic-relevance inactivity predicate -----------------
+// The Reality Gateway (deterministicMarkerIssue) and the marker-applier
+// (applyMarkerBatch) must agree on when an evidence-backed relevance object is
+// mandatory. Both now delegate to requiresSemanticRelevance in brain/relevance.js.
+
+const RELEVANCE_CASE_MATRIX = [
+  { name: 'status resolved', lineItem: { status: 'resolved' }, requiresRelevance: false },
+  { name: 'status cancelled', lineItem: { status: 'cancelled' }, requiresRelevance: false },
+  { name: 'status canceled', lineItem: { status: 'canceled' }, requiresRelevance: false },
+  { name: 'state obsolete with status open', lineItem: { status: 'open', state: 'obsolete' }, requiresRelevance: false },
+  { name: 'state superseded with status blocked', lineItem: { status: 'blocked', state: 'superseded' }, requiresRelevance: false },
+  { name: 'normal active open item', lineItem: { status: 'open' }, requiresRelevance: true }
+];
+
+function relevanceMatrixProjectData() {
+  return migrateToV5({
+    version: 5,
+    tasks: [{
+      id: 'proj-relevance-matrix',
+      title: 'Relevance matrix project',
+      taskType: 'project',
+      sourceRefs: [{ id: 'src-existing', type: 'email', date: '2026-07-05T08:00:00.000Z' }],
+      lineItems: []
+    }]
+  });
+}
+
+function relevanceMatrixMarker(entry, index) {
+  return marker('LINEITEM_NEW', {
+    taskId: 'proj-relevance-matrix',
+    lineItem: {
+      id: `li-matrix-${index}`,
+      title: 'Matrix item',
+      category: 'info',
+      evidenceRefIds: ['src-existing'],
+      ...entry.lineItem
+    }
+  });
+}
+
+test('requiresSemanticRelevance treats every inactive status as exempt', () => {
+  for (const status of ['done', 'completed', 'closed', 'obsolete', 'superseded', 'cancelled', 'canceled', 'resolved']) {
+    assert.equal(requiresSemanticRelevance({ status }), false, `status ${status} must be exempt`);
+  }
+});
+
+test('requiresSemanticRelevance exempts truth-tree state obsolete or superseded regardless of active status', () => {
+  assert.equal(requiresSemanticRelevance({ status: 'open', state: 'obsolete' }), false);
+  assert.equal(requiresSemanticRelevance({ status: 'blocked', state: 'superseded' }), false);
+});
+
+test('requiresSemanticRelevance requires relevance for a normal active open item', () => {
+  assert.equal(requiresSemanticRelevance({ status: 'open' }), true);
+  assert.equal(requiresSemanticRelevance({ status: 'open', state: 'confirmed' }), true);
+  assert.equal(requiresSemanticRelevance({}), true);
+});
+
+test('requiresSemanticRelevance normalizes case and whitespace and never mutates input', () => {
+  assert.equal(requiresSemanticRelevance({ status: '  Resolved  ' }), false);
+  assert.equal(requiresSemanticRelevance({ status: 'OPEN', state: '  Superseded ' }), false);
+  assert.equal(requiresSemanticRelevance({ status: '  OPEN  ' }), true);
+
+  const input = { status: 'Resolved', state: 'Confirmed', priority: 'high' };
+  const before = structuredClone(input);
+  requiresSemanticRelevance(input);
+  assert.deepEqual(input, before);
+
+  assert.doesNotThrow(() => requiresSemanticRelevance(Object.freeze({ status: 'done' })));
+});
+
+test('requiresSemanticRelevance is independent of priority, confidence, review status, title, sender, and keywords', () => {
+  const noise = { priority: 'urgent', confidence: 'high', needsReview: true, title: 'x', sender: 'a@b.test', keywords: ['k'], topic: 't' };
+  assert.equal(requiresSemanticRelevance({ status: 'open', ...noise }), true);
+  assert.equal(requiresSemanticRelevance({ status: 'resolved', ...noise }), false);
+  assert.equal(requiresSemanticRelevance({ status: 'open', state: 'obsolete', ...noise }), false);
+});
+
+test('gateway and marker-applier acceptance paths agree on relevance requirement', () => {
+  for (const [index, entry] of RELEVANCE_CASE_MATRIX.entries()) {
+    const { markers } = parseMarkers(relevanceMatrixMarker(entry, index));
+
+    // Path 1: Reality Gateway deterministic check.
+    const gatewayIssue = deterministicMarkerIssue(markers[0]);
+    const gatewayRequires = /relevance is required/.test(gatewayIssue || '');
+
+    // Path 2: marker-applier validation pipeline.
+    const result = applyMarkerBatch(relevanceMatrixProjectData(), markers, {
+      auditLogFile: null,
+      now: new Date('2026-07-15T10:00:00.000Z')
+    });
+    const applierRequires = result.applied === 0 && /relevance is required/.test(result.dropped[0]?.reason || '');
+
+    assert.equal(gatewayRequires, entry.requiresRelevance, `gateway disagreed for: ${entry.name}`);
+    assert.equal(applierRequires, entry.requiresRelevance, `applier disagreed for: ${entry.name}`);
+    assert.equal(gatewayRequires, applierRequires, `paths disagreed for: ${entry.name}`);
+
+    if (entry.requiresRelevance) {
+      assert.equal(gatewayIssue !== null, true);
+      assert.equal(result.applied, 0);
+    } else {
+      assert.equal(gatewayIssue, null, `gateway held an inactive item: ${entry.name}`);
+      assert.equal(result.applied, 1, `applier dropped an inactive item: ${entry.name}`);
+    }
+  }
 });

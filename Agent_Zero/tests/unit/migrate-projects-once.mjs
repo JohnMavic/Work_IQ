@@ -110,6 +110,11 @@ function projectMarkers() {
           id: 'li-room',
           title: 'Room preparation',
           status: 'open',
+          relevance: {
+            score: 58,
+            reason: 'Room preparation is required for the project rollout.',
+            evidenceRefIds: ['src-alpha-1']
+          },
           evidenceRefIds: ['src-alpha-1'],
           sourceTaskIds: ['task-1']
         },
@@ -117,6 +122,11 @@ function projectMarkers() {
           id: 'li-network',
           title: 'Network preparation',
           status: 'waiting',
+          relevance: {
+            score: 72,
+            reason: 'Network readiness is the principal dependency for rollout.',
+            evidenceRefIds: ['src-alpha-2']
+          },
           evidenceRefIds: ['src-alpha-2'],
           sourceTaskIds: ['task-2']
         }

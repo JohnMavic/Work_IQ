@@ -10,6 +10,7 @@ import {
 } from './truth-tree.js';
 import { renderBrainLearningsBlock, validateLearningPayload } from './learnings.js';
 import { validateProcessingPayload } from './processing-ledger.js';
+import { requiresSemanticRelevance, validateRelevance } from './relevance.js';
 
 export const DEFAULT_GATEWAY_TIMEOUT_MS = DEFAULT_TIMEOUT_MS;
 export const GATEWAY_DECISIONS = new Set(['approve', 'reject', 'needs-review']);
@@ -311,6 +312,29 @@ function actionGateIssue(marker) {
   return null;
 }
 
+function relevanceIssue(marker) {
+  const payload = marker?.payload || {};
+  const candidates = marker?.type === 'PROJECT_NEW'
+    ? normalizeArray(payload.lineItems)
+    : marker?.type === 'LINEITEM_NEW'
+      ? [payload.lineItem].filter(Boolean)
+      : marker?.type === 'LINEITEM_UPDATE' && Object.hasOwn(payload.patch || {}, 'relevance')
+        ? [payload.patch]
+        : [];
+
+  for (const [index, item] of candidates.entries()) {
+    const confirmed = String(item?.state || 'confirmed').toLowerCase() !== 'unconfirmed' && item?.needsReview !== true;
+    if (!item?.relevance && requiresSemanticRelevance(item) && confirmed) {
+      return `lineItems[${index}].relevance is required for confirmed active line items`;
+    }
+    if (item?.relevance) {
+      const error = validateRelevance(item.relevance, `lineItems[${index}].relevance`);
+      if (error) return error;
+    }
+  }
+  return null;
+}
+
 export function deterministicMarkerIssue(marker) {
   const payload = marker?.payload || {};
 
@@ -322,6 +346,9 @@ export function deterministicMarkerIssue(marker) {
 
   const actionIssue = actionGateIssue(marker);
   if (actionIssue) return `Batch 7 action gate failed: ${actionIssue}.`;
+
+  const relevanceError = relevanceIssue(marker);
+  if (relevanceError) return `Relevance gate failed: ${relevanceError}.`;
 
   if (marker.type === 'LEARNING') {
     const learningIssue = validateLearningPayload(payload);
@@ -450,6 +477,7 @@ export function buildGatewayPrompt({ stateFile, factSheetFiles = [], markers, ru
     '',
     'You are an adversarial verifier. You may only approve or hold the proposed marker lines.',
     'Read the state file, Fact Sheets, Brain Learnings, and available evidence before deciding. Read/research/browse tools are allowed when they help verify marker evidence.',
+    'Brain Learnings are operating memory, not proof of current source state. Fresh source or targeted WorkIQ evidence from this run outranks an older operational failure; a prior content-not-indexed result must never veto concrete attachment content retrieved now.',
     'External write actions are forbidden unless the user explicitly requested that exact write in this same conversation. Do not send mail, click approvals, edit external systems, or mutate Agent Zero state directly.',
     'Always write gateway reasons and any generated review text in English.',
     '',
@@ -476,6 +504,8 @@ export function buildGatewayPrompt({ stateFile, factSheetFiles = [], markers, ru
     '- Are actions for other people represented as lineItems or Fact Sheet Open Actions with an explicit owner?',
     '- Are processing ledger items well-formed, including quote and reason for no-change or not-this-project dispositions?',
     '- If a node is disputed, does it keep both conflicting positions with person/date/quote and surface the conflict instead of choosing silently?',
+    '- Does every confirmed active line item carry semantic relevance {score, reason, evidenceRefIds}, and does its reason explain the project-level consequence rather than merely repeat priority words?',
+    '- Was relevance judged relative to the other active line items in the same project, independently from confidence and review status?',
     '- NODE_OBSOLETE is a narrow stale-date disposition. Verify only that taskId and nodeRef identify an existing planned, waitingOn, or lineItem node, the referenced date is past, and obsoleteReason is present. It is not a completion claim; do not hold it merely because the project still has waitingOn entries or unrelated userActions lack askQuote proof.',
     '- Reject any ledger disposition that lacks attachmentsHandled: yes(workiq-index)|yes|none|failed(<reason>). If the item has attachments, only yes(workiq-index), yes, or failed(<reason>) is acceptable.',
     '- If a user action was marked done by Martin, does current evidence confirm closure or show it is still open?',
@@ -483,7 +513,9 @@ export function buildGatewayPrompt({ stateFile, factSheetFiles = [], markers, ru
     '- Are source links verbatim real WorkIQ links, not constructed citation-token URLs?',
     '- Was available evidence used instead of ignored, including full message bodies and targeted WorkIQ attachment-content probes when the marker depends on attachments?',
     '- If the run discovered or referenced PDF, DOCX, XLSX, or other source attachments, did it ask targeted WorkIQ questions about the attachment, cite concrete attachment-derived facts, and mark the ledger yes(workiq-index); or did it retry content-not-indexed exactly once with an alternative formulation and then fail closed with failed(content-not-indexed) plus a re-probe review note?',
+    '- If attachment reading failed, does the run remain partial with explicit incomplete source coverage rather than presenting its summary as complete?',
     '- For LEARNING markers: approve only reusable principles, patterns, or stable general facts; reject task facts, secrets, credentials, and one-off project state.',
+    '- For LEARNING markers, outcome describes whether the newly stated lesson is valid. A corrected lesson supported by fresh success is success or reverified, not contradicted merely because it disproves an older learning.',
     '',
     'Default to needs-review on country/location/organization mismatch, missing evidence, mixed projects, fabricated links, or inconsistency.',
     'NEEDS_REVIEW and SCAN_DONE markers are exempt from veto.',

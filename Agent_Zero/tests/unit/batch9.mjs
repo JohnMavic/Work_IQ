@@ -7,9 +7,13 @@ import { fileURLToPath } from 'node:url';
 import { buildAgencyArgs } from '../../brain/agency-cli.js';
 import { buildGatewayPrompt, filterMarkersThroughGateway } from '../../brain/reality-gateway.js';
 import { runTaskChatFastOnce } from '../../brain/task-chat.js';
-import { runBrainScanOnce } from '../../brain/scan-brain.js';
+import { computeDiscoveryWindow, runBrainScanOnce } from '../../brain/scan-brain.js';
 import { applyMarkerBatch } from '../../brain/marker-applier.js';
-import { evaluateProcessingQualityGate } from '../../brain/processing-ledger.js';
+import {
+  evaluateProcessingQualityGate,
+  filterMarkersByProcessingQualityGate,
+  normalizeProcessing
+} from '../../brain/processing-ledger.js';
 import { migrateToV5, writeJsonFileAtomic } from '../../brain/tasks-v5.js';
 import { runReverifyTasks } from '../../scripts/reverify-tasks.mjs';
 
@@ -30,6 +34,25 @@ function marker(type, payload) {
 
 function markerObj(type, payload) {
   return { type, payload, raw: marker(type, payload) };
+}
+
+function scanDone(payload, { now, scanDays = 4, lastScan = null } = {}) {
+  const window = computeDiscoveryWindow({ now, scanDays, lastScan });
+  const processingQuality = payload.processingQuality || {};
+  const itemCount = Array.isArray(processingQuality.enumeratedItems)
+    ? processingQuality.enumeratedItems.length
+    : 0;
+  return marker('SCAN_DONE', {
+    ...payload,
+    processingQuality: {
+      required: true,
+      discoveryPasses: [
+        { kind: 'recent-email-enumeration', windowStart: window.start, windowEnd: window.end, itemCount, candidateCount: itemCount },
+        { kind: 'material-consequence', windowStart: window.start, windowEnd: window.end, itemCount, candidateCount: itemCount }
+      ],
+      ...processingQuality
+    }
+  });
 }
 
 function approveAll(markers) {
@@ -166,6 +189,10 @@ test('Batch 9 scan skill, gateway, and learnings require WorkIQ-index attachment
   assert.match(skill, /Temporal bookings must always be emitted/);
   assert.match(skill, /yes\(workiq-index\)/);
   assert.match(skill, /failed\(content-not-indexed\)/);
+  assert.match(skill, /ledgerCounts/);
+  assert.match(skill, /never the number of messages/);
+  assert.match(skill, /temporalReview REQUIRED spill/);
+  assert.doesNotMatch(skill, /environment_dependent/);
   assert.match(skill, /retry[\s\S]*exactly once/i);
   assert.match(skill, /attachment not indexed yet — re-probe next scan/);
   assert.match(skill, /External Write Guardrail/);
@@ -183,6 +210,7 @@ test('Batch 9 scan skill, gateway, and learnings require WorkIQ-index attachment
   assert.match(gateway, /NODE_OBSOLETE is a narrow stale-date disposition/);
   assert.match(gateway, /not a completion claim/);
   assert.match(gateway, /failed\(content-not-indexed\)/);
+  assert.match(gateway, /prior content-not-indexed result must never veto/);
   assert.match(gateway, /External write actions are forbidden/);
 });
 
@@ -275,7 +303,7 @@ test('Batch 9 attachment ledger gate requires handled disposition and blocks unh
           threadRef: 'conv-attachment',
           hasAttachments: true
         }],
-        threadCounts: [{ threadRef: 'conv-attachment', count: 1 }]
+        ledgerCounts: [{ threadRef: 'conv-attachment', count: 1 }]
       }
     })
   ];
@@ -288,6 +316,11 @@ test('Batch 9 attachment ledger gate requires handled disposition and blocks unh
   const handledGate = evaluateProcessingQualityGate(handled);
   assert.equal(handledGate.ok, true);
 
+  const legacyCountName = structuredClone(handled);
+  legacyCountName[1].payload.processingQuality.threadCounts = legacyCountName[1].payload.processingQuality.ledgerCounts;
+  delete legacyCountName[1].payload.processingQuality.ledgerCounts;
+  assert.equal(evaluateProcessingQualityGate(legacyCountName).ok, true);
+
   const directBytesHandled = structuredClone(unhandled);
   directBytesHandled[0].payload.processingLedger[0].attachmentsHandled = 'yes';
   const directBytesGate = evaluateProcessingQualityGate(directBytesHandled);
@@ -297,6 +330,60 @@ test('Batch 9 attachment ledger gate requires handled disposition and blocks unh
   failedWithReason[0].payload.processingLedger[0].attachmentsHandled = 'failed(encrypted PDF)';
   const failedGate = evaluateProcessingQualityGate(failedWithReason);
   assert.equal(failedGate.ok, true);
+});
+
+test('discovery quality gate requires both exact-window semantic passes', () => {
+  const window = computeDiscoveryWindow({ now: new Date('2026-07-15T10:00:00.000Z'), scanDays: 4 });
+  const complete = markerObj('SCAN_DONE', {
+    runId: 'coverage-complete',
+    outcome: 'success',
+    processingQuality: {
+      required: true,
+      discoveryPasses: [
+        { kind: 'recent-email-enumeration', windowStart: window.start, windowEnd: window.end, itemCount: 3, candidateCount: 2 },
+        { kind: 'material-consequence', windowStart: window.start, windowEnd: window.end, itemCount: 1, candidateCount: 1 }
+      ]
+    }
+  });
+  const accepted = filterMarkersByProcessingQualityGate([complete], {
+    requireDiscoveryCoverage: true,
+    requiredDiscoveryWindow: window
+  });
+  assert.equal(accepted.ok, true);
+
+  const incomplete = markerObj('SCAN_DONE', {
+    runId: 'coverage-incomplete',
+    outcome: 'success',
+    processingQuality: {
+      required: true,
+      discoveryPasses: [
+        { kind: 'recent-email-enumeration', windowStart: window.start, windowEnd: window.end, itemCount: 3, candidateCount: 2 }
+      ]
+    }
+  });
+  const rejected = filterMarkersByProcessingQualityGate([incomplete], {
+    requireDiscoveryCoverage: true,
+    requiredDiscoveryWindow: window
+  });
+  assert.equal(rejected.ok, false);
+  assert.match(rejected.reason, /material-consequence/);
+});
+
+test('legacy third attachment-index failure receives a scheduled retry on migration', () => {
+  const processing = normalizeProcessing({
+    ledger: [{
+      itemRef: { type: 'email', id: 'mail-old-attachment' },
+      threadRef: 'thread-old-attachment',
+      date: '2026-07-01T10:00:00.000Z',
+      processedAt: '2026-07-01T11:00:00.000Z',
+      attachmentsHandled: 'failed(content-not-indexed)',
+      attachmentIndexAttempts: 3,
+      reprobeNextScan: false
+    }]
+  });
+
+  assert.equal(processing.ledger[0].reprobeNextScan, false);
+  assert.equal(processing.ledger[0].reprobeAfter, '2026-07-08T11:00:00.000Z');
 });
 
 test('Batch 9H NODE_OBSOLETE validates and applies only a stale node disposition', () => {
@@ -406,7 +493,7 @@ test('Batch 9H NODE_OBSOLETE passes narrow gateway handling and satisfies tempor
       nodeRef: 'pmStatus.planned:plan-av-go-live',
       obsoleteReason: 'target date passed without completion evidence — needs re-plan'
     }),
-    marker('SCAN_DONE', { runId: 'b9h-node-obsolete', outcome: 'success', workIqCalls: 0 })
+    scanDone({ runId: 'b9h-node-obsolete', outcome: 'success', workIqCalls: 0 }, { now: new Date('2026-07-08T08:00:00.000Z') })
   ].join('\n');
   const result = await runBrainScanOnce({ input: {}, emit() {} }, {
     tasksFile,
@@ -583,7 +670,7 @@ test('Batch 9F granular quality gate applies complete mutations and holds only l
     lineUpdate(2),
     lineUpdate(3),
     lineUpdate(4, false),
-    marker('SCAN_DONE', {
+    scanDone({
       runId: 'b9f-granular-quality',
       outcome: 'success',
       workIqCalls: 4,
@@ -595,7 +682,7 @@ test('Batch 9F granular quality gate applies complete mutations and holds only l
           hasAttachments: false
         }))
       }
-    })
+    }, { now: new Date('2026-07-08T08:00:00.000Z') })
   ].join('\n');
 
   const result = await runBrainScanOnce({ input: {}, emit() {} }, {
@@ -752,7 +839,7 @@ test('Batch 9F temporal pass still applies complete stale cleanup when unrelated
       }],
       evidenceRefIds: ['src-unrelated']
     }),
-    marker('SCAN_DONE', {
+    scanDone({
       runId: 'b9f-temporal-independent',
       outcome: 'success',
       workIqCalls: 3,
@@ -769,7 +856,7 @@ test('Batch 9F temporal pass still applies complete stale cleanup when unrelated
           threadRef: 'thread-unrelated'
         }]
       }
-    })
+    }, { now: new Date('2026-07-08T08:00:00.000Z') })
   ].join('\n');
 
   const result = await runBrainScanOnce({ input: {}, emit() {} }, {
@@ -831,11 +918,11 @@ test('Batch 9 temporal pass queues stale reviews without holding approved marker
     }]
   });
 
-  const output = marker('SCAN_DONE', {
+  const output = scanDone({
     runId: 'temporal-pass-granular',
     outcome: 'success',
     workIqCalls: 0
-  });
+  }, { now: new Date('2026-07-07T08:00:00.000Z') });
   const result = await runBrainScanOnce({ input: {}, emit() {} }, {
     tasksFile,
     brainWorkDir: path.join(dir, 'brain-work'),
@@ -937,11 +1024,11 @@ test('Batch 9 temporal pass allows explicit obsolete stale-node cleanup with evi
       },
       evidenceRefIds: ['src-fresh-temporal']
     }),
-    marker('SCAN_DONE', {
+    scanDone({
       runId: 'temporal-pass-cleanup',
       outcome: 'success',
       workIqCalls: 1
-    })
+    }, { now: new Date('2026-07-07T08:00:00.000Z') })
   ].join('\n');
 
   const result = await runBrainScanOnce({ input: {}, emit() {} }, {

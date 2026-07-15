@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { applyMarkerBatch } from '../../brain/marker-applier.js';
 import { parseMarkers } from '../../brain/marker-parser.js';
 import { filterMarkersThroughGateway } from '../../brain/reality-gateway.js';
-import { runBrainScanOnce } from '../../brain/scan-brain.js';
+import { computeDiscoveryWindow, runBrainScanOnce } from '../../brain/scan-brain.js';
 import { migrateToV5, writeJsonFileAtomic } from '../../brain/tasks-v5.js';
 import { repairActionGate } from '../../scripts/repair-action-gate.mjs';
 
@@ -309,6 +309,10 @@ test('Batch 7 processing-ledger quality gate applies complete markers and review
   const dir = resetTmp('quality-gate');
   const tasksFile = path.join(dir, 'tasks.json');
   writeJsonFileAtomic(tasksFile, baseProject(), { maxBackups: 0 });
+  const discoveryWindow = computeDiscoveryWindow({
+    now: new Date('2026-07-06T12:00:00.000Z'),
+    scanDays: 4
+  });
   const output = [
     marker('PROJECT_UPDATE', {
       taskId: 'proj-b7',
@@ -330,6 +334,22 @@ test('Batch 7 processing-ledger quality gate applies complete markers and review
       workIqCalls: 2,
       processingQuality: {
         required: true,
+        discoveryPasses: [
+          {
+            kind: 'recent-email-enumeration',
+            windowStart: discoveryWindow.start,
+            windowEnd: discoveryWindow.end,
+            itemCount: 2,
+            candidateCount: 2
+          },
+          {
+            kind: 'material-consequence',
+            windowStart: discoveryWindow.start,
+            windowEnd: discoveryWindow.end,
+            itemCount: 0,
+            candidateCount: 0
+          }
+        ],
         enumeratedItems: [
           { itemRef: { type: 'email', id: 'msg-1' }, threadRef: 'conv-quality' },
           { itemRef: { type: 'email', id: 'msg-2' }, threadRef: 'conv-quality' }

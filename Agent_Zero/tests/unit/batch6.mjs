@@ -115,6 +115,11 @@ test('B foreign-owner action is rejected from userActions and can be preserved a
         status: 'open',
         owner: 'Alex',
         currentState: 'Alex owns this follow-up.',
+        relevance: {
+          score: 55,
+          reason: 'The quote is a project dependency owned by Alex.',
+          evidenceRefIds: ['src-b6']
+        },
         ...actionProof(),
         evidenceRefIds: ['src-b6']
       }

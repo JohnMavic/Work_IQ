@@ -2,7 +2,7 @@
 
 **Purpose:** Collection of Work IQ CLI invocations that have been **manually verified** to work against `martih@microsoft.com` (Microsoft Corporate Tenant). Each recipe documents the exact command, what came back, and *why* it worked.
 
-This file is **not** consumed by Agent Zero at runtime — it is for humans (Martin + engineers) to copy-paste verified patterns. The runtime LLM prompt lives in `SEARCH_SKILL.md`.
+This file is **not** consumed by Agent Zero at runtime — it is for humans (Martin + engineers) to copy-paste verified patterns. The primary scan engine's runtime prompt is [`AGENCY_BRAIN_SCAN_SKILL.md`](AGENCY_BRAIN_SCAN_SKILL.md); [`SEARCH_SKILL.md`](SEARCH_SKILL.md) is the runtime prompt only for the legacy/manual per-task search ("Log Work") route (`POST /api/tasks/:id/log`), not for the default scan.
 
 ---
 

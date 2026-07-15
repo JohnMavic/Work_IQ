@@ -483,6 +483,29 @@
     .brief-milestone { color: #dbeafe; font-size: 0.77rem; line-height: 1.4; overflow-wrap: anywhere; }
     .brief-milestone-date { color: #93c5fd; font-weight: 700; }
     .brief-milestone.overdue .brief-milestone-date { color: #fca5a5; }
+    .source-coverage-warning {
+      display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; padding: 9px 10px;
+      border: 1px solid rgba(245,158,11,0.42); border-left: 3px solid #f59e0b;
+      border-radius: 6px; background: rgba(120,53,15,0.18); color: #fde68a;
+      font-size: 0.76rem; line-height: 1.42;
+    }
+    .source-coverage-warning strong { color: #fef3c7; white-space: nowrap; }
+    .decision-focus {
+      margin-top: 10px; padding: 9px 10px; border: 1px solid rgba(96,165,250,0.24);
+      border-radius: 6px; background: rgba(15,23,42,0.5);
+    }
+    .decision-focus h3 {
+      margin: 0 0 7px; color: #dbeafe; font-size: 0.75rem; text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .decision-focus ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+    .decision-focus li {
+      display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 7px;
+      align-items: start; color: #e2e8f0; font-size: 0.77rem;
+    }
+    .decision-focus-copy { min-width: 0; overflow-wrap: anywhere; }
+    .decision-focus-reason { margin-top: 1px; color: #94a3b8; font-size: 0.71rem; line-height: 1.35; }
+    .decision-focus-reason strong { color: #cbd5e1; }
     .pm-panel, .lineitems-panel {
       border-top: 1px solid #1e2233;
       padding-top: 12px;
@@ -589,22 +612,52 @@
     .lineitems-panel details { border: 1px solid #22283a; border-radius: 6px; background: rgba(15,23,42,0.35); }
     .lineitems-panel summary { cursor: pointer; padding: 8px 10px; color: #e2e8f0; font-size: 0.84rem; }
     .lineitem-table { display: flex; flex-direction: column; border-top: 1px solid #22283a; }
+    .lineitem-group + .lineitem-group { border-top: 1px solid rgba(148,163,184,0.2); }
+    .lineitem-group-heading {
+      display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+      margin: 0; padding: 7px 10px; background: rgba(15,23,42,0.72);
+      color: #cbd5e1; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .lineitem-group-heading span { color: #64748b; font-size: 0.66rem; text-transform: none; letter-spacing: 0; }
+    .lineitem-group.act-now .lineitem-group-heading { color: #fecaca; box-shadow: inset 3px 0 0 #ef4444; }
+    .lineitem-group.next .lineitem-group-heading { color: #fed7aa; box-shadow: inset 3px 0 0 #f97316; }
+    .lineitem-group.monitor .lineitem-group-heading { color: #fde68a; box-shadow: inset 3px 0 0 #eab308; }
+    .lineitem-group.reference .lineitem-group-heading { color: #bfdbfe; box-shadow: inset 3px 0 0 #3b82f6; }
+    .lineitem-group.unranked .lineitem-group-heading { color: #cbd5e1; box-shadow: inset 3px 0 0 #64748b; }
     .lineitem-row {
       display: grid; grid-template-columns: minmax(180px, 1fr) minmax(120px, auto); gap: 8px 12px;
       padding: 9px 10px; border-top: 1px solid rgba(148,163,184,0.12);
     }
-    .lineitem-row:first-child { border-top: none; }
+    .lineitem-group .lineitem-row:first-of-type { border-top: none; }
     .lineitem-title { color: #e5e7eb; font-size: 0.84rem; overflow-wrap: anywhere; }
     .lineitem-state { color: #94a3b8; font-size: 0.76rem; margin-top: 3px; overflow-wrap: anywhere; }
     .lineitem-meta { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; align-content: start; }
-    .lineitem-fields {
-      grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 5px 10px; margin: 0; padding-top: 7px; border-top: 1px solid rgba(148,163,184,0.1);
+    .relevance-badge {
+      border-radius: 4px; padding: 2px 6px; font-size: 0.7rem; font-variant-numeric: tabular-nums;
+      border: 1px solid rgba(96,165,250,0.28); background: rgba(30,64,175,0.14); color: #bfdbfe;
+      white-space: nowrap;
     }
-    .lineitem-field { min-width: 0; font-size: 0.75rem; line-height: 1.38; overflow-wrap: anywhere; }
-    .lineitem-field dt { display: inline; color: #64748b; font-weight: 700; }
-    .lineitem-field dt::after { content: ': '; }
-    .lineitem-field dd { display: inline; margin: 0; color: #cbd5e1; }
+    .relevance-badge.act-now { color: #fecaca; border-color: rgba(239,68,68,0.34); background: rgba(127,29,29,0.2); }
+    .relevance-badge.next { color: #fed7aa; border-color: rgba(249,115,22,0.34); background: rgba(124,45,18,0.2); }
+    .relevance-badge.monitor { color: #fde68a; border-color: rgba(234,179,8,0.32); background: rgba(113,63,18,0.18); }
+    .lineitem-relevance-reason {
+      grid-column: 1 / -1; padding: 7px 9px; border-left: 2px solid rgba(96,165,250,0.52);
+      background: rgba(30,41,59,0.42); color: #cbd5e1; font-size: 0.77rem;
+      line-height: 1.4; overflow-wrap: anywhere;
+    }
+    .lineitem-relevance-reason strong { color: #f8fafc; }
+    .lineitem-detail {
+      grid-column: 1 / -1; border: 0 !important; border-top: 1px solid rgba(148,163,184,0.1) !important;
+      border-radius: 0 !important; background: transparent !important; padding-top: 6px;
+    }
+    .lineitem-detail > summary { padding: 1px 0; color: #93c5fd; font-size: 0.72rem; }
+    .lineitem-fields {
+      display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 7px 0 1px;
+    }
+    .lineitem-field { display: grid; grid-template-columns: minmax(74px, auto) minmax(0, 1fr); gap: 8px; min-width: 0; font-size: 0.75rem; line-height: 1.38; overflow-wrap: anywhere; }
+    .lineitem-field dt { color: #64748b; font-weight: 700; }
+    .lineitem-field dd { margin: 0; color: #cbd5e1; }
+    .lineitem-field.evidence dd { display: flex; gap: 7px; flex-wrap: wrap; }
     .lineitem-field.problem dd { color: #fecaca; }
     .lineitem-field.risk dd { color: #fde68a; }
     .completed-lineitems { margin: 0; border: 0 !important; border-radius: 0 !important; background: transparent !important; }
@@ -1529,9 +1582,11 @@
       .executive-brief-header { flex-direction: column; }
       .executive-brief-badges { justify-content: flex-start; }
       .executive-brief-grid { grid-template-columns: 1fr; }
+      .source-coverage-warning { flex-direction: column; gap: 2px; }
+      .decision-focus li { grid-template-columns: 1fr; }
       .lineitem-row { grid-template-columns: 1fr; }
       .lineitem-meta { justify-content: flex-start; }
-      .lineitem-fields { grid-template-columns: 1fr; }
+      .lineitem-field { grid-template-columns: 1fr; gap: 1px; }
       .factsheet-panel summary { align-items: flex-start; }
       .task-chat-history { max-height: 28vh; }
     }
@@ -3061,6 +3116,87 @@
     return String(a?.title || a?.id || '').localeCompare(String(b?.title || b?.id || ''));
   }
 
+  function normalizeLineItemRelevance(item) {
+    const value = item?.relevance;
+    const reason = typeof value?.reason === 'string' ? value.reason.trim() : '';
+    if (!Number.isInteger(value?.score) || value.score < 0 || value.score > 100) return null;
+    if (!reason || reason.length > 240 || !Array.isArray(value.evidenceRefIds)) return null;
+    if (value.evidenceRefIds.some(id => typeof id !== 'string' || !id.trim())) return null;
+    return { score: value.score, reason, evidenceRefIds: [...new Set(value.evidenceRefIds.map(id => id.trim()))] };
+  }
+
+  function lineItemRelevanceBand(score) {
+    if (!Number.isInteger(score) || score < 0 || score > 100) return null;
+    if (score >= 75) return { key: 'act-now', label: 'Act now', range: '75-100' };
+    if (score >= 50) return { key: 'next', label: 'Next', range: '50-74' };
+    if (score >= 25) return { key: 'monitor', label: 'Monitor', range: '25-49' };
+    return { key: 'reference', label: 'Reference', range: '0-24' };
+  }
+
+  function compareLineItemDueTitle(a, b) {
+    const dueA = parseDateMs(a?.dueAt) ?? Number.POSITIVE_INFINITY;
+    const dueB = parseDateMs(b?.dueAt) ?? Number.POSITIVE_INFINITY;
+    if (dueA !== dueB) return dueA - dueB;
+    return String(a?.title || a?.id || '').localeCompare(String(b?.title || b?.id || ''));
+  }
+
+  function compareLineItemRelevance(a, b, nowMs = Date.now()) {
+    const relevanceA = normalizeLineItemRelevance(a);
+    const relevanceB = normalizeLineItemRelevance(b);
+    if (relevanceA && relevanceB) {
+      if (relevanceA.score !== relevanceB.score) return relevanceB.score - relevanceA.score;
+      return compareLineItemDueTitle(a, b);
+    }
+    if (relevanceA) return -1;
+    if (relevanceB) return 1;
+    return compareLineItemPriority(a, b, nowMs);
+  }
+
+  function groupActiveLineItems(items, nowMs = Date.now()) {
+    const active = asArray(items).filter(item => !isInactiveProjectNode(item));
+    const ranked = active.filter(item => normalizeLineItemRelevance(item)).sort((a, b) => compareLineItemRelevance(a, b, nowMs));
+    const unranked = active.filter(item => !normalizeLineItemRelevance(item)).sort((a, b) => compareLineItemPriority(a, b, nowMs));
+    const bands = [
+      { key: 'act-now', label: 'Act now', range: '75-100' },
+      { key: 'next', label: 'Next', range: '50-74' },
+      { key: 'monitor', label: 'Monitor', range: '25-49' },
+      { key: 'reference', label: 'Reference', range: '0-24' }
+    ];
+    const groups = bands.map(band => ({
+      ...band,
+      ranked: true,
+      items: ranked.filter(item => lineItemRelevanceBand(normalizeLineItemRelevance(item).score).key === band.key)
+    })).filter(group => group.items.length);
+    if (unranked.length) {
+      groups.push({ key: 'unranked', label: 'Unranked', range: null, ranked: false, items: unranked });
+    }
+    return groups;
+  }
+
+  function decisionFocusItems(task, nowMs = Date.now()) {
+    return asArray(task?.lineItems)
+      .filter(item => !isInactiveProjectNode(item))
+      .sort((a, b) => compareLineItemRelevance(a, b, nowMs))
+      .slice(0, 3);
+  }
+
+  function lineItemDisplayMeta(item, nowMs = Date.now()) {
+    const owner = typeof item?.owner === 'string' ? item.owner.trim() : '';
+    const dueMs = parseDateMs(item?.dueAt);
+    return {
+      owner: owner || null,
+      dueAt: dueMs === null ? null : item.dueAt,
+      dueMs,
+      overdue: dueMs !== null && !isInactiveProjectNode(item) && dueMs < localDayStartMs(nowMs)
+    };
+  }
+
+  function failedAttachmentCoverage(task) {
+    return asArray(task?.processing?.ledger).filter(entry =>
+      /^failed\(/i.test(String(entry?.attachmentsHandled || '').trim())
+    );
+  }
+
   function priorityBadge(priority) {
     const value = Object.hasOwn(DERIVED_PRIORITY_ORDER, priority) ? priority : 'low';
     return `<span class="priority-badge priority-${value}" title="Derived from blockers, overdue dates, user actions, risks, and due dates">${escHtml(value)}</span>`;
@@ -3431,7 +3567,16 @@
       ...activePmEntries(task, 'waitingOn').filter(isReviewOnlyProjectNode).map(entry => `Waiting: ${entry.text}`),
       ...lines.filter(isReviewOnlyProjectNode).map(item => `Subtopic: ${item.title || item.currentState || item.id}`)
     ]);
-    return { userActions, blockers, risks, waiting, signalsToVerify, milestone: nextProjectMilestone(task, nowMs) };
+    return {
+      userActions,
+      blockers,
+      risks,
+      waiting,
+      signalsToVerify,
+      milestone: nextProjectMilestone(task, nowMs),
+      decisionFocus: decisionFocusItems(task, nowMs),
+      sourceCoverageFailures: failedAttachmentCoverage(task)
+    };
   }
 
   function projectEvidenceTrust(task, nowMs = Date.now()) {
@@ -3477,6 +3622,36 @@
     </section>`;
   }
 
+  function renderDecisionFocus(items) {
+    if (!items.length) return '';
+    const body = items.map(item => {
+      const relevance = normalizeLineItemRelevance(item);
+      const band = relevance ? lineItemRelevanceBand(relevance.score) : null;
+      const rank = relevance
+        ? `<span class="relevance-badge ${band.key}">${escHtml(band.label)} ${relevance.score}</span>`
+        : '<span class="status-chip">Unranked fallback</span>';
+      const reason = relevance
+        ? `<div class="decision-focus-reason"><strong>Why this matters:</strong> ${escHtml(relevance.reason)}</div>`
+        : '';
+      const review = isReviewOnlyProjectNode(item) ? ' <span class="review-badge">Needs review</span>' : '';
+      return `<li>${rank}<div class="decision-focus-copy"><div>${escHtml(item.title || 'Untitled line item')}${review}</div>${reason}</div></li>`;
+    }).join('');
+    return `<section class="decision-focus" aria-labelledby="decision-focus-title">
+      <h3 id="decision-focus-title">Decision Focus</h3>
+      <ol>${body}</ol>
+    </section>`;
+  }
+
+  function renderSourceCoverageWarning(failures) {
+    if (!failures.length) return '';
+    const count = failures.length;
+    const detail = `${count} source attachment${count === 1 ? '' : 's'} could not be read. Attachment-only facts may be missing.`;
+    const statuses = failures.map(entry => String(entry.attachmentsHandled || '').trim()).join('; ');
+    return `<aside class="source-coverage-warning" aria-label="Source coverage incomplete" title="${escHtml(statuses)}">
+      <strong>Source coverage incomplete</strong><span>${escHtml(detail)}</span>
+    </aside>`;
+  }
+
   function renderExecutiveBrief(task) {
     if (!isProjectTask(task) || !hasStructuredTaskLayout(task)) return '';
     const priority = deriveProjectPriority(task);
@@ -3514,6 +3689,8 @@
         </div>
       </div>
       ${summary}
+      ${renderSourceCoverageWarning(brief.sourceCoverageFailures)}
+      ${renderDecisionFocus(brief.decisionFocus)}
       ${metrics ? `<div class="executive-brief-grid">${metrics}</div>` : ''}
     </section>`;
   }
@@ -3616,13 +3793,15 @@
     </div>`;
   }
 
-  function latestLineItemEvidence(task, item) {
-    const ids = asArray(item.evidenceRefIds);
-    const refId = ids.length ? ids[ids.length - 1] : null;
-    return renderEvidenceLink(task, refId) || '';
+  function lineItemEvidenceRefIds(item) {
+    const relevance = normalizeLineItemRelevance(item);
+    return [...new Set([
+      ...asArray(item?.evidenceRefIds),
+      ...asArray(relevance?.evidenceRefIds)
+    ].filter(id => typeof id === 'string' && id.trim()).map(id => id.trim()))];
   }
 
-  function renderLineItemFields(item) {
+  function renderLineItemDetails(task, item) {
     const fields = [
       ['Current', item.currentState, 'current'],
       ['Next', item.plannedNext, 'next'],
@@ -3630,32 +3809,59 @@
       ['Risk', item.risk, 'risk'],
       ['Waiting on', item.waitingOn, 'waiting']
     ].filter(([, value]) => value !== null && value !== undefined && String(value).trim());
-    if (!fields.length) return '';
-    return `<dl class="lineitem-fields">${fields.map(([label, value, className]) =>
+    const evidence = lineItemEvidenceRefIds(item).map(id => renderEvidenceLink(task, id)).filter(Boolean);
+    if (!fields.length && !evidence.length) return '';
+    const factRows = fields.map(([label, value, className]) =>
       `<div class="lineitem-field ${className}"><dt>${escHtml(label)}</dt><dd>${escHtml(value)}</dd></div>`
-    ).join('')}</dl>`;
+    ).join('');
+    const evidenceRow = evidence.length
+      ? `<div class="lineitem-field evidence"><dt>Evidence</dt><dd>${evidence.join('')}</dd></div>`
+      : '';
+    const detailCount = fields.length + (evidence.length ? 1 : 0);
+    return `<details class="lineitem-detail">
+      <summary>Details (${detailCount})</summary>
+      <dl class="lineitem-fields">${factRows}${evidenceRow}</dl>
+    </details>`;
   }
 
   function renderLineItemRow(task, item, nowMs = Date.now()) {
     const status = item.status || 'open';
     const inactive = isInactiveProjectNode(item);
     const chipClass = status === 'blocked' ? ' blocked' : (inactive ? ' done' : '');
-    const owner = ownerChip(item.owner || 'Unassigned');
-    const dueMs = parseDateMs(item.dueAt);
-    const dueDate = formatSourceDate(item.dueAt);
-    const overdue = !inactive && dueMs !== null && dueMs < localDayStartMs(nowMs);
-    const due = `<span class="status-chip${overdue ? ' overdue' : ''}">Due: ${dueDate ? escHtml(dueDate) : 'Not set'}</span>`;
-    const evidence = latestLineItemEvidence(task, item);
-    const review = item.needsReview ? '<span class="review-badge">Needs review</span>' : '';
+    const relevance = normalizeLineItemRelevance(item);
+    const band = relevance ? lineItemRelevanceBand(relevance.score) : null;
+    const meta = lineItemDisplayMeta(item, nowMs);
+    const owner = meta.owner ? ownerChip(meta.owner) : '';
+    const dueDate = meta.dueAt ? formatSourceDate(meta.dueAt) : '';
+    const due = dueDate ? `<span class="status-chip${meta.overdue ? ' overdue' : ''}">Due: ${escHtml(dueDate)}</span>` : '';
+    const rank = relevance
+      ? `<span class="relevance-badge ${band.key}" title="Semantic relevance to the whole project">${escHtml(band.label)} ${relevance.score}</span>`
+      : priorityBadge(deriveLineItemPriority(item, nowMs));
+    const review = isReviewOnlyProjectNode(item) ? '<span class="review-badge">Needs review</span>' : '';
+    const reason = relevance
+      ? `<div class="lineitem-relevance-reason"><strong>Why this matters:</strong> ${escHtml(relevance.reason)}</div>`
+      : '';
     return `<div class="lineitem-row">
       <div><div class="lineitem-title">${escHtml(item.title || 'Untitled line item')}</div></div>
       <div class="lineitem-meta">
-        ${priorityBadge(deriveLineItemPriority(item, nowMs))}
+        ${rank}
         <span class="status-chip${chipClass}">${escHtml(status)}</span>
-        ${owner}${due}${evidence}${review}
+        ${owner}${due}${confidenceBadge(item.confidence)}${review}
       </div>
-      ${renderLineItemFields(item)}
+      ${reason}
+      ${renderLineItemDetails(task, item)}
     </div>`;
+  }
+
+  function renderLineItemGroup(task, group, nowMs) {
+    const context = group.ranked
+      ? `Semantic relevance ${group.range}`
+      : 'Legacy items without semantic relevance; ordered by blocker, overdue, due date, and title fallback signals';
+    const rows = group.items.map(item => renderLineItemRow(task, item, nowMs)).join('');
+    return `<section class="lineitem-group ${group.key}" aria-labelledby="lineitem-group-${escHtml(task.id)}-${group.key}">
+      <h3 class="lineitem-group-heading" id="lineitem-group-${escHtml(task.id)}-${group.key}">${escHtml(group.label)} <span>${escHtml(context)} · ${group.items.length}</span></h3>
+      ${rows}
+    </section>`;
   }
 
   function renderProjectLineItems(task) {
@@ -3663,9 +3869,10 @@
     const items = asArray(task.lineItems);
     if (!items.length) return '';
     const nowMs = Date.now();
-    const active = items.filter(item => !isInactiveProjectNode(item)).sort((a, b) => compareLineItemPriority(a, b, nowMs));
+    const activeGroups = groupActiveLineItems(items, nowMs);
+    const active = activeGroups.flatMap(group => group.items);
     const completed = items.filter(isInactiveProjectNode).sort((a, b) => compareLineItemPriority(a, b, nowMs));
-    const activeRows = active.map(item => renderLineItemRow(task, item, nowMs)).join('');
+    const activeRows = activeGroups.map(group => renderLineItemGroup(task, group, nowMs)).join('');
     const completedRows = completed.length
       ? `<details class="completed-lineitems">
           <summary>Completed / obsolete (${completed.length})</summary>

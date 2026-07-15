@@ -8,6 +8,7 @@ import { applyMarkerBatch } from './marker-applier.js';
 import { renderScanState } from './render-scan-state.js';
 import { filterMarkersThroughGateway, runRealityGateway } from './reality-gateway.js';
 import { filterMarkersByProcessingQualityGate } from './processing-ledger.js';
+import { runProcessingQualityCorrection, selectCorrectableIssuesFromGate } from './processing-quality-correction.js';
 import { filterMarkersByTemporalPassGate } from './temporal-pass.js';
 import { filterMarkersByProjectIdentity, reconcileProjectFragments } from './project-identity.js';
 import { migrateToV5, V5_BRAIN_DEFAULTS, writeJsonFileAtomic } from './tasks-v5.js';
@@ -49,6 +50,21 @@ export function normalizeScanJobInput(input = {}) {
   return normalized;
 }
 
+export function computeDiscoveryWindow({ now = new Date(), scanDays = 4, lastScan = null } = {}) {
+  const endMs = now instanceof Date ? now.getTime() : Date.parse(now);
+  const safeEndMs = Number.isFinite(endMs) ? endMs : Date.now();
+  const requestedStartMs = safeEndMs - normalizeScanDays(scanDays) * 24 * 60 * 60 * 1000;
+  const recoveryFloorMs = safeEndMs - 14 * 24 * 60 * 60 * 1000;
+  const lastScanMs = Date.parse(lastScan || '');
+  const startMs = Number.isFinite(lastScanMs) && lastScanMs < safeEndMs
+    ? Math.max(recoveryFloorMs, Math.min(requestedStartMs, lastScanMs))
+    : requestedStartMs;
+  return {
+    start: new Date(startMs).toISOString(),
+    end: new Date(safeEndMs).toISOString()
+  };
+}
+
 function extractPremiumRequests(event) {
   const candidates = [
     event?.data?.usage?.premiumRequests,
@@ -67,7 +83,7 @@ function scanDonePayload(markers) {
   return marker?.payload || null;
 }
 
-function buildBootstrapPrompt({ skillText, stateFile, scanDays, runId }) {
+function buildBootstrapPrompt({ skillText, stateFile, scanDays, runId, discoveryWindow }) {
   const stateFileName = path.basename(stateFile);
   return [
     skillText.trim(),
@@ -75,9 +91,12 @@ function buildBootstrapPrompt({ skillText, stateFile, scanDays, runId }) {
     '# Run Context',
     `- runId: ${runId}`,
     `- scanDays: ${scanDays}`,
+    `- discoveryWindowStart: ${discoveryWindow.start}`,
+    `- discoveryWindowEnd: ${discoveryWindow.end}`,
     `- stateFile: ./${stateFileName}`,
     '',
     `Read ./${stateFileName} from the current working directory before making any WorkIQ calls.`,
+    'Use the exact discovery window above. Complete both the recent-email-enumeration and material-consequence discovery passes, and report both in SCAN_DONE.processingQuality.discoveryPasses.',
     'Use the marker grammar from the skill exactly. Emit final markers as physical lines.'
   ].join('\n');
 }
@@ -254,6 +273,7 @@ export async function runBrainScanOnce(job, {
   _runGateway = runRealityGateway,
   _parseMarkers = parseMarkers,
   _applyMarkerBatch = applyMarkerBatch,
+  _runCorrection = runProcessingQualityCorrection,
   onPersistJob = null
 } = {}) {
   const appliedAt = nowIso(now);
@@ -261,9 +281,10 @@ export async function runBrainScanOnce(job, {
 
   await setPhase(job, 'brain_prepare', { scanDays }, onPersistJob);
   const beforeData = migrateToV5(_readJsonFile(tasksFile));
+  const discoveryWindow = computeDiscoveryWindow({ now, scanDays, lastScan: beforeData.lastScan });
   const state = _renderScanState(beforeData, { brainWorkDir, runId, now: appliedAt, writeFiles: true });
   const skillText = fs.readFileSync(skillFile, 'utf8');
-  const prompt = buildBootstrapPrompt({ skillText, stateFile: state.stateFile, scanDays, runId });
+  const prompt = buildBootstrapPrompt({ skillText, stateFile: state.stateFile, scanDays, runId, discoveryWindow });
   job?.emit?.('job.phase_done', {
     phase: 'brain_prepare',
     stateFile: path.basename(state.stateFile),
@@ -331,17 +352,71 @@ export async function runBrainScanOnce(job, {
   }
 
   const identityGate = filterMarkersByProjectIdentity(beforeData, parsed.markers, { now });
+
+  // Bounded pre-gateway processing-quality correction (single attempt, never a loop).
+  // We run the processing-ledger quality gate on the post-identity markers ONLY to discover
+  // correctable omissions (an enumerated item whose ledger disposition the brain forgot). If any
+  // exist, we ask the brain for exactly those missing dispositions once and strictly accept only
+  // valid corrections. The corrected markers are then sent through the existing Reality Gateway;
+  // this pre-gateway gate is never used to approve state.
+  const correctionGateOptions = {
+    requireDiscoveryCoverage: true,
+    requiredDiscoveryWindow: discoveryWindow,
+    requireAttachmentCoverage: true
+  };
+  const preCorrectionGate = filterMarkersByProcessingQualityGate(identityGate.markers, correctionGateOptions);
+  const correctableIssues = selectCorrectableIssuesFromGate(preCorrectionGate, identityGate.markers);
+  let markersForGateway = identityGate.markers;
+  let qualityCorrection = {
+    attempted: false,
+    eligibleIssues: correctableIssues.length,
+    runOk: false,
+    parsed: 0,
+    received: 0,
+    applied: 0,
+    rejected: 0,
+    rejectedReasons: [],
+    preGateOk: Boolean(preCorrectionGate.ok),
+    postCorrectionGateOk: Boolean(preCorrectionGate.ok),
+    remainingReason: preCorrectionGate.reason || null,
+    workIqCalls: 0,
+    durationMs: 0
+  };
+
+  if (correctableIssues.length) {
+    await setPhase(job, 'brain_quality_correction', {
+      scanDays,
+      correctableIssues: correctableIssues.length
+    }, onPersistJob);
+    const correctionResult = await _runCorrection({
+      markers: identityGate.markers,
+      stateFile: state.stateFile,
+      factSheetFiles: state.factSheetFiles || [],
+      brainWorkDir,
+      runId,
+      gateOptions: correctionGateOptions,
+      now,
+      onSchedulerUpdate: schedulerProgress(job, 'brain_quality_correction', { scanDays }, onPersistJob)
+    });
+    qualityCorrection = correctionResult?.telemetry || qualityCorrection;
+    if (correctionResult?.corrected && Array.isArray(correctionResult.correctedMarkers)) {
+      markersForGateway = correctionResult.correctedMarkers;
+    }
+    job?.emit?.('job.phase_done', { phase: 'brain_quality_correction', ...qualityCorrection });
+    await setPhase(job, 'brain_gateway', { scanDays }, onPersistJob);
+  }
+
   const gatewayResult = await _runGateway({
     stateFile: state.stateFile,
     factSheetFiles: state.factSheetFiles || [],
-    markers: identityGate.markers,
+    markers: markersForGateway,
     brainWorkDir,
     runId,
     learningsBlock: state.learningsMarkdown,
     runClass: BRAIN_RUN_CLASS.BACKGROUND,
     onSchedulerUpdate: schedulerProgress(job, 'brain_gateway', { scanDays }, onPersistJob)
   });
-  const gatewayFilter = filterMarkersThroughGateway(identityGate.markers, gatewayResult);
+  const gatewayFilter = filterMarkersThroughGateway(markersForGateway, gatewayResult);
   job?.emit?.('job.phase_done', {
     phase: 'brain_gateway',
     ok: Boolean(gatewayResult.ok),
@@ -356,7 +431,11 @@ export async function runBrainScanOnce(job, {
   await setPhase(job, 'brain_apply', { scanDays }, onPersistJob);
 
   const scanDone = scanDonePayload(identityGate.markers);
-  const qualityGate = filterMarkersByProcessingQualityGate(gatewayFilter.markers);
+  const qualityGate = filterMarkersByProcessingQualityGate(gatewayFilter.markers, {
+    requireDiscoveryCoverage: true,
+    requiredDiscoveryWindow: discoveryWindow,
+    requireAttachmentCoverage: true
+  });
   const temporalGate = filterMarkersByTemporalPassGate(beforeData, qualityGate.markers, { now });
   const applyResult = _applyMarkerBatch(beforeData, temporalGate.markers, {
     now,
@@ -366,6 +445,7 @@ export async function runBrainScanOnce(job, {
   });
   const reconciliation = reconcileProjectFragments(applyResult.data, { now });
   const afterData = reconciliation.data;
+  if (!scanDone) addPartialReviewHint(afterData, { now });
   addQualityGateReviewHints(afterData, { now, qualityGate });
   addTemporalPassReviewHints(afterData, { now, temporalGate });
   addProjectIdentityReviewHints(afterData, { now, identityGate });
@@ -385,7 +465,6 @@ export async function runBrainScanOnce(job, {
   const workIqCalls = scanDone?.workIqCalls ?? brainResult.counters?.workIqCalls ?? 0;
   const runIdForTelemetry = scanDone?.runId || runId;
 
-  if (!scanDone) addPartialReviewHint(afterData, { now });
   if (outcome === 'success') afterData.lastScan = nowIso(now);
   setBrainTelemetry(afterData, {
     runId: runIdForTelemetry,
@@ -406,6 +485,7 @@ export async function runBrainScanOnce(job, {
     newSingleTasks: diffCounts.newSingleTasks,
     workIqCalls,
     premiumRequests,
+    discoveryWindow,
     droppedMarkers: applyResult.dropped,
     appliedMarkers: applyResult.applied,
     heldMarkers: identityGate.held.length + gatewayFilter.held.length + qualityGate.held.length + temporalGate.held.length,
@@ -434,6 +514,7 @@ export async function runBrainScanOnce(job, {
       heldMarkers: qualityGate.held.length,
       reviewItems: qualityGate.reviewReasons.length
     },
+    qualityCorrection,
     temporalGate: {
       ok: temporalGate.ok,
       reason: temporalGate.reason,

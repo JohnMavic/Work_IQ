@@ -4,6 +4,72 @@ All notable changes to this project are documented here.
 
 ---
 
+## v5.1.0 — July 15, 2026
+
+**Agency Brain reliability, processing-quality correction, and documentation refresh**
+
+Additive feature release on top of the v5.0.0 Agency Brain engine. No breaking changes to
+the marker protocol or `tasks.json` schema (still schema version 5).
+
+### Reliability & correctness
+
+- **Bounded processing-quality correction pass** (`brain/processing-quality-correction.js`):
+  after the initial scan and project-identity gate, one optional, non-looping correction attempt
+  repairs only provable processing-ledger omissions for items the scan already enumerated. It runs
+  only when the pre-gateway quality gate reports a correctable gap, supports marker-local append and
+  a strict same-thread item-identity replacement, and its corrected markers are re-validated by the
+  same Reality Gateway, final quality, temporal, and marker-application gates. Budgets: 8-minute
+  timeout, WorkIQ hard limit 8, tool hard limit 24, effort `xhigh`, no recursive retries.
+- **Model-assessed semantic relevance** (`brain/relevance.js`): every active line item carries a
+  0–100 `relevance` with a plain-English project consequence reason and evidence references. Bands
+  are Act now (75–100), Next (50–74), Monitor (25–49), Reference (0–24). Relevance is independent
+  of confidence and review status.
+- **Marker set aligned to code** (`brain/marker-parser.js` `MARKER_TYPES`): `PROJECT_NEW`,
+  `PROJECT_UPDATE`, `FACTSHEET_UPDATE`, `LINEITEM_NEW`, `LINEITEM_UPDATE`, `NODE_OBSOLETE`,
+  `TASK_NEW`, `TASK_UPDATE`, `LEARNING`, `NEEDS_REVIEW`, `SCAN_DONE`.
+- **Discovery coverage contract**: scans complete two independent semantic passes
+  (recent-email-enumeration and material-consequence) over the exact `discoveryWindowStart` /
+  `discoveryWindowEnd`, with per-item ledger dispositions, attachment handling, retry/cooldown for
+  `content-not-indexed`, and source-coverage warnings surfaced in the UI.
+
+### User-visible
+
+- **Executive Brief and Decision Focus** panels on project cards summarize blockers, user actions,
+  risks, and the next milestone so the project can be understood without rereading the source stream.
+- **Semantic relevance UI**: line items are grouped and ordered by relevance band with a badge and a
+  project-level rationale; optional Owner/Due chips stay hidden when they carry no meaningful value.
+- **Responsive layout** for desktop and mobile, including reduced-motion support.
+
+### Tests & replays
+
+- Full Node test suite green (`node --test tests/unit/*.mjs`), including the dedicated
+  `tests/unit/processing-quality-correction.mjs` boundary suite (a never-enumerated item can never be
+  repaired), relevance ordering, project-first contract, render-scan-state, and marker replays.
+
+### Documentation
+
+- Bumped active version surfaces to 5.1.0 (`package.json`, `README.md`, `AGENTS.md`,
+  `START-AGENT-ZERO.bat`, `stop-agent-zero.ps1`).
+- Rewrote `docs/ARCHITECTURE.md` and `Specifactions/AGENT_ZERO_SPEC.md` to describe the current
+  Agency Brain architecture (default scan flow, gate pipeline, correction pass, truth/learning,
+  project-first consolidation, safety/observability), replacing the obsolete four-phase SDK prose.
+- Refreshed the active solution docs to the Agency Brain model: rewrote `docs/README.md` (problem
+  reframed as the missing project-level source of truth, default Agency scan, marker/gate pipeline,
+  two-pass discovery, attachment/source-coverage handling, semantic relevance, Executive Brief /
+  Decision Focus, and honest limitations) and `docs/VIDEO_DESCRIPTION.md` (one-truth-per-project
+  narrative plus the Agency Brain marker pipeline, with explicit provider/recall/locality boundaries),
+  and updated the Agent Zero operations section of `.github/copilot-instructions.md` (v5.1.0, default
+  Agency engine, `scanEngine` + `wiqPid:null` health contract, and the legacy-only Phase 3 pitfall).
+- Added legacy fallback banners to the retained skill files (`SCAN_DISCOVERY_SKILL.md`,
+  `ENRICH_SKILL.md`, `UPDATE_CHECK_SKILL.md`, `CONSOLIDATE_SKILL.md`, `CORRECT_SKILL.md`,
+  `SEARCH_SKILL.md`, `LOG_WORK_SKILL.md`) and corrected `docs/WORKIQ_RECIPES.md` to point at the
+  primary `AGENCY_BRAIN_SCAN_SKILL.md` (`SEARCH_SKILL.md` remains the legacy/manual per-task search
+  route only). Skill-file internal contracts are unchanged.
+- Historical changelog, `docs/gremium`, and `docs/archive` records are unchanged. `tasks.json`
+  schema version 5 is unchanged.
+
+---
+
 ## v5.0.0 — July 5, 2026
 
 **Agency Brain default scan engine**

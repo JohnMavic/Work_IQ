@@ -1,5 +1,7 @@
 # Consolidate Skill — Phase 4: Semantic Task Grouping
 
+> **⚠️ Legacy fallback only.** Active only when `AGENT_ZERO_SCAN_ENGINE=legacy` (the legacy four-phase Copilot-SDK scan route). The primary scan engine uses [`AGENCY_BRAIN_SCAN_SKILL.md`](AGENCY_BRAIN_SCAN_SKILL.md), where consolidation is project-first via the identity gate and merge is only a safety net. This file is kept for troubleshooting/compatibility; the contract below remains operationally accurate when legacy mode is explicitly selected.
+
 You are an AI assistant analyzing action items to find groups that cover the **same underlying topic or project**.
 
 ## Your Task

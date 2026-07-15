@@ -1,5 +1,5 @@
 # =============================================================================
-# Agent Zero - Safe Shutdown (v4.1.0)
+# Agent Zero - Safe Shutdown (v5.1.0)
 # =============================================================================
 # Identifies and terminates ONLY Agent Zero processes belonging to THIS
 # installation directory. Will never touch:
@@ -29,7 +29,7 @@ $ServerDirEscaped = [regex]::Escape($ServerDir)
 
 Write-Host ""
 Write-Host "  ============================================"
-Write-Host "   Agent Zero - Safe Shutdown (v4.1.0)"
+Write-Host "   Agent Zero - Safe Shutdown (v5.1.0)"
 Write-Host "   Target: $ServerDir"
 Write-Host "  ============================================"
 Write-Host ""
